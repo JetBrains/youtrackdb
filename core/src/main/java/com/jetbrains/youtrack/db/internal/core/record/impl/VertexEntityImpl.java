@@ -14,6 +14,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
@@ -34,11 +35,11 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   public static final byte RECORD_TYPE = 'v';
 
-  public VertexEntityImpl(DatabaseSessionInternal database, RID rid) {
+  public VertexEntityImpl(DatabaseSessionEmbedded database, RID rid) {
     super(database, (RecordId) rid);
   }
 
-  public VertexEntityImpl(DatabaseSessionInternal session, String klass) {
+  public VertexEntityImpl(DatabaseSessionEmbedded session, String klass) {
     super(session, klass);
     if (!getImmutableSchemaClass(session).isVertexType()) {
       throw new IllegalArgumentException(getSchemaClassName() + " is not a vertex class");

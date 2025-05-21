@@ -28,18 +28,12 @@ import org.testng.annotations.Test;
 
 @Test
 public class ConcurrentUpdatesTest extends BaseDBTest {
-
   private static final int OPTIMISTIC_CYCLES = 100;
   private static final int PESSIMISTIC_CYCLES = 100;
   private static final int THREADS = 10;
 
   private final AtomicLong counter = new AtomicLong();
   private final AtomicLong totalRetries = new AtomicLong();
-
-  @Parameters(value = "remote")
-  public ConcurrentUpdatesTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   class OptimisticUpdateField implements Runnable {
 

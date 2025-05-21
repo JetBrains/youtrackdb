@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -35,10 +36,6 @@ public class SecurityEngine {
    * used (and recursively) - in case of multiple superclasses, the AND of the predicates for
    * superclasses (also recursively) is applied
    *
-   * @param session
-   * @param security
-   * @param resourceString
-   * @param scope
    * @return always returns a valid predicate (it is never supposed to be null)
    */
   static SQLBooleanExpression getPredicateForSecurityResource(
@@ -79,7 +76,7 @@ public class SecurityEngine {
         session.getMetadata().getFunctionLibrary()
             .getFunction(session, resource.getFunctionName());
     var roles = session.getCurrentUser().getRoles();
-    if (roles == null || roles.size() == 0) {
+    if (roles == null || roles.isEmpty()) {
       return null;
     }
     if (roles.size() == 1) {
@@ -114,7 +111,7 @@ public class SecurityEngine {
             .getClass(resource.getClassName());
     var propertyName = resource.getPropertyName();
     var roles = session.getCurrentUser().getRoles();
-    if (roles == null || roles.size() == 0) {
+    if (roles == null || roles.isEmpty()) {
       return null;
     }
     if (roles.size() == 1) {
@@ -151,7 +148,7 @@ public class SecurityEngine {
       return SQLBooleanExpression.TRUE;
     }
     var roles = session.getCurrentUser().getRoles();
-    if (roles == null || roles.size() == 0) {
+    if (roles == null || roles.isEmpty()) {
       return null;
     }
     if (roles.size() == 1) {
@@ -288,7 +285,7 @@ public class SecurityEngine {
     if (predicateString == null && !clazz.getSuperClasses().isEmpty()) {
       if (clazz.getSuperClasses().size() == 1) {
         return getPredicateForClassHierarchy(
-            session, security, role, clazz.getSuperClasses().iterator().next(), scope);
+            session, security, role, clazz.getSuperClasses().getFirst(), scope);
       }
       var result = new SQLAndBlock(-1);
       for (var superClass : clazz.getSuperClasses()) {
@@ -335,7 +332,7 @@ public class SecurityEngine {
             session,
             security,
             role,
-            clazz.getSuperClasses().iterator().next(),
+            clazz.getSuperClasses().getFirst(),
             propertyName,
             scope);
       }
@@ -397,7 +394,7 @@ public class SecurityEngine {
   }
 
   static boolean evaluateSecuirtyPolicyPredicate(
-      DatabaseSessionInternal session, SQLBooleanExpression predicate, DBRecord record) {
+      DatabaseSessionEmbedded session, SQLBooleanExpression predicate, DBRecord record) {
     if (SQLBooleanExpression.TRUE.equals(predicate)) {
       return true;
     }
@@ -468,7 +465,6 @@ public class SecurityEngine {
               }))
           .get();
     } catch (Exception e) {
-      e.printStackTrace();
       throw new SecurityException(session.getDatabaseName(), "Cannot execute security predicate");
     }
   }
@@ -478,7 +474,6 @@ public class SecurityEngine {
    * string
    *
    * @param resource a resource string
-   * @return
    */
   private static SecurityResource getResourceFromString(String resource) {
     return SecurityResource.getInstance(resource);

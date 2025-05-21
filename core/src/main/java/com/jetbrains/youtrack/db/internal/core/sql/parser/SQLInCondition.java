@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -143,7 +142,7 @@ public class SQLInCondition extends SQLBooleanExpression {
   protected static boolean evaluateExpression(DatabaseSessionInternal session, final Object iLeft,
       final Object iRight) {
     if (iRight instanceof InternalResultSet rsRight) {
-      rsRight.reset();
+      rsRight = rsRight.copy(session);
 
       while (rsRight.hasNext()) {
         if (QueryOperatorEquals.equals(session, iLeft, rsRight.next())) {
@@ -210,6 +209,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     return false;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" IN ");
@@ -226,6 +226,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" IN ");
@@ -440,7 +441,8 @@ public class SQLInCondition extends SQLBooleanExpression {
     this.rightMathExpression = rightMathExpression;
   }
 
-  public boolean isIndexAware(IndexSearchInfo info) {
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
       if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
         if (rightMathExpression != null) {
@@ -453,16 +455,17 @@ public class SQLInCondition extends SQLBooleanExpression {
     return false;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getPath();
-    if (path.isPresent()) {
+  @Override
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
+    if (path != null) {
       if (rightMathExpression != null && rightMathExpression.isEarlyCalculated(ctx)) {
         var value = rightMathExpression.execute((Result) null, ctx);
-        return info.findExactIndex(path.get(), value, ctx);
+        return info.findExactIndex(path, value, ctx);
       }
     }
 
-    return Optional.empty();
+    return null;
   }
 
   @Override

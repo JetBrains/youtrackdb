@@ -2,14 +2,12 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 public class MultipleIndexCanditate implements IndexCandidate {
 
@@ -40,9 +38,9 @@ public class MultipleIndexCanditate implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> invert() {
+  public IndexCandidate invert() {
     // TODO: when handling operator invert it
-    return Optional.of(this);
+    return this;
   }
 
   @Override
@@ -51,22 +49,20 @@ public class MultipleIndexCanditate implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> normalize(CommandContext ctx) {
-    var newCanditates = normalizeBetween(this.canditates, ctx);
+  public IndexCandidate normalize(CommandContext ctx) {
+    var newCanditates = normalizeBetween(this.canditates);
     newCanditates = normalizeComposite(newCanditates, ctx);
     if (newCanditates.isEmpty()) {
-      return Optional.empty();
+      return null;
     } else if (newCanditates.size() == 1) {
-      return Optional.of(newCanditates.iterator().next());
+      return newCanditates.iterator().next();
     } else {
-      return Optional.of(new MultipleIndexCanditate(newCanditates));
+      return new MultipleIndexCanditate(newCanditates);
     }
   }
 
-  private Collection<IndexCandidate> normalizeBetween(
-      List<IndexCandidate> canditates, CommandContext ctx) {
+  private static Collection<IndexCandidate> normalizeBetween(List<IndexCandidate> canditates) {
     List<IndexCandidate> newCanditates = new ArrayList<>();
-    var sesssion = ctx.getDatabaseSession();
     for (var i = 0; i < canditates.size(); i++) {
       var matched = false;
       var canditate = canditates.get(i);
@@ -76,9 +72,9 @@ public class MultipleIndexCanditate implements IndexCandidate {
         var lastProperties = lastCandidate.properties();
         if (properties.size() == 1
             && lastProperties.size() == 1
-            && properties.get(0).getName() == lastProperties.get(0).getName()) {
+            && properties.getFirst().getName().equals(lastProperties.getFirst().getName())) {
           if (canditate.getOperation().isRange() || lastCandidate.getOperation().isRange()) {
-            newCanditates.add(new RangeIndexCanditate(canditate.getName(), properties.get(0)));
+            newCanditates.add(new RangeIndexCanditate(canditate.getName(), properties.getFirst()));
             canditates.remove(z);
             if (z != canditates.size()) {
               z++; // Increase so it does not decrease next iteration
@@ -96,13 +92,13 @@ public class MultipleIndexCanditate implements IndexCandidate {
 
   private Collection<IndexCandidate> normalizeComposite(
       Collection<IndexCandidate> canditates, CommandContext ctx) {
-    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var session = ctx.getDatabaseSession();
     var propeties = properties();
     Map<String, IndexCandidate> newCanditates = new HashMap<>();
     for (var cand : canditates) {
       if (!newCanditates.containsKey(cand.getName())) {
         var index = session.getSharedContext().getIndexManager()
-            .getIndex(session, cand.getName());
+            .getIndex(cand.getName());
         List<SchemaProperty> foundProps = new ArrayList<>();
         for (var field : index.getDefinition().getFields()) {
           var found = false;

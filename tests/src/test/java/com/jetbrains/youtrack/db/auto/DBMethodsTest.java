@@ -10,12 +10,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class DBMethodsTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public DBMethodsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   public void testAddCollection() {
     session.addCollection("addCollectionTest");
 

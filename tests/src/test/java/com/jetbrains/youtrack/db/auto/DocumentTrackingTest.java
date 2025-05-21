@@ -25,12 +25,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class DocumentTrackingTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public DocumentTrackingTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();

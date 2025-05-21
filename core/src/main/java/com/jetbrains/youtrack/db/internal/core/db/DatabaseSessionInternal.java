@@ -22,15 +22,13 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.SessionListener;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
@@ -62,10 +60,10 @@ import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
@@ -75,14 +73,12 @@ import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
-import com.jetbrains.youtrack.db.internal.enterprise.EnterpriseEndpoint;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.TimerTask;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -159,9 +155,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @param iCollectionName Collection name
    * @param iParameters     Additional parameters to pass to the factories
-   * @return Collection id
    */
-  int addBlobCollection(String iCollectionName, Object... iParameters);
+  void addBlobCollection(String iCollectionName, Object... iParameters);
 
   int begin(FrontendTransactionImpl tx);
 
@@ -211,11 +206,9 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   boolean executeExists(@Nonnull RID rid);
 
-  void setDefaultTransactionMode();
+  void setNoTxMode();
 
   DatabaseSessionInternal copy();
-
-  void recycle(DBRecord record);
 
   boolean assertIfNotActive();
 
@@ -234,7 +227,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     throw new UnsupportedOperationException();
   }
 
-  default Map<String, QueryDatabaseState> getActiveQueries() {
+  default Map<String, QueryDatabaseState<?>> getActiveQueries() {
     throw new UnsupportedOperationException();
   }
 
@@ -275,10 +268,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   void internalClose(boolean recycle);
 
   String getCollectionName(@Nonnull final DBRecord record);
-
-  default boolean isRemote() {
-    return false;
-  }
 
   boolean dropCollectionInternal(int collectionId);
 
@@ -493,41 +482,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   void resetInitialization();
 
   /**
-   * Returns the database owner. Used in wrapped instances to know the up level ODatabase instance.
-   *
-   * @return Returns the database owner.
-   */
-  DatabaseSessionInternal getDatabaseOwner();
-
-  /**
-   * Internal. Sets the database owner.
-   */
-  DatabaseSessionInternal setDatabaseOwner(DatabaseSessionInternal iOwner);
-
-  /**
    * Internal method. Don't call it directly unless you're building an internal component.
    */
   void setInternal(ATTRIBUTES attribute, Object iValue);
 
-  /**
-   * Opens a database using an authentication token received as an argument.
-   *
-   * @param iToken Authentication token
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession open(final Token iToken);
-
-  SharedContext<?> getSharedContext();
-
-  /**
-   * @return an endpoint for Enterprise features. Null in Community Edition
-   */
-  @Nullable
-  default EnterpriseEndpoint getEnterpriseEndpoint() {
-    return null;
-  }
+  SharedContext getSharedContext();
 
   default DatabaseStats getStats() {
     return new DatabaseStats();
@@ -535,81 +494,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   default void resetRecordLoadStats() {
   }
-
-  default void addRidbagPrefetchStats(long execTimeMs) {
-  }
-
-  /**
-   * creates an interrupt timer task for this db instance (without scheduling it!)
-   *
-   * @return the timer task. Null if this operation is not supported for current db impl.
-   */
-  @Nullable
-  default TimerTask createInterruptTimerTask() {
-    return null;
-  }
-
-  /**
-   * Opens a database using the user and password received as arguments.
-   *
-   * @param iUserName     Username to login
-   * @param iUserPassword Password associated to the user
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession open(final String iUserName, final String iUserPassword);
-
-  /**
-   * Creates a new database.
-   *
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession create();
-
-  /**
-   * Creates new database from database backup. Only incremental backups are supported.
-   *
-   * @param incrementalBackupPath Path to incremental backup
-   * @return he Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession create(String incrementalBackupPath);
-
-  /**
-   * Creates a new database passing initial settings.
-   *
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Deprecated
-  DatabaseSession create(Map<GlobalConfiguration, Object> iInitialSettings);
-
-  /**
-   * Drops a database.
-   *
-   * @throws DatabaseException if database is closed. @Deprecated use instead
-   *                           {@link YouTrackDB#drop}
-   */
-  @Deprecated
-  void drop();
-
-  /**
-   * Checks if the database exists.
-   *
-   * @return True if already exists, otherwise false.
-   */
-  @Deprecated
-  boolean exists();
-
-  /**
-   * Set the current status of database. deprecated since 2.2
-   */
-  @Deprecated
-  DatabaseSession setStatus(STATUS iStatus);
 
   /**
    * Returns the total size of records contained in the collection defined by its name.
@@ -707,7 +591,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   @Deprecated
   RecordMetadata getRecordMetadata(final RID rid);
 
-  void rollback(boolean force) throws TransactionException;
 
   /**
    * Returns if the Multi Version Concurrency Control is enabled or not. If enabled the version of
@@ -1020,6 +903,8 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type);
 
+  StatefullEdgeEntityImpl newStatefulEdgeInternal(String className);
+
   /**
    * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
    * class.
@@ -1122,11 +1007,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * transaction context will be effective. If the operation fails, all the changed entities will be
    * restored in the data store.
    *
-   * @return true if the transaction is the last nested transaction and thus cmd can be committed,
-   * otherwise false. If false is returned, then there are still nested transaction that have to be
-   * committed.
+   * @return Map of RIDs updated during transaction (oldRid, newRid) or <code>null</code> if that is
+   * not the highest level commit and transaction is not committed yet.
    */
-  boolean commit() throws TransactionException;
+  @Nullable
+  Map<RID, RID> commit() throws TransactionException;
 
   /**
    * Aborts the current running transaction. All the pending changed entities will be restored in
@@ -1459,7 +1344,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   default Index getIndex(String indexName) {
     var indexManager = getSharedContext().getIndexManager();
-    return indexManager.getIndex(this, indexName);
+    return indexManager.getIndex(indexName);
   }
 
   enum ATTRIBUTES_INTERNAL {

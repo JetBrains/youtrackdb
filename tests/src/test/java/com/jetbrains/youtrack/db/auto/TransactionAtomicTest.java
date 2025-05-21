@@ -32,12 +32,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class TransactionAtomicTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public TransactionAtomicTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testTransactionAtomic() {
     var db1 = acquireSession();

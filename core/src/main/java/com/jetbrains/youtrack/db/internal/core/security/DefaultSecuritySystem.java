@@ -24,8 +24,10 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -83,7 +85,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // current JSON
   // configuration.
   private SecurityConfig serverConfig;
-  private YouTrackDBInternal context;
+  private YouTrackDBInternalEmbedded context;
 
   private Map<String, Object> auditingEntity;
   private Map<String, Object> serverEntity;
@@ -106,7 +108,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   public DefaultSecuritySystem() {
   }
 
-  public void activate(final YouTrackDBInternal context,
+  public void activate(final YouTrackDBInternalEmbedded context,
       final SecurityConfig serverCfg) {
     this.context = context;
     this.serverConfig = serverCfg;
@@ -177,7 +179,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         });
   }
 
-  private void initDefultAuthenticators(DatabaseSessionInternal session) {
+  private void initDefultAuthenticators(DatabaseSessionEmbedded session) {
     var serverAuth = new ServerConfigAuthenticator();
     serverAuth.config(session, null, this);
 
@@ -221,6 +223,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // SecuritySystem (via OServerSecurity)
   // Some external security implementations may permit falling back to a
   // default authentication mode if external authentication fails.
+  @Override
   public boolean isDefaultAllowed() {
     if (enabled) {
       return allowDefault;
@@ -249,6 +252,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem (via OServerSecurity)
+  @Override
   @Nullable
   public SecurityUser authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
@@ -281,6 +285,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return null; // Indicates authentication failed.
   }
 
+  @Override
   @Nullable
   public SecurityUser authenticateServerUser(DatabaseSessionInternal session,
       final String username,
@@ -295,12 +300,14 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return null;
   }
 
-  public YouTrackDBInternal getContext() {
+  @Override
+  public YouTrackDBInternalEmbedded getContext() {
     return context;
   }
 
   // SecuritySystem (via OServerSecurity)
   // Used for generating the appropriate HTTP authentication mechanism.
+  @Override
   public String getAuthenticationHeader(final String databaseName) {
     String header = null;
 
@@ -361,6 +368,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem (via OServerSecurity)
+  @Override
   public Map<String, Object> getConfig() {
     var jsonConfig = new HashMap<String, Object>();
 
@@ -397,6 +405,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // SecuritySystem (via OServerSecurity)
   // public EntityImpl getComponentConfig(final String name) { return getSection(name); }
 
+  @Override
   @Nullable
   public Map<String, Object> getComponentConfig(final String name) {
     if (name != null) {
@@ -422,6 +431,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
    * Returns the "System User" associated with 'username' from the system database. If not found,
    * returns null. dbName is used to filter the assigned roles. It may be null.
    */
+  @Override
   @Nullable
   public SecurityUser getSystemUser(final String username, final String dbName) {
     // ** There are cases when we need to retrieve an OUser that is a system user.
@@ -452,6 +462,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   // SecuritySystem (via OServerSecurity)
   // This will first look for a user in the security.json "users" array and then check if a resource
   // matches.
+  @Override
   public boolean isAuthorized(DatabaseSessionInternal session, final String username,
       final String resource) {
     if (username == null || resource == null) {
@@ -467,6 +478,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return false;
   }
 
+  @Override
   public boolean isServerUserAuthorized(DatabaseSessionInternal session, final String username,
       final String resource) {
     final var user = getServerUser(session, username);
@@ -487,12 +499,14 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem (via OServerSecurity)
+  @Override
   public boolean isEnabled() {
     return enabled;
   }
 
   // SecuritySystem (via OServerSecurity)
   // Indicates if passwords should be stored for users.
+  @Override
   public boolean arePasswordsStored() {
     if (enabled) {
       return storePasswords;
@@ -503,6 +517,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   // SecuritySystem (via OServerSecurity)
   // Indicates if the primary security mechanism supports single sign-on.
+  @Override
   public boolean isSingleSignOnSupported() {
     if (enabled) {
       var priAuth = getPrimaryAuthenticator();
@@ -516,6 +531,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem (via OServerSecurity)
+  @Override
   public void validatePassword(final String username, final String password)
       throws InvalidPasswordException {
     if (enabled) {
@@ -532,11 +548,13 @@ public class DefaultSecuritySystem implements SecuritySystem {
    */
 
   // OServerSecurity
+  @Override
   public AuditingService getAuditing() {
     return auditingService;
   }
 
   // OServerSecurity
+  @Override
   @Nullable
   public SecurityAuthenticator getAuthenticator(final String authMethod) {
     for (var am : authenticatorsList) {
@@ -555,6 +573,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
 
   // OServerSecurity
   // Returns the first SecurityAuthenticator in the list.
+  @Override
   @Nullable
   public SecurityAuthenticator getPrimaryAuthenticator() {
     if (enabled) {
@@ -568,6 +587,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // OServerSecurity
+  @Override
   public SecurityUser getUser(final String username, DatabaseSessionInternal session) {
     SecurityUser userCfg = null;
 
@@ -582,6 +602,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return userCfg;
   }
 
+  @Override
   public SecurityUser getServerUser(DatabaseSessionInternal session, final String username) {
     SecurityUser systemUser = null;
     // This will throw an IllegalArgumentException if iUserName is null or empty.
@@ -613,6 +634,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem
+  @Override
   public void log(
       DatabaseSessionInternal session, final AuditingOperation operation,
       final String dbName,
@@ -626,6 +648,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem
+  @Override
   public void registerSecurityClass(final Class<?> cls) {
     var fullTypeName = getFullTypeName(cls);
 
@@ -635,6 +658,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem
+  @Override
   public void unregisterSecurityClass(final Class<?> cls) {
     var fullTypeName = getFullTypeName(cls);
 
@@ -663,12 +687,13 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // SecuritySystem
-  public void reload(DatabaseSessionInternal session, final Map<String, Object> configEntity) {
+  @Override
+  public void reload(DatabaseSessionEmbedded session, final Map<String, Object> configEntity) {
     reload(session, null, configEntity);
   }
 
   @Override
-  public void reload(DatabaseSessionInternal session, SecurityUser user,
+  public void reload(DatabaseSessionEmbedded session, SecurityUser user,
       Map<String, Object> configEntity) {
     if (configEntity != null) {
       close();
@@ -692,7 +717,8 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
-  public void reloadComponent(DatabaseSessionInternal session, SecurityUser user,
+  @Override
+  public void reloadComponent(DatabaseSessionEmbedded session, SecurityUser user,
       final String name, final Map<String, Object> jsonConfig) {
     if (name == null || name.isEmpty()) {
       throw new SecuritySystemException(
@@ -729,7 +755,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         user, String.format("The %s security component has been reloaded", name));
   }
 
-  private void loadAuthenticators(DatabaseSessionInternal session,
+  private void loadAuthenticators(DatabaseSessionEmbedded session,
       final Map<String, Object> authEntity) {
     if (authEntity.containsKey("authenticators")) {
       List<SecurityAuthenticator> autheticators = new ArrayList<>();
@@ -802,12 +828,13 @@ public class DefaultSecuritySystem implements SecuritySystem {
   }
 
   // OServerSecurity
-  public void onAfterDynamicPlugins(DatabaseSessionInternal session) {
+  @Override
+  public void onAfterDynamicPlugins(DatabaseSessionEmbedded session) {
     onAfterDynamicPlugins(session, null);
   }
 
   @Override
-  public void onAfterDynamicPlugins(DatabaseSessionInternal session, SecurityUser user) {
+  public void onAfterDynamicPlugins(DatabaseSessionEmbedded session, SecurityUser user) {
     if (configEntity != null) {
       loadComponents(session);
 
@@ -821,7 +848,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
-  protected void loadComponents(DatabaseSessionInternal session) {
+  protected void loadComponents(DatabaseSessionEmbedded session) {
     // Loads the top-level configuration properties ("enabled" and "debug").
     loadSecurity();
 
@@ -891,7 +918,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
 
         var f = new File(configFile);
-        IOUtils.writeFile(f, JSONSerializerJackson.mapToJson(configEntity));
+        IOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configEntity));
       }
     } catch (Exception ex) {
       configEntity.put(section, oldSection);
@@ -916,7 +943,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
             final var buffer = new byte[(int) file.length()];
             fis.read(buffer);
 
-            securityEntity = JSONSerializerJackson.mapFromJson(new String(buffer));
+            securityEntity = JSONSerializerJackson.INSTANCE.mapFromJson(new String(buffer));
           }
         } else {
           if (file.exists()) {
@@ -991,7 +1018,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
-  private void reloadAuthMethods(DatabaseSessionInternal session) {
+  private void reloadAuthMethods(DatabaseSessionEmbedded session) {
     if (authEntity != null) {
       if (authEntity.containsKey("allowDefault")) {
         allowDefault = (Boolean) authEntity.get("allowDefault");
@@ -1001,7 +1028,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
-  private void reloadPasswordValidator(DatabaseSessionInternal session) {
+  private void reloadPasswordValidator(DatabaseSessionEmbedded session) {
     try {
       synchronized (passwordValidatorSynch) {
         if (passwdValEntity != null && isEnabled(passwdValEntity)) {
@@ -1041,7 +1068,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
-  private void reloadImportLDAP(DatabaseSessionInternal session) {
+  private void reloadImportLDAP(DatabaseSessionEmbedded session) {
     try {
       synchronized (importLDAPSynch) {
         if (importLDAP != null) {
@@ -1080,7 +1107,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     }
   }
 
-  private void reloadAuditingService(DatabaseSessionInternal session) {
+  private void reloadAuditingService(DatabaseSessionEmbedded session) {
     try {
       synchronized (auditingSynch) {
         if (auditingService != null) {
@@ -1166,10 +1193,12 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return null;
   }
 
+  @Override
   public boolean existsUser(String user) {
     return configUsers.containsKey(user);
   }
 
+  @Override
   public void addTemporaryUser(String iName, String iPassword, String iPermissions) {
     var userCfg = new TemporaryGlobalUser(iName, iPassword, iPermissions);
     ephemeralUsers.put(iName, userCfg);
@@ -1200,6 +1229,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return authenticatorsList;
   }
 
+  @Override
   public TokenSign getTokenSign() {
     return tokenSign;
   }

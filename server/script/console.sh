@@ -48,4 +48,4 @@ exec "$JAVA" -client $JAVA_OPTS $YOUTRACKDB_OPTS_MEMORY $YOUTRACKDB_SETTINGS $SS
     "-Djavax.net.ssl.keyStorePassword=$KEYSTORE_PASS" \
     "-Djavax.net.ssl.trustStore=$TRUSTSTORE" \
     "-Djavax.net.ssl.trustStorePassword=$TRUSTSTORE_PASS" \
-    com.jetbrains.youtrack.db.internal.console.ConsoleDatabaseApp $*
+    com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp $*

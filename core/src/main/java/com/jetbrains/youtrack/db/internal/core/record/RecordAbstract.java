@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -65,18 +66,18 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   protected STATUS status = STATUS.NOT_LOADED;
 
   @Nullable
-  protected DatabaseSessionInternal session;
+  protected DatabaseSessionEmbedded session;
 
   @Nullable
   public RecordOperation txEntry;
   public boolean processingInCallback = false;
 
-  public RecordAbstract(@Nonnull DatabaseSessionInternal session) {
+  public RecordAbstract(@Nonnull DatabaseSessionEmbedded session) {
     recordId = new ChangeableRecordId();
     this.session = session;
   }
 
-  public RecordAbstract(@Nonnull DatabaseSessionInternal session, final byte[] source) {
+  public RecordAbstract(@Nonnull DatabaseSessionEmbedded session, final byte[] source) {
     this.source = source;
     size = source.length;
 
@@ -222,7 +223,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public <RET extends DBRecord> RET updateFromJSON(final String iSource, final String iOptions) {
-    JSONSerializerJackson.fromString(getSession(),
+    JSONSerializerJackson.INSTANCE.fromString(getSession(),
         iSource, this);
     // nothing change
     return (RET) this;
@@ -230,19 +231,19 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public void updateFromJSON(final @Nonnull String iSource) {
-    JSONSerializerJackson.fromString(getSession(), iSource, this);
+    JSONSerializerJackson.INSTANCE.fromString(getSession(), iSource, this);
   }
 
   // Add New API to load record if rid exist
   public final <RET extends DBRecord> RET updateFromJSON(final String iSource, boolean needReload) {
-    return (RET) JSONSerializerJackson.fromString(getSession(), iSource, this);
+    return (RET) JSONSerializerJackson.INSTANCE.fromString(getSession(), iSource, this);
   }
 
   public final <RET extends DBRecord> RET updateFromJSON(final InputStream iContentResult)
       throws IOException {
     final var out = new ByteArrayOutputStream();
     IOUtils.copyStream(iContentResult, out);
-    JSONSerializerJackson.fromString(getSession(), out.toString(), this);
+    JSONSerializerJackson.INSTANCE.fromString(getSession(), out.toString(), this);
     return (RET) this;
   }
 
@@ -257,9 +258,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public String toJSON(final @Nonnull String format) {
     checkForBinding();
 
-    return JSONSerializerJackson
-        .toString(getSession(), this, new StringWriter(1024),
-            format)
+    return JSONSerializerJackson.INSTANCE
+        .toString(getSession(), this, new StringWriter(1024), format)
         .toString();
   }
 
@@ -393,7 +393,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         var record = (RecordAbstract) transaction.load(identifiable);
         return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
       }
-      case Result result when result.isRecord() -> {
+      case Result result when result.isIdentifiable() -> {
         var resultRecord = result.asRecord();
         return equals(resultRecord);
       }

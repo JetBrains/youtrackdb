@@ -15,8 +15,7 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
@@ -25,9 +24,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 
-/**
- *
- */
 public abstract class HttpMultipartRequestCommand<B, F>
     extends ServerCommandAuthenticatedDbAbstract {
 
@@ -46,7 +42,7 @@ public abstract class HttpMultipartRequestCommand<B, F>
       final HttpResponse iResponse,
       final HttpMultipartContentParser<B> standardContentParser,
       final HttpMultipartContentParser<F> fileContentParser,
-      final DatabaseSessionInternal db)
+      final DatabaseSessionEmbedded session)
       throws Exception {
     char currChar;
     var endRequest = false;
@@ -80,9 +76,9 @@ public abstract class HttpMultipartRequestCommand<B, F>
             iRequest.getMultipartStream().setSkipInput(in);
             contentIn.reset();
             if (headers.get(HttpUtils.MULTIPART_CONTENT_FILENAME) != null) {
-              parseFileContent(iRequest, fileContentParser, headers, contentIn, db);
+              parseFileContent(iRequest, fileContentParser, headers, contentIn, session);
             } else {
-              parseBaseContent(iRequest, standardContentParser, headers, contentIn, db);
+              parseBaseContent(iRequest, standardContentParser, headers, contentIn, session);
             }
             break;
           }
@@ -279,9 +275,9 @@ public abstract class HttpMultipartRequestCommand<B, F>
       final HttpMultipartContentParser<B> contentParser,
       final HashMap<String, String> headers,
       final HttpMultipartContentInputStream in,
-      DatabaseSessionInternal db)
+      DatabaseSessionEmbedded session)
       throws Exception {
-    var result = contentParser.parse(iRequest, headers, in, db);
+    var result = contentParser.parse(iRequest, headers, in, session);
     parseStatus = STATUS.STATUS_EXPECTED_END_REQUEST;
     processBaseContent(iRequest, result, headers);
   }
@@ -291,9 +287,9 @@ public abstract class HttpMultipartRequestCommand<B, F>
       final HttpMultipartContentParser<F> contentParser,
       final HashMap<String, String> headers,
       final HttpMultipartContentInputStream in,
-      DatabaseSessionInternal db)
+      DatabaseSessionEmbedded session)
       throws Exception {
-    var result = contentParser.parse(iRequest, headers, in, db);
+    var result = contentParser.parse(iRequest, headers, in, session);
     parseStatus = STATUS.STATUS_EXPECTED_END_REQUEST;
     processFileContent(iRequest, result, headers);
   }

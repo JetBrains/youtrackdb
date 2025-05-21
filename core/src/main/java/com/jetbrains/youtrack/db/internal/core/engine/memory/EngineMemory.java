@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrack.db.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -41,7 +41,7 @@ public class EngineMemory extends EngineAbstract {
       long maxWalSegSize,
       long doubleWriteLogMaxSegSize,
       int storageId,
-      YouTrackDBInternal context) {
+      YouTrackDBInternalEmbedded context) {
     try {
       return new DirectMemoryStorage(url, url, storageId, context);
     } catch (Exception e) {

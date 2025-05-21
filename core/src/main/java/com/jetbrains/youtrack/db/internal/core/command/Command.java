@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * Generic GOF command pattern implementation.
@@ -31,7 +31,7 @@ public interface Command {
    *
    * @return The result of command if any, otherwise null
    */
-  Object execute(DatabaseSessionInternal session);
+  Object execute(DatabaseSessionEmbedded session);
 
   CommandContext getContext();
 }

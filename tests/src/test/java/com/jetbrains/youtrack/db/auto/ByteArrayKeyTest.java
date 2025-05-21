@@ -6,8 +6,6 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -15,12 +13,7 @@ import org.testng.annotations.Test;
  */
 @Test
 public class ByteArrayKeyTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public ByteArrayKeyTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -68,7 +61,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.begin();
     var index =
-        session.getSharedContext().getIndexManager().getIndex(session, "byteArrayKeyIndex");
+        session.getSharedContext().getIndexManager().getIndex("byteArrayKeyIndex");
     final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, key1)) {
       Assert.assertEquals(
@@ -113,7 +106,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "compositeByteArrayKey");
+            .getIndex("compositeByteArrayKey");
     final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
       Assert.assertEquals(
@@ -158,7 +151,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "compositeByteArrayKey");
+            .getIndex("compositeByteArrayKey");
     final var tx = session.getActiveTransaction();
     try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
       Assert.assertEquals(
@@ -197,7 +190,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
         };
 
     var autoIndex =
-        session.getSharedContext().getIndexManager().getIndex(session, "byteArrayKeyIndex");
+        session.getSharedContext().getIndexManager().getIndex("byteArrayKeyIndex");
     try (var stream = autoIndex.getRids(session, key1)) {
       Assert.assertTrue(stream.findFirst().isPresent());
     }

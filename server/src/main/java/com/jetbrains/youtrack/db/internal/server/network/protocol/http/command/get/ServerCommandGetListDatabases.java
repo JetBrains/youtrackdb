@@ -86,7 +86,7 @@ public class ServerCommandGetListDatabases extends ServerCommandAuthenticatedSer
         HttpUtils.STATUS_OK_CODE,
         HttpUtils.STATUS_OK_DESCRIPTION,
         HttpUtils.CONTENT_JSON,
-        JSONSerializerJackson.mapToJson(result),
+        JSONSerializerJackson.INSTANCE.mapToJson(result),
         null);
 
     return false;

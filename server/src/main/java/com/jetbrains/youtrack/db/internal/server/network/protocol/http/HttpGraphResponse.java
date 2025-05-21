@@ -104,11 +104,9 @@ public class HttpGraphResponse extends HttpResponseAbstract {
       while (iIterator.hasNext()) {
         var entry = iIterator.next();
 
-        if (entry != null && entry instanceof Result && ((Result) entry).isEntity()) {
-
-          entry = ((Result) entry).asEntity();
-
-        } else if (entry == null || !(entry instanceof Identifiable)) {
+        if (entry instanceof Result result && result.isEntity()) {
+          entry = result.asEntity();
+        } else if (!(entry instanceof Identifiable)) {
           // IGNORE IT
           continue;
         }

@@ -195,7 +195,7 @@ public class LuceneGeoTest extends BaseLuceneTest {
       throws IOException {
     var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("italy.json");
 
-    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
+    var map = JSONSerializerJackson.INSTANCE.mapFromJson(systemResourceAsStream);
 
     Map geometry = (Map) map.get("geometry");
     var type = (String) geometry.get("type");

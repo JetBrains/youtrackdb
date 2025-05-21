@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -33,7 +33,7 @@ public class Jsr223ScriptExecutor extends AbstractScriptExecutor {
   }
 
   @Override
-  public ResultSet execute(DatabaseSessionInternal database, String script, Object... params) {
+  public ResultSet execute(DatabaseSessionEmbedded database, String script, Object... params) {
 
     preExecute(database, script, params);
 
@@ -46,7 +46,7 @@ public class Jsr223ScriptExecutor extends AbstractScriptExecutor {
   }
 
   @Override
-  public ResultSet execute(DatabaseSessionInternal database, String script, Map params) {
+  public ResultSet execute(DatabaseSessionEmbedded database, String script, Map params) {
 
     preExecute(database, script, params);
 

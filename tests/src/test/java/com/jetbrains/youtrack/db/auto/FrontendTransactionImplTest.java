@@ -36,12 +36,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class FrontendTransactionImplTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public FrontendTransactionImplTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testTransactionOptimisticRollback() {
     if (session.getCollectionIdByName("binary") == -1) {

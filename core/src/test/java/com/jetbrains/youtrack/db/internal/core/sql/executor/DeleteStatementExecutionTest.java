@@ -30,7 +30,9 @@ public class DeleteStatementExecutionTest extends DbTestBase {
       System.out.println(doc.getIdentity());
     }
 
-    Assert.assertEquals(10, session.query("select from " + className).stream().count());
+    try (var rs = session.query("select from " + className)) {
+      Assert.assertEquals(10, rs.stream().count());
+    }
 
     session.begin();
     var result = session.execute("delete from  " + className + " where name = 'name4'");

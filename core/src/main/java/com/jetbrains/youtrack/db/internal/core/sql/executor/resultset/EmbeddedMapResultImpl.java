@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -12,7 +12,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class EmbeddedMapResultImpl<T> implements EmbeddedMap<T> {
-
   private final HashMap<String, T> map;
 
   public EmbeddedMapResultImpl() {

@@ -12,6 +12,7 @@ import org.junit.Test;
 
 public class CommandExecutorSQLScriptTest extends DbTestBase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 
@@ -33,7 +34,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
         return $a;
         """;
     session.begin();
-    var qResult = session.runScript("sql", script).toList();
+    var qResult = session.computeScript("sql", script).toList();
 
     Assert.assertEquals(3, qResult.size());
     session.commit();
@@ -48,7 +49,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             commit retry 10;
             return $a;
             """;
-    var result = session.runScript("sql", script).toList();
+    var result = session.computeScript("sql", script).toList();
     Assert.assertEquals(1, result.size());
   }
 
@@ -59,11 +60,12 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     script.append("let $a = insert into V set test = 'sql script test';\n");
     script.append("commit;\n");
     script.append("begin;\n");
-    script.append("let $b = select $current.toJSON() as json from $a;\n");
+    script.append("let $rid = $a.@rid;\n");
+    script.append("let $b = select $current.toJSON() as json from $rid;\n");
     script.append("commit;");
     script.append("return $b;\n");
 
-    var json = session.runScript("sql", script.toString())
+    var json = session.computeScript("sql", script.toString())
         .findFirst(result -> result.getString("json"));
     Assert.assertNotNull(json);
 
@@ -75,7 +77,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     script.append("let $a = select from V limit 2;\n");
     script.append("return $a.toJSON();\n");
     session.begin();
-    json = session.runScript("sql", script.toString()).findFirst(r -> r.getString("value"));
+    json = session.computeScript("sql", script.toString()).findFirst(r -> r.getString("value"));
 
     Assert.assertNotNull(json);
     json = json.trim();
@@ -87,7 +89,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   public void testSleep() {
     var begin = System.currentTimeMillis();
 
-    session.runScript("sql", "sleep 500").close();
+    session.computeScript("sql", "sleep 500").close();
 
     Assert.assertTrue(System.currentTimeMillis() - begin >= 500);
   }
@@ -97,7 +99,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     var script = """
         LET $a = 'log';
         console.log 'This is a test of log for ${a}';""";
-    session.runScript("sql", script).close();
+    session.computeScript("sql", script).close();
   }
 
   @Test
@@ -105,7 +107,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     var script = """
         LET $a = 'output';
         console.output 'This is a test of log for ${a}';""";
-    session.runScript("sql", script).close();
+    session.computeScript("sql", script).close();
   }
 
   @Test
@@ -113,13 +115,12 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     var script = """
         LET $a = 'error';
         console.error 'This is a test of log for ${a}';""";
-    session.runScript("sql", script).close();
+    session.computeScript("sql", script).close();
   }
 
   @Test
   public void testReturnObject() {
-    final var result = session.runScript("sql", "return [{ a: 'b' }, { c: 'd'}]");
-    result.close();
+    final var result = session.computeScript("sql", "return [{ a: 'b' }, { c: 'd'}]");
 
     assertThat(result).isNotNull();
     assertThat(result.hasNext()).isTrue();
@@ -143,7 +144,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             UPDATE TestCounter INCREMENT weight = $counter[0].count RETURN AfTER @this;
             commit;
             """;
-    var qResult = session.runScript("sql", script);
+    var qResult = session.computeScript("sql", script);
     assertThat(
         qResult.findFirstEntity(e -> e.getInt("weight")).intValue()).isEqualTo(4);
   }
@@ -161,7 +162,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             UPDATE TestCounter INCREMENT weight = $counter[0].count RETURN AfTER @this;
             commit;
             """;
-    var qResult = session.runScript("sql", script);
+    var qResult = session.computeScript("sql", script);
 
     assertThat(qResult.next().asEntity().<Long>getProperty("weight")).isEqualTo(4L);
   }
@@ -177,7 +178,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             };
             return 'FAIL';
             """;
-    var qResult = session.runScript("sql", script).stream().findFirst().orElseThrow();
+    var qResult = session.computeScript("sql", script).stream().findFirst().orElseThrow();
 
     Assert.assertNotNull(qResult);
     Assert.assertEquals("OK", qResult.getProperty("value"));
@@ -194,7 +195,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
                  };     \s
             return 'FAIL';
             """;
-    var qResult = session.runScript("sql", script).stream().findFirst().orElseThrow();
+    var qResult = session.computeScript("sql", script).stream().findFirst().orElseThrow();
 
     Assert.assertNotNull(qResult);
     Assert.assertEquals("OK", qResult.getProperty("value"));
@@ -203,7 +204,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   @Test
   public void testIf3() {
     var qResult =
-        session.runScript(
+        session.computeScript(
 
                 "sql",
                 "let $a = select 1 as one; if($a[0].one = 1){return 'OK';}return 'FAIL';").stream()
@@ -226,7 +227,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             };
             return 'FAIL';
             """;
-    var qResult = session.runScript("sql", script).stream().findFirst().orElseThrow();
+    var qResult = session.computeScript("sql", script).stream().findFirst().orElseThrow();
 
     Assert.assertNotNull(qResult);
     Assert.assertEquals("OK", qResult.getProperty("value"));
@@ -246,7 +247,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             };
             return 'OK';
             """;
-    var qResult = session.runScript("sql", script).stream().findFirst().orElseThrow();
+    var qResult = session.computeScript("sql", script).stream().findFirst().orElseThrow();
 
     Assert.assertNotNull(qResult);
     Assert.assertEquals("OK", qResult.getProperty("value"));
@@ -264,7 +265,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             return 'FAIL';
             """;
     session.begin();
-    var qResult = session.runScript("sql", script).toList();
+    var qResult = session.computeScript("sql", script).toList();
 
     Assert.assertNotNull(qResult);
     Assert.assertEquals(3, qResult.size());
@@ -283,7 +284,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             };
             return 'FAIL';
             """;
-    var qResult = session.runScript("sql", script).stream().findFirst().orElseThrow();
+    var qResult = session.computeScript("sql", script).stream().findFirst().orElseThrow();
 
     Assert.assertNotNull(qResult);
     Assert.assertEquals("OK", qResult.getProperty("value"));
@@ -298,7 +299,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             let $a = select from foo limit 1;
             select from (traverse doesnotexist from $a);
             """;
-    var qResult = session.runScript("sql", script);
+    var qResult = session.computeScript("sql", script);
 
     Assert.assertNotNull(qResult);
     var iterator = qResult.toList().iterator();
@@ -317,7 +318,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             let $a = select "foo ; bar" as one;
             let $b = select "foo \\"; bar" as one;
             """;
-    session.runScript("sql", script).close();
+    session.computeScript("sql", script).close();
   }
 
   @Test
@@ -326,7 +327,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     session.execute("CREATE CLASS QuotedRegex2").close();
     var batch = "begin;INSERT INTO QuotedRegex2 SET regexp=\"'';\";commit;";
 
-    session.runScript("sql", batch).close();
+    session.computeScript("sql", batch).close();
     var result = session.query("SELECT FROM QuotedRegex2");
     Assert.assertTrue(result.hasNext());
     var doc = result.next();
@@ -355,7 +356,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
     map.put("name", "bozo");
     map.put("_name2", "bozi");
 
-    var rs = session.runScript("sql", script, map);
+    var rs = session.computeScript("sql", script, map);
     rs.close();
 
     rs = session.query("SELECT FROM " + className + " WHERE name = ?", "bozo");
@@ -381,7 +382,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
             + "COMMIT;"
             + "RETURN $edge;";
 
-    var rs = session.runScript("sql", script, "bozo", "bozi");
+    var rs = session.computeScript("sql", script, "bozo", "bozi");
     rs.close();
 
     rs = session.query("SELECT FROM " + className + " WHERE name = ?", "bozo");

@@ -33,14 +33,8 @@ import org.testng.annotations.Test;
 
 @Test
 public class CRUDDocumentValidationTest extends BaseDBTest {
-
   private EntityImpl record;
   private EntityImpl account;
-
-  @Parameters(value = "remote")
-  public CRUDDocumentValidationTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void openDb() {

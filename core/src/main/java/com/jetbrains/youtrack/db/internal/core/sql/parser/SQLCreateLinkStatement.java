@@ -70,8 +70,8 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     }
 
     final var session = ctx.getDatabaseSession();
-    if (session.getDatabaseOwner() == null) {
-      throw new CommandSQLParsingException(ctx.getDatabaseSession().getDatabaseName(),
+    if (session == null) {
+      throw new CommandSQLParsingException("",
           "This command supports only the database type DatabaseDocumentTx and type '"
               + session.getClass()
               + "' was found");

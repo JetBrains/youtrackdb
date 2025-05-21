@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class SQLLetStatement extends SQLSimpleExecStatement {
 
@@ -37,13 +38,14 @@ public class SQLLetStatement extends SQLSimpleExecStatement {
       }
       result = statement.execute(ctx.getDatabaseSession(), params, ctx, false);
     }
-    var session = ctx.getDatabaseSession();
-    if (result instanceof ResultSet) {
-      var rs = new InternalResultSet(session);
-      ((ResultSet) result).stream().forEach(rs::add);
-      rs.setPlan(((ResultSet) result).getExecutionPlan());
-      ((ResultSet) result).close();
-      result = rs;
+
+    //eager execution of result set for variables so expressions will be executed in the right order
+    if (result instanceof ResultSet resultSet) {
+      var resultList = resultSet.stream().collect(Collectors.toList());
+      var executionPlan = resultSet.getExecutionPlan();
+      var internalResultSet = new InternalResultSet(ctx.getDatabaseSession(), resultList);
+      internalResultSet.setPlan(executionPlan);
+      result = internalResultSet;
     }
 
     if (ctx.getParent() != null) {

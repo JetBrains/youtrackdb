@@ -14,7 +14,7 @@
 package com.jetbrains.youtrack.db.internal.security.password;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.security.InvalidPasswordException;
 import com.jetbrains.youtrack.db.internal.core.security.PasswordValidator;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
@@ -46,7 +46,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
   }
 
   // SecurityComponent
-  public void config(DatabaseSessionInternal session, final Map<String, Object> jsonConfig,
+  public void config(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     try {
       if (jsonConfig.containsKey("enabled")) {

@@ -102,7 +102,6 @@ public class ServerInfo {
       writeField(json, 2, "lastCommandDetail", stats.lastCommandDetail);
       writeField(json, 2, "lastExecutionTime", stats.lastCommandExecutionTime);
       writeField(json, 2, "totalWorkingTime", stats.totalCommandExecutionTime);
-      writeField(json, 2, "activeQueries", stats.activeQueries);
       writeField(json, 2, "connectedOn", connectedOn);
       writeField(json, 2, "protocol", c.getProtocol().getType());
       writeField(json, 2, "sessionId", data.sessionId);

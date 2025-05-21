@@ -104,7 +104,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
               }
             })
             .setOperation(SpatialOperation.IsWithin);
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "Point.ll");
+    var index = session.getSharedContext().getIndexManager().getIndex("Point.ll");
 
     var baseContext = new BasicCommandContext();
     baseContext.setDatabaseSession(session);
@@ -176,7 +176,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
     context.setDatabaseSession(session);
     oSpatialCompositeKey.setContext(context);
 
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "Point.ll");
+    var index = session.getSharedContext().getIndexManager().getIndex("Point.ll");
 
     Collection<?> coll;
     try (var stream = index.getRids(session, oSpatialCompositeKey)) {

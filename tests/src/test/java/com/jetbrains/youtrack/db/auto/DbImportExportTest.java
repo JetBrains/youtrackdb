@@ -15,12 +15,18 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import static org.assertj.core.api.Java6Assertions.assertThat;
+import static org.testng.AssertJUnit.assertTrue;
+
 import com.google.common.collect.ImmutableList;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -28,9 +34,9 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
@@ -41,8 +47,8 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
@@ -57,19 +63,14 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
   private final String exportFilePath;
   private boolean dumpMode = false;
 
-  @Parameters(value = {"remote", "testPath"})
-  public DbImportExportTest(@Optional Boolean remote, String testPath) {
-    super(remote != null && remote);
+  @Parameters(value = {"testPath"})
+  public DbImportExportTest(String testPath) {
     this.testPath = testPath;
     this.exportFilePath = System.getProperty("exportFilePath", EXPORT_FILE_PATH);
   }
 
   @Test
   public void testDbExport() throws IOException {
-    if (remoteDB) {
-      return;
-    }
-
     // ADD A CUSTOM TO THE CLASS
     session.execute("alter class V custom onBeforeCreate=onBeforeCreateItem").close();
 
@@ -81,10 +82,6 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
   @Test(dependsOnMethods = "testDbExport")
   public void testDbImport() throws IOException {
-    if (remoteDB) {
-      return;
-    }
-
     final var importDir = new File(testPath + "/" + IMPORT_DB_PATH);
     if (importDir.exists()) {
       for (final var f : importDir.listFiles()) {
@@ -102,7 +99,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
       try (var importDB = youTrackDBImport.open(IMPORT_DB_NAME, "admin", "admin")) {
         final var dbImport =
             new DatabaseImport(
-                (DatabaseSessionInternal) importDB, testPath + "/" + exportFilePath, this);
+                (DatabaseSessionEmbedded) importDB, testPath + "/" + exportFilePath, this);
         // UNREGISTER ALL THE HOOKS
         for (final var hook : new ArrayList<>(
             ((DatabaseSessionInternal) importDB).getHooks())) {
@@ -117,15 +114,12 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
   @Test(dependsOnMethods = "testDbImport")
   public void testCompareDatabases() throws IOException {
-    if (remoteDB) {
-      return;
-    }
     try (var youTrackDBImport =
         YourTracks.embedded(
             testPath + File.separator + IMPORT_DB_PATH, YouTrackDBConfig.defaultConfig())) {
       try (var importDB = youTrackDBImport.open(IMPORT_DB_NAME, "admin", "admin")) {
         final var databaseCompare =
-            new DatabaseCompare(session, (DatabaseSessionInternal) importDB, this);
+            new DatabaseCompare(session, (DatabaseSessionEmbedded) importDB, this);
         databaseCompare.setCompareEntriesForAutomaticIndexes(true);
         databaseCompare.setCompareIndexMetadata(true);
         Assert.assertTrue(databaseCompare.compare());
@@ -135,13 +129,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
   @Test
   public void testLinksMigration() throws Exception {
-    if (remoteDB) {
-      return;
-    }
-
-    final var localTesPath = new File(testPath + "/target", "embeddedListMigration");
-    FileUtils.deleteRecursively(localTesPath);
-    Assert.assertTrue(localTesPath.mkdirs());
+    final var localTesPath = initExportPath("embeddedListMigration", true);
 
     final var exportPath = new File(localTesPath, "export.json.gz");
 
@@ -149,14 +137,14 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         new YouTrackDBConfigBuilderImpl()
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
             .build();
-    try (final YouTrackDB youTrackDB = new YouTrackDBImpl(
-        "embedded:" + localTesPath.getPath(),
+    try (final var youTrackDB = YourTracks.embedded(
+        localTesPath.getPath(),
         config)) {
       youTrackDB.create("original", DatabaseType.DISK);
 
       final var childDocCount = 50;
 
-      try (final var session = (DatabaseSessionInternal) youTrackDB.open(
+      try (final var session = (DatabaseSessionEmbedded) youTrackDB.open(
           "original", "admin", "admin")) {
         final Schema schema = session.getMetadata().getSchema();
 
@@ -224,7 +212,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
       youTrackDB.create("imported", DatabaseType.DISK);
       try (final var session =
-          (DatabaseSessionInternal) youTrackDB.open("imported", "admin", "admin")) {
+          (DatabaseSessionEmbedded) youTrackDB.open("imported", "admin", "admin")) {
         final var databaseImport =
             new DatabaseImport(session, exportPath.getPath(), System.out::println);
         databaseImport.run();
@@ -296,6 +284,155 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         });
       }
     }
+  }
+
+  @Nonnull
+  private File initExportPath(String dirName, boolean clear) {
+    final var localTesPath = new File(testPath + "/target", dirName);
+    if (clear) {
+      FileUtils.deleteRecursively(localTesPath);
+      Assert.assertTrue(localTesPath.mkdirs());
+    }
+    return localTesPath;
+  }
+
+  @Test
+  public void testGraphImportExport() throws IOException {
+
+    final var localTesPath = initExportPath("graphImportExport", true);
+
+    final var exportPath = new File(localTesPath, "export_graph.json.gz");
+
+    final YouTrackDBConfig config =
+        new YouTrackDBConfigBuilderImpl()
+            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
+            .build();
+
+    try (
+        var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
+        var original = createAndOpen(youTrackDB, "original");
+        var imported = createAndOpen(youTrackDB, "imported")
+    ) {
+      final var vClass = original.getSchema().createVertexClass("AVertex");
+      final var eClass = original.getSchema().createEdgeClass("AnEdge");
+      final var leClass = original.getSchema().createLightweightEdgeClass("LightweightEdge");
+
+      original.executeInTx(tx -> {
+        final var v1 = tx.newVertex(vClass);
+        v1.setProperty("no", 1);
+        final var v2 = tx.newVertex(vClass);
+        v2.setProperty("no", 2);
+        final var v3 = tx.newVertex(vClass);
+        v3.setProperty("no", 3);
+
+        v1.addStateFulEdge(v2, eClass).setProperty("lbl", "1to2");
+        v2.addStateFulEdge(v1, eClass).setProperty("lbl", "2to1");
+
+        v1.addLightWeightEdge(v3, leClass);
+        v3.addLightWeightEdge(v2, leClass);
+      });
+
+      new DatabaseExport(((DatabaseSessionEmbedded) original), exportPath.getPath(), this)
+          .exportDatabase();
+
+      new DatabaseImport(((DatabaseSessionEmbedded) imported), exportPath.getPath(), this)
+          .importDatabase();
+
+      assertTrue(imported.getSchema().getClass("AVertex").isVertexType());
+      assertTrue(imported.getSchema().getClass("AnEdge").isEdgeType());
+
+      imported.executeInTx(tx -> {
+        final var vs = tx.query("select from AVertex order by no")
+            .stream()
+            .map(Result::asVertex)
+            .toList();
+
+        assertThat(vs).hasSize(3);
+
+        final var v1 = vs.get(0);
+        final var v2 = vs.get(1);
+        final var v3 = vs.get(2);
+
+        final var v1Tov2 = v1.getEdges(Direction.OUT, eClass).iterator().next().asStatefulEdge();
+        assertThat(v1Tov2.getFrom()).isEqualTo(v1);
+        assertThat(v1Tov2.getTo()).isEqualTo(v2);
+        assertThat(v1Tov2.getString("lbl")).isEqualTo("1to2");
+
+        final var v2Tov1 = v2.getEdges(Direction.OUT, eClass).iterator().next().asStatefulEdge();
+        assertThat(v2Tov1.getFrom()).isEqualTo(v2);
+        assertThat(v2Tov1.getTo()).isEqualTo(v1);
+        assertThat(v2Tov1.getString("lbl")).isEqualTo("2to1");
+
+        final var v1Tov3 = v1.getEdges(Direction.OUT, leClass).iterator().next();
+        assertThat(v1Tov3.isLightweight()).isTrue();
+        assertThat(v1Tov3.getFrom()).isEqualTo(v1);
+        assertThat(v1Tov3.getTo()).isEqualTo(v3);
+
+        final var v3tov2 = v3.getEdges(Direction.OUT, leClass).iterator().next();
+        assertThat(v3tov2.isLightweight()).isTrue();
+        assertThat(v3tov2.getFrom()).isEqualTo(v3);
+        assertThat(v3tov2.getTo()).isEqualTo(v2);
+      });
+    }
+  }
+
+  @Test
+  public void testBlobs() throws IOException {
+    final var localTesPath = initExportPath("blobImportExport", true);
+
+    final var exportPath = new File(localTesPath, "export_blob.json.gz");
+
+    final YouTrackDBConfig config =
+        new YouTrackDBConfigBuilderImpl()
+            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
+            .build();
+
+    try (
+        var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
+        var original = createAndOpen(youTrackDB, "original");
+        var imported = createAndOpen(youTrackDB, "imported")
+    ) {
+
+      original.getSchema().createClass("WithBlob");
+
+      original.executeInTx(tx -> {
+        final var emptyBlob = tx.newBlob(new byte[]{});
+        final var nonEmptyBlob = tx.newBlob("some test string".getBytes());
+
+        final var withEmpty = tx.newEntity("WithBlob");
+        withEmpty.setString("name", "withEmpty");
+        withEmpty.setLink("blob", emptyBlob.getIdentity());
+
+        final var withNonEmpty = tx.newEntity("WithBlob");
+        withNonEmpty.setString("name", "withNonEmpty");
+        withNonEmpty.setLink("blob", nonEmptyBlob);
+      });
+
+      new DatabaseExport(((DatabaseSessionEmbedded) original), exportPath.getPath(), this)
+          .exportDatabase();
+
+      new DatabaseImport(((DatabaseSessionEmbedded) imported), exportPath.getPath(), this)
+          .importDatabase();
+
+      imported.executeInTx(tx -> {
+        final var withEmtpy =
+            tx.query("SELECT FROM WithBlob WHERE name = 'withEmpty'").next().asEntity();
+
+        final var withNonEmpty =
+            tx.query("SELECT FROM WithBlob WHERE name = 'withNonEmpty'").next().asEntity();
+
+        final var emptyBlob = withEmtpy.getBlob("blob");
+        final var nonEmptyBlob = withNonEmpty.getBlob("blob");
+
+        assertThat(emptyBlob.toStream()).isEqualTo(new byte[]{});
+        assertThat(nonEmptyBlob.toStream()).isEqualTo("some test string".getBytes());
+      });
+    }
+  }
+
+  private static DatabaseSession createAndOpen(YouTrackDB youTrackDB, String dbName) {
+    youTrackDB.create(dbName, DatabaseType.DISK);
+    return youTrackDB.open(dbName, "admin", "admin");
   }
 
   @Override

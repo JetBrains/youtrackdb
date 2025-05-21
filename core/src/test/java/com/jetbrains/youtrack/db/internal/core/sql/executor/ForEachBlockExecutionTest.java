@@ -4,9 +4,6 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class ForEachBlockExecutionTest extends DbTestBase {
 
   @Test
@@ -23,7 +20,7 @@ public class ForEachBlockExecutionTest extends DbTestBase {
     script += "SELECT FROM " + className;
 
     session.begin();
-    var results = session.runScript("sql", script);
+    var results = session.computeScript("sql", script);
 
     var tot = 0;
     var sum = 0;
@@ -53,7 +50,7 @@ public class ForEachBlockExecutionTest extends DbTestBase {
     script += "  }\n";
     script += "}";
 
-    var results = session.runScript("sql", script);
+    var results = session.computeScript("sql", script);
     results.close();
     results = session.query("SELECT FROM " + className);
 

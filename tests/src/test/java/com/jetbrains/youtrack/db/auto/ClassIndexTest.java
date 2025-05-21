@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
@@ -38,15 +38,10 @@ import org.testng.annotations.Test;
 
 @Test
 public class ClassIndexTest extends BaseDBTest {
-
   private SchemaClassInternal oClass;
   private SchemaClassInternal oSuperClass;
 
-  @Parameters(value = "remote")
-  public ClassIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -171,7 +166,7 @@ public class ClassIndexTest extends BaseDBTest {
           }
 
           @Override
-          public void onCompletition(DatabaseSessionInternal session, final Object iTask,
+          public void onCompletition(DatabaseSessionEmbedded session, final Object iTask,
               final boolean iSucceed) {
             atomicInteger.incrementAndGet();
           }

@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.query.QueryRuntimeValueMulti;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
@@ -39,7 +40,7 @@ public abstract class SQLFilterItemFieldMultiAbstract extends SQLFilterItemAbstr
   private final List<Collate> collates = new ArrayList<Collate>();
 
   public SQLFilterItemFieldMultiAbstract(
-      DatabaseSessionInternal session, final SQLPredicate iQueryCompiled,
+      DatabaseSessionEmbedded session, final SQLPredicate iQueryCompiled,
       final String iName,
       final SchemaClass iClass,
       final List<String> iNames) {

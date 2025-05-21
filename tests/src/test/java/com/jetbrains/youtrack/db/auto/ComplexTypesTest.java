@@ -38,12 +38,6 @@ import org.testng.annotations.Test;
 @SuppressWarnings("unchecked")
 @Test
 public class ComplexTypesTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public ComplexTypesTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testBigDecimal() {
     final var clazz = session.createClass("BigDecimalTest");

@@ -67,20 +67,20 @@ public class ClientConnectionManagerTest {
     assertNotNull(ret);
     var sess = manager.getSession(ret);
     assertNotNull(sess);
-    assertEquals(sess.getConnections().size(), 1);
+    assertEquals(1, sess.getConnections().size());
     var ret1 = manager.getConnection(ret.getId(), protocol);
     assertSame(ret, ret1);
     var ret2 = manager.reConnect(protocol, atoken);
     assertNotSame(ret1, ret2);
-    assertEquals(sess.getConnections().size(), 2);
+    assertEquals(2, sess.getConnections().size());
     manager.disconnect(ret);
 
-    assertEquals(sess.getConnections().size(), 1);
+    assertEquals(1, sess.getConnections().size());
     var ret3 = manager.getConnection(ret.getId(), protocol);
     assertNull(ret3);
 
     manager.disconnect(ret2);
-    assertEquals(sess.getConnections().size(), 0);
+    assertEquals(0, sess.getConnections().size());
     var ret4 = manager.getConnection(ret2.getId(), protocol);
     assertNull(ret4);
   }

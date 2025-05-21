@@ -28,7 +28,8 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,10 +43,8 @@ import org.junit.Test;
  */
 public class SQLFunctionAstarTest {
 
-  private static int dbCounter = 0;
-
   private YouTrackDB youTrackDB;
-  private DatabaseSessionInternal session;
+  private DatabaseSessionEmbedded session;
 
   private Vertex v0;
   private Vertex v1;
@@ -71,14 +70,12 @@ public class SQLFunctionAstarTest {
   }
 
   private void setUpDatabase() {
-    dbCounter++;
-
     youTrackDB =
-        CreateDatabaseUtil.createDatabase(
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
             "SQLFunctionAstarTest", DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
     session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open("SQLFunctionAstarTest", "admin",
                 CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 

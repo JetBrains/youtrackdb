@@ -1,14 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
 import org.junit.After;
@@ -23,14 +24,14 @@ import org.junit.Test;
 public class ColumnSecurityTest {
 
   static String DB_NAME = "test";
-  static YouTrackDB context;
+  static BasicYouTrackDB context;
   private DatabaseSessionInternal session;
 
   @BeforeClass
   public static void beforeClass() {
     context =
-        new YouTrackDBImpl(
-            "disk:.",
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(ColumnSecurityTest.class),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());

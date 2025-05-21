@@ -18,28 +18,17 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class EntityTreeTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public EntityTreeTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void init() {
     createComplexTestClass();
@@ -355,10 +344,10 @@ public class EntityTreeTest extends BaseDBTest {
 
     mercury.setProperty(
         "satellitesMap",
-        session.newLinkMap(Map.of(mercuryMoon.<String>getProperty("name"), mercuryMoon)));
+        session.newLinkMap(Map.of(mercuryMoon.getProperty("name"), mercuryMoon)));
     jupiter.setProperty(
         "satellitesMap",
-        session.newLinkMap(Map.of(jupiterMoon.<String>getProperty("name"), jupiterMoon)));
+        session.newLinkMap(Map.of(jupiterMoon.getProperty("name"), jupiterMoon)));
 
     session.commit();
 

@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -32,11 +33,11 @@ import java.util.List;
  *
  * @since v2.2.0
  */
-public class DatabaseRepair extends DatabaseTool {
+public class DatabaseRepair extends DatabaseTool<DatabaseSessionEmbedded> {
 
   private boolean removeBrokenLinks = true;
 
-  public DatabaseRepair(DatabaseSessionInternal session) {
+  public DatabaseRepair(DatabaseSessionEmbedded session) {
     setDatabaseSession(session);
   }
 

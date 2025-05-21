@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -29,13 +30,13 @@ public class DatabaseImportTest {
     youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
 
     final var output = new ByteArrayOutputStream();
-    try (final var db = youTrackDB.open(databaseName, "admin", "admin")) {
+    try (final var db = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin", "admin")) {
       db.getSchema().createClass("SimpleClass");
       db.getSchema().createVertexClass("SimpleVertexClass");
       db.getSchema().createEdgeClass("SimpleEdgeClass");
 
       final var export =
-          new DatabaseExport((DatabaseSessionInternal) db, output, iText -> {
+          new DatabaseExport(db, output, iText -> {
           });
       export.setOptions(" -excludeAll -includeSchema=true");
       export.exportDatabase();
@@ -47,7 +48,7 @@ public class DatabaseImportTest {
     databaseName = "import";
 
     youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
-    try (var db = (DatabaseSessionInternal) youTrackDB.open(databaseName, "admin",
+    try (var db = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin",
         "admin")) {
       final var importer =
           new DatabaseImport(

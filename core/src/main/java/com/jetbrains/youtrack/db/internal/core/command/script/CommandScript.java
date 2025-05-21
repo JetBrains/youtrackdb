@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.command.script;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestTextAbstract;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -79,7 +80,7 @@ public class CommandScript extends CommandRequestTextAbstract {
   }
 
   @Override
-  public CommandRequestText fromStream(DatabaseSessionInternal session, byte[] iStream,
+  public CommandRequestText fromStream(DatabaseSessionEmbedded session, byte[] iStream,
       RecordSerializerNetwork serializer)
       throws SerializationException {
     final var buffer = new MemoryStream(iStream);

@@ -141,7 +141,7 @@ public class LuceneIndexFactory implements IndexFactory, DatabaseLifecycleListen
 
       LogManager.instance().debug(this, "Dropping Lucene indexes...", logger);
 
-      session.getSharedContext().getIndexManager().getIndexes(session).stream()
+      session.getSharedContext().getIndexManager().getIndexes().stream()
           .filter(idx -> idx instanceof LuceneFullTextIndex)
           .peek(idx -> LogManager.instance().debug(this, "deleting index " + idx.getName(), logger))
           .forEach(idx -> session.executeInTxInternal(idx::delete));

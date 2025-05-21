@@ -28,14 +28,14 @@ public abstract class IndexTxAwareBaseTest extends BaseDBTest {
   private final boolean unique;
   protected Index index;
 
-  public IndexTxAwareBaseTest(Boolean remote, boolean unique) {
-    super(remote);
+  public IndexTxAwareBaseTest(boolean unique) {
     this.unique = unique;
     this.className = this.getClass().getSimpleName();
     this.fieldName = "value";
     this.indexName = this.getClass().getSimpleName() + "_index";
   }
 
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -49,16 +49,18 @@ public abstract class IndexTxAwareBaseTest extends BaseDBTest {
     );
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     session.getMetadata().getSchema().getClassInternal(className).truncate();
     super.afterMethod();
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
-    index = session.getSharedContext().getIndexManager().getIndex(session, indexName);
+    index = session.getSharedContext().getIndexManager().getIndex(indexName);
   }
 
   protected EntityImpl newDoc(int fieldValue) {

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.google.common.collect.Streams;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
@@ -8,52 +9,66 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBatch;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
-import java.util.ArrayList;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.List;
-import java.util.Spliterators;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public class CreateEdgesStep extends AbstractExecutionStep {
 
+  @Nullable
   private final SQLIdentifier targetClass;
+  @Nullable
   private final String uniqueIndexName;
+
+  @Nullable
   private final SQLIdentifier fromAlias;
+  @Nullable
   private final SQLIdentifier toAlias;
-  private final Number wait;
-  private final Number retry;
-  private final SQLBatch batch;
+
+  @Nullable
+  private final SQLStatement fromStatemen;
+  @Nullable
+  private final SQLStatement toStatement;
 
   public CreateEdgesStep(
+      @Nullable
       SQLIdentifier targetClass,
+
+      @Nullable
       String uniqueIndex,
+
+      @Nullable
       SQLIdentifier fromAlias,
+      @Nullable
       SQLIdentifier toAlias,
-      Number wait,
-      Number retry,
-      SQLBatch batch,
+
+      @Nullable
+      SQLStatement fromStatemen,
+      @Nullable
+      SQLStatement toStatement,
+
+      @Nonnull
       CommandContext ctx,
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.targetClass = targetClass;
     this.uniqueIndexName = uniqueIndex;
+
     this.fromAlias = fromAlias;
     this.toAlias = toAlias;
-    this.wait = wait;
-    this.retry = retry;
-    this.batch = batch;
+
+    this.fromStatemen = fromStatemen;
+    this.toStatement = toStatement;
   }
 
   @Override
@@ -62,15 +77,18 @@ public class CreateEdgesStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    var fromIter = fetchFroms();
-    var toList = fetchTo();
+    var fromStream = fetchFroms();
+
     var uniqueIndex = findIndex(this.uniqueIndexName);
-    var db = ctx.getDatabaseSession();
+    var databaseSession = ctx.getDatabaseSession();
+
     var stream =
-        StreamSupport.stream(Spliterators.spliteratorUnknownSize(fromIter, 0), false)
-            .map(currentFrom1 -> asVertex(db, currentFrom1))
+        fromStream
+            .map(fromObject -> asVertex(databaseSession, fromObject))
             .flatMap(
-                (currentFrom) -> mapTo(ctx.getDatabaseSession(), toList, currentFrom, uniqueIndex));
+                (fromVertex) -> fetchTos().map(
+                    obj -> mapTo(ctx.getDatabaseSession(), fromVertex, uniqueIndex, obj)));
+
     return ExecutionStream.resultIterator(stream.iterator());
   }
 
@@ -79,7 +97,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     if (uniqueIndexName != null) {
       final var session = ctx.getDatabaseSession();
       var uniqueIndex =
-          session.getSharedContext().getIndexManager().getIndex(session, uniqueIndexName);
+          session.getSharedContext().getIndexManager().getIndex(uniqueIndexName);
       if (uniqueIndex == null) {
         throw new CommandExecutionException(session,
             "Index not found for upsert: " + uniqueIndexName);
@@ -89,83 +107,111 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     return null;
   }
 
-  private List<Object> fetchTo() {
-    var toValues = ctx.getVariable(toAlias.getStringValue());
-    if (toValues instanceof Iterable && !(toValues instanceof Identifiable)) {
-      toValues = ((Iterable<?>) toValues).iterator();
-    } else if (!(toValues instanceof Iterator)) {
-      toValues = Collections.singleton(toValues).iterator();
-    }
-    if (toValues instanceof InternalResultSet) {
-      toValues = ((InternalResultSet) toValues).copy();
+
+  private Stream<?> fetchFroms() {
+    if (fromAlias != null) {
+      var fromValues = ctx.getVariable(fromAlias.getStringValue());
+      return convertToStream(fromValues);
     }
 
-    var toIter = (Iterator<?>) toValues;
+    assert fromStatemen != null;
 
-    if (toIter instanceof InternalResultSet resultSet) {
-      try {
-        resultSet.reset();
-      } catch (Exception ignore) {
-      }
+    var execPlan = createExecutionPlan(fromStatemen);
+    if (execPlan instanceof InsertExecutionPlan) {
+      ((InsertExecutionPlan) execPlan).executeInternal();
     }
-    List<Object> toList = new ArrayList<>();
-    while (toIter != null && toIter.hasNext()) {
-      toList.add(toIter.next());
-    }
-    return toList;
+
+    var session = ctx.getDatabaseSession();
+    return new LocalResultSet(session, execPlan).stream();
   }
 
-  private Iterator<?> fetchFroms() {
-    var fromValues = ctx.getVariable(fromAlias.getStringValue());
-    if (fromValues instanceof Iterable && !(fromValues instanceof Identifiable)) {
-      fromValues = ((Iterable<?>) fromValues).iterator();
-    } else if (!(fromValues instanceof Iterator)) {
-      fromValues = Collections.singleton(fromValues).iterator();
+  private Stream<?> fetchTos() {
+    if (toAlias != null) {
+      var fromValues = ctx.getVariable(toAlias.getStringValue());
+      return convertToStream(fromValues);
     }
-    if (fromValues instanceof InternalResultSet) {
-      fromValues = ((InternalResultSet) fromValues).copy();
+
+    assert toStatement != null;
+    if (!toStatement.isIdempotent()) {
+      throw new CommandExecutionException(
+          "Only idempotent statements can be used in to part of CREATE EDGE: " +
+              toStatement.getOriginalStatement());
     }
-    var fromIter = (Iterator<?>) fromValues;
-    if (fromIter instanceof InternalResultSet resultSet) {
-      try {
-        resultSet.reset();
-      } catch (Exception ignore) {
-      }
-    }
-    return fromIter;
+
+    InternalExecutionPlan execPlan;
+    execPlan = createExecutionPlan(toStatement);
+
+    var session = ctx.getDatabaseSession();
+    return new LocalResultSet(session, execPlan).stream();
   }
 
-  public Stream<Result> mapTo(DatabaseSessionInternal session, List<Object> to, Vertex currentFrom,
-      Index uniqueIndex) {
-    return to.stream()
-        .map(
-            (obj) -> {
-              var currentTo = asVertex(session, obj);
-              EdgeInternal edgeToUpdate = null;
-              if (uniqueIndex != null) {
-                var existingEdge =
-                    getExistingEdge(ctx.getDatabaseSession(), currentFrom, currentTo, uniqueIndex);
-                if (existingEdge != null) {
-                  edgeToUpdate = existingEdge;
-                }
-              }
+  private InternalExecutionPlan createExecutionPlan(SQLStatement statement) {
+    InternalExecutionPlan execPlan;
+    if (statement.getOriginalStatement() == null || statement.getOriginalStatement()
+        .contains("?")) {
+      // cannot cache statements with positional params, especially when it's in a
+      // subquery/expression.
+      execPlan = statement.createExecutionPlanNoCache(ctx, false);
+    } else {
+      execPlan = statement.createExecutionPlan(ctx, false);
+    }
 
-              if (edgeToUpdate == null) {
-                edgeToUpdate =
-                    (EdgeInternal) currentFrom.addEdge(currentTo, targetClass.getStringValue());
-              }
+    return execPlan;
+  }
 
-              if (edgeToUpdate.isStateful()) {
-                return new UpdatableResult(session, edgeToUpdate.asStatefulEdge());
-              } else {
-                return new ResultInternal(session, edgeToUpdate);
-              }
-            });
+  @Nonnull
+  private Stream<?> convertToStream(Object fromValues) {
+    if (fromValues == null) {
+      return Stream.empty();
+    }
+    var session = ctx.getDatabaseSession();
+    switch (fromValues) {
+      case InternalResultSet internalResultSet -> {
+        return internalResultSet.copy(session).stream();
+      }
+      case Stream<?> stream -> {
+        return stream;
+      }
+      case Iterable<?> iterable -> {
+        return Streams.stream(iterable);
+      }
+      default -> {
+      }
+    }
+    if (!(fromValues instanceof Iterator)) {
+      return Streams.stream(Collections.singleton(fromValues));
+    }
+
+    return Stream.empty();
+  }
+
+  public Result mapTo(DatabaseSessionInternal session, Vertex currentFrom,
+      Index uniqueIndex, Object obj) {
+    var currentTo = asVertex(session, obj);
+    EdgeInternal edgeToUpdate = null;
+    if (uniqueIndex != null) {
+      var existingEdge =
+          getExistingEdge(ctx.getDatabaseSession(), currentFrom, currentTo, uniqueIndex);
+      if (existingEdge != null) {
+        edgeToUpdate = existingEdge;
+      }
+    }
+
+    if (edgeToUpdate == null) {
+      edgeToUpdate =
+          (EdgeInternal) currentFrom.addEdge(currentTo, targetClass.getStringValue());
+    }
+
+    if (edgeToUpdate.isStateful()) {
+      return new UpdatableResult(session, edgeToUpdate.asStatefulEdge());
+    } else {
+      return new ResultInternal(session, edgeToUpdate);
+    }
   }
 
   @Nullable
   private static EdgeInternal getExistingEdge(
-      DatabaseSessionInternal db,
+      DatabaseSessionEmbedded db,
       Vertex currentFrom,
       Vertex currentTo,
       Index uniqueIndex) {
@@ -230,9 +276,8 @@ public class CreateEdgesStep extends AbstractExecutionStep {
         uniqueIndexName,
         fromAlias == null ? null : fromAlias.copy(),
         toAlias == null ? null : toAlias.copy(),
-        wait,
-        retry,
-        batch == null ? null : batch.copy(),
+        toStatement == null ? null : toStatement.copy(),
+        fromStatemen == null ? null : fromStatemen.copy(),
         ctx,
         profilingEnabled);
   }

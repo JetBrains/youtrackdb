@@ -17,8 +17,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import java.util.Objects;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -26,11 +24,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class SQLMetadataTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLMetadataTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void querySchemaClasses() {
@@ -65,7 +58,7 @@ public class SQLMetadataTest extends BaseDBTest {
     var result =
         session
             .query(
-                "select expand(indexes) from metadata:indexmanager").toList();
+                "select from metadata:indexes").toList();
 
     Assert.assertTrue(result.size() != 0);
   }
@@ -74,7 +67,7 @@ public class SQLMetadataTest extends BaseDBTest {
   public void queryMetadataNotSupported() {
     try {
       session
-          .query("select expand(indexes) from metadata:blaaa").toList();
+          .query("select from metadata:blaaa").toList();
       Assert.fail();
     } catch (UnsupportedOperationException e) {
     }

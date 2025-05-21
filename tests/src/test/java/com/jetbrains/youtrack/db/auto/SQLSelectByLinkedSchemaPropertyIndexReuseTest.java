@@ -30,15 +30,9 @@ import org.testng.annotations.Test;
  * <p>Prefix "lpirt" in class names means "LinkedPropertyIndexReuseTest".
  */
 @SuppressWarnings("SuspiciousMethodCalls")
-@Test(groups = {"index"})
 @Ignore("Rewrite these tests for the new SQL engine")
 public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndexReuseTest {
-
-  @Parameters(value = "remote")
-  public SQLSelectByLinkedSchemaPropertyIndexReuseTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -47,6 +41,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
     fillDataSet();
   }
 
+  @Override
   @AfterClass
   public void afterClass() throws Exception {
     if (session.isClosed()) {

@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
@@ -78,7 +78,7 @@ public interface IndexableSQLFunction extends SQLFunction {
       SQLExpression... args);
 
   /**
-   * checks if the function can be used even on single records, not as an indexed function (even if
+   * checks if the function can be used even on single record, not as an indexed function (even if
    * the index does not exist at all)
    *
    * @param target     the query target

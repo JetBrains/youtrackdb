@@ -9,8 +9,6 @@ import java.util.Arrays;
 import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -18,12 +16,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class BetweenConversionTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public BetweenConversionTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {

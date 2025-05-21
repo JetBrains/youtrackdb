@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.command;
 
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -98,9 +99,9 @@ public interface CommandContext {
   void merge(CommandContext iContext);
 
   @Nullable
-  DatabaseSessionInternal getDatabaseSession();
+  DatabaseSessionEmbedded getDatabaseSession();
 
-  void setDatabaseSession(DatabaseSessionInternal session);
+  void setDatabaseSession(DatabaseSessionEmbedded session);
 
   void declareScriptVariable(String varName);
 

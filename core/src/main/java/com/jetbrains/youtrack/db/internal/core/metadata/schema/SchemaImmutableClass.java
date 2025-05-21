@@ -99,37 +99,37 @@ public class SchemaImmutableClass implements SchemaClassInternal {
       @Nonnull final SchemaClassImpl oClass,
       final ImmutableSchema schema) {
 
-    isAbstract = oClass.isAbstract(session);
-    strictMode = oClass.isStrictMode(session);
+    isAbstract = oClass.isAbstract();
+    strictMode = oClass.isStrictMode();
     this.schema = schema;
 
     superClassesNames = oClass.getSuperClassesNames(session);
     superClasses = new ArrayList<>(superClassesNames.size());
 
-    name = oClass.getName(session);
-    streamAbleName = oClass.getStreamableName(session);
-    collectionSelection = oClass.getCollectionSelection(session);
-    collectionIds = oClass.getCollectionIds(session);
-    polymorphicCollectionIds = oClass.getPolymorphicCollectionIds(session);
+    name = oClass.getName();
+    streamAbleName = oClass.getStreamableName();
+    collectionSelection = oClass.getCollectionSelection();
+    collectionIds = oClass.getCollectionIds();
+    polymorphicCollectionIds = oClass.getPolymorphicCollectionIds();
 
     baseClassesNames = new ArrayList<>();
-    for (var baseClass : oClass.getSubclasses(session)) {
-      baseClassesNames.add(baseClass.getName(session));
+    for (var baseClass : oClass.getSubclasses()) {
+      baseClassesNames.add(baseClass.getName());
     }
 
     properties = new HashMap<>();
-    for (var p : oClass.declaredProperties(session)) {
-      properties.put(p.getName(session),
+    for (var p : oClass.declaredProperties()) {
+      properties.put(p.getName(),
           new ImmutableSchemaProperty(session, p, this));
     }
 
     Map<String, String> customFields = new HashMap<>();
-    for (var key : oClass.getCustomKeys(session)) {
-      customFields.put(key, oClass.getCustom(session, key));
+    for (var key : oClass.getCustomKeys()) {
+      customFields.put(key, oClass.getCustom(key));
     }
 
     this.customFields = Collections.unmodifiableMap(customFields);
-    this.description = oClass.getDescription(session);
+    this.description = oClass.getDescription();
 
     this.original = oClass;
   }

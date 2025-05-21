@@ -12,7 +12,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexMetadataPath;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,7 +20,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -541,19 +540,22 @@ public class SQLModifier extends SimpleNode {
     return false;
   }
 
-  public Optional<MetadataPath> getPath() {
+  @Nullable
+  public IndexMetadataPath getIndexMetadataPath() {
     if (this.suffix != null && this.suffix.isBaseIdentifier()) {
       if (this.next != null) {
-        var path = this.next.getPath();
-        if (path.isPresent()) {
-          path.get().addPre(suffix.identifier.getValue());
+        var path = this.next.getIndexMetadataPath();
+        if (path != null) {
+          path.addPre(suffix.identifier.getValue());
         }
+
         return path;
       } else {
-        return Optional.of(new MetadataPath(suffix.identifier.getValue()));
+        return new IndexMetadataPath(suffix.identifier.getValue());
       }
     }
-    return Optional.empty();
+
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=39c21495d02f9b5007b4a2d6915496e1 (do not edit this line) */

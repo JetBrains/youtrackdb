@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.common.listener;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 
 /**
  * Listener interface called on task execution.
@@ -30,5 +30,5 @@ public interface ProgressListener {
 
   boolean onProgress(Object iTask, long iCounter, float iPercent);
 
-  void onCompletition(DatabaseSessionInternal session, Object iTask, boolean iSucceed);
+  void onCompletition(DatabaseSessionEmbedded session, Object iTask, boolean iSucceed);
 }

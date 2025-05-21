@@ -30,7 +30,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * @param <L> Listener type
  */
 public abstract class ListenerManger<L> {
-
   private final Collection<L> listeners;
 
   public ListenerManger(boolean concurrent) {

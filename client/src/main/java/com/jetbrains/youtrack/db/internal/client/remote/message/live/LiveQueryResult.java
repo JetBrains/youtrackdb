@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message.live;
 
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 
 /**
  *
@@ -12,10 +12,10 @@ public class LiveQueryResult {
   public static final byte DELETE_EVENT = 3;
 
   private final byte eventType;
-  private final Result currentValue;
-  private final Result oldValue;
+  private final BasicResult currentValue;
+  private final BasicResult oldValue;
 
-  public LiveQueryResult(byte eventType, Result currentValue, Result oldValue) {
+  public LiveQueryResult(byte eventType, BasicResult currentValue, BasicResult oldValue) {
     this.eventType = eventType;
     this.currentValue = currentValue;
     this.oldValue = oldValue;
@@ -25,11 +25,11 @@ public class LiveQueryResult {
     return eventType;
   }
 
-  public Result getCurrentValue() {
+  public BasicResult getCurrentValue() {
     return currentValue;
   }
 
-  public Result getOldValue() {
+  public BasicResult getOldValue() {
     return oldValue;
   }
 }

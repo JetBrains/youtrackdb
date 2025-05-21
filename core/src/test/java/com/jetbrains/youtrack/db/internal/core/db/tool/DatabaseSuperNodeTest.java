@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -26,8 +26,8 @@ public class DatabaseSuperNodeTest {
       final var databaseName = "superNode_export";
       final var exportDbUrl =
           "embedded:target/export_" + DatabaseSuperNodeTest.class.getSimpleName();
-      YouTrackDB youTrackDB =
-          CreateDatabaseUtil.createDatabase(
+      var youTrackDB =
+          (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
               databaseName, exportDbUrl, CreateDatabaseUtil.TYPE_MEMORY);
 
       final var output = new ByteArrayOutputStream();
@@ -44,7 +44,7 @@ public class DatabaseSuperNodeTest {
       final var importDbUrl =
           "memory:target/import_" + DatabaseSuperNodeTest.class.getSimpleName();
       youTrackDB =
-          CreateDatabaseUtil.createDatabase(
+          (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
               databaseName + "_reImport", importDbUrl, CreateDatabaseUtil.TYPE_DISK);
       try {
         testImportDatabase(numberEdge, databaseName, youTrackDB, output, importStats);
@@ -64,7 +64,7 @@ public class DatabaseSuperNodeTest {
       final int edgeNumber,
       final List<Long> stats,
       final String databaseName,
-      final YouTrackDB youTrackDB,
+      final YouTrackDBImpl youTrackDB,
       final OutputStream output) {
 
     try (final var session =
@@ -83,7 +83,7 @@ public class DatabaseSuperNodeTest {
 
       final var export =
           new DatabaseExport(
-              (DatabaseSessionInternal) session,
+              (DatabaseSessionEmbedded) session,
               output,
               new CommandOutputListener() {
                 @Override
@@ -106,20 +106,17 @@ public class DatabaseSuperNodeTest {
   private static void testImportDatabase(
       int numberEdge,
       final String databaseName,
-      final YouTrackDB youTrackDB,
+      final YouTrackDBImpl youTrackDB,
       final ByteArrayOutputStream output,
       List<Long> stats) {
     try (var db =
-        (DatabaseSessionInternal) youTrackDB.open(
+        (DatabaseSessionEmbedded) youTrackDB.open(
             databaseName + "_reImport", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
       final var importer =
           new DatabaseImport(
               db,
               new ByteArrayInputStream(output.toByteArray()),
-              new CommandOutputListener() {
-                @Override
-                public void onMessage(String iText) {
-                }
+              iText -> {
               });
       final var start = System.nanoTime();
       importer.importDatabase();

@@ -31,12 +31,7 @@ import org.testng.annotations.Test;
  *
  */
 public class PolymorphicQueryTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public PolymorphicQueryTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -88,6 +83,7 @@ public class PolymorphicQueryTest extends BaseDBTest {
     session.execute("create class SpecificCrash extends GenericCrash").close();
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();

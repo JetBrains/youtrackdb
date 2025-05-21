@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
@@ -60,7 +60,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
   private String BACKUFILE = null;
 
   private YouTrackDBServer server;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionEmbedded db;
 
   @Rule
   public TestName name = new TestName();
@@ -104,7 +104,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
     youTrackDB.execute(
         "create database ? disk users(admin identified by 'admin' role admin)", DBNAME);
 
-    db = (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
+    db = (DatabaseSessionEmbedded) youTrackDB.open(DBNAME, "admin", "admin");
 
     db.execute("create class City ").close();
     db.execute("create property City.name string").close();
@@ -170,7 +170,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
         IOUtils.readStreamAsString(
             getClass().getClassLoader().getResourceAsStream("automatic-backup.json"));
 
-    var map = JSONSerializerJackson.mapFromJson(jsonConfig);
+    var map = JSONSerializerJackson.INSTANCE.mapFromJson(jsonConfig);
     map.put("enabled", true);
     map.put("targetFileName", "${DBNAME}.json");
     map.put("targetDirectory", BACKUPDIR);
@@ -183,7 +183,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
     IOUtils.writeFile(
         new File(tempFolder.getAbsolutePath() + "/config/automatic-backup.json"),
-        JSONSerializerJackson.mapToJson(map));
+        JSONSerializerJackson.INSTANCE.mapToJson(map));
 
     final var aBackup = new AutomaticBackup();
 
@@ -232,7 +232,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
     assertThat(db.countClass("City")).isEqualTo(1);
 
-    var index = db.getSharedContext().getIndexManager().getIndex(db, "City.location");
+    var index = db.getSharedContext().getIndexManager().getIndex("City.location");
 
     assertThat(index).isNotNull();
     assertThat(index.getType()).isEqualTo(SchemaClass.INDEX_TYPE.SPATIAL.name());
@@ -240,13 +240,13 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
     assertThat(db.query(query).stream()).hasSize(1);
   }
 
-  private DatabaseSessionInternal createAndOpen() {
+  private DatabaseSessionEmbedded createAndOpen() {
     youTrackDB.execute(
         "create database ? disk users(admin identified by 'admin' role admin)", DBNAME);
     return open();
   }
 
-  private DatabaseSessionInternal open() {
-    return (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
+  private DatabaseSessionEmbedded open() {
+    return (DatabaseSessionEmbedded) youTrackDB.open(DBNAME, "admin", "admin");
   }
 }

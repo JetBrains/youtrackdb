@@ -37,7 +37,7 @@ public class UpdatableResult extends ResultInternal {
   }
 
   @Override
-  public boolean isRecord() {
+  public boolean isIdentifiable() {
     assert checkSession();
     return true;
   }

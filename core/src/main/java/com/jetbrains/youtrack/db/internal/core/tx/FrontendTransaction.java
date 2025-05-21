@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -51,17 +51,17 @@ public interface FrontendTransaction extends Transaction {
 
   int beginInternal();
 
-  void commitInternal();
+  @Nullable
+  Map<RID, RID> commitInternal();
 
-  void commitInternal(boolean force);
+  @Nullable
+  Map<RID, RID> commitInternal(boolean force);
 
   void rollbackInternal();
 
-  void rollbackInternal(boolean force, int commitLevelDiff);
-
   @Override
   @Nonnull
-  DatabaseSessionInternal getDatabaseSession();
+  DatabaseSessionEmbedded getDatabaseSession();
 
   @Deprecated
   void clearRecordEntries();
@@ -204,7 +204,7 @@ public interface FrontendTransaction extends Transaction {
    */
   void setStatus(final FrontendTransaction.TXSTATUS iStatus);
 
-  void setSession(DatabaseSessionInternal session);
+  void setSession(DatabaseSessionEmbedded session);
 
   @Nullable
   default byte[] getMetadata() {
@@ -244,8 +244,6 @@ public interface FrontendTransaction extends Transaction {
   }
 
   boolean isCallBackProcessingInProgress();
-
-  void internalRollback();
 
   boolean isScheduledForCallbackProcessing(RecordId rid);
 

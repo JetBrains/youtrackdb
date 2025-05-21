@@ -28,18 +28,10 @@ import java.util.Collection;
 import java.util.stream.Collectors;
 import org.apache.commons.collections4.CollectionUtils;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class GraphDatabaseTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public GraphDatabaseTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void populate() {
     generateGraphData();

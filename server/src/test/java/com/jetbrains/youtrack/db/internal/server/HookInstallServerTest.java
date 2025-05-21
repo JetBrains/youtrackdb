@@ -1,22 +1,16 @@
 package com.jetbrains.youtrack.db.internal.server;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerHookConfiguration;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
-import javax.management.InstanceAlreadyExistsException;
-import javax.management.MBeanRegistrationException;
-import javax.management.MalformedObjectNameException;
-import javax.management.NotCompliantMBeanException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -28,7 +22,7 @@ public class HookInstallServerTest {
 
   public static class MyHook extends EntityHookAbstract {
 
-    public MyHook(DatabaseSession session) {
+    public MyHook() {
       super();
     }
 
@@ -42,20 +36,7 @@ public class HookInstallServerTest {
   private YouTrackDBServer server;
 
   @Before
-  public void before()
-      throws MalformedObjectNameException,
-      InstanceAlreadyExistsException,
-      MBeanRegistrationException,
-      NotCompliantMBeanException,
-      ClassNotFoundException,
-      NullPointerException,
-      IOException,
-      IllegalArgumentException,
-      SecurityException,
-      InvocationTargetException,
-      NoSuchMethodException,
-      InstantiationException,
-      IllegalAccessException {
+  public void before() throws Exception {
     server = new YouTrackDBServer(false);
     server.setServerRootDirectory(SERVER_DIRECTORY);
 
@@ -72,18 +53,16 @@ public class HookInstallServerTest {
     server.startup(ret.getConfiguration());
     server.activate();
 
-    var admin = new ServerAdmin("remote:localhost");
-    admin.connect("root", "root");
-    admin.createDatabase("test", "nothign", "memory");
-    admin.close();
+    try (var youTrackDB = YourTracks.remote("remote:localhost", "root", "root")) {
+      youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
+    }
   }
 
   @After
   public void after() throws IOException {
-    var admin = new ServerAdmin("remote:localhost");
-    admin.connect("root", "root");
-    admin.dropDatabase("test", "memory");
-    admin.close();
+    try (var youTrackDB = YourTracks.remote("remote:localhost", "root", "root")) {
+      youTrackDB.drop("test");
+    }
     server.shutdown();
 
     YouTrackDBEnginesManager.instance().shutdown();
@@ -99,14 +78,13 @@ public class HookInstallServerTest {
         YourTracks.remote("remote:localhost", "root", "root")) {
       for (var i = 0; i < 10; i++) {
         var poolInstance = pool.cachedPool("test", "admin", "admin");
-        var id = i;
         try (var db = poolInstance.acquire()) {
-          db.getSchema().getOrCreateClass("Test");
-
-          db.executeInTx(transaction -> {
-            var entity = transaction.newEntity("Test");
-            entity.setProperty("entry", id);
-          });
+          db.command("create class Test if not exists");
+          db.executeSQLScript("""
+              begin;
+              insert into Test set entry = ?;
+              commit;
+              """, i);
         }
       }
     }

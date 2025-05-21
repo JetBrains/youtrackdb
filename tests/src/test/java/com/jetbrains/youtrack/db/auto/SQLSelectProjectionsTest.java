@@ -36,12 +36,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLSelectProjectionsTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLSelectProjectionsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {

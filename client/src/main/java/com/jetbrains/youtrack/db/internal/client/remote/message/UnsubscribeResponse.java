@@ -1,11 +1,11 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 
 /**
@@ -20,15 +20,15 @@ public class UnsubscribeResponse implements BinaryResponse {
   }
 
   @Override
-  public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
-      int protocolVersion, RecordSerializer serializer)
+  public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel,
+      int protocolVersion)
       throws IOException {
-    response.write(session, channel, protocolVersion, serializer);
+    response.write(session, channel, protocolVersion);
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput network,
-      StorageRemoteSession session) throws IOException {
+  public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
+      BinaryProtocolSession session) throws IOException {
     response.read(db, network, session);
   }
 }

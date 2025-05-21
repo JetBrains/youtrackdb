@@ -95,7 +95,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     Object shape;
 
     if (args[1].getValue() instanceof SQLJson json) {
-      shape = JSONSerializerJackson.mapFromJson(json.toString());
+      shape = JSONSerializerJackson.INSTANCE.mapFromJson(json.toString());
     } else {
       shape = args[1].execute((Identifiable) null, ctx);
     }

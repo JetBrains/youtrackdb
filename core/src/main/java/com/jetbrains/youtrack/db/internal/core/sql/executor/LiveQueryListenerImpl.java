@@ -1,11 +1,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.LiveQueryBatchResultListener;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -23,15 +25,12 @@ import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
 
   public static final String BEFORE_METADATA_KEY = "$$before$$";
-  private final LiveQueryResultListener clientListener;
+  private final BasicLiveQueryResultListener<DatabaseSession, Result> clientListener;
   @Nonnull
-  private final DatabasePoolInternal pool;
+  private final DatabasePoolInternal<DatabaseSession> pool;
 
   private final SQLSelectStatement statement;
   private String className;
@@ -43,16 +42,17 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
   private static final Random random = new Random();
 
   public LiveQueryListenerImpl(
-      LiveQueryResultListener clientListener, String query, @Nonnull DatabasePoolInternal pool,
+      BasicLiveQueryResultListener<DatabaseSession, Result> clientListener, String query,
+      @Nonnull DatabasePoolInternal<DatabaseSession> pool,
       Object[] iArgs) {
     this(clientListener, query, pool, toPositionalParams(iArgs));
   }
 
   public LiveQueryListenerImpl(
-      LiveQueryResultListener clientListener,
+      BasicLiveQueryResultListener<DatabaseSession, Result> clientListener,
       String query,
       @Nonnull
-      DatabasePoolInternal pool,
+      DatabasePoolInternal<DatabaseSession> pool,
       Map<Object, Object> iArgs) {
     this.clientListener = clientListener;
     this.params = iArgs;
@@ -61,7 +61,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
     if (query.trim().toLowerCase().startsWith("live ")) {
       query = query.trim().substring(5);
     }
-    try (var session = (DatabaseSessionInternal) pool.acquire()) {
+    try (var session = (DatabaseSessionEmbedded) pool.acquire()) {
       var stm = SQLEngine.parse(query, session);
       if (!(stm instanceof SQLSelectStatement)) {
         throw new CommandExecutionException(session,
@@ -136,7 +136,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
 
   @Override
   public void onLiveResults(List<LiveQueryOp> liveQueryOps) {
-    try (var session = (DatabaseSessionInternal) pool.acquire()) {
+    try (var session = (DatabaseSessionEmbedded) pool.acquire()) {
 
       for (var queryOp : liveQueryOps) {
         ResultInternal record;
@@ -176,7 +176,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
     }
   }
 
-  private ResultInternal applyProjections(ResultInternal record, DatabaseSessionInternal session) {
+  private ResultInternal applyProjections(ResultInternal record, DatabaseSessionEmbedded session) {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);
 
@@ -187,7 +187,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
     return record;
   }
 
-  private boolean filter(DatabaseSessionInternal session, Result record) {
+  private boolean filter(DatabaseSessionEmbedded session, Result record) {
     // filter by class
     if (className != null) {
       var filterClass = record.getProperty("@class");

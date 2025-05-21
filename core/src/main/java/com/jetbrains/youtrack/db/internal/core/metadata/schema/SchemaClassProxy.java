@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
@@ -24,20 +25,20 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   private int hashCode = 0;
 
   public SchemaClassProxy(SchemaClassImpl delegate,
-      @Nonnull DatabaseSessionInternal session) {
+      @Nonnull DatabaseSessionEmbedded session) {
     super(delegate, session);
   }
 
   @Override
   public CollectionSelectionStrategy getCollectionSelection() {
     assert this.session.assertIfNotActive();
-    return delegate.getCollectionSelection(session);
+    return delegate.getCollectionSelection();
   }
 
   @Override
   public int getCollectionForNewInstance(EntityImpl entity) {
     assert this.session.assertIfNotActive();
-    return delegate.getCollectionSelection(this.session).getCollection(this.session, this, entity);
+    return delegate.getCollectionSelection().getCollection(this.session, this, entity);
   }
 
   @Override
@@ -104,7 +105,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public SchemaPropertyInternal getPropertyInternal(String propertyName) {
     assert this.session.assertIfNotActive();
-    var result = delegate.getPropertyInternal(session, propertyName);
+    var result = delegate.getPropertyInternal(propertyName);
     return result != null ? new SchemaPropertyProxy(result, session) : null;
   }
 
@@ -200,7 +201,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean isAbstract() {
     assert session.assertIfNotActive();
-    return delegate.isAbstract(session);
+    return delegate.isAbstract();
   }
 
   @Override
@@ -213,7 +214,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean isStrictMode() {
     assert session.assertIfNotActive();
-    return delegate.isStrictMode(session);
+    return delegate.isStrictMode();
   }
 
   @Override
@@ -225,7 +226,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean hasSuperClasses() {
     assert session.assertIfNotActive();
-    return delegate.hasSuperClasses(session);
+    return delegate.hasSuperClasses();
   }
 
   @Override
@@ -237,7 +238,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public List<SchemaClass> getSuperClasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getSuperClasses(session);
+    var result = delegate.getSuperClasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -278,7 +279,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public String getName() {
     assert this.session.assertIfNotActive();
-    return delegate.getName(this.session);
+    return delegate.getName();
   }
 
   @Override
@@ -292,7 +293,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public String getDescription() {
     assert this.session.assertIfNotActive();
-    return delegate.getDescription(this.session);
+    return delegate.getDescription();
   }
 
   @Override
@@ -305,13 +306,13 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public String getStreamableName() {
     assert this.session.assertIfNotActive();
-    return delegate.getStreamableName(this.session);
+    return delegate.getStreamableName();
   }
 
   @Override
   public Collection<SchemaProperty> getDeclaredProperties() {
     assert this.session.assertIfNotActive();
-    var result = delegate.declaredProperties(this.session);
+    var result = delegate.declaredProperties();
 
     var resultProxy = new ArrayList<SchemaProperty>(result.size());
     for (var schemaProperty : result) {
@@ -351,7 +352,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public SchemaProperty getProperty(String iPropertyName) {
     assert session.assertIfNotActive();
-    var result = delegate.getProperty(session, iPropertyName);
+    var result = delegate.getProperty(iPropertyName);
     return result != null ? new SchemaPropertyProxy(result, session) : null;
   }
 
@@ -390,25 +391,25 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean existsProperty(String iPropertyName) {
     assert session.assertIfNotActive();
-    return delegate.existsProperty(session, iPropertyName);
+    return delegate.existsProperty(iPropertyName);
   }
 
   @Override
   public int[] getCollectionIds() {
     assert session.assertIfNotActive();
-    return delegate.getCollectionIds(session);
+    return delegate.getCollectionIds();
   }
 
   @Override
   public int[] getPolymorphicCollectionIds() {
     assert session.assertIfNotActive();
-    return delegate.getPolymorphicCollectionIds(session);
+    return delegate.getPolymorphicCollectionIds();
   }
 
   @Override
   public Collection<SchemaClass> getSubclasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getSubclasses(session);
+    var result = delegate.getSubclasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -421,7 +422,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaClass> getAllSubclasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getAllSubclasses(session);
+    var result = delegate.getAllSubclasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -435,7 +436,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaClass> getAllSuperClasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getAllSuperClasses(session);
+    var result = delegate.getAllSuperClasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -454,13 +455,13 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean isSubClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
-    return delegate.isSubClassOf(session, ((SchemaClassInternal) iClass).getImplementation());
+    return delegate.isSubClassOf(((SchemaClassInternal) iClass).getImplementation());
   }
 
   @Override
   public boolean isSuperClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
-    return delegate.isSuperClassOf(session, ((SchemaClassInternal) iClass).getImplementation());
+    return delegate.isSuperClassOf(((SchemaClassInternal) iClass).getImplementation());
   }
 
   @Override
@@ -513,7 +514,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public String getCustom(String iName) {
     assert session.assertIfNotActive();
-    return delegate.getCustom(session, iName);
+    return delegate.getCustom(iName);
   }
 
   @Override
@@ -538,25 +539,25 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Set<String> getCustomKeys() {
     assert session.assertIfNotActive();
-    return delegate.getCustomKeys(session);
+    return delegate.getCustomKeys();
   }
 
   @Override
   public boolean hasCollectionId(int collectionId) {
     assert session.assertIfNotActive();
-    return delegate.hasCollectionId(session, collectionId);
+    return delegate.hasCollectionId(collectionId);
   }
 
   @Override
   public boolean hasPolymorphicCollectionId(int collectionId) {
     assert session.assertIfNotActive();
-    return delegate.hasPolymorphicCollectionId(session, collectionId);
+    return delegate.hasPolymorphicCollectionId(collectionId);
   }
 
   @Override
   public int hashCode() {
     if (hashCode == 0) {
-      hashCode = delegate.getName(session).hashCode();
+      hashCode = delegate.getName().hashCode();
     }
 
     return hashCode;
@@ -569,7 +570,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
     }
 
     if (obj instanceof SchemaClassInternal schemaClass) {
-      return session == schemaClass.getBoundToSession() && delegate.getName(session).
+      return session == schemaClass.getBoundToSession() && delegate.getName().
           equals(schemaClass.getName());
     }
 
@@ -584,7 +585,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public String toString() {
     if (session.isActiveOnCurrentThread()) {
-      return delegate.getName(session);
+      return delegate.getName();
     }
 
     return super.toString();

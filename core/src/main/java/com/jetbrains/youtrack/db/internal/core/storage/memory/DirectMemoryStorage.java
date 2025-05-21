@@ -20,12 +20,14 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.memory;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
@@ -51,7 +53,7 @@ public class DirectMemoryStorage extends AbstractStorage {
   private static final int ONE_KB = 1024;
 
   public DirectMemoryStorage(
-      final String name, final String filePath, final int id, YouTrackDBInternal context) {
+      final String name, final String filePath, final int id, YouTrackDBInternalEmbedded context) {
     super(name, filePath, id, context);
   }
 

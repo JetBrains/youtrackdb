@@ -32,7 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCacheFactoryImpl
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategyFactory;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseThreadLocalFactory;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.engine.Engine;
 import com.jetbrains.youtrack.db.internal.core.record.RecordFactoryManager;
@@ -121,7 +121,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private final LocalRecordCacheFactory localRecordCache = new LocalRecordCacheFactoryImpl();
 
-  private final Set<YouTrackDBEmbedded> factories =
+  private final Set<YouTrackDBInternalEmbedded> factories =
       Collections.newSetFromMap(new ConcurrentHashMap<>());
 
   private final Set<YouTrackDBInternal> runningInstances = new HashSet<>();
@@ -801,7 +801,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
   }
 
-  public void onEmbeddedFactoryInit(YouTrackDBEmbedded embeddedFactory) {
+  public void onEmbeddedFactoryInit(YouTrackDBInternalEmbedded embeddedFactory) {
     var memory = engines.get("memory");
     if (memory != null && !memory.isRunning()) {
       memory.startup();
@@ -813,7 +813,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     factories.add(embeddedFactory);
   }
 
-  public void onEmbeddedFactoryClose(YouTrackDBEmbedded embeddedFactory) {
+  public void onEmbeddedFactoryClose(YouTrackDBInternalEmbedded embeddedFactory) {
     factories.remove(embeddedFactory);
     if (factories.isEmpty()) {
       var memory = engines.get("memory");

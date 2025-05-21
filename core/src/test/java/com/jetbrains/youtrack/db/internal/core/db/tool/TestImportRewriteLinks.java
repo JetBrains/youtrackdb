@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.db.tool;
 import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
 import static com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -29,7 +29,7 @@ public class TestImportRewriteLinks {
   @Test
   @Ignore
   public void testLinkRewrite() {
-    try (final YouTrackDB youTrackDb =
+    try (final BasicYouTrackDB youTrackDb =
         CreateDatabaseUtil.createDatabase(
             "testDB", DbTestBase.embeddedDBUrl(getClass()), CreateDatabaseUtil.TYPE_MEMORY)) {
       try (var session =

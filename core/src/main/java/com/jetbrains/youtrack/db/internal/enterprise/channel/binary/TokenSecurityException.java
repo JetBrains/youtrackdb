@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.enterprise.channel.binary;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 
 /**
@@ -16,7 +16,7 @@ public class TokenSecurityException extends SecurityException {
     super(dbName, message);
   }
 
-  public TokenSecurityException(DatabaseSession session,
+  public TokenSecurityException(BasicDatabaseSession<?, ?> session,
       String message) {
     super(session, message);
   }

@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -13,7 +13,6 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
 public class EmbeddedSetResultImpl<T> implements EmbeddedSet<T> {
-
   private final Set<T> set;
 
   @SuppressWarnings("unused")

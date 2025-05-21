@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.RidSet;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;

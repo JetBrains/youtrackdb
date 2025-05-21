@@ -30,6 +30,7 @@ import java.util.Iterator;
 import java.util.Locale;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Utility class to create indexes. New IndexFactory can be registered
@@ -126,14 +127,14 @@ public final class Indexes {
         "Index with type " + indexType + " and algorithm " + algorithm + " does not exist.");
   }
 
-  public static Index createIndexInstance(@Nonnull String indexType, @Nonnull String algorithm,
+  public static Index createIndexInstance(@Nonnull String indexType, @Nullable String algorithm,
       @Nonnull Storage storage)
       throws ConfigurationException, IndexException {
 
     return findFactoryByAlgorithmAndType(algorithm, indexType).createIndex(indexType, storage);
   }
 
-  public static Index createIndexInstance(@Nonnull String indexType, @Nonnull String algorithm,
+  public static Index createIndexInstance(@Nonnull String indexType, @Nullable String algorithm,
       @Nonnull Storage storage, @Nonnull FrontendTransaction transaction, @Nonnull RID identity)
       throws ConfigurationException, IndexException {
 

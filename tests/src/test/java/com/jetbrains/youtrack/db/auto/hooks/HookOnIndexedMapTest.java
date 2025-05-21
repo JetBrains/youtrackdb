@@ -1,29 +1,27 @@
 package com.jetbrains.youtrack.db.auto.hooks;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import org.junit.Test;
 
 public class HookOnIndexedMapTest {
 
   @Test
   public void test() {
-    YouTrackDB youTrackDb = new YouTrackDBImpl("disk:.", "root", "root",
-        YouTrackDBConfig.defaultConfig());
-
+    var youTrackDb = YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(HookOnIndexedMapTest.class));
     youTrackDb.execute(
         "create database " + "test" + " memory users ( admin identified by 'admin' role admin)");
     var db = youTrackDb.open("test", "admin", "admin");
     db.registerHook(new BrokenMapHook());
 
-    db.runScript("sql", "CREATE CLASS AbsVertex IF NOT EXISTS EXTENDS V ABSTRACT;");
-    db.runScript("sql", "CREATE PROPERTY AbsVertex.uId IF NOT EXISTS string;");
-    db.runScript("sql", "CREATE PROPERTY AbsVertex.myMap IF NOT EXISTS EMBEDDEDMAP;");
+    db.computeScript("sql", "CREATE CLASS AbsVertex IF NOT EXISTS EXTENDS V ABSTRACT;");
+    db.computeScript("sql", "CREATE PROPERTY AbsVertex.uId IF NOT EXISTS string;");
+    db.computeScript("sql", "CREATE PROPERTY AbsVertex.myMap IF NOT EXISTS EMBEDDEDMAP;");
 
-    db.runScript("sql", "CREATE CLASS MyClass IF NOT EXISTS EXTENDS AbsVertex;");
-    db.runScript("sql", "CREATE INDEX MyClass.uId IF NOT EXISTS ON MyClass(uId) UNIQUE;");
-    db.runScript("sql",
+    db.computeScript("sql", "CREATE CLASS MyClass IF NOT EXISTS EXTENDS AbsVertex;");
+    db.computeScript("sql", "CREATE INDEX MyClass.uId IF NOT EXISTS ON MyClass(uId) UNIQUE;");
+    db.computeScript("sql",
         "CREATE INDEX MyClass.myMap IF NOT EXISTS ON MyClass(myMap by key) NOTUNIQUE;");
 
     var tx = db.begin();

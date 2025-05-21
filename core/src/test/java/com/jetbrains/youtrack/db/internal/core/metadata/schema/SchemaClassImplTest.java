@@ -24,7 +24,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
    * changed.
    */
   @Test
-  public void testSetAbstractCollectionNotChanged() throws Exception {
+  public void testSetAbstractCollectionNotChanged() {
     final Schema oSchema = session.getMetadata().getSchema();
 
     var oClass = oSchema.createClass("Test1");
@@ -495,7 +495,6 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
         "asdf.sadf",
         ".asdf",
         "asdfaf.",
-        "asdf:asdf"
     };
     for (var s : validClassNamesSince30) {
       assertNotNull(oSchema.createClass(s));

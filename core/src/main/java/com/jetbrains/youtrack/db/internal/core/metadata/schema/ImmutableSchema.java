@@ -63,7 +63,7 @@ public class ImmutableSchema implements SchemaInternal {
   public ImmutableSchema(@Nonnull SchemaShared schemaShared,
       @Nonnull DatabaseSessionInternal session) {
     version = schemaShared.getVersion();
-    identity = schemaShared.getIdentity(session);
+    identity = schemaShared.getIdentity();
     collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
 
     var schemaSharedClassesRefs = schemaShared.getClassesRefs(session);
@@ -87,16 +87,16 @@ public class ImmutableSchema implements SchemaInternal {
     }
 
     properties = new ArrayList<>();
-    properties.addAll(schemaShared.getGlobalProperties(session));
+    properties.addAll(schemaShared.getGlobalProperties());
 
     for (SchemaClass cl : this.classes.values()) {
       ((SchemaImmutableClass) cl).init(session);
     }
 
-    this.blobCollections = schemaShared.getBlobCollections(session);
+    this.blogCollections = schemaShared.getBlobCollections();
 
     var indexManager = session.getSharedContext().getIndexManager();
-    var internalIndexes = indexManager.getIndexes(session);
+    var internalIndexes = indexManager.getIndexes();
 
     var indexes = new HashMap<String, IndexDefinition>(internalIndexes.size());
     for (var index : internalIndexes) {
@@ -125,6 +125,7 @@ public class ImmutableSchema implements SchemaInternal {
     this.indexes = Collections.unmodifiableMap(indexes);
   }
 
+  @Override
   public ImmutableSchema makeSnapshot() {
     return this;
   }
@@ -278,6 +279,7 @@ public class ImmutableSchema implements SchemaInternal {
     return new RecordId(identity);
   }
 
+  @Override
   public Set<SchemaClass> getClassesRelyOnCollection(String collectionName,
       DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);

@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import java.io.IOException;
-import java.util.logging.Level;
 import org.apache.lucene.analysis.en.EnglishAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.junit.Before;
@@ -26,7 +25,7 @@ public class LuceneAllIndexTest extends BaseLuceneTest {
 
     var fromStream =
         IOUtils.readStreamAsString(ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql"));
-    session.runScript("sql", fromStream).close();
+    session.computeScript("sql", fromStream).close();
     session.setProperty("CUSTOM", "strictSql=false");
 
     // three separate indeexs, one result

@@ -46,9 +46,9 @@ public class CountFromIndexWithKeyStep extends AbstractExecutionStep {
   }
 
   private Result produce(CommandContext ctx) {
-    var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
+    var session = ctx.getDatabaseSession();
     var idx = session.getSharedContext().getIndexManager()
-        .getIndex(session, target.getIndexName());
+        .getIndex(target.getIndexName());
     var db = ctx.getDatabaseSession();
     var val =
         idx.getDefinition()

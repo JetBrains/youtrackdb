@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.lucene.index;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -14,7 +14,7 @@ public class LuceneFailTest {
 
   @Before
   public void before() {
-    odb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    odb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     odb.execute("create database tdb memory users (admin identified by 'admpwd' role admin)")
         .close();
@@ -28,8 +28,8 @@ public class LuceneFailTest {
   @Test
   public void test() {
     try (var session = odb.open("tdb", "admin", "admpwd")) {
-      session.runScript("sql", "create property V.text string").close();
-      session.runScript("sql", "create index lucene_index on V(text) FULLTEXT ENGINE LUCENE")
+      session.computeScript("sql", "create property V.text string").close();
+      session.computeScript("sql", "create index lucene_index on V(text) FULLTEXT ENGINE LUCENE")
           .close();
 
       session.executeInTx(transaction -> {

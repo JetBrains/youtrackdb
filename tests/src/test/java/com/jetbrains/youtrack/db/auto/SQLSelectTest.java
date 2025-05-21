@@ -40,19 +40,11 @@ import java.util.Objects;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 @SuppressWarnings("unchecked")
 public class SQLSelectTest extends AbstractSelectTest {
-
-  @Parameters(value = "remote")
-  public SQLSelectTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void init() {
     generateCompanyData();
@@ -288,12 +280,12 @@ public class SQLSelectTest extends AbstractSelectTest {
     var entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Luca");
     entity.setProperty("surname", "Garulli");
-    customReferences.put("first", (EntityImpl) entity);
+    customReferences.put("first", entity);
 
     entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Jay");
     entity.setProperty("surname", "Miner");
-    customReferences.put("second", (EntityImpl) entity);
+    customReferences.put("second", entity);
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
@@ -503,7 +495,7 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryCollectionInNumbers() {
     session.begin();
-    Entity record = ((EntityImpl) session.newEntity("Animal"));
+    Entity record = session.newEntity("Animal");
     record.setProperty("name", "Cat");
 
     var rates = session.<Integer>newEmbeddedSet();
@@ -518,7 +510,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var found = false;
     for (var i = 0; i < result.size() && !found; ++i) {
-      record = (EntityImpl) result.get(i).asEntityOrNull();
+      record = result.get(i).asEntityOrNull();
 
       Assert.assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
       Assert.assertNotNull(record.getProperty("rates"));

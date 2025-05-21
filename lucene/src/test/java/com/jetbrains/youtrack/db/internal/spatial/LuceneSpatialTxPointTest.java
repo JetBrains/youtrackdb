@@ -110,7 +110,7 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
 
     Assert.assertEquals(1, docs.stream().count());
 
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
+    var index = session.getSharedContext().getIndexManager().getIndex("City.location");
 
     session.begin();
     Assert.assertEquals(1, index.size(session));
@@ -139,7 +139,7 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
     session.commit();
 
     session.begin();
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
+    var index = session.getSharedContext().getIndexManager().getIndex("City.location");
 
     Assert.assertEquals(2, index.size(session));
     session.commit();

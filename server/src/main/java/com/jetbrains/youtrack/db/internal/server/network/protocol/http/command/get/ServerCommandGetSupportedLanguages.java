@@ -18,6 +18,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
@@ -41,7 +42,8 @@ public class ServerCommandGetSupportedLanguages extends ServerCommandAuthenticat
       Set<String> languages = new HashSet<>();
 
       var scriptManager =
-          YouTrackDBInternal.extract(server.getContext()).getScriptManager();
+          ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
+              server.getContext())).getScriptManager();
       for (var language : scriptManager.getSupportedLanguages()) {
         if (scriptManager.getFormatters() != null
             && scriptManager.getFormatters().get(language) != null) {

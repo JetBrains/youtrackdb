@@ -41,7 +41,7 @@
       -Dyoutrackdb.security.userPasswordSaltIterations=10
       -Dyoutrackdb.memory.directMemory.trackMode=true
       -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-      -Dyoutrackdb.storage.diskCache.checksumMode=storeAndThrow
+      -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
       -Dyoutrackdb.security.warningDefaultUsers=false
       <!-- new security feature -->
       -Dyoutrackdb.security.createDefaultUsers=false
@@ -161,11 +161,6 @@
             </goals>
           </execution>
         </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.jetbrains.kotlin</groupId>
-        <artifactId>kotlin-maven-plugin</artifactId>
-        <extensions>true</extensions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -314,17 +309,12 @@
       <groupId>org.graalvm.js</groupId>
       <artifactId>js</artifactId>
       <version>${graalvm.version}</version>
-      <type>pom</type>
       <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>org.graalvm.js</groupId>
       <artifactId>js-scriptengine</artifactId>
       <version>${graalvm.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.jetbrains.kotlin</groupId>
-      <artifactId>kotlin-stdlib</artifactId>
     </dependency>
   </dependencies>
 

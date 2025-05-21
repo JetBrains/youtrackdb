@@ -1,21 +1,32 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 
-/**
- *
- */
+
 public class QueryResponseTest extends DbTestBase {
+
+  @Mock
+  private RemoteDatabaseSessionInternal remoteSession;
+
+  @Override
+  public void beforeTest() throws Exception {
+    super.beforeTest();
+    MockitoAnnotations.initMocks(this);
+    Mockito.when(remoteSession.assertIfNotActive()).thenReturn(true);
+  }
 
   @Test
   public void test() throws IOException {
@@ -28,19 +39,19 @@ public class QueryResponseTest extends DbTestBase {
       resuls.add(item);
     }
     var response =
-        new QueryResponse("query", true, resuls, null, false, new HashMap<>(), true);
+        new QueryResponse("query", resuls, false, false);
 
     var channel = new MockChannel();
-    response.write(null,
+    response.write(session,
         channel,
-        ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION,
-        RecordSerializerNetworkFactory.current());
+        ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION
+    );
 
     channel.close();
 
     var newResponse = new QueryResponse();
 
-    newResponse.read(session, channel, null);
+    newResponse.read(remoteSession, channel, null);
     var responseRs = newResponse.getResult().iterator();
 
     for (var i = 0; i < 10; i++) {
@@ -50,7 +61,5 @@ public class QueryResponseTest extends DbTestBase {
       Assert.assertEquals((Integer) i, item.getProperty("counter"));
     }
     Assert.assertFalse(responseRs.hasNext());
-    Assert.assertTrue(newResponse.isReloadMetadata());
-    Assert.assertTrue(newResponse.isTxChanges());
   }
 }

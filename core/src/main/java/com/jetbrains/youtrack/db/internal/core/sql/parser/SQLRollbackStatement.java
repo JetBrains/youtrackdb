@@ -2,6 +2,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -19,10 +20,18 @@ public class SQLRollbackStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    ctx.getDatabaseSession().rollback();
-    var db = ctx.getDatabaseSession();
-    var item = new ResultInternal(db);
+    var session = ctx.getDatabaseSession();
+    var txInternal = session.getTransactionInternal();
+    if (txInternal == null || !txInternal.isActive()) {
+      throw new CommandExecutionException("No active transaction running");
+    }
+    var txId = txInternal.getId();
+    session.rollback();
+
+    var item = new ResultInternal(session);
     item.setProperty("operation", "rollback");
+    item.setProperty("txId", txId);
+
     return ExecutionStream.singleton(item);
   }
 

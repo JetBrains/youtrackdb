@@ -30,7 +30,7 @@ import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.jnr.Native;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrack.db.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -139,7 +139,7 @@ public class EngineLocalPaginated extends EngineAbstract {
       long maxWalSegSize,
       long doubleWriteLogMaxSegSize,
       int storageId,
-      YouTrackDBInternal context) {
+      YouTrackDBInternalEmbedded context) {
     try {
 
       return new LocalStorage(

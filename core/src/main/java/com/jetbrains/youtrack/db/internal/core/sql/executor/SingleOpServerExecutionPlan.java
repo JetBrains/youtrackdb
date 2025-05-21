@@ -14,11 +14,7 @@ import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public class SingleOpServerExecutionPlan implements InternalExecutionPlan {
-
   protected final SQLSimpleExecServerStatement statement;
   private final ServerCommandContext ctx;
 
@@ -51,6 +47,7 @@ public class SingleOpServerExecutionPlan implements InternalExecutionPlan {
     return result;
   }
 
+  @Override
   public void reset(CommandContext ctx) {
     executed = false;
   }
@@ -89,8 +86,8 @@ public class SingleOpServerExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
-    var result = new ResultInternal((DatabaseSessionInternal) db);
+  public @Nonnull Result toResult(@Nullable DatabaseSession session) {
+    var result = new ResultInternal((DatabaseSessionInternal) session);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty("javaType", getClass().getName());
     result.setProperty("stmText", statement.toString());

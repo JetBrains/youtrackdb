@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import java.util.Collection;
@@ -21,7 +21,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   private int hashCode = 0;
 
   public SchemaPropertyProxy(SchemaPropertyImpl iDelegate,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     super(iDelegate, session);
   }
 
@@ -40,7 +40,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public String getName() {
     assert session.assertIfNotActive();
-    return delegate.getName(session);
+    return delegate.getName();
   }
 
   @Override
@@ -66,7 +66,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public PropertyType getType() {
     assert session.assertIfNotActive();
-    return delegate.getType(session);
+    return delegate.getType();
   }
 
   @Nullable
@@ -89,7 +89,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public PropertyType getLinkedType() {
     assert session.assertIfNotActive();
-    var linkedType = delegate.getLinkedType(session);
+    var linkedType = delegate.getLinkedType();
     if (linkedType == null) {
       return null;
     }
@@ -107,7 +107,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public boolean isNotNull() {
     assert session.assertIfNotActive();
-    return delegate.isNotNull(session);
+    return delegate.isNotNull();
   }
 
   @Override
@@ -120,7 +120,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public Collate getCollate() {
     assert session.assertIfNotActive();
-    return delegate.getCollate(session);
+    return delegate.getCollate();
   }
 
   @Override
@@ -140,7 +140,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public boolean isMandatory() {
     assert session.assertIfNotActive();
-    return delegate.isMandatory(session);
+    return delegate.isMandatory();
   }
 
   @Override
@@ -153,7 +153,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public boolean isReadonly() {
     assert session.assertIfNotActive();
-    return delegate.isReadonly(session);
+    return delegate.isReadonly();
   }
 
   @Override
@@ -166,7 +166,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public String getMin() {
     assert session.assertIfNotActive();
-    return delegate.getMin(session);
+    return delegate.getMin();
   }
 
   @Override
@@ -179,7 +179,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public String getMax() {
     assert session.assertIfNotActive();
-    return delegate.getMax(session);
+    return delegate.getMax();
   }
 
   @Override
@@ -192,7 +192,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public String getDefaultValue() {
     assert session.assertIfNotActive();
-    return delegate.getDefaultValue(session);
+    return delegate.getDefaultValue();
   }
 
   @Override
@@ -229,7 +229,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public String getRegexp() {
     assert session.assertIfNotActive();
-    return delegate.getRegexp(session);
+    return delegate.getRegexp();
   }
 
   @Override
@@ -249,7 +249,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public String getCustom(String iName) {
     assert session.assertIfNotActive();
-    return delegate.getCustom(session, iName);
+    return delegate.getCustom(iName);
   }
 
   @Override
@@ -275,7 +275,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public Set<String> getCustomKeys() {
     assert session.assertIfNotActive();
-    return delegate.getCustomKeys(session);
+    return delegate.getCustomKeys();
   }
 
   @Nullable
@@ -301,7 +301,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public String getDescription() {
     assert session.assertIfNotActive();
-    return delegate.getDescription(session);
+    return delegate.getDescription();
   }
 
   @Override
@@ -319,8 +319,8 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public int hashCode() {
     if (hashCode == 0) {
-      var name = delegate.getName(session);
-      var ownerName = delegate.getOwnerClass().getName(session);
+      var name = delegate.getName();
+      var ownerName = delegate.getOwnerClass().getName();
       hashCode = name.hashCode() + 31 * ownerName.hashCode();
     }
 
@@ -338,8 +338,8 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
         return false;
       }
 
-      return delegate.getName(session).equals(schemaProperty.getName())
-          && delegate.getOwnerClass().getName(session)
+      return delegate.getName().equals(schemaProperty.getName())
+          && delegate.getOwnerClass().getName()
           .equals(schemaProperty.getOwnerClass().getName());
     }
 
@@ -349,7 +349,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public String toString() {
     if (session.isActiveOnCurrentThread()) {
-      return delegate.getName(session) + " (type=" + delegate.getType(session) + ")";
+      return delegate.getName() + " (type=" + delegate.getType() + ")";
     }
 
     return super.toString();

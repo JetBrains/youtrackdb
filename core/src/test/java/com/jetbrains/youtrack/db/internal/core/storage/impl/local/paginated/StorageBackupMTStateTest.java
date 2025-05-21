@@ -1,7 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -10,10 +14,8 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ReadersWriterSpinLock;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
-import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.PartitionedDatabasePool;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -54,8 +56,6 @@ public class StorageBackupMTStateTest {
   private File backupDir;
   private volatile boolean stop = false;
 
-  private volatile PartitionedDatabasePool pool;
-
   @Test
   @Ignore
   public void testRun() throws Exception {
@@ -82,120 +82,115 @@ public class StorageBackupMTStateTest {
     dbURL = "disk:" + dbDirectory;
 
     System.out.println("Create database");
-    DatabaseSessionInternal databaseDocumentTx = new DatabaseDocumentTx(dbURL);
-    databaseDocumentTx.create();
+    try (var youTrackDb = YourTracks.embedded(dbDirectory)) {
+      if (youTrackDb.exists(StorageBackupMTStateTest.class.getSimpleName())) {
+        youTrackDb.drop(StorageBackupMTStateTest.class.getSimpleName());
+      }
 
-    System.out.println("Create schema");
-    final Schema schema = databaseDocumentTx.getMetadata().getSchema();
+      youTrackDb.create(StorageBackupMTStateTest.class.getSimpleName(), DatabaseType.DISK, "admin",
+          "admin", "admin");
 
-    for (var i = 0; i < 3; i++) {
-      createClass(schema, databaseDocumentTx);
+      try (var databaseDocumentTx = youTrackDb.open(StorageBackupMTStateTest.class.getSimpleName(),
+          "admin", "admin")) {
+        System.out.println("Create schema");
+        final var schema = databaseDocumentTx.getSchema();
+
+        for (var i = 0; i < 3; i++) {
+          createClass(schema);
+        }
+      }
+
+      try (var pool = youTrackDb.cachedPool(StorageBackupMTStateTest.class.getSimpleName(), "admin",
+          "admin")) {
+        System.out.println("Start data modification");
+        final var executor = Executors.newFixedThreadPool(5);
+        final var backupExecutor = Executors.newSingleThreadScheduledExecutor();
+        final var classCreatorExecutor =
+            Executors.newSingleThreadScheduledExecutor();
+        final var classDeleterExecutor =
+            Executors.newSingleThreadScheduledExecutor();
+
+        classDeleterExecutor.scheduleWithFixedDelay(new ClassDeleter(pool), 10, 10,
+            TimeUnit.MINUTES);
+        backupExecutor.scheduleWithFixedDelay(new IncrementalBackupThread(pool), 5, 5,
+            TimeUnit.MINUTES);
+        classCreatorExecutor.scheduleWithFixedDelay(new ClassAdder(pool), 7, 5, TimeUnit.MINUTES);
+
+        List<Future<Void>> futures = new ArrayList<Future<Void>>();
+
+        futures.add(executor.submit(new NonTxInserter(pool)));
+        futures.add(executor.submit(new NonTxInserter(pool)));
+        futures.add(executor.submit(new TxInserter(pool)));
+        futures.add(executor.submit(new TxInserter(pool)));
+        futures.add(executor.submit(new RecordsDeleter(pool)));
+
+        var k = 0;
+        while (k < 180) {
+          Thread.sleep(30 * 1000);
+          k++;
+
+          System.out.println(k * 0.5 + " minutes...");
+        }
+
+        stop = true;
+
+        System.out.println("Stop backup");
+        backupExecutor.shutdown();
+
+        System.out.println("Stop class creation/deletion");
+        classCreatorExecutor.shutdown();
+        classDeleterExecutor.shutdown();
+
+        backupExecutor.awaitTermination(15, TimeUnit.MINUTES);
+        classCreatorExecutor.awaitTermination(15, TimeUnit.MINUTES);
+        classDeleterExecutor.awaitTermination(15, TimeUnit.MINUTES);
+
+        System.out.println("Stop data threads");
+
+        for (var future : futures) {
+          future.get();
+        }
+
+        System.out.println("All threads are stopped");
+
+        System.out.println("Final incremental  backup");
+      }
+
+      try (var databaseDocumentTx = youTrackDb.open(StorageBackupMTStateTest.class.getSimpleName(),
+          "admin", "admin")) {
+        databaseDocumentTx.incrementalBackup(backupDir.toPath());
+      }
+
+      System.out.println("Create backup database");
+      youTrackDb.restore(StorageBackupMTStateTest.class.getSimpleName() + "Restored", "admin",
+          "admin",
+          backupDir.getAbsolutePath(), YouTrackDBConfig.defaultConfig());
+
+      try (var backedUpDb = (DatabaseSessionEmbedded) youTrackDb.open(
+          StorageBackupMTStateTest.class.getSimpleName() + "Restored", "admin", "admin")) {
+        try (var databaseDocumentTx = (DatabaseSessionEmbedded) youTrackDb.open(
+            StorageBackupMTStateTest.class.getSimpleName(), "admin", "admin")) {
+
+          final var compare =
+              new DatabaseCompare(
+                  databaseDocumentTx,
+                  backedUpDb,
+                  System.out::println);
+
+          Assert.assertTrue(compare.compare());
+
+          System.out.println("Drop databases and backup directory");
+        }
+      }
+
+      youTrackDb.drop(StorageBackupMTStateTest.class.getSimpleName());
+      youTrackDb.drop(StorageBackupMTStateTest.class.getSimpleName() + "Restored");
     }
-
-    databaseDocumentTx.close();
-
-    pool = new PartitionedDatabasePool(dbURL, "admin", "admin");
-
-    System.out.println("Start data modification");
-    final var executor = Executors.newFixedThreadPool(5);
-    final var backupExecutor = Executors.newSingleThreadScheduledExecutor();
-    final var classCreatorExecutor =
-        Executors.newSingleThreadScheduledExecutor();
-    final var classDeleterExecutor =
-        Executors.newSingleThreadScheduledExecutor();
-
-    classDeleterExecutor.scheduleWithFixedDelay(new ClassDeleter(), 10, 10, TimeUnit.MINUTES);
-    backupExecutor.scheduleWithFixedDelay(new IncrementalBackupThread(), 5, 5, TimeUnit.MINUTES);
-    classCreatorExecutor.scheduleWithFixedDelay(new ClassAdder(), 7, 5, TimeUnit.MINUTES);
-
-    List<Future<Void>> futures = new ArrayList<Future<Void>>();
-
-    futures.add(executor.submit(new NonTxInserter()));
-    futures.add(executor.submit(new NonTxInserter()));
-    futures.add(executor.submit(new TxInserter()));
-    futures.add(executor.submit(new TxInserter()));
-    futures.add(executor.submit(new RecordsDeleter()));
-
-    var k = 0;
-    while (k < 180) {
-      Thread.sleep(30 * 1000);
-      k++;
-
-      System.out.println(k * 0.5 + " minutes...");
-    }
-
-    stop = true;
-
-    System.out.println("Stop backup");
-    backupExecutor.shutdown();
-
-    System.out.println("Stop class creation/deletion");
-    classCreatorExecutor.shutdown();
-    classDeleterExecutor.shutdown();
-
-    backupExecutor.awaitTermination(15, TimeUnit.MINUTES);
-    classCreatorExecutor.awaitTermination(15, TimeUnit.MINUTES);
-    classDeleterExecutor.awaitTermination(15, TimeUnit.MINUTES);
-
-    System.out.println("Stop data threads");
-
-    for (var future : futures) {
-      future.get();
-    }
-
-    System.out.println("All threads are stopped");
-
-    pool.close();
-
-    System.out.println("Final incremental  backup");
-    databaseDocumentTx = new DatabaseDocumentTx(dbURL);
-    databaseDocumentTx.open("admin", "admin");
-    databaseDocumentTx.incrementalBackup(backupDir.toPath());
-
-    var storage = databaseDocumentTx.getStorage();
-    databaseDocumentTx.close();
-
-    storage.shutdown();
-
-    System.out.println("Create backup database");
-    final DatabaseSessionInternal backedUpDb =
-        new DatabaseDocumentTx("disk:" + backedUpDbDirectory);
-    backedUpDb.create(backupDir.getAbsolutePath());
-
-    final var backupStorage = backedUpDb.getStorage();
-    backedUpDb.close();
-
-    backupStorage.shutdown();
-
-    System.out.println("Compare databases");
-    databaseDocumentTx.open("admin", "admin");
-    backedUpDb.open("admin", "admin");
-
-    final var compare =
-        new DatabaseCompare(
-            databaseDocumentTx,
-            backedUpDb,
-            new CommandOutputListener() {
-              @Override
-              public void onMessage(String iText) {
-                System.out.println(iText);
-              }
-            });
-
-    Assert.assertTrue(compare.compare());
-
-    System.out.println("Drop databases and backup directory");
-
-    databaseDocumentTx.open("admin", "admin");
-    databaseDocumentTx.drop();
-
-    backedUpDb.open("admin", "admin");
-    backedUpDb.drop();
 
     FileUtils.deleteRecursively(backupDir);
   }
 
-  private SchemaClass createClass(Schema schema, DatabaseSession session) {
+  private void createClass(Schema schema) {
     var cls = schema.createClass(CLASS_PREFIX + classCounter.getAndIncrement());
 
     cls.createProperty("id", PropertyType.LONG);
@@ -211,16 +206,21 @@ public class StorageBackupMTStateTest {
 
     System.out.println("Class " + cls.getName() + " is added");
 
-    return cls;
   }
 
   private final class NonTxInserter extends Inserter {
+
+    private final SessionPool<DatabaseSession> pool;
+
+    private NonTxInserter(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
 
     @Override
     public Void call() throws Exception {
       while (!stop) {
         while (true) {
-          DatabaseSessionInternal db = pool.acquire();
+          var db = (DatabaseSessionEmbedded) pool.acquire();
           try {
             flowLock.acquireReadLock();
             try {
@@ -252,13 +252,18 @@ public class StorageBackupMTStateTest {
 
   private final class TxInserter extends Inserter {
 
+    private final SessionPool<DatabaseSession> pool;
+
+    private TxInserter(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
+
     @Override
     public Void call() throws Exception {
 
       while (!stop) {
         while (true) {
-          DatabaseSessionInternal db = pool.acquire();
-          try {
+          try (var db = (DatabaseSessionEmbedded) pool.acquire()) {
             flowLock.acquireReadLock();
             try {
               db.begin();
@@ -279,8 +284,6 @@ public class StorageBackupMTStateTest {
           } catch (Exception e) {
             e.printStackTrace();
             throw e;
-          } finally {
-            db.close();
           }
         }
       }
@@ -359,11 +362,15 @@ public class StorageBackupMTStateTest {
 
   private final class IncrementalBackupThread implements Runnable {
 
+    private final SessionPool<DatabaseSession> pool;
+
+    private IncrementalBackupThread(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
+
     @Override
     public void run() {
-      DatabaseSessionInternal db = new DatabaseDocumentTx(dbURL);
-      db.open("admin", "admin");
-      try {
+      try (var db = pool.acquire()) {
         flowLock.acquireReadLock();
         try {
           System.out.println("Start backup");
@@ -374,30 +381,30 @@ public class StorageBackupMTStateTest {
         }
       } catch (Exception e) {
         e.printStackTrace();
-      } finally {
-        db.close();
       }
     }
   }
 
   private final class ClassAdder implements Runnable {
 
+    private final SessionPool<DatabaseSession> pool;
+
+    private ClassAdder(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
+
     @Override
     public void run() {
-      DatabaseSessionInternal databaseDocumentTx = new DatabaseDocumentTx(dbURL);
-      databaseDocumentTx.open("admin", "admin");
-      try {
+      try (var databaseDocumentTx = pool.acquire()) {
         flowLock.acquireReadLock();
         try {
-          Schema schema = databaseDocumentTx.getMetadata().getSchema();
-          createClass(schema, databaseDocumentTx);
+          var schema = databaseDocumentTx.getSchema();
+          createClass(schema);
         } finally {
           flowLock.releaseReadLock();
         }
       } catch (Exception e) {
         e.printStackTrace();
-      } finally {
-        databaseDocumentTx.close();
       }
     }
   }
@@ -405,14 +412,18 @@ public class StorageBackupMTStateTest {
   private final class RecordsDeleter implements Callable<Void> {
 
     private final Random random = new Random();
+    private final SessionPool<DatabaseSession> pool;
+
+    private RecordsDeleter(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
 
     @Override
     public Void call() throws Exception {
       var counter = 0;
       while (!stop) {
         while (true) {
-          DatabaseSessionInternal databaseDocumentTx = pool.acquire();
-          try {
+          try (var databaseDocumentTx = (DatabaseSessionEmbedded) pool.acquire()) {
             flowLock.acquireReadLock();
             try {
               final var classes = classCounter.get();
@@ -470,8 +481,6 @@ public class StorageBackupMTStateTest {
           } catch (RuntimeException e) {
             e.printStackTrace();
             throw e;
-          } finally {
-            databaseDocumentTx.close();
           }
         }
       }
@@ -483,14 +492,18 @@ public class StorageBackupMTStateTest {
   private final class ClassDeleter implements Runnable {
 
     private final Random random = new Random();
+    private final SessionPool<DatabaseSession> pool;
+
+    private ClassDeleter(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
 
     @Override
     public void run() {
-      var db = pool.acquire();
-      try {
+      try (var db = pool.acquire()) {
         flowLock.acquireWriteLock();
         try {
-          final Schema schema = db.getMetadata().getSchema();
+          final var schema = db.getSchema();
           final var classes = classCounter.get();
 
           String className;
@@ -511,8 +524,6 @@ public class StorageBackupMTStateTest {
         } finally {
           flowLock.releaseWriteLock();
         }
-      } finally {
-        db.close();
       }
     }
   }

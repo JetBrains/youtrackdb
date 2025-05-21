@@ -25,7 +25,7 @@ public class LuceneFunctionsUtils {
 
     final var index =
         (LuceneFullTextIndex)
-            sharedContext.getIndexManager().getIndex(documentDatabase, indexName);
+            sharedContext.getIndexManager().getIndex(indexName);
     if (!(index instanceof LuceneFullTextIndex)) {
       throw new IllegalArgumentException("Not a valid Lucene index:: " + indexName);
     }

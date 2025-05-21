@@ -7,10 +7,10 @@ import static com.jetbrains.youtrack.db.internal.lucene.engine.LuceneDirectoryFa
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import java.io.File;
@@ -24,9 +24,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 
-/**
- *
- */
 public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
 
   private LuceneDirectoryFactory fc;
@@ -42,103 +39,65 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
     fc = new LuceneDirectoryFactory();
   }
 
+  @Override
+  protected DatabaseType calculateDbType() {
+    return DatabaseType.DISK;
+  }
+
   @Test
-  public void shouldCreateNioFsDirectory() throws Exception {
+  public void shouldCreateNioFsDirectory() {
     meta.put(DIRECTORY_TYPE, DIRECTORY_NIO);
-    try (YouTrackDB ctx =
-        new YouTrackDBImpl(embeddedDBUrl(getClass()),
-            YouTrackDBConfig.defaultConfig())) {
-      ctx.execute(
-          "create database "
-              + databaseName
-              + " disk users (admin identified by 'adminpwd' role admin)");
-      var db =
-          (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
-      assertThat(directory).isInstanceOf(NIOFSDirectory.class);
-      assertThat(new File(
-          getBaseDirectoryPath(getClass()) + File.separator + databaseName
-              + "/luceneIndexes/index.name"))
-          .exists();
-      ctx.drop(databaseName);
-    }
+    var directory = fc.createDirectory(session.getStorage(), "index.name", meta).getDirectory();
+    assertThat(directory).isInstanceOf(NIOFSDirectory.class);
+    assertThat(new File(
+        getBaseDirectoryPath(getClass()) + File.separator + databaseName
+            + "/luceneIndexes/index.name"))
+        .exists();
   }
 
   @Test
   public void shouldCreateMMapFsDirectory() throws Exception {
     meta.put(DIRECTORY_TYPE, DIRECTORY_MMAP);
-    try (YouTrackDB ctx =
-        new YouTrackDBImpl(embeddedDBUrl(getClass()),
-            YouTrackDBConfig.defaultConfig())) {
-      ctx.execute(
-          "create database "
-              + databaseName
-              + " disk users (admin identified by 'adminpwd' role admin)");
-      var db =
-          (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
-      assertThat(directory).isInstanceOf(MMapDirectory.class);
-      assertThat(new File(
-          getBaseDirectoryPath(getClass()) + File.separator + databaseName
-              + "/luceneIndexes/index.name"))
-          .exists();
-      ctx.drop(databaseName);
-    }
+    var directory = fc.createDirectory(session.getStorage(), "index.name", meta).getDirectory();
+    assertThat(directory).isInstanceOf(MMapDirectory.class);
+    assertThat(new File(
+        getBaseDirectoryPath(getClass()) + File.separator + databaseName
+            + "/luceneIndexes/index.name"))
+        .exists();
+
   }
 
   @Test
-  public void shouldCreateRamDirectory() throws Exception {
+  public void shouldCreateRamDirectory() {
     meta.put(DIRECTORY_TYPE, DIRECTORY_RAM);
-    try (YouTrackDB ctx =
-        new YouTrackDBImpl(embeddedDBUrl(getClass()), YouTrackDBConfig.defaultConfig())) {
-      ctx.execute(
-          "create database "
-              + databaseName
-              + " disk users (admin identified by 'adminpwd' role admin)");
-      var db =
-          (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      var directory = fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
-      assertThat(directory).isInstanceOf(RAMDirectory.class);
-      ctx.drop(databaseName);
-    }
+    var directory = fc.createDirectory(session.getStorage(), "index.name", meta).getDirectory();
+    assertThat(directory).isInstanceOf(RAMDirectory.class);
+
   }
 
   @Test
   public void shouldCreateRamDirectoryOnMemoryDatabase() {
     meta.put(DIRECTORY_TYPE, DIRECTORY_RAM);
-    try (YouTrackDB ctx =
-        new YouTrackDBImpl(embeddedDBUrl(getClass()), YouTrackDBConfig.defaultConfig())) {
-      ctx.execute(
-          "create database "
-              + databaseName
-              + " memory users (admin identified by 'adminpwd' role admin)");
-      var db =
-          (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      final var directory =
-          fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
-      // 'DatabaseType.MEMORY' and 'DIRECTORY_RAM' determines the RAMDirectory.
-      assertThat(directory).isInstanceOf(RAMDirectory.class);
-      ctx.drop(databaseName);
-    }
+    final var directory =
+        fc.createDirectory(session.getStorage(), "index.name", meta).getDirectory();
+    // 'DatabaseType.MEMORY' and 'DIRECTORY_RAM' determines the RAMDirectory.
+    assertThat(directory).isInstanceOf(RAMDirectory.class);
   }
 
   @Test
   public void shouldCreateRamDirectoryOnMemoryFromMmapDatabase() {
     meta.put(DIRECTORY_TYPE, DIRECTORY_MMAP);
-    try (YouTrackDB ctx =
-        new YouTrackDBImpl(embeddedDBUrl(getClass()), YouTrackDBConfig.defaultConfig())) {
-      ctx.execute(
-          "create database "
-              + databaseName
-              + " memory users (admin identified by 'adminpwd' role admin)");
-      var db =
-          (DatabaseSessionInternal) ctx.open(databaseName, "admin", "adminpwd");
-      final var directory =
-          fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
-      // 'DatabaseType.MEMORY' plus 'DIRECTORY_MMAP' leads to the same result as just
-      // 'DIRECTORY_RAM'.
-      assertThat(directory).isInstanceOf(RAMDirectory.class);
-      ctx.drop(databaseName);
-    }
+    var dbName = databaseName + "memory";
+    context.execute(
+        "create database "
+            + dbName
+            + " memory users (admin identified by 'adminpwd' role admin)");
+    var db =
+        (DatabaseSessionInternal) context.open(dbName, "admin", "adminpwd");
+    final var directory =
+        fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
+    // 'DatabaseType.MEMORY' plus 'DIRECTORY_MMAP' leads to the same result as just
+    // 'DIRECTORY_RAM'.
+    assertThat(directory).isInstanceOf(RAMDirectory.class);
   }
 }

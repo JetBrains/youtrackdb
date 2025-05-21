@@ -11,24 +11,17 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.SkipException;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
-  @Parameters(value = "remote")
-  public IndexTxAwareMultiValueGetEntriesTest(@Optional Boolean remote) {
-    super(remote != null && remote, false);
+  public IndexTxAwareMultiValueGetEntriesTest() {
+    super(false);
   }
 
   @Test
   public void testPut() {
-    if (session.getStorage().isRemote()) {
-      throw new SkipException("Test is enabled only for embedded database");
-    }
-
     session.begin();
 
     var doc1 = newDoc(1);

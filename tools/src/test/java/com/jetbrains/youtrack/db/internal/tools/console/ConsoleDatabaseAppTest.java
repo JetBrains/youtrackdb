@@ -1,9 +1,7 @@
 package com.jetbrains.youtrack.db.internal.tools.console;
 
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -22,40 +20,7 @@ public class ConsoleDatabaseAppTest {
   public TestName testName = new TestName();
 
   @Test
-  public void testSelectBinaryDoc() throws IOException {
-    final var builder = new StringBuilder();
-
-    var app =
-        new ConsoleDatabaseApp(new String[]{}) {
-          @Override
-          public void message(String iMessage) {
-            builder.append(iMessage).append("\n");
-          }
-        };
-    try {
-
-      app.executeServerCommand("connect env embedded:./target/ root root");
-      app.executeServerCommand(
-          "create database test memory users (admin identified by 'admin' role admin)");
-      app.open("test", "admin", "admin");
-
-      var db = (DatabaseSessionInternal) app.getCurrentDatabaseSession();
-      db.addBlobCollection("blobTest");
-
-      db.begin();
-      var record = db.newBlob("blobContent".getBytes());
-      db.commit();
-      builder.setLength(0);
-      app.select(" from " + record.getIdentity() + " limit -1 ");
-      assertTrue(builder.toString().contains("<binary>"));
-    } finally {
-      app.dropDatabase("memory");
-    }
-  }
-
-  @Test
   public void testWrongCommand() {
-
     var builder =
         "connect env embedded:./target/ root root;\n"
             + "create database OConsoleDatabaseAppTest2 memory users (admin identified by 'admin'"
@@ -72,18 +37,15 @@ public class ConsoleDatabaseAppTest {
             + "commit;\n";
     var c = new ConsoleTest(new String[]{builder});
     var console = c.console();
-
     try {
       console.run();
 
-      try (var db = console.getCurrentDatabaseSession()) {
-        db.executeInTx(transaction -> {
-          try (var result = transaction.query("select from foo where name = 'foo'")) {
-            var doc = result.next();
-            Assert.assertNull(doc.getProperty("surname"));
-            Assert.assertFalse(result.hasNext());
-          }
-        });
+      try (var session = console.getCurrentDatabaseSession()) {
+        try (var result = session.query("select from foo where name = 'foo'")) {
+          var doc = result.next();
+          Assert.assertNull(doc.getProperty("surname"));
+          Assert.assertFalse(result.hasNext());
+        }
       }
     } finally {
       console.close();
@@ -92,7 +54,6 @@ public class ConsoleDatabaseAppTest {
 
   @Test
   public void testOldCreateDatabase() {
-
     var builder =
         """
             create database memory:./target/OConsoleDatabaseAppTest2 admin adminpwd memory
@@ -107,11 +68,9 @@ public class ConsoleDatabaseAppTest {
     try {
       console.run();
 
-      try (var db = console.getCurrentDatabaseSession()) {
-        db.executeInTx(transaction -> {
-          var size = transaction.query("select from foo where name = 'foo'").stream().count();
-          Assert.assertEquals(1, size);
-        });
+      try (var session = console.getCurrentDatabaseSession()) {
+        var size = session.query("select from foo where name = 'foo'").stream().count();
+        Assert.assertEquals(1, size);
       }
     } finally {
       console.close();
@@ -123,11 +82,9 @@ public class ConsoleDatabaseAppTest {
     var c = new ConsoleTest();
     try {
 
-      c.console().executeServerCommand("connect env embedded:./target/ root root");
       c.console()
-          .executeServerCommand(
-              "create database ConsoleDatabaseAppTestDumpRecordDetails memory users (admin"
-                  + " identified by 'admin' role admin)");
+          .createDatabase("embedded:./target/ConsoleDatabaseAppTestDumpRecordDetails", "admin",
+              "admin", "memory", null);
       c.console().open("ConsoleDatabaseAppTestDumpRecordDetails", "admin", "admin");
 
       c.console().createClass("class foo");
@@ -193,7 +150,6 @@ public class ConsoleDatabaseAppTest {
 
   @Test
   public void testSimple() {
-
     var builder =
         "connect env embedded:./target/ root root;\n"
             + "create database "
@@ -205,12 +161,6 @@ public class ConsoleDatabaseAppTest {
             + "profile storage on;\n"
             + "create class foo;\n"
             + "config;\n"
-            + "list classes;\n"
-            + "list properties;\n"
-            + "list collections;\n"
-            + "list indexes;\n"
-            + "info class OUser;\n"
-            + "info property OUser.name;\n"
             + "begin;\n"
             + "insert into foo set name = 'foo';\n"
             + "insert into foo set name = 'bla';\n"
@@ -237,7 +187,6 @@ public class ConsoleDatabaseAppTest {
             + "commit;\n"
             + "begin;\n"
             + "profile storage off;\n"
-            + "repair database -v;\n"
             + "commit;\n";
     var c = new ConsoleTest(new String[]{builder});
     var console = c.console();
@@ -245,18 +194,16 @@ public class ConsoleDatabaseAppTest {
     try {
       console.run();
 
-      var db = console.getCurrentDatabaseSession();
-      db.executeInTx(transaction -> {
-        var result = transaction.query("select from foo where name = 'foo'");
-        var doc = result.next();
-        Assert.assertEquals("bar", doc.getProperty("surname"));
-        Assert.assertFalse(result.hasNext());
-        result.close();
+      var session = console.getCurrentDatabaseSession();
+      var result = session.query("select from foo where name = 'foo'");
+      var doc = result.next();
+      Assert.assertEquals("bar", doc.getProperty("surname"));
+      Assert.assertFalse(result.hasNext());
+      result.close();
 
-        result = transaction.query("select from bar");
-        Assert.assertEquals(0, result.stream().count());
-      });
-
+      result = session.query("select from bar");
+      Assert.assertEquals(0, result.stream().count());
+      result.close();
     } finally {
       console.close();
     }
@@ -266,7 +213,6 @@ public class ConsoleDatabaseAppTest {
   @Ignore
   public void testMultiLine() {
     var dbUrl = "memory:" + testName.getMethodName();
-
     var builder =
         "create database "
             + dbUrl
@@ -274,12 +220,6 @@ public class ConsoleDatabaseAppTest {
             + "profile storage on;\n"
             + "create class foo;\n"
             + "config;\n"
-            + "list classes;\n"
-            + "list properties;\n"
-            + "list collections;\n"
-            + "list indexes;\n"
-            + "info class OUser;\n"
-            + "info property OUser.name;\n"
             + "begin;\n"
             + "insert into foo set name = 'foo';\n"
             + "insert into foo set name = 'bla';\n"
@@ -289,39 +229,37 @@ public class ConsoleDatabaseAppTest {
             + "create class bar;\n"
             + "create property bar.name STRING;\n"
             + "create index bar_name on bar (name) NOTUNIQUE;\n"
+            + "begin;\n"
             + "insert into bar set name = 'foo';\n"
             + "delete from bar;\n"
+            + "commit;\n"
             + "begin;\n"
             + "insert into bar set name = 'foo';\n"
             + "rollback;\n"
+            + "begin;\n"
             + "create vertex V set name = 'foo';\n"
             + "create vertex V set name = 'bar';\n"
-            //    builder.append("create edge from (select from V where name = 'foo') to (select
-            // from V
-            // where name = 'bar');\n");
-
             + "create edge from \n"
             + "(select from V where name = 'foo') \n"
-            + "to (select from V where name = 'bar');\n";
+            + "to (select from V where name = 'bar');\n"
+            + "commit;\n";
 
     var c = new ConsoleTest(new String[]{builder});
     var console = c.console();
-
     try {
       console.run();
 
-      var db = console.getCurrentDatabaseSession();
-      db.executeInTx(transaction -> {
-        var result = transaction.query("select from foo where name = 'foo'");
-        var doc = result.next();
-        Assert.assertEquals("bar", doc.getProperty("surname"));
-        Assert.assertFalse(result.hasNext());
-        result.close();
+      var session = console.getCurrentDatabaseSession();
 
-        result = transaction.query("select from bar");
-        Assert.assertEquals(0, result.stream().count());
-      });
+      var result = session.query("select from foo where name = 'foo'");
+      var doc = result.next();
+      Assert.assertEquals("bar", doc.getProperty("surname"));
+      Assert.assertFalse(result.hasNext());
+      result.close();
 
+      result = session.query("select from bar");
+      Assert.assertEquals(0, result.stream().count());
+      result.close();
     } finally {
       console.close();
     }

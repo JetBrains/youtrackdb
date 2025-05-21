@@ -7,12 +7,10 @@ import static org.testng.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageProxy;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -23,18 +21,10 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public abstract class LinkBagTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public LinkBagTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   public void testAdd() {
     session.begin();
     var bag = new LinkBag(session);
@@ -1332,15 +1322,6 @@ public abstract class LinkBagTest extends BaseDBTest {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
 
-    if (session.getStorage() instanceof StorageProxy) {
-      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
-
     session.begin();
     var ridBag = new LinkBag(session);
     var document = ((EntityImpl) session.newEntity());
@@ -1457,15 +1438,6 @@ public abstract class LinkBagTest extends BaseDBTest {
   public void testFromEmbeddedToSBTreeAndBackTx() throws IOException {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(7);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
-
-    if (session.isRemote()) {
-      var server = new ServerAdmin(session.getURL()).connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, 7);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
 
     session.begin();
     var ridBag = new LinkBag(session);

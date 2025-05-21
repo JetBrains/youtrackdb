@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.api.query;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import java.io.Serializable;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -15,5 +16,5 @@ public interface ExecutionPlan extends Serializable {
   String prettyPrint(int depth, int indent);
 
   @Nonnull
-  Result toResult(@Nullable DatabaseSession db);
+  BasicResult toResult(@Nullable DatabaseSession session);
 }

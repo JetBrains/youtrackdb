@@ -8,16 +8,17 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexMetadataPath;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -52,6 +53,19 @@ public class SQLExpression extends SimpleNode {
 
   public SQLExpression(SQLRecordAttribute attr, SQLModifier modifier) {
     mathExpression = new SQLBaseExpression(attr, modifier);
+  }
+
+  public boolean isStatement() {
+    return mathExpression instanceof SQLParenthesisExpression sqlParenthesisExpression
+        && sqlParenthesisExpression.statement != null;
+  }
+
+  public SQLStatement asStatement() {
+    if (!isStatement()) {
+      throw new IllegalStateException("This expression is not a statement");
+    }
+
+    return ((SQLParenthesisExpression) mathExpression).statement;
   }
 
   @Nullable
@@ -149,15 +163,40 @@ public class SQLExpression extends SimpleNode {
     return false;
   }
 
-  public Optional<MetadataPath> getPath() {
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
     if (mathExpression != null) {
-      return mathExpression.getPath();
+      return mathExpression.isGraphRelationFunction(session);
     }
-    if (value instanceof SQLMathExpression) {
-      return ((SQLMathExpression) value).getPath();
+    if (value instanceof SQLMathExpression) { // only backward stuff, remote it
+      return ((SQLMathExpression) value).isGraphRelationFunction(session);
     }
 
-    return Optional.empty();
+    return false;
+  }
+
+  @Nullable
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
+    if (mathExpression != null) {
+      return mathExpression.getGraphRelationFunctionProperties(ctx);
+    }
+    if (value instanceof SQLMathExpression) { // only backward stuff, remote it
+      return ((SQLMathExpression) value).getGraphRelationFunctionProperties(ctx);
+    }
+
+    return null;
+  }
+
+  @Nullable
+  public IndexMetadataPath getIndexMetadataPath(DatabaseSessionEmbedded session) {
+    if (mathExpression != null) {
+      return mathExpression.getIndexMetadataPath(session);
+    }
+
+    if (value instanceof SQLMathExpression) {
+      return ((SQLMathExpression) value).getIndexMetadataPath(session);
+    }
+
+    return null;
   }
 
   public boolean isEarlyCalculated(CommandContext ctx) {
@@ -203,6 +242,7 @@ public class SQLExpression extends SimpleNode {
     return identifier;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (isNull) {
       builder.append("null");
@@ -335,8 +375,8 @@ public class SQLExpression extends SimpleNode {
    * tests if current expression is an indexed function AND that function can also be executed
    * without using the index
    *
-   * @param target   the query target
-   * @param context  the execution context
+   * @param target  the query target
+   * @param context the execution context
    * @return true if current expression is an indexed funciton AND that function can also be
    * executed without using the index, false otherwise
    */
@@ -353,8 +393,8 @@ public class SQLExpression extends SimpleNode {
    * tests if current expression is an indexed function AND that function can be used on this
    * target
    *
-   * @param target   the query target
-   * @param context  the execution context
+   * @param target  the query target
+   * @param context the execution context
    * @return true if current expression involves an indexed function AND that function can be used
    * on this target, false otherwise
    */
@@ -470,6 +510,7 @@ public class SQLExpression extends SimpleNode {
     }
   }
 
+  @Override
   public SQLExpression copy() {
 
     var result = new SQLExpression(-1);

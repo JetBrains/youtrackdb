@@ -286,6 +286,11 @@ public class SelectExecutionPlanner {
     if (targetClass == null) {
       return false;
     }
+    var clsName = targetClass.getStringValue();
+    if (clsName.isEmpty() || clsName.charAt(0) == '$') {
+      return false;
+    }
+
     if (info.distinct || info.expand) {
       return false;
     }
@@ -382,7 +387,7 @@ public class SelectExecutionPlanner {
       if (fields.size() == 1
           && fields.getFirst()
           .equals(binaryCondition.getLeft().getDefaultAlias().getStringValue())) {
-        var expr = ((SQLBinaryCondition) condition).getRight();
+        var expr = binaryCondition.getRight();
         result.chain(
             new CountFromIndexWithKeyStep(
                 new SQLIndexIdentifier(classIndex.getName(), SQLIndexIdentifier.Type.INDEX),
@@ -1118,10 +1123,8 @@ public class SelectExecutionPlanner {
       schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getSchemaRecordId();
       var schemaRid = new RecordId(schemaRecordIdAsString);
       plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
-    } else if (metadata.getName().equalsIgnoreCase("INDEXMANAGER")) {
-      schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getIndexMgrRecordId();
-      var schemaRid = new RecordId(schemaRecordIdAsString);
-      plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
+    } else if (metadata.getName().equalsIgnoreCase("INDEXES")) {
+      plan.chain(new FetchFromIndexManagerStep(ctx, profilingEnabled));
     } else if (metadata.getName().equalsIgnoreCase("STORAGE")) {
       plan.chain(new FetchFromStorageMetadataStep(ctx, profilingEnabled));
     } else if (metadata.getName().equalsIgnoreCase("DATABASE")) {
@@ -2113,7 +2116,7 @@ public class SelectExecutionPlanner {
       var indexFieldFound = false;
       while (blockIterator.hasNext()) {
         var singleExp = blockIterator.next();
-        if (singleExp.isIndexAware(info)) {
+        if (singleExp.isIndexAware(info, ctx)) {
           indexFieldFound = true;
           indexKeyValue.getSubBlocks().add(singleExp.copy());
           blockIterator.remove();

@@ -178,7 +178,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   private static Map<String, ?> parseMetadata(SQLExpression[] args) {
-    return JSONSerializerJackson.mapFromJson(args[1].toString());
+    return JSONSerializerJackson.INSTANCE.mapFromJson(args[1].toString());
   }
 
   private MoreLikeThis buildMoreLikeThis(

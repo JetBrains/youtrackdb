@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
@@ -79,7 +80,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
   }
 
   @Override
-  public void setCollate(DatabaseSessionInternal session, String collate) {
+  public void setCollate(DatabaseSessionEmbedded session, String collate) {
     if (collate == null) {
       collate = DefaultCollate.NAME;
     }
@@ -149,7 +150,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType(session)));
+    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType()));
 
     acquireSchemaWriteLock(session);
     try {
@@ -157,7 +158,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
           String.format(
               "alter property %s linkedclass %s",
               getFullNameQuoted(session),
-              quoteString(linkedClass.getName(session)));
+              quoteString(linkedClass.getName()));
       session.execute(cmd).close();
 
     } finally {
@@ -170,7 +171,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
       final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType(session)));
+    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType()));
 
     acquireSchemaWriteLock(session);
     try {
@@ -282,19 +283,19 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
   }
 
   @Override
-  public String createIndex(DatabaseSessionInternal session, String iType) {
+  public String createIndex(DatabaseSessionEmbedded session, String iType) {
     var indexName = getFullName(session);
     owner.createIndex(session, indexName, iType, globalRef.getName());
     return indexName;
   }
 
   @Override
-  public String createIndex(DatabaseSessionInternal session, INDEX_TYPE iType) {
+  public String createIndex(DatabaseSessionEmbedded session, INDEX_TYPE iType) {
     return createIndex(session, iType.toString());
   }
 
   @Override
-  public String createIndex(DatabaseSessionInternal session, String iType,
+  public String createIndex(DatabaseSessionEmbedded session, String iType,
       Map<String, Object> metadata) {
     var indexName = getFullName(session);
     owner.createIndex(session,
@@ -303,7 +304,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
   }
 
   @Override
-  public String createIndex(DatabaseSessionInternal session, INDEX_TYPE iType,
+  public String createIndex(DatabaseSessionEmbedded session, INDEX_TYPE iType,
       Map<String, Object> metadata) {
     return createIndex(session, iType.name(), metadata);
   }
@@ -315,7 +316,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
     final var indexManager = session.getSharedContext().getIndexManager();
 
     final var relatedIndexes = new ArrayList<Index>();
-    for (final var index : indexManager.getClassIndexes(session, owner.getName(session))) {
+    for (final var index : indexManager.getClassIndexes(session, owner.getName())) {
       final var definition = index.getDefinition();
 
       if (Collections.indexOf(

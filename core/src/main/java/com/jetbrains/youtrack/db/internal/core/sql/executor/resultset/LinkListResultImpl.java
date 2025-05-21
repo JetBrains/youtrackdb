@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.resultset;
 
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -18,7 +18,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class LinkListResultImpl implements LinkList {
-
   private final ArrayList<Identifiable> list;
 
   @SuppressWarnings("unused")

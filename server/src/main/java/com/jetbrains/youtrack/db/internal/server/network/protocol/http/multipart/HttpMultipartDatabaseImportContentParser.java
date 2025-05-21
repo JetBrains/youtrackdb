@@ -15,7 +15,7 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import java.io.IOException;
@@ -34,7 +34,7 @@ public class HttpMultipartDatabaseImportContentParser
       final HttpRequest iRequest,
       final Map<String, String> headers,
       final HttpMultipartContentInputStream in,
-      DatabaseSessionInternal db)
+      DatabaseSessionEmbedded db)
       throws IOException {
     final var fileName = headers.get(HttpUtils.MULTIPART_CONTENT_FILENAME);
 

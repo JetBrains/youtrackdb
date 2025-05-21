@@ -16,8 +16,8 @@ public class DeleteExecutionPlan extends UpdateExecutionPlan {
   }
 
   @Override
-  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
-    var res = (ResultInternal) super.toResult(db);
+  public @Nonnull Result toResult(@Nullable DatabaseSession session) {
+    var res = (ResultInternal) super.toResult(session);
     res.setProperty("type", "DeleteExecutionPlan");
     return res;
   }

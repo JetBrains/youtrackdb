@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.security.authenticator;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
@@ -51,7 +52,7 @@ public class DefaultPasswordAuthenticator extends SecurityAuthenticatorAbstract 
   }
 
   // SecurityComponent
-  public void config(DatabaseSessionInternal session, final Map<String, Object> jsonConfig,
+  public void config(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     super.config(session, jsonConfig, security);
 

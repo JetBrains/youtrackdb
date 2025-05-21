@@ -8,10 +8,12 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -181,6 +183,14 @@ public class SQLBaseIdentifier extends SimpleNode {
 
   public boolean isBaseIdentifier() {
     return suffix != null && suffix.isBaseIdentifier();
+  }
+
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
+    if (levelZero != null) {
+      return levelZero.isGraphRelationFunction(session);
+    }
+
+    return false;
   }
 
   public boolean isExpand() {
@@ -397,6 +407,15 @@ public class SQLBaseIdentifier extends SimpleNode {
           && allIndexes.stream().anyMatch(idx -> idx.getDefinition().getFields().size() == 1);
     }
     return false;
+  }
+
+  @Nullable
+  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
+    if (levelZero != null) {
+      return levelZero.getGraphRelationFunctionProperties(ctx);
+    }
+
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=ed89af10d8be41a83428c5608a4834f6 (do not edit this line) */

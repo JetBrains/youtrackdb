@@ -8,9 +8,10 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
@@ -83,8 +84,8 @@ public class StorageBackupTest {
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
             System.out::println);
 
     Assert.assertTrue(compare.compare());
@@ -184,8 +185,8 @@ public class StorageBackupTest {
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
             System.out::println);
 
     Assert.assertTrue(compare.compare());
@@ -194,7 +195,7 @@ public class StorageBackupTest {
       youTrackDB.close();
     }
 
-    youTrackDB = new YouTrackDBImpl("embedded:" + testDirectory, YouTrackDBConfig.defaultConfig());
+    youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
     youTrackDB.drop(dbName);
     youTrackDB.drop(backupDbName);
 
@@ -285,8 +286,8 @@ public class StorageBackupTest {
 
     final var compare =
         new DatabaseCompare(
-            (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-            (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+            (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+            (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
             System.out::println);
 
     Assert.assertTrue(compare.compare());

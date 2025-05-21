@@ -39,10 +39,10 @@ public class SystemDatabase {
   public static final String SERVER_INFO_CLASS = "ServerInfo";
   public static final String SERVER_ID_PROPERTY = "serverId";
 
-  private final YouTrackDBInternal context;
+  private final YouTrackDBInternalEmbedded context;
   private String serverId;
 
-  public SystemDatabase(final YouTrackDBInternal context) {
+  public SystemDatabase(final YouTrackDBInternalEmbedded context) {
     this.context = context;
   }
 
@@ -55,6 +55,7 @@ public class SystemDatabase {
     if (!exists()) {
       init();
     }
+
     return context.openNoAuthorization(SYSTEM_DB_NAME);
   }
 
@@ -97,7 +98,7 @@ public class SystemDatabase {
         type = DatabaseType.MEMORY;
       }
       context.create(SYSTEM_DB_NAME, null, null, type, config);
-      try (var session = context.openNoAuthorization(SYSTEM_DB_NAME)) {
+      try (var session = (DatabaseSessionInternal) context.openNoAuthorization(SYSTEM_DB_NAME)) {
         DefaultSecuritySystem.createSystemRoles(session);
       }
     }
