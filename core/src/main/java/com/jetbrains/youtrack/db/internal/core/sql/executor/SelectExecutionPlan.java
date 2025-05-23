@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -109,8 +110,8 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty(JAVA_TYPE, getClass().getName());
     result.setProperty("cost", getCost());
@@ -118,7 +119,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     result.setProperty(
         "steps",
         steps == null ? null
-            : steps.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+            : steps.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     return result;
   }
 

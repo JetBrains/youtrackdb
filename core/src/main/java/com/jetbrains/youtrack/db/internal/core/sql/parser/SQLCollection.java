@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +28,7 @@ public class SQLCollection extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("[");
     var first = true;
@@ -41,6 +42,7 @@ public class SQLCollection extends SimpleNode {
     builder.append("]");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("[");
     var first = true;
@@ -74,7 +76,7 @@ public class SQLCollection extends SimpleNode {
     return result;
   }
 
-  private Object convert(Object item) {
+  private static Object convert(Object item) {
     if (item instanceof ResultSet) {
       return ((ResultSet) item).stream().collect(Collectors.toList());
     }
@@ -90,7 +92,7 @@ public class SQLCollection extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     for (var exp : this.expressions) {
       if (exp.isAggregate(session)) {
         return true;
@@ -127,12 +129,13 @@ public class SQLCollection extends SimpleNode {
     return true;
   }
 
+  @Override
   public SQLCollection copy() {
     var result = new SQLCollection(-1);
     result.expressions =
         expressions == null
             ? null
-            : expressions.stream().map(x -> x.copy()).collect(Collectors.toList());
+            : expressions.stream().map(SQLExpression::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -166,12 +169,12 @@ public class SQLCollection extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (expressions != null) {
       result.setProperty(
           "expressions",
-          expressions.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          expressions.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     return result;
   }
@@ -188,7 +191,7 @@ public class SQLCollection extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     for (var exp : expressions) {
       if (!exp.isCacheable(session)) {
         return false;

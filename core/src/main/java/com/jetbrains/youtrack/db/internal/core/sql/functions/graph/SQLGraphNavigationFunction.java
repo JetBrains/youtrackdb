@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInt
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl.EdgeType;
+import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import java.util.ArrayList;
 import java.util.Collection;
 import javax.annotation.Nullable;
@@ -14,23 +15,21 @@ import javax.annotation.Nullable;
 /// Interface that indicates functions that are used to navigate through graph relations.
 ///
 /// Examples of such functions are `outE``,`bothE``, `inE``,`both` and `bothV`.
-public interface SQLGraphRelationsFunction {
+public interface SQLGraphNavigationFunction extends SQLFunction {
 
   /// List of property names that are used to navigate over relation.
   ///
-  /// SQL engine uses those properties
-  /// to determine the index that will be used instead of the given
+  /// SQL engine uses those properties to determine the index that will be used instead of the given
   /// function to return the same result.
   ///
   /// Those properties are returned only if property values are mapped directly to the function
-  /// result.
-  /// For example, the ` out ` function will return `null` in case of usage of stateful
+  /// result. For example, the ` out ` function will return `null` in case of usage of stateful
   /// edges.
   ///
   /// SQL engine treats each of those properties in the list as a collection of the `rid`s of some
   /// of the supported types.
   ///
-  /// Those properties are used if a search result can be represented as the series of contains
+  /// Returned property names are used if a search result can be represented as the series of contains
   /// operations on values of properties, results of which are merged by `or` operation.
   ///
   /// ```
@@ -39,12 +38,15 @@ public interface SQLGraphRelationsFunction {
   ///```
 
   @Nullable
-  Collection<String> propertyNamesForIndexCandidates(String[] labels, SchemaClass schemaClass,
-      DatabaseSessionEmbedded session);
+  Collection<String> propertyNamesForIndexCandidates(String[] labels,
+      SchemaClass schemaClass,
+      boolean polymorphic, DatabaseSessionEmbedded session);
+
 
   @Nullable
   static Collection<String> propertiesForV2ENavigation(SchemaClass schemaClass,
-      DatabaseSessionEmbedded session, Direction direction, String[] labels) {
+      DatabaseSessionEmbedded session, Direction direction,
+      String[] labels) {
     //As we support graph function for all relations both graph and non-graph.
     //
     //We should handle two cases:
@@ -71,7 +73,8 @@ public interface SQLGraphRelationsFunction {
 
   @Nullable
   static Collection<String> propertiesForV2VNavigation(SchemaClass schemaClass,
-      DatabaseSessionEmbedded session, Direction direction, String[] labels) {
+      DatabaseSessionEmbedded session, Direction direction,
+      String[] labels) {
     //As we support graph function for all relations both graph and non-graph.
     //We should handle two cases:
     //
@@ -81,8 +84,7 @@ public interface SQLGraphRelationsFunction {
     if (!schemaClass.isVertexType()) {
       //If an entity is not a vertex:
       // 1. 'Out' direction - we return all labels that are link-based properties.
-      // 2. 'In' direction -
-      // we return names of system properties that are containers
+      // 2. 'In' direction - we return names of system properties that are containers
       // for back references used to track link consistency.
       if (direction == Direction.OUT) {
         var result = new ArrayList<String>(labels.length);
@@ -111,16 +113,20 @@ public interface SQLGraphRelationsFunction {
       } else if (direction == Direction.BOTH) {
         var result = new ArrayList<String>(labels.length << 1);
 
-        result.addAll(propertiesForV2VNavigation(schemaClass, session, Direction.OUT, labels));
-        result.addAll(propertiesForV2VNavigation(schemaClass, session, Direction.IN, labels));
+        result.addAll(
+            propertiesForV2VNavigation(schemaClass, session, Direction.OUT,
+                labels));
+        result.addAll(
+            propertiesForV2VNavigation(schemaClass, session, Direction.IN,
+                labels));
         return result;
       }
 
       throw new IllegalStateException("Incorrect value for direction: " + direction);
     }
 
-    //if an entity is vertex, we collect property names that are references of lightweight edges, so
-    //directly reference opposite vertices without indirection.
+    //if an entity is vertex, we collect property names that are references of lightweight edges,
+    // so we return only properties that directly reference opposite vertices.
     var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
     return VertexEntityImpl.getAllPossibleEdgePropertyNames(
         immutableSchema,

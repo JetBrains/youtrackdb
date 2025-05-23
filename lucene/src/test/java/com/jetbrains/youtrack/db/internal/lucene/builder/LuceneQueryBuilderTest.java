@@ -20,7 +20,7 @@ public class LuceneQueryBuilderTest extends LuceneBaseTest {
   @Before
   public void setUp() throws Exception {
     indexDef = Mockito.mock(IndexDefinition.class);
-    when(indexDef.getFields()).thenReturn(Collections.emptyList());
+    when(indexDef.getProperties()).thenReturn(Collections.emptyList());
     when(indexDef.isAutomatic()).thenReturn(true);
     when(indexDef.getClassName()).thenReturn("Song");
   }

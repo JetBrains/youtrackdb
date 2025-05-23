@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.text.Collator;
@@ -80,7 +80,7 @@ public class SQLOrderByItem {
       rid.toString(params, builder);
     }
     if (type != null) {
-      builder.append(" " + type);
+      builder.append(" ").append(type);
     }
     if (collate != null) {
       builder.append(" COLLATE ");
@@ -234,19 +234,19 @@ public class SQLOrderByItem {
     this.modifier = modifier;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("alias", alias);
     if (modifier != null) {
-      result.setProperty("modifier", modifier.serialize(db));
+      result.setProperty("modifier", modifier.serialize(session));
     }
     result.setProperty("recordAttr", recordAttr);
     if (rid != null) {
-      result.setProperty("rid", rid.serialize(db));
+      result.setProperty("rid", rid.serialize(session));
     }
     result.setProperty("type", type);
     if (collate != null) {
-      result.setProperty("collate", collate.serialize(db));
+      result.setProperty("collate", collate.serialize(session));
     }
     return result;
   }
@@ -326,7 +326,7 @@ public class SQLOrderByItem {
       rid.toGenericStatement(builder);
     }
     if (type != null) {
-      builder.append(" " + type);
+      builder.append(" ").append(type);
     }
     if (collate != null) {
       builder.append(" COLLATE ");

@@ -6,21 +6,23 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class SQLNotBlock extends SQLBooleanExpression {
+public final class SQLNotBlock extends SQLBooleanExpression {
 
-  protected SQLBooleanExpression sub;
+  SQLBooleanExpression sub;
 
-  protected boolean negate = false;
+  boolean negate = false;
 
   public SQLNotBlock(int id) {
     super(id);
@@ -70,6 +72,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
     this.negate = negate;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (negate) {
       builder.append("NOT ");
@@ -77,6 +80,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
     sub.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (negate) {
       builder.append("NOT ");
@@ -102,22 +106,23 @@ public class SQLNotBlock extends SQLBooleanExpression {
   @Override
   @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
-      SchemaClass iSchemaClass, DatabaseSessionInternal database) {
+      SchemaClass iSchemaClass, DatabaseSessionEmbedded session) {
     if (sub == null) {
       return null;
     }
     if (negate) {
       return null;
     }
-    return sub.getIndexedFunctionConditions(iSchemaClass, database);
+    return sub.getIndexedFunctionConditions(iSchemaClass, session);
   }
 
   @Override
-  public List<SQLAndBlock> flatten() {
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
     if (!negate) {
-      return sub.flatten();
+      return sub.flatten(ctx, schemaClass);
     }
-    return super.flatten();
+
+    return super.flatten(ctx, schemaClass);
   }
 
   @Override
@@ -178,7 +183,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return sub.isCacheable(session);
   }
 
@@ -201,11 +206,34 @@ public class SQLNotBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isAlwaysTrue() {
+  public boolean isConstantExpression() {
     if (negate) {
       return false;
     }
-    return sub.isAlwaysTrue();
+    return sub.isConstantExpression();
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Override
+  @Nullable
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=1926313b3f854235aaa20811c22d583b (do not edit this line) */

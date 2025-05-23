@@ -202,7 +202,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
 
   private void checkCollectionIndex(DatabaseSessionInternal session,
       IndexDefinition indexDefinition) {
-    var fields = indexDefinition.getFields();
+    var fields = indexDefinition.getProperties();
 
     var aClass =
         session.getMetadata().getSchema().getClass(indexDefinition.getClassName());
@@ -528,7 +528,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     updateLastAccess();
     openIfClosed(storage);
 
-    return LuceneIndexType.createDeleteQuery(value, indexDefinition.getFields(), key);
+    return LuceneIndexType.createDeleteQuery(value, indexDefinition.getProperties(), key);
   }
 
   @Override

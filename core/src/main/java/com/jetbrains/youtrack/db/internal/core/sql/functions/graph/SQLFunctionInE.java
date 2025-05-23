@@ -8,10 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Collection;
 import javax.annotation.Nullable;
 
-/**
- *
- */
-public class SQLFunctionInE extends SQLFunctionMove implements SQLGraphRelationsFunction {
+public class SQLFunctionInE extends SQLFunctionMove implements SQLGraphNavigationFunction {
 
   public static final String NAME = "inE";
 
@@ -36,8 +33,8 @@ public class SQLFunctionInE extends SQLFunctionMove implements SQLGraphRelations
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
       SchemaClass schemaClass,
-      DatabaseSessionEmbedded session) {
-    return SQLGraphRelationsFunction.propertiesForV2ENavigation(schemaClass, session,
+      boolean polymorphic, DatabaseSessionEmbedded session) {
+    return SQLGraphNavigationFunction.propertiesForV2ENavigation(schemaClass, session,
         Direction.IN, labels);
   }
 }

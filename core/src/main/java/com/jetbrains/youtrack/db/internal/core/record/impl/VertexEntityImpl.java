@@ -139,8 +139,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           getVertices(Direction.OUT, type), getVertices(Direction.IN, type));
     } else {
       var edges = getEdgesInternal(direction, type);
-      //noinspection rawtypes,unchecked
-      return new BidirectionalLinksIterable<Vertex>(edges, direction);
+      return new BidirectionalLinksIterable<>(edges, direction);
     }
   }
 
@@ -292,28 +291,28 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         (Iterable) getEdgesInternal(direction, linkNames));
   }
 
-  private Iterable<EdgeInternal> getEdgesInternal(Direction direction, String[] labels) {
+  private Iterable<EdgeInternal> getEdgesInternal(Direction direction,
+      String[] labels) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     labels = resolveAliases(session, schema, labels);
-    Collection<String> fieldNames = null;
+
+    Collection<String> propertyNames = null;
     if (labels != null && labels.length > 0) {
-      // EDGE LABELS: CREATE FIELD NAME TABLE (FASTER THAN EXTRACT FIELD NAMES FROM THE DOCUMENT)
-      var toLoadFieldNames = getAllPossibleEdgePropertyNames(schema, direction, EdgeType.BOTH,
+      var toLoadPropertyNames = getAllPossibleEdgePropertyNames(schema, direction, EdgeType.BOTH,
           labels);
 
-      if (toLoadFieldNames != null) {
-        // EARLY FETCH ALL THE FIELDS THAT MATTERS
-        deserializeProperties(toLoadFieldNames.toArray(new String[]{}));
-        fieldNames = toLoadFieldNames;
+      if (toLoadPropertyNames != null) {
+        deserializeProperties(toLoadPropertyNames.toArray(new String[]{}));
+        propertyNames = toLoadPropertyNames;
       }
     }
 
-    if (fieldNames == null) {
-      fieldNames = calculatePropertyNames(false, true);
+    if (propertyNames == null) {
+      propertyNames = calculatePropertyNames(false, true);
     }
 
-    var iterables = new ArrayList<Iterable<EdgeInternal>>(fieldNames.size());
-    for (var fieldName : fieldNames) {
+    var iterables = new ArrayList<Iterable<EdgeInternal>>(propertyNames.size());
+    for (var fieldName : propertyNames) {
       final var connection =
           getConnection(schema, direction, fieldName, labels);
       if (connection == null)
@@ -370,7 +369,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   /// are also considered and added to the list of possible edge labels.
   @Nullable
   public static List<String> getAllPossibleEdgePropertyNames(
-      Schema schema, final Direction direction, EdgeType edgeType, String... labels) {
+      Schema schema, final Direction direction, EdgeType edgeType,
+      String... labels) {
     if (labels == null) {
       return null;
     }

@@ -8,6 +8,8 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
@@ -57,7 +59,7 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
       }
     }
     if (iThis instanceof Identifiable) {
-      iThis = new ResultInternal(ctx.getDatabaseSession(), (Identifiable) iThis);
+      iThis = new ResultInternal(session, (Identifiable) iThis);
     }
     var result = (Result) iThis;
 
@@ -65,15 +67,16 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
       return false;
     }
 
-    var entity = result.asEntity();
+    var entity = (EntityImpl) result.asEntity();
     if (entity.getSchemaClassName() == null) {
       return false;
     }
 
-    var className = entity.getSchemaClassName();
+    var schemaClass = entity.getImmutableSchemaClass(session);
+    @SuppressWarnings("unchecked")
     var fieldNames = (List<String>) params[0];
 
-    var index = searchForIndex(className, ctx, fieldNames);
+    var index = searchForIndex(schemaClass, fieldNames);
 
     if (index == null) {
       return false;
@@ -84,8 +87,8 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
     var memoryIndex = getOrCreateMemoryIndex(ctx);
 
     var key =
-        index.getDefinition().getFields().stream()
-            .map(s -> entity.getProperty(s))
+        index.getDefinition().getProperties().stream()
+            .map(entity::getProperty)
             .collect(Collectors.toList());
 
     for (var field : index.buildDocument(ctx.getDatabaseSession(), key).getFields()) {
@@ -100,9 +103,10 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
     return memoryIndex.search(index.buildQuery(keyAndMetadata, session)) > 0.0f;
   }
 
-  private Map<String, ?> getMetadata(Object[] params) {
+  private static Map<String, ?> getMetadata(Object[] params) {
 
     if (params.length == 3) {
+      //noinspection unchecked
       return (Map<String, ?>) params[2];
     }
 
@@ -154,25 +158,27 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
   @Override
   protected LuceneFullTextIndex searchForIndex(
       SQLFromClause target, CommandContext ctx, SQLExpression... args) {
+    @SuppressWarnings("unchecked")
     var fieldNames = (List<String>) args[0].execute((Identifiable) null, ctx);
-    var item = target.getItem();
-    var className = item.getIdentifier().getStringValue();
+    var schemaClass = target.getSchemaClass(ctx.getDatabaseSession());
 
-    return searchForIndex(className, ctx, fieldNames);
+    if (schemaClass == null) {
+      return null;
+    }
+
+    return searchForIndex(schemaClass, fieldNames);
   }
 
   @Nullable
   private static LuceneFullTextIndex searchForIndex(
-      String className, CommandContext ctx, List<String> fieldNames) {
-    var db = ctx.getDatabaseSession();
-    var dbMetadata = db.getMetadata();
+      SchemaClassInternal schemaClass, List<String> fieldNames) {
 
     var indices =
-        dbMetadata.getImmutableSchemaSnapshot().getClassInternal(className).getIndexesInternal()
+        schemaClass.getIndexesInternal()
             .stream()
             .filter(idx -> idx instanceof LuceneFullTextIndex)
             .map(idx -> (LuceneFullTextIndex) idx)
-            .filter(idx -> intersect(idx.getDefinition().getFields(), fieldNames))
+            .filter(idx -> intersect(idx.getDefinition().getProperties(), fieldNames))
             .toList();
 
     if (indices.size() > 1) {
@@ -180,7 +186,7 @@ public class LuceneSearchOnFieldsFunction extends LuceneSearchFunctionTemplate {
           "too many indices matching given field name: " + String.join(",", fieldNames));
     }
 
-    return indices.isEmpty() ? null : indices.get(0);
+    return indices.isEmpty() ? null : indices.getFirst();
   }
 
   public static <T> boolean intersect(List<T> list1, List<T> list2) {

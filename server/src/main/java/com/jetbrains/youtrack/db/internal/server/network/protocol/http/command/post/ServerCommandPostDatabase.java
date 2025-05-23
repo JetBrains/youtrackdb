@@ -343,8 +343,8 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
         json.writeAttribute(session, 4, true, "type", index.getType());
 
         final var indexDefinition = index.getDefinition();
-        if (indexDefinition != null && !indexDefinition.getFields().isEmpty()) {
-          json.writeAttribute(session, 4, true, "fields", indexDefinition.getFields());
+        if (indexDefinition != null && !indexDefinition.getProperties().isEmpty()) {
+          json.writeAttribute(session, 4, true, "fields", indexDefinition.getProperties());
         }
         json.endObject(3, true);
       }

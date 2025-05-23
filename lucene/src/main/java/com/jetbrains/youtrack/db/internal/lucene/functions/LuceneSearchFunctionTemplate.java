@@ -12,10 +12,8 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.lucene.collections.LuceneResultSet;
 import com.jetbrains.youtrack.db.internal.lucene.index.LuceneFullTextIndex;
 import java.util.Map;
+import javax.annotation.Nullable;
 
-/**
- *
- */
 public abstract class LuceneSearchFunctionTemplate extends SQLFunctionAbstract
     implements IndexableSQLFunction {
 
@@ -87,6 +85,7 @@ public abstract class LuceneSearchFunctionTemplate extends SQLFunctionAbstract
     }
   }
 
+  @Nullable
   protected abstract LuceneFullTextIndex searchForIndex(
       SQLFromClause target, CommandContext ctx, SQLExpression... args);
 }

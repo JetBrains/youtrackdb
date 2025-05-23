@@ -39,7 +39,7 @@ public class QueryStats {
       var idx = db.getSharedContext().getIndexManager().getIndex(indexName);
       if (idx != null
           && idx.isUnique()
-          && (idx.getDefinition().getFields().size() == params)
+          && (idx.getDefinition().getProperties().size() == params)
           && !range) {
         return 1;
       }

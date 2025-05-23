@@ -161,7 +161,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
         for (var index : indexes) {
           var definition = index.getDefinition();
 
-          final var fields = definition.getFields();
+          final var fields = definition.getProperties();
           if (fields.contains(getName())) {
             indexesToRecreate.add(index);
           }
@@ -181,7 +181,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
                 indexToRecreate
                     .loadMetadata(transaction, indexToRecreate.getConfiguration(session)));
 
-            final var fields = indexMetadata.getIndexDefinition().getFields();
+            final var fields = indexMetadata.getIndexDefinition().getProperties();
             final var fieldsToIndex = fields.toArray(new String[0]);
 
             indexManager.dropIndex(session, indexMetadata.getName());

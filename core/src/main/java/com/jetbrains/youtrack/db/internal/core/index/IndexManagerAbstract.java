@@ -115,7 +115,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     final Set<Index> result = new HashSet<>(rawResult.size());
     for (final var index : rawResult) {
       // ignore indexes that ignore null values on partial match
-      if (fields.size() == index.getDefinition().getFields().size()
+      if (fields.size() == index.getDefinition().getProperties().size()
           || !index.getDefinition().isNullValuesIgnored()) {
         result.add(index);
       }
@@ -242,7 +242,7 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     final var paramCount = indexDefinition.getParamCount();
 
     for (var i = 1; i <= paramCount; i++) {
-      final var fields = indexDefinition.getFields().subList(0, i);
+      final var fields = indexDefinition.getProperties().subList(0, i);
       final var multiKey = new MultiKey(fields);
       var indexSet = propertyIndex.get(multiKey);
 

@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
 import javax.annotation.Nullable;
 
@@ -18,7 +18,7 @@ public class ClassIndexFinder implements IndexFinder {
 
   private static class PrePath {
 
-    SchemaClass cl;
+    SchemaClassInternal cl;
     @Nullable
     IndexCandidate chain;
     boolean valid;
@@ -31,7 +31,8 @@ public class ClassIndexFinder implements IndexFinder {
     var cand =
         new PrePath() {
           {
-            this.cl = ctx.getDatabaseSession().getClass(ClassIndexFinder.this.clazz);
+            this.cl = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot()
+                .getClassInternal(ClassIndexFinder.this.clazz);
             valid = true;
             last = lastP;
           }
@@ -39,7 +40,7 @@ public class ClassIndexFinder implements IndexFinder {
     for (var ele : rawPath) {
       var prop = (SchemaPropertyInternal) cand.cl.getProperty(ele);
       if (prop != null) {
-        var linkedClass = prop.getLinkedClass();
+        var linkedClass = (SchemaClassInternal) prop.getLinkedClass();
         var indexes = prop.getAllIndexesInternal();
         if (PropertyTypeInternal.convertFromPublicType(prop.getType()).isLink()
             && linkedClass != null) {

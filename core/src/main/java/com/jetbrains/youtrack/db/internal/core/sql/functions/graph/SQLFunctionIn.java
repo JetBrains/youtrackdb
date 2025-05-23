@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 
-public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphRelationsFunction {
+public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphNavigationFunction {
 
   public static final String NAME = "in";
 
@@ -38,6 +38,7 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphRe
         "Function in is not supported for bidirectional links");
   }
 
+  @Override
   protected Object move(
       final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
@@ -116,8 +117,9 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphRe
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
       SchemaClass schemaClass,
-      DatabaseSessionEmbedded session) {
-    return SQLGraphRelationsFunction.propertiesForV2VNavigation(schemaClass, session, Direction.IN,
+      boolean polymorphic, DatabaseSessionEmbedded session) {
+    return SQLGraphNavigationFunction.propertiesForV2VNavigation(schemaClass, session,
+        Direction.IN,
         labels);
   }
 }

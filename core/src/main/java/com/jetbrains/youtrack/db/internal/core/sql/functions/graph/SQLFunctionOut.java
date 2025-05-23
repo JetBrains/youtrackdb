@@ -18,7 +18,7 @@ import javax.annotation.Nullable;
 /**
  *
  */
-public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphRelationsFunction {
+public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphNavigationFunction {
 
   public static final String NAME = "out";
 
@@ -39,6 +39,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphR
         "Function 'out' is not supported for bidirectional links");
   }
 
+  @Override
   protected Object move(
       final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
@@ -117,8 +118,9 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphR
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
       SchemaClass schemaClass,
-      DatabaseSessionEmbedded session) {
-    return SQLGraphRelationsFunction.propertiesForV2VNavigation(schemaClass, session, Direction.OUT,
+      boolean polymorphic, DatabaseSessionEmbedded session) {
+    return SQLGraphNavigationFunction.propertiesForV2VNavigation(schemaClass, session,
+        Direction.OUT,
         labels);
   }
 }

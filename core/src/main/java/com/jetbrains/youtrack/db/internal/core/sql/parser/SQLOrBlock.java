@@ -6,8 +6,9 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SQLOrBlock extends SQLBooleanExpression {
@@ -85,6 +87,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
     this.subBlocks.add(block);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (subBlocks == null || subBlocks.isEmpty()) {
       return;
@@ -100,6 +103,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (subBlocks == null || subBlocks.isEmpty()) {
       return;
@@ -146,13 +150,13 @@ public class SQLOrBlock extends SQLBooleanExpression {
   @Override
   @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
-      SchemaClass iSchemaClass, DatabaseSessionInternal database) {
+      SchemaClass iSchemaClass, DatabaseSessionEmbedded session) {
     if (subBlocks == null || subBlocks.size() > 1) {
       return null;
     }
     List<SQLBinaryCondition> result = new ArrayList<>();
     for (var exp : subBlocks) {
-      var sub = exp.getIndexedFunctionConditions(iSchemaClass, database);
+      var sub = exp.getIndexedFunctionConditions(iSchemaClass, session);
       if (sub != null && !sub.isEmpty()) {
         result.addAll(sub);
       }
@@ -161,12 +165,14 @@ public class SQLOrBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public List<SQLAndBlock> flatten() {
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
     List<SQLAndBlock> result = new ArrayList<>();
+
     for (var sub : subBlocks) {
-      var childFlattened = sub.flatten();
+      var childFlattened = sub.flatten(ctx, schemaClass);
       result.addAll(childFlattened);
     }
+
     return result;
   }
 
@@ -256,7 +262,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     for (var block : this.subBlocks) {
       if (!block.isCacheable(session)) {
         return false;
@@ -305,16 +311,39 @@ public class SQLOrBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isAlwaysTrue() {
+  public boolean isConstantExpression() {
     if (subBlocks.isEmpty()) {
       return true;
     }
     for (var exp : subBlocks) {
-      if (exp.isAlwaysTrue()) {
+      if (exp.isConstantExpression()) {
         return true;
       }
     }
     return false;
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=98d3077303a598705894dbb7bd4e1573 (do not edit this line) */

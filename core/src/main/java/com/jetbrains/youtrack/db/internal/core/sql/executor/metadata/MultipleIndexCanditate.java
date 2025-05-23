@@ -100,7 +100,7 @@ public class MultipleIndexCanditate implements IndexCandidate {
         var index = session.getSharedContext().getIndexManager()
             .getIndex(cand.getName());
         List<SchemaProperty> foundProps = new ArrayList<>();
-        for (var field : index.getDefinition().getFields()) {
+        for (var field : index.getDefinition().getProperties()) {
           var found = false;
           for (var property : propeties) {
             if (property.getName().equals(field)) {

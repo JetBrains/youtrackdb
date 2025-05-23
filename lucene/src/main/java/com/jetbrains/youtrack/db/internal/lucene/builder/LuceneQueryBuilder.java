@@ -25,7 +25,6 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory;
-import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngineAbstract;
 import com.jetbrains.youtrack.db.internal.lucene.parser.LuceneMultiFieldQueryParser;
 import java.util.Collections;
 import java.util.HashMap;
@@ -34,7 +33,6 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.search.DocValuesFieldExistsQuery;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
@@ -98,7 +96,7 @@ public class LuceneQueryBuilder {
       throws ParseException {
     String[] fields;
     if (index.isAutomatic()) {
-      fields = index.getFields().toArray(new String[index.getFields().size()]);
+      fields = index.getProperties().toArray(new String[index.getProperties().size()]);
     } else {
       final var length = index.getTypes().length;
       fields = new String[length];

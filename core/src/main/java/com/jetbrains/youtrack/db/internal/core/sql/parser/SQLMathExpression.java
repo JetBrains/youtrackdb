@@ -50,6 +50,7 @@ public class SQLMathExpression extends SimpleNode {
     return false;
   }
 
+
   public enum Operator {
     STAR(10) {
       @Override
@@ -670,7 +671,7 @@ public class SQLMathExpression extends SimpleNode {
     super(p, id);
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (childExpressions != null) {
       for (var exp : childExpressions) {
         if (!exp.isCacheable(session)) {
@@ -784,7 +785,7 @@ public class SQLMathExpression extends SimpleNode {
   }
 
   @Nullable
-  private Object iterateOnPriorities(Deque values, Deque<Operator> operators) {
+  private static Object iterateOnPriorities(Deque values, Deque<Operator> operators) {
     while (true) {
       if (values.isEmpty()) {
         return null;
@@ -970,7 +971,7 @@ public class SQLMathExpression extends SimpleNode {
     return true;
   }
 
-  public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
+  public boolean isIndexedFunctionCall(DatabaseSessionEmbedded session) {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions.getFirst().isIndexedFunctionCall(session);
@@ -1113,13 +1114,12 @@ public class SQLMathExpression extends SimpleNode {
     return false;
   }
 
-
   @Nullable
-  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx,
+  public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
       SchemaClass schemaClass) {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.getFirst().getGraphRelationFunctionProperties(ctx, schemaClass);
+        return childExpressions.getFirst().getGraphNavigationFunctionProperties(ctx, schemaClass);
       }
     }
 
@@ -1184,7 +1184,7 @@ public class SQLMathExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (this.childExpressions != null) {
       for (var expr : this.childExpressions) {
         if (expr.isAggregate(session)) {
@@ -1253,7 +1253,7 @@ public class SQLMathExpression extends SimpleNode {
     }
     if (this.childExpressions != null) {
       result.childExpressions =
-          childExpressions.stream().map(x -> x.copy()).collect(Collectors.toList());
+          childExpressions.stream().map(SQLMathExpression::copy).collect(Collectors.toList());
     }
     if (operators != null) {
       result.operators = new ArrayList<>(operators);
@@ -1349,18 +1349,19 @@ public class SQLMathExpression extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("__class", getClass().getName());
     if (childExpressions != null) {
       result.setProperty(
           "childExpressions",
-          childExpressions.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          childExpressions.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     if (operators != null) {
       result.setProperty(
           "operators",
-          operators.stream().map(this::serializeOperator).collect(Collectors.toList()));
+          operators.stream().map(SQLMathExpression::serializeOperator)
+              .collect(Collectors.toList()));
     }
     return result;
   }
@@ -1369,19 +1370,20 @@ public class SQLMathExpression extends SimpleNode {
     if (fromResult.getProperty("childExpressions") != null) {
       List<Result> ser = fromResult.getProperty("childExpressions");
       childExpressions =
-          ser.stream().map(x -> deserializeFromResult(x)).collect(Collectors.toList());
+          ser.stream().map(SQLMathExpression::deserializeFromResult).collect(Collectors.toList());
     }
     if (fromResult.getProperty("operators") != null) {
       List<String> ser = fromResult.getProperty("operators");
-      operators = ser.stream().map(x -> deserializeOperator(x)).collect(Collectors.toList());
+      operators = ser.stream().map(SQLMathExpression::deserializeOperator)
+          .collect(Collectors.toList());
     }
   }
 
-  private String serializeOperator(Operator x) {
+  private static String serializeOperator(Operator x) {
     return x.toString();
   }
 
-  private Operator deserializeOperator(String x) {
+  private static Operator deserializeOperator(String x) {
     return Operator.valueOf(x);
   }
 }

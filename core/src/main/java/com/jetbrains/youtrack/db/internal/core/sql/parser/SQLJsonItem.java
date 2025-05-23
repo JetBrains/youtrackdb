@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -66,7 +66,7 @@ public class SQLJsonItem {
     return right.needsAliases(aliases);
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     return right.isAggregate(session);
   }
 
@@ -127,11 +127,11 @@ public class SQLJsonItem {
     return result;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
-    result.setProperty("leftIdentifier", leftIdentifier.serialize(db));
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
+    result.setProperty("leftIdentifier", leftIdentifier.serialize(session));
     result.setProperty("leftString", leftString);
-    result.setProperty("right", right.serialize(db));
+    result.setProperty("right", right.serialize(session));
     return result;
   }
 

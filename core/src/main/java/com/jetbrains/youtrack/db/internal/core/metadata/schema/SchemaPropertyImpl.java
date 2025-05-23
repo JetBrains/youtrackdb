@@ -199,7 +199,7 @@ public abstract class SchemaPropertyImpl {
         final var definition = index.getDefinition();
 
         if (Collections.indexOf(
-            definition.getFields(), globalRef.getName(), new CaseInsentiveComparator())
+            definition.getProperties(), globalRef.getName(), new CaseInsentiveComparator())
             > -1) {
           if (definition instanceof PropertyIndexDefinition) {
             relatedIndexes.add(index);
@@ -667,7 +667,7 @@ public abstract class SchemaPropertyImpl {
       final List<Index> indexList = new LinkedList<>();
       for (final var index : indexes) {
         final var indexDefinition = index.getDefinition();
-        if (indexDefinition.getFields().contains(globalRef.getName())) {
+        if (indexDefinition.getProperties().contains(globalRef.getName())) {
           indexList.add(index);
         }
       }

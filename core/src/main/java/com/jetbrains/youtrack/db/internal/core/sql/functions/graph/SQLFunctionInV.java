@@ -10,7 +10,7 @@ import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nullable;
 
-public class SQLFunctionInV extends SQLFunctionMove implements SQLGraphRelationsFunction {
+public class SQLFunctionInV extends SQLFunctionMove implements SQLGraphNavigationFunction {
 
   public static final String NAME = "inV";
 
@@ -33,7 +33,7 @@ public class SQLFunctionInV extends SQLFunctionMove implements SQLGraphRelations
   @Nullable
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
-      SchemaClass schemaClass, DatabaseSessionEmbedded session) {
+      SchemaClass schemaClass, boolean polymorphic, DatabaseSessionEmbedded session) {
     return List.of(Edge.DIRECTION_IN);
   }
 }

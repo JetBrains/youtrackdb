@@ -13,7 +13,7 @@ import javax.annotation.Nullable;
 /**
  *
  */
-public class SQLFunctionOutV extends SQLFunctionMove implements SQLGraphRelationsFunction {
+public class SQLFunctionOutV extends SQLFunctionMove implements SQLGraphNavigationFunction {
   public static final String NAME = "outV";
 
   public SQLFunctionOutV() {
@@ -35,7 +35,7 @@ public class SQLFunctionOutV extends SQLFunctionMove implements SQLGraphRelation
   @Nullable
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
-      SchemaClass schemaClass, DatabaseSessionEmbedded session) {
+      SchemaClass schemaClass, boolean polymorphic, DatabaseSessionEmbedded session) {
     return List.of(Edge.DIRECTION_OUT);
   }
 }

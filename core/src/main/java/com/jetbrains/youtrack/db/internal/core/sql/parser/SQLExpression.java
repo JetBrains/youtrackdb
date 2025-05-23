@@ -164,7 +164,7 @@ public class SQLExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
+  public boolean isGraphNavigationFunction(DatabaseSessionEmbedded session) {
     if (mathExpression != null) {
       return mathExpression.isGraphRelationFunction(session);
     }
@@ -179,10 +179,7 @@ public class SQLExpression extends SimpleNode {
   public Collection<String> getGraphRelationProperties(CommandContext ctx,
       SchemaClass schemaClass) {
     if (mathExpression != null) {
-      return mathExpression.getGraphRelationFunctionProperties(ctx, schemaClass);
-    }
-    if (value instanceof SQLMathExpression) { // only backward stuff, remote it
-      return ((SQLMathExpression) value).getGraphRelationFunctionProperties(ctx, schemaClass);
+      return mathExpression.getGraphNavigationFunctionProperties(ctx, schemaClass);
     }
 
     return null;
@@ -327,7 +324,7 @@ public class SQLExpression extends SimpleNode {
     return true;
   }
 
-  public boolean isIndexedFunctionCal(DatabaseSessionInternal session) {
+  public boolean isIndexedFunctionCal(DatabaseSessionEmbedded session) {
     if (mathExpression != null) {
       return mathExpression.isIndexedFunctionCall(session);
     }
@@ -455,7 +452,7 @@ public class SQLExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (mathExpression != null && mathExpression.isAggregate(session)) {
       return true;
     }
@@ -668,23 +665,23 @@ public class SQLExpression extends SimpleNode {
     this.arrayConcatExpression = arrayConcatExpression;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("singleQuotes", singleQuotes);
     result.setProperty("doubleQuotes", doubleQuotes);
     result.setProperty("isNull", isNull);
 
     if (rid != null) {
-      result.setProperty("rid", rid.serialize(db));
+      result.setProperty("rid", rid.serialize(session));
     }
     if (mathExpression != null) {
-      result.setProperty("mathExpression", mathExpression.serialize(db));
+      result.setProperty("mathExpression", mathExpression.serialize(session));
     }
     if (arrayConcatExpression != null) {
-      result.setProperty("arrayConcatExpression", arrayConcatExpression.serialize(db));
+      result.setProperty("arrayConcatExpression", arrayConcatExpression.serialize(session));
     }
     if (json != null) {
-      result.setProperty("json", json.serialize(db));
+      result.setProperty("json", json.serialize(session));
     }
     result.setProperty("booleanValue", booleanValue);
     return result;
@@ -738,7 +735,7 @@ public class SQLExpression extends SimpleNode {
     return null;
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (mathExpression != null) {
       return mathExpression.isCacheable(session);
     }
@@ -746,7 +743,8 @@ public class SQLExpression extends SimpleNode {
       return arrayConcatExpression.isCacheable(session);
     }
     if (json != null) {
-      return json.isCacheable();
+      // TODO optimize
+      return false;
     }
 
     return true;

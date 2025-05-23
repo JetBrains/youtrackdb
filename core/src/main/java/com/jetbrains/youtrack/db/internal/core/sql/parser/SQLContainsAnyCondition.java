@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SQLContainsAnyCondition extends SQLBooleanExpression {
@@ -37,7 +38,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
     super(p, id);
   }
 
-  public boolean execute(Object left, Object right) {
+  public static boolean execute(Object left, Object right) {
     if (left instanceof Collection) {
       if (right instanceof Iterable) {
         right = ((Iterable) right).iterator();
@@ -149,6 +150,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" CONTAINSANY ");
@@ -161,6 +163,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" CONTAINSANY ");
@@ -351,11 +354,11 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
       result.addAll(rightBlockX);
     }
 
-    return result.size() == 0 ? null : result;
+    return result.isEmpty() ? null : result;
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (left != null && !left.isCacheable(session)) {
       return false;
     }
@@ -374,6 +377,29 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
         return right.isEarlyCalculated(info.ctx());
       }
     }
+    return false;
+  }
+
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    if (left.isBaseIdentifier()) {
+      return left.getDefaultAlias().getStringValue();
+    }
+
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
     return false;
   }
 

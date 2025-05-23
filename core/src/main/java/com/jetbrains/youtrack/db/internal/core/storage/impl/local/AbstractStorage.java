@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local;
 
-import com.google.common.util.concurrent.Striped;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
@@ -2363,12 +2362,12 @@ public abstract class AbstractStorage
     if (keyTypes == null || keyTypes.length == 0) {
       throw new StorageException(name, "Types of index keys has to be defined");
     }
-    if (keyTypes.length < indexDefinition.getFields().size()) {
+    if (keyTypes.length < indexDefinition.getProperties().size()) {
       throw new StorageException(name,
           "Types are provided only for "
               + keyTypes.length
               + " fields. But index definition has "
-              + indexDefinition.getFields().size()
+              + indexDefinition.getProperties().size()
               + " fields.");
     }
 

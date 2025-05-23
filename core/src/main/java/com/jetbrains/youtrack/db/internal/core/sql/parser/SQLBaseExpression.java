@@ -26,15 +26,15 @@ import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
 
-public class SQLBaseExpression extends SQLMathExpression {
+public final class SQLBaseExpression extends SQLMathExpression {
 
-  protected SQLNumber number;
+  SQLNumber number;
 
   private SQLBaseIdentifier identifier;
 
-  protected SQLInputParameter inputParam;
+  SQLInputParameter inputParam;
 
-  protected String string;
+  String string;
 
   SQLModifier modifier;
 
@@ -210,7 +210,7 @@ public class SQLBaseExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
+  public boolean isIndexedFunctionCall(DatabaseSessionEmbedded session) {
     if (this.identifier == null) {
       return false;
     }
@@ -314,16 +314,17 @@ public class SQLBaseExpression extends SQLMathExpression {
 
   @Nullable
   @Override
-  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx,
+  public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
       SchemaClass schemaClass) {
     if (isGraphRelationFunction(ctx.getDatabaseSession())) {
-      return identifier.getGraphRelationFunctionProperties(ctx, schemaClass);
+      return identifier.getGraphNavigationFunctionProperties(ctx, schemaClass);
     }
 
     return null;
   }
 
   @Override
+  @Nullable
   public IndexMetadataPath getIndexMetadataPath(DatabaseSessionEmbedded session) {
     if (identifier != null && (identifier.isBaseIdentifier() || identifier.isGraphRelationFunction(
         session))) {
@@ -413,7 +414,7 @@ public class SQLBaseExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     return identifier != null && identifier.isAggregate(session);
   }
 
@@ -535,23 +536,23 @@ public class SQLBaseExpression extends SQLMathExpression {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = (ResultInternal) super.serialize(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = (ResultInternal) super.serialize(session);
 
     if (number != null) {
-      result.setProperty("number", number.serialize(db));
+      result.setProperty("number", number.serialize(session));
     }
     if (identifier != null) {
-      result.setProperty("identifier", identifier.serialize(db));
+      result.setProperty("identifier", identifier.serialize(session));
     }
     if (inputParam != null) {
-      result.setProperty("inputParam", inputParam.serialize(db));
+      result.setProperty("inputParam", inputParam.serialize(session));
     }
     if (string != null) {
       result.setProperty("string", string);
     }
     if (modifier != null) {
-      result.setProperty("modifier", modifier.serialize(db));
+      result.setProperty("modifier", modifier.serialize(session));
     }
     return result;
   }
@@ -607,6 +608,7 @@ public class SQLBaseExpression extends SQLMathExpression {
     }
   }
 
+  @Override
   public void extractSubQueries(SubQueryCollector collector) {
     if (this.identifier != null) {
       this.identifier.extractSubQueries(collector);
@@ -614,7 +616,7 @@ public class SQLBaseExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (modifier != null && !modifier.isCacheable(session)) {
       return false;
     }
@@ -635,7 +637,7 @@ public class SQLBaseExpression extends SQLMathExpression {
       return false;
     }
     var db = ctx.getDatabaseSession();
-    if (identifier.isIndexChain(ctx, clazz)) {
+    if (identifier.isIndexChain(clazz)) {
       var prop = clazz.getProperty(
           identifier.getSuffix().getIdentifier().getStringValue());
       var linkedClass = (SchemaClassInternal) prop.getLinkedClass();

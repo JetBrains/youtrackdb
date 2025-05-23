@@ -132,10 +132,8 @@ public interface SecurityInternal {
   /**
    * For property-level security
    *
-   * @param session
    * @param entity       current entity to check for proeprty-level security
    * @param propertyName the property to check for write access
-   * @return
    */
   boolean isAllowedWrite(DatabaseSessionEmbedded session, EntityImpl entity,
       String propertyName);
@@ -162,10 +160,7 @@ public interface SecurityInternal {
   boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource);
 
   /**
-   * returns the list of all the filtered properties (for any role defined in the db)
-   *
-   * @param database
-   * @return
+   * Returns the list of all the filtered properties (for any role defined in the db)
    */
   Set<SecurityResourceProperty> getAllFilteredProperties(DatabaseSessionEmbedded database);
 

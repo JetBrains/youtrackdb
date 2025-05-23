@@ -6,7 +6,9 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
@@ -20,13 +22,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class SQLContainsCondition extends SQLBooleanExpression {
+public final class SQLContainsCondition extends SQLBooleanExpression {
 
-  protected SQLExpression left;
-  protected SQLExpression right;
-  protected SQLBooleanExpression condition;
+  SQLExpression left;
+  SQLExpression right;
+  SQLBooleanExpression condition;
 
   public SQLContainsCondition(int id) {
     super(id);
@@ -279,6 +282,7 @@ public class SQLContainsCondition extends SQLBooleanExpression {
     }
   }
 
+  @Nullable
   @Override
   public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
     var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
@@ -294,21 +298,47 @@ public class SQLContainsCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
-    if (left.isBaseIdentifier() || left.isGraphRelationFunction(ctx.getDatabaseSession())) {
-      var indexMatch = false;
+  public List<SQLAndBlock> flatten(CommandContext ctx, @Nullable SchemaClassInternal schemaClass) {
+    var session = ctx.getDatabaseSession();
 
-      if (left.isBaseIdentifier()) {
-        indexMatch = info.fieldName().equals(left.getDefaultAlias().getStringValue());
-      } else {
-        var properties = left.getGraphRelationProperties(ctx, info.schemaClass());
+    //usage of indexes for the case when the graph navigation function is used
+    //and properties that are used for relations in entities are indexed.
+    if (left != null && left.isGraphNavigationFunction(session) && schemaClass != null) {
+      //extract all properties used for navigation in the graph and merge them
+      // by 'or' condition.
+      var propertiesToFlatten = left.getGraphRelationProperties(ctx, schemaClass);
 
-        if (properties != null) {
-          indexMatch = properties.contains(info.fieldName());
+      if (propertiesToFlatten != null) {
+        var result = new ArrayList<SQLAndBlock>(propertiesToFlatten.size());
+
+        for (var propertyName : propertiesToFlatten) {
+          var block = new SQLAndBlock(-1);
+
+          var newCondition = new SQLContainsCondition(-1);
+
+          //This expression allows directly use property for navigation in the graph
+          //if we use public API instead, we would get an exception as edges
+          //are not allowed to be manipulated directly.
+          newCondition.left = new SQLGetInternalPropertyExpression(propertyName);
+          newCondition.right = right != null ? right.copy() : null;
+          newCondition.condition = condition != null ? condition.copy() : null;
+
+          block.subBlocks.add(newCondition);
+          result.add(block);
         }
-      }
 
-      if (indexMatch) {
+        return result;
+      }
+    }
+
+    return super.flatten(ctx, schemaClass);
+  }
+
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    if (left.isBaseIdentifier()) {
+      if (info.fieldName().equals(left.getDefaultAlias().getStringValue())) {
         if (right.isEarlyCalculated(info.ctx())) {
           return !info.isMap();
         }
@@ -317,6 +347,37 @@ public class SQLContainsCondition extends SQLBooleanExpression {
 
     return false;
   }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    if (left.isBaseIdentifier()) {
+      return left.getDefaultAlias().getStringValue();
+    }
+
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
+  }
+
+  public SQLExpression getLeft() {
+    return left;
+  }
+
+  public SQLExpression getRight() {
+    return right;
+  }
+
 
 
   @Nullable
@@ -492,7 +553,7 @@ public class SQLContainsCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (left != null && !left.isCacheable(session)) {
       return false;
     }

@@ -48,7 +48,7 @@ public class LuceneDocumentBuilder {
 
     final var formattedKey = formatKeys(definition, key);
     var counter = 0;
-    for (final var field : definition.getFields()) {
+    for (final var field : definition.getProperties()) {
       final var val = formattedKey.get(counter);
       counter++;
       if (val != null) {
@@ -84,7 +84,7 @@ public class LuceneDocumentBuilder {
       keys.add(key);
     }
     // a sort of padding
-    for (var i = keys.size(); i < definition.getFields().size(); i++) {
+    for (var i = keys.size(); i < definition.getProperties().size(); i++) {
       keys.add("");
     }
     return keys;
