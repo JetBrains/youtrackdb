@@ -128,6 +128,6 @@ public class LazySchemaClass {
 
   public String getName(DatabaseSessionInternal session) {
     loadWithoutInheritanceIfNeeded(session);
-    return delegate.getName(session);
+    return delegate.getName();
   }
 }

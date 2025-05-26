@@ -241,12 +241,9 @@ public abstract class SchemaPropertyImpl {
    * Returns the linked class in lazy mode because while unmarshalling the class could be not loaded
    * yet.
    */
-  public SchemaClassImpl getLinkedClass(DatabaseSessionInternal session) {
+  public SchemaClassImpl getLinkedClass() {
     acquireSchemaReadLock();
     try {
-      if (linkedClass == null && linkedClassName != null) {
-        linkedClass = owner.owner.getClass(linkedClassName);
-      }
       return linkedClass;
     } finally {
       releaseSchemaReadLock();
@@ -401,25 +398,25 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public Object get(DatabaseSessionInternal session, final ATTRIBUTES attribute) {
+  public Object get(final ATTRIBUTES attribute) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
     return switch (attribute) {
-      case LINKEDCLASS -> getLinkedClass(session);
-      case LINKEDTYPE -> getLinkedType(session);
-      case MIN -> getMin(session);
-      case MANDATORY -> isMandatory(session);
-      case READONLY -> isReadonly(session);
-      case MAX -> getMax(session);
-      case DEFAULT -> getDefaultValue(session);
-      case NAME -> getName(session);
-      case NOTNULL -> isNotNull(session);
-      case REGEXP -> getRegexp(session);
-      case TYPE -> getType(session);
-      case COLLATE -> getCollate(session);
-      case DESCRIPTION -> getDescription(session);
+      case LINKEDCLASS -> getLinkedClass();
+      case LINKEDTYPE -> getLinkedType();
+      case MIN -> getMin();
+      case MANDATORY -> isMandatory();
+      case READONLY -> isReadonly();
+      case MAX -> getMax();
+      case DEFAULT -> getDefaultValue();
+      case NAME -> getName();
+      case NOTNULL -> isNotNull();
+      case REGEXP -> getRegexp();
+      case TYPE -> getType();
+      case COLLATE -> getCollate();
+      case DESCRIPTION -> getDescription();
       default -> throw new IllegalArgumentException("Cannot find attribute '" + attribute + "'");
     };
   }
@@ -435,7 +432,7 @@ public abstract class SchemaPropertyImpl {
     switch (attribute) {
       case LINKEDCLASS:
         setLinkedClass(session,
-            session.getSharedContext().getSchema().getClass(stringValue));
+            session.getSharedContext().getSchema().getClass(session, stringValue));
         break;
       case LINKEDTYPE:
         if (stringValue == null) {
@@ -567,7 +564,7 @@ public abstract class SchemaPropertyImpl {
   }
 
   public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       String name = entity.getProperty("name");
       PropertyTypeInternal type = null;
@@ -576,7 +573,7 @@ public abstract class SchemaPropertyImpl {
       }
       Integer globalId = entity.getProperty("globalId");
       if (globalId != null) {
-        globalRef = owner.owner.getGlobalPropertyById(session, globalId);
+        globalRef = owner.owner.getGlobalPropertyById(globalId);
       } else {
         if (type == null) {
           throw new UnsupportedOperationException("Type is not defined for property " + name);
@@ -632,7 +629,7 @@ public abstract class SchemaPropertyImpl {
       if (linkedClassName != null) {
         // maybe I will find a better solution, but we need it to unfold recursion
         // class loads properties -> property loads same class which is not loaded yet
-        if (linkedClassName.equalsIgnoreCase(owner.getName(session))) {
+        if (linkedClassName.equalsIgnoreCase(owner.getName())) {
           linkedClass = owner;
         } else {
           var lazyClass = owner.owner.getLazyClass(linkedClassName);
@@ -660,7 +657,7 @@ public abstract class SchemaPropertyImpl {
         description = null;
       }
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
@@ -689,12 +686,12 @@ public abstract class SchemaPropertyImpl {
   }
 
   public Entity toStream(DatabaseSessionInternal session) {
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       Entity entity = session.newEmbeddedEntity();
-      entity.setProperty("name", getName(session));
+      entity.setProperty("name", getName());
       entity.setProperty("type",
-          PropertyTypeInternal.convertFromPublicType(getType(session)).getId());
+          PropertyTypeInternal.convertFromPublicType(getType()).getId());
       entity.setProperty("globalId", globalRef.getId());
       entity.setProperty("mandatory", mandatory);
       entity.setProperty("readonly", readonly);
@@ -711,7 +708,7 @@ public abstract class SchemaPropertyImpl {
         entity.setProperty("linkedType", linkedType.getId());
       }
       if (linkedClass != null) {
-        entity.setProperty("linkedClass", linkedClass.getName(session));
+        entity.setProperty("linkedClass", linkedClass.getName());
       }
 
       if (customFields != null && customFields.isEmpty()) {
@@ -737,12 +734,12 @@ public abstract class SchemaPropertyImpl {
       entity.setProperty("description", description);
       return entity;
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
-  public void acquireSchemaReadLock(DatabaseSessionInternal session) {
-    owner.acquireSchemaReadLock(session);
+  public void acquireSchemaReadLock() {
+    owner.acquireSchemaReadLock();
   }
 
   public void releaseSchemaReadLock() {
@@ -763,7 +760,7 @@ public abstract class SchemaPropertyImpl {
 
   protected void checkForDateFormat(DatabaseSessionInternal session, final String iDateAsString) {
     if (iDateAsString != null) {
-      acquireSchemaReadLock(session);
+      acquireSchemaReadLock();
       try {
         if (globalRef.getType() == PropertyType.DATE) {
           try {
@@ -785,7 +782,7 @@ public abstract class SchemaPropertyImpl {
           }
         }
       } finally {
-        releaseSchemaReadLock(session);
+        releaseSchemaReadLock();
       }
     }
   }

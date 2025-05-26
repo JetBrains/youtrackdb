@@ -46,11 +46,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -122,22 +120,22 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public void markClassDirty(DatabaseSessionInternal session, SchemaClassImpl dirtyClass) {
+  public void markClassDirty(SchemaClassImpl dirtyClass) {
     assert dirtyClass != null;
-    this.dirtyClasses.put(normalizeClassName(dirtyClass.getName(session)), dirtyClass);
+    this.dirtyClasses.put(normalizeClassName(dirtyClass.getName()), dirtyClass);
   }
 
   public void markSuperClassesDirty(DatabaseSessionInternal session, SchemaClassImpl dirtyClass) {
     var superClasses = dirtyClass.getAllSuperClasses(session);
     for (var superClass : superClasses) {
-      markClassDirty(session, superClass);
+      markClassDirty(superClass);
     }
   }
 
   public void markSubClassesDirty(DatabaseSessionInternal session, SchemaClassImpl dirtyClass) {
     var subClasses = dirtyClass.getAllSubclasses(session);
     for (var subClass : subClasses) {
-      markClassDirty(session, subClass);
+      markClassDirty(subClass);
     }
   }
 
@@ -418,16 +416,16 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   @Nullable
-  public SchemaClassImpl getClass(final Class<?> iClass) {
+  public SchemaClassImpl getClass(DatabaseSessionInternal session, final Class<?> iClass) {
     if (iClass == null) {
       return null;
     }
 
-    return getClass(iClass.getSimpleName());
+    return getClass(session, iClass.getSimpleName());
   }
 
   @Nullable
-  public SchemaClassImpl getClass(final String iClassName) {
+  public SchemaClassImpl getClass(DatabaseSessionInternal session, final String iClassName) {
     if (iClassName == null) {
       return null;
     }
@@ -514,7 +512,7 @@ public abstract class SchemaShared implements CloseableInStorage {
         throw new IllegalArgumentException("Class '" + newName + "' is already present in schema");
       }
 
-      LazySchemaClass existingClass = classesRefs.get(normalizeClassName(cls.getName(session)));
+      var existingClass = classesRefs.get(normalizeClassName(cls.getName()));
       if (oldName != null) {
         // todo remove class from storage
         classesRefs.remove(oldName.toLowerCase(Locale.ENGLISH));
@@ -577,15 +575,15 @@ public abstract class SchemaShared implements CloseableInStorage {
           ? new HashMap<>()
           : storedClassesRefsUnsafe;
       // remove classes present in schema but absent in the db
-      Iterator<String> presentClassNamesIterator = classesRefs.keySet().iterator();
+      var presentClassNamesIterator = classesRefs.keySet().iterator();
       while (presentClassNamesIterator.hasNext()) {
-        String presentClassName = presentClassNamesIterator.next();
+        var presentClassName = presentClassNamesIterator.next();
         if (!storedClassesRefs.containsKey(presentClassName)) {
           presentClassNamesIterator.remove();
         }
 
       }
-      for (Entry<String, RecordId> entry : storedClassesRefs.entrySet()) {
+      for (var entry : storedClassesRefs.entrySet()) {
         // skip already loaded classes
         if (classesRefs.containsKey(entry.getKey())) {
           if (dirtyClasses.containsKey(entry.getKey())) {
@@ -595,7 +593,7 @@ public abstract class SchemaShared implements CloseableInStorage {
             classesRefs.get(entry.getKey()).unload();
           }
         } else {
-          LazySchemaClass lazySchemaClass = LazySchemaClass.fromTemplate(entry.getValue(),
+          var lazySchemaClass = LazySchemaClass.fromTemplate(entry.getValue(),
               // create class templates so it could be loaded later properly.
               // this is required since on a later stages we don't have createClassInstance method,
               // and we can always overwrite this instance internals from lazy class with actual db values
@@ -610,7 +608,7 @@ public abstract class SchemaShared implements CloseableInStorage {
         lazySchemaClass.loadIfNeededWithTemplate(session,
             createClassInstance(lazySchemaClass.getId().toString()));
         var cls = lazySchemaClass.getDelegate();
-        addCollectionClassMap(session, cls);
+        addCollectionClassMap(cls);
       }
       // VIEWS
 
@@ -679,13 +677,13 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
       return result;
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
   public Map<String, LazySchemaClass> getClassesRefs(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       return new HashMap<>(classesRefs);
     } finally {
@@ -703,7 +701,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       final Set<SchemaClassImpl> result = new HashSet<>();
       for (var c : classesRefs.values()) {
         c.loadIfNeeded(session);
-        if (ArrayUtils.contains(c.getDelegate().getPolymorphicCollectionIds(session),
+        if (ArrayUtils.contains(c.getDelegate().getPolymorphicCollectionIds(),
             collectionId)) {
           result.add(c.getDelegate());
         }

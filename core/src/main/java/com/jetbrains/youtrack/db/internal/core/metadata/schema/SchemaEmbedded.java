@@ -9,7 +9,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import javax.annotation.Nullable;
@@ -190,7 +189,7 @@ public class SchemaEmbedded extends SchemaShared {
           cls,
           true
       ));
-      this.markClassDirty(session, cls);
+      this.markClassDirty(cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
         cls.setSuperClassesInternal(session, superClasses, true);
@@ -485,7 +484,7 @@ public class SchemaEmbedded extends SchemaShared {
 
       checkEmbedded(session);
 
-      for (var superClass : cls.getSuperClasses()) {
+      for (var superClass : cls.getSuperClasses(session)) {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         superClass.removeBaseClassInternal(session, cls);
       }

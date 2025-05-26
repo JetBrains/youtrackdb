@@ -18,7 +18,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 
@@ -50,13 +49,13 @@ public class LazySchemaClassTest {
     Runnable task = () -> {
       lazyClass.loadIfNeeded(session);
     };
-    @NotNull List<Future<?>> futures = IntStream.range(
+    List<Future<?>> futures = IntStream.range(
             0, 50)
         .mapToObj(i -> task)
         .map(executors::submit)
         .collect(Collectors.toList());
 
-    @NotNull List<?> results = futures.stream()
+    List<?> results = futures.stream()
         .map(future -> {
           try {
             return future.get();

@@ -123,7 +123,7 @@ public class SchemaPropertyRemote extends SchemaPropertyImpl {
           String.format(
               "alter property %s custom %s=%s", getFullNameQuoted(session), name,
               quoteString(value));
-      owner.getOwner().markClassDirty(session, owner);
+      owner.getOwner().markClassDirty(owner);
       session.execute(cmd).close();
     } finally {
       releaseSchemaWriteLock(session);

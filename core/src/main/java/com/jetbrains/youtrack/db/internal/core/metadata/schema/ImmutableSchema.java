@@ -93,7 +93,7 @@ public class ImmutableSchema implements SchemaInternal {
       ((SchemaImmutableClass) cl).init(session);
     }
 
-    this.blogCollections = schemaShared.getBlobCollections();
+    this.blobCollections = schemaShared.getBlobCollections();
 
     var indexManager = session.getSharedContext().getIndexManager();
     var internalIndexes = indexManager.getIndexes();

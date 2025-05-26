@@ -73,7 +73,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public SchemaClass getLinkedClass() {
     assert session.assertIfNotActive();
-    var result = delegate.getLinkedClass(session);
+    var result = delegate.getLinkedClass();
     return result == null ? null : new SchemaClassProxy(result, session);
   }
 
@@ -289,7 +289,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   @Override
   public Object get(ATTRIBUTES iAttribute) {
     assert session.assertIfNotActive();
-    return delegate.get(session, iAttribute);
+    return delegate.get(iAttribute);
   }
 
   @Override

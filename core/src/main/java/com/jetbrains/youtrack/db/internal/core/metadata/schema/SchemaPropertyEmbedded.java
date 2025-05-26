@@ -63,7 +63,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       }
 
       this.globalRef = owner.owner.findOrCreateGlobalProperty(this.globalRef.getName(), iType);
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -121,7 +121,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       this.description = iDescription;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -220,7 +220,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       customFields = null;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -253,7 +253,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       } else {
         customFields.put(iName, iValue);
       }
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -277,7 +277,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     acquireSchemaWriteLock(session);
     try {
       this.regexp = regexp;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -307,7 +307,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       this.linkedClass = iLinkedClass;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -336,7 +336,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     try {
       checkEmbedded(session);
       this.linkedType = iLinkedType;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -361,7 +361,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     acquireSchemaWriteLock(session);
     try {
       notNull = isNotNull;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -392,7 +392,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       this.defaultValue = defaultValue;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -448,7 +448,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
       checkForDateFormat(session, max);
       this.max = max;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -476,7 +476,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
       checkForDateFormat(session, min);
       this.min = min;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -502,7 +502,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
       checkEmbedded(session);
 
       this.readonly = isReadonly;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -528,7 +528,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     try {
       checkEmbedded(session);
       this.mandatory = isMandatory;
-      owner.owner.markClassDirty(session, owner);
+      owner.owner.markClassDirty(owner);
     } finally {
       releaseSchemaWriteLock(session);
     }

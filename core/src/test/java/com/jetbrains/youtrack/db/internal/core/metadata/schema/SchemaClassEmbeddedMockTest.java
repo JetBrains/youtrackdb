@@ -20,7 +20,6 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -35,30 +34,31 @@ public class SchemaClassEmbeddedMockTest {
 
   @Test
   public void shouldAddSuperClassNames() {
-    DatabaseSessionInternal sessionMock = mock(DatabaseSessionInternal.class);
-    RecordId superId = new RecordId(1, 1);
-    SchemaClassImpl underlyingClassMock = mock(SchemaClassImpl.class);
-    when(underlyingClassMock.getName(sessionMock)).thenReturn("Super");
+    var sessionMock = mock(DatabaseSessionInternal.class);
+    var superId = new RecordId(1, 1);
+    var underlyingClassMock = mock(SchemaClassImpl.class);
+    when(underlyingClassMock.getName()).thenReturn("Super");
     a.setLazySuperClassesInternal(sessionMock,
-        List.of(LazySchemaClass.fromTemplate(superId, underlyingClassMock, false)));
+        List.of(LazySchemaClass.fromTemplate(superId, underlyingClassMock, false)), true);
     assertThat(a.getSuperClassesNames(sessionMock)).containsExactly("Super");
   }
 
   @Test
   public void shouldNotAllowDuplicateClassesByName() {
-    DatabaseSessionInternal sessionMock = mock(DatabaseSessionInternal.class);
-    RecordId superId = new RecordId(1, 1);
-    SchemaClassImpl underlyingClassMock = mock(SchemaClassImpl.class);
-    when(underlyingClassMock.getName(sessionMock)).thenReturn("Super");
-    RecordId duplicateSuperId = new RecordId(1, 2);
-    SchemaClassImpl duplicateSuperClassMock = mock(SchemaClassImpl.class);
-    when(duplicateSuperClassMock.getName(sessionMock)).thenReturn("Super");
+    var sessionMock = mock(DatabaseSessionInternal.class);
+    var superId = new RecordId(1, 1);
+    var underlyingClassMock = mock(SchemaClassImpl.class);
+    when(underlyingClassMock.getName()).thenReturn("Super");
+    var duplicateSuperId = new RecordId(1, 2);
+    var duplicateSuperClassMock = mock(SchemaClassImpl.class);
+    when(duplicateSuperClassMock.getName()).thenReturn("Super");
     assertThatThrownBy(() ->
         a.setLazySuperClassesInternal(sessionMock,
             List.of(
                 LazySchemaClass.fromTemplate(superId, underlyingClassMock, false),
                 LazySchemaClass.fromTemplate(duplicateSuperId, duplicateSuperClassMock, false)
-            ))
+            ),
+            true)
     )
         .isInstanceOf(SchemaException.class)
         .hasMessage("Duplicated superclass 'Super'");
@@ -69,16 +69,16 @@ public class SchemaClassEmbeddedMockTest {
     DatabaseSessionInternal sessionMock = mock(DatabaseSessionInternal.class);
     RecordId superId = new RecordId(1, 1);
     SchemaClassImpl existingSuperClassMock = mock(SchemaClassImpl.class);
-    when(existingSuperClassMock.getName(sessionMock)).thenReturn("Existing Super");
+    when(existingSuperClassMock.getName()).thenReturn("Existing Super");
     RecordId newSuperId = new RecordId(1, 1);
     SchemaClassImpl newSuperClassMock = mock(SchemaClassImpl.class);
-    when(newSuperClassMock.getName(sessionMock)).thenReturn("New Super");
+    when(newSuperClassMock.getName()).thenReturn("New Super");
     a.superClasses.put("Existing Super",
         LazySchemaClass.fromTemplate(superId, existingSuperClassMock, false));
     a.setLazySuperClassesInternal(sessionMock,
         List.of(
             LazySchemaClass.fromTemplate(newSuperId, newSuperClassMock, false)
-        ));
+        ), false);
     assertThat(a.getSuperClassesNames(sessionMock)).containsExactly("New Super");
   }
 
@@ -97,24 +97,26 @@ public class SchemaClassEmbeddedMockTest {
     a.polymorphicCollectionIds = new int[]{1};
     superClass.polymorphicCollectionIds = new int[]{2};
     a.setLazySuperClassesInternal(sessionMock,
-        List.of(LazySchemaClass.fromTemplate(superId, superClass, false)));
+        List.of(LazySchemaClass.fromTemplate(superId, superClass, false)),
+        true
+    );
     assertThat(a.polymorphicCollectionIds).containsExactly(1);
     assertThat(superClass.polymorphicCollectionIds).containsExactly(1, 2);
   }
 
   @Test
   public void shouldRemovePolymorphicCollectionIdsFromBaseClassToSuperWhenSuperClassIsRemovedFromBaseClass() {
-    DatabaseSessionInternal sessionMock = mock(DatabaseSessionInternal.class);
-    MetadataInternal metadataMock = mock(MetadataInternal.class);
+    var sessionMock = mock(DatabaseSessionInternal.class);
+    var metadataMock = mock(MetadataInternal.class);
     when(sessionMock.getMetadata()).thenReturn(metadataMock);
-    RecordId superId = new RecordId(1, 1);
-    RecordId subId = new RecordId(1, 2);
+    var superId = new RecordId(1, 1);
+    var subId = new RecordId(1, 2);
     SchemaClassImpl superClass = new SchemaClassEmbedded(ownerMock, "Super");
     a.superClasses.put("Super", LazySchemaClass.fromTemplate(superId, superClass, false));
     a.polymorphicCollectionIds = new int[]{1};
     superClass.polymorphicCollectionIds = new int[]{1, 2};
     superClass.subclasses.put("Test", LazySchemaClass.fromTemplate(subId, a, false));
-    a.setLazySuperClassesInternal(sessionMock, Collections.emptyList());
+    a.setLazySuperClassesInternal(sessionMock, Collections.emptyList(), false);
     assertThat(a.polymorphicCollectionIds).containsExactly(1);
     assertThat(superClass.polymorphicCollectionIds).containsExactly(2);
   }
@@ -139,7 +141,9 @@ public class SchemaClassEmbeddedMockTest {
     superClass.polymorphicCollectionIds = new int[]{2};
     superSuperClass.polymorphicCollectionIds = new int[]{3};
     a.setLazySuperClassesInternal(sessionMock,
-        List.of(LazySchemaClass.fromTemplate(superId, superClass, false)));
+        List.of(LazySchemaClass.fromTemplate(superId, superClass, false)),
+        true
+    );
     assertThat(a.polymorphicCollectionIds).containsExactly(1);
     assertThat(superClass.polymorphicCollectionIds).containsExactly(1, 2);
     assertThat(superSuperClass.polymorphicCollectionIds).containsExactly(1, 3);
@@ -195,17 +199,19 @@ public class SchemaClassEmbeddedMockTest {
 
     a.polymorphicCollectionIds = new int[]{1};
     SchemaClassImpl superClassTemplate = new SchemaClassEmbedded(ownerMock, "Super");
-    LazySchemaClass existingLazySuperClass = LazySchemaClass.fromTemplate(superId,
+    var existingLazySuperClass = LazySchemaClass.fromTemplate(superId,
         superClassTemplate, false);
     a.superClasses.put("Super", existingLazySuperClass);
 
     SchemaClassImpl newSuperClassTemplate = new SchemaClassEmbedded(ownerMock, "NewSuper");
-    LazySchemaClass newLazySuperClass = LazySchemaClass.fromTemplate(newSuperId,
+    var newLazySuperClass = LazySchemaClass.fromTemplate(newSuperId,
         newSuperClassTemplate, false);
     a.setLazySuperClassesInternal(sessionMock, List.of(
-        existingLazySuperClass,
-        newLazySuperClass
-    ));
+            existingLazySuperClass,
+            newLazySuperClass
+        ),
+        false
+    );
 
     verify(lazyTestClassMock, times(0)).loadIfNeeded(sessionMock);
 

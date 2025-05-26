@@ -91,7 +91,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
       return null;
     }
 
-    var cls = delegate.getClass(iClassName.toLowerCase(Locale.ENGLISH));
+    var cls = delegate.getClass(session, iClassName.toLowerCase(Locale.ENGLISH));
     if (cls != null) {
       return new SchemaClassProxy(cls, session);
     }
@@ -212,7 +212,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
       return null;
     }
 
-    var cls = delegate.getClass(iClass.getName());
+    var cls = delegate.getClass(session, iClass.getName());
     return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
@@ -224,7 +224,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     }
 
     assert session.assertIfNotActive();
-    var cls = delegate.getClass(iClassName);
+    var cls = delegate.getClass(session, iClassName);
     return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
@@ -394,7 +394,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   @Override
   public SchemaClassInternal getClassInternal(String iClassName) {
     assert session.assertIfNotActive();
-    var cls = delegate.getClass(iClassName);
+    var cls = delegate.getClass(session, iClassName);
 
     return cls != null ? new SchemaClassProxy(cls, session) : null;
   }

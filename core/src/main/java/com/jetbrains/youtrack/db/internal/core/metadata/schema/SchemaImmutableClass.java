@@ -113,7 +113,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     polymorphicCollectionIds = oClass.getPolymorphicCollectionIds();
 
     baseClassesNames = new ArrayList<>();
-    for (var baseClass : oClass.getSubclasses()) {
+    for (var baseClass : oClass.getSubclasses(session)) {
       baseClassesNames.add(baseClass.getName());
     }
 

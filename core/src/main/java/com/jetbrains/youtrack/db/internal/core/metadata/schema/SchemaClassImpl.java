@@ -234,8 +234,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-
-  public List<SchemaClassImpl> getSuperClasses() {
+  public List<SchemaClassImpl> getSuperClasses(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       List<SchemaClassImpl> result = new ArrayList<>(superClasses.size());
@@ -274,7 +273,7 @@ public abstract class SchemaClassImpl {
 
     final List<SchemaClassImpl> classes = new ArrayList<>(classNames.size());
     for (var className : classNames) {
-      classes.add(owner.getClass(decodeClassName(className)));
+      classes.add(owner.getClass(session, decodeClassName(className)));
     }
 
     setSuperClasses(session, classes);
@@ -315,7 +314,7 @@ public abstract class SchemaClassImpl {
     }
     for (LazySchemaClass addTo : classesToAdd.values()) {
       addTo.loadWithoutInheritanceIfNeeded(session);
-      addTo.getDelegate().addSubClass(session, this);
+      addTo.getDelegate().addSubClass(session, this, validateIndexes);
     }
     superClasses.clear();
     superClasses.putAll(newSuperClasses);
@@ -324,12 +323,12 @@ public abstract class SchemaClassImpl {
   protected void setSuperClassesInternal(
       DatabaseSessionInternal session,
       final List<SchemaClassImpl> classes,
-      boolean validateIndexes){
+      boolean validateIndexes) {
     // todo this is a bad temporary decision, we already have all classes, converting them to lazy classes to load again smells.
     // I think it's possible to completely move to lazy classes and remove this method
     List<LazySchemaClass> lazyClasses = new ArrayList<>(classes.size());
     for (var superClass : classes) {
-      lazyClasses.add(owner.getLazyClass(superClass.getName(session)));
+      lazyClasses.add(owner.getLazyClass(superClass.getName()));
     }
     setLazySuperClassesInternal(session, lazyClasses, validateIndexes);
   }
@@ -391,7 +390,7 @@ public abstract class SchemaClassImpl {
   private Map<String, SchemaPropertyImpl> propertiesMapInternal(DatabaseSessionInternal session) {
     var result = new HashMap<String, SchemaPropertyImpl>();
     for (var p : properties.values()) {
-      var propName = p.getName(session);
+      var propName = p.getName();
       if (!result.containsKey(propName)) {
         result.put(propName, p);
       }
@@ -443,7 +442,7 @@ public abstract class SchemaClassImpl {
       DatabaseSessionInternal session) {
     var result = new ArrayList<SchemaPropertyImpl>();
     for (var p : properties.values()) {
-      if (areIndexed(session, p.getName(session))) {
+      if (areIndexed(session, p.getName())) {
         result.add(p);
       }
     }
@@ -458,7 +457,8 @@ public abstract class SchemaClassImpl {
     return getPropertyInternal(session, propertyName);
   }
 
-  public SchemaPropertyImpl getPropertyInternal(String propertyName) {
+  public SchemaPropertyImpl getPropertyInternal(DatabaseSessionInternal session,
+      String propertyName) {
     acquireSchemaReadLock();
     try {
       var p = properties.get(propertyName);
@@ -568,7 +568,7 @@ public abstract class SchemaClassImpl {
   }
 
   public boolean existsProperty(DatabaseSessionInternal session, String propertyName) {
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       var result = properties.containsKey(propertyName);
       if (result) {
@@ -598,7 +598,7 @@ public abstract class SchemaClassImpl {
 
   public void fromStream(DatabaseSessionInternal session, Entity entity,
       boolean loadInheritanceTree) {
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       identity = entity.getIdentity();
       subclasses.clear();
@@ -666,7 +666,7 @@ public abstract class SchemaClassImpl {
             prop.fromStream(session, p);
           }
 
-          newProperties.put(prop.getName(session), prop);
+          newProperties.put(prop.getName(), prop);
         }
       }
 
@@ -680,7 +680,7 @@ public abstract class SchemaClassImpl {
         loadInheritanceTree(session, entity);
       }
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
@@ -698,9 +698,9 @@ public abstract class SchemaClassImpl {
     if (!superClassNames.isEmpty()) {
       // HAS A SUPER CLASS or CLASSES
       List<LazySchemaClass> superClassesToInit = new ArrayList<>(superClassNames.size());
-      for (String superClassName : superClassNames) {
+      for (var superClassName : superClassNames) {
 
-        LazySchemaClass lazySuperClass = owner.getLazyClass(
+        var lazySuperClass = owner.getLazyClass(
             SchemaShared.normalizeClassName(superClassName));
 
         if (lazySuperClass == null) {
@@ -708,23 +708,23 @@ public abstract class SchemaClassImpl {
               "Super class '"
                   + superClassName
                   + "' was declared in class '"
-                  + this.getName(session)
+                  + this.getName()
                   + "' but was not found in schema. Remove the dependency or create the class"
                   + " to continue.");
         }
         superClassesToInit.add(lazySuperClass);
       }
-      setLazySuperClassesInternal(session, superClassesToInit);
+      setLazySuperClassesInternal(session, superClassesToInit, false);
     }
     Collection<String> storedSubclassesNames = entity.getProperty("subClasses");
     if (storedSubclassesNames != null && !storedSubclassesNames.isEmpty()) {
       subclasses.clear();
-      for (String storedSubclassName : storedSubclassesNames) {
-        LazySchemaClass subclass = owner.getLazyClass(
+      for (var storedSubclassName : storedSubclassesNames) {
+        var subclass = owner.getLazyClass(
             SchemaShared.normalizeClassName(storedSubclassName));
         subclasses.put(storedSubclassName, subclass);
         subclass.loadWithoutInheritanceIfNeeded(session);
-        addPolymorphicCollectionIdsWithInheritance(session, subclass.getDelegate());
+        addPolymorphicCollectionIdsWithInheritance(session, subclass.getDelegate(), false);
       }
     }
   }
@@ -827,7 +827,7 @@ public abstract class SchemaClassImpl {
     database.truncateCollection(collectionName);
   }
 
-  public Collection<SchemaClassImpl> getSubclasses() {
+  public Collection<SchemaClassImpl> getSubclasses(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       if (subclasses.isEmpty()) {
@@ -845,12 +845,12 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public Collection<SchemaClassImpl> getAllSubclasses() {
+  public Collection<SchemaClassImpl> getAllSubclasses(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       final Set<SchemaClassImpl> set = new HashSet<>(subclasses.size());
 
-      for (LazySchemaClass c : subclasses.values()) {
+      for (var c : subclasses.values()) {
         c.loadIfNeeded(session);
         set.add(c.getDelegate());
         set.addAll(c.getDelegate().getAllSubclasses(session));
@@ -866,6 +866,10 @@ public abstract class SchemaClassImpl {
     return getSubclasses(session);
   }
 
+  /**
+   * Base class is used wrong in this context meaning subclass and not superclass. Please use remove
+   * subClassInternal method instead
+   */
   @Deprecated
   public Collection<SchemaClassImpl> getAllBaseClasses(DatabaseSessionInternal session) {
     return getAllSubclasses(session);
@@ -873,7 +877,7 @@ public abstract class SchemaClassImpl {
 
   private Set<SchemaClassImpl> getAllSuperClassesInternal(DatabaseSessionInternal session) {
     Set<SchemaClassImpl> ret = new HashSet<>(superClasses.size());
-    for (LazySchemaClass superClass : superClasses.values()) {
+    for (var superClass : superClasses.values()) {
       superClass.loadIfNeeded(session);
       ret.add(superClass.getDelegate());
       ret.addAll(superClass.getDelegate().getAllSuperClasses(session));
@@ -884,22 +888,6 @@ public abstract class SchemaClassImpl {
   public void removeSubClassInternal(DatabaseSessionInternal session,
       final SchemaClassImpl baseClass) {
     removeBaseClassInternal(session, baseClass);
-  }
-
-  /**
-   * Base class is used wrong in this context meaning subclass and not superclass. Please use remove
-   * subClassInternal method instead
-   */
-  @Deprecated
-  public Collection<SchemaClassImpl> getAllBaseClasses() {
-    return getAllSubclasses();
-  }
-
-  private void getAllSuperClasses(Set<SchemaClassImpl> set) {
-    set.addAll(superClasses);
-    for (var superClass : superClasses) {
-      superClass.getAllSuperClasses(set);
-    }
   }
 
   public abstract void removeBaseClassInternal(DatabaseSessionInternal session,
@@ -1004,7 +992,7 @@ public abstract class SchemaClassImpl {
    * @param clazz to check
    * @return true if the current instance extends the passed schema class (iClass)
    */
-  public boolean isSubClassOf(final SchemaClassImpl clazz) {
+  public boolean isSubClassOf(DatabaseSessionInternal session, final SchemaClassImpl clazz) {
     acquireSchemaReadLock();
     try {
       if (clazz == null) {
@@ -1013,7 +1001,7 @@ public abstract class SchemaClassImpl {
       if (equals(clazz)) {
         return true;
       }
-      for (LazySchemaClass superClass : superClasses.values()) {
+      for (var superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
         if (superClass.getDelegate().isSubClassOf(session, clazz)) {
           return true;
@@ -1031,8 +1019,8 @@ public abstract class SchemaClassImpl {
    * @param clazz to check
    * @return Returns true if the passed schema class extends the current instance
    */
-  public boolean isSuperClassOf(final SchemaClassImpl clazz) {
-    return clazz != null && clazz.isSubClassOf(this);
+  public boolean isSuperClassOf(DatabaseSessionInternal session, final SchemaClassImpl clazz) {
+    return clazz != null && clazz.isSubClassOf(session, this);
   }
 
   public Object get(DatabaseSessionInternal session, final ATTRIBUTES iAttribute) {
@@ -1041,12 +1029,12 @@ public abstract class SchemaClassImpl {
     }
 
     return switch (iAttribute) {
-      case NAME -> getName(session);
+      case NAME -> getName();
       case SUPERCLASSES -> getSuperClasses(session);
-      case STRICT_MODE -> isStrictMode(session);
-      case ABSTRACT -> isAbstract(session);
-      case CUSTOM -> getCustomInternal(session);
-      case DESCRIPTION -> getDescription(session);
+      case STRICT_MODE -> isStrictMode();
+      case ABSTRACT -> isAbstract();
+      case CUSTOM -> getCustomInternal();
+      case DESCRIPTION -> getDescription();
     };
 
   }
@@ -1182,7 +1170,7 @@ public abstract class SchemaClassImpl {
       final var fieldName =
           decodeClassName(IndexDefinitionFactory.extractFieldName(fieldToIndex));
 
-      if (!fieldName.equals("@rid") && !existsProperty(fieldName)) {
+      if (!fieldName.equals("@rid") && !existsProperty(session, fieldName)) {
         throw new IndexException(session.getDatabaseName(),
             "Index with name '"
                 + name
@@ -1351,11 +1339,11 @@ public abstract class SchemaClassImpl {
 
   public void getIndexesInternal(DatabaseSessionInternal session,
       final Collection<Index> indexes) {
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       getClassIndexes(session, indexes);
       for (var superClass : superClasses.values()) {
-        superClass.loadIfNeeded((DatabaseSessionInternal) session);
+        superClass.loadIfNeeded(session);
         superClass.getDelegate().getIndexesInternal(session, indexes);
       }
     } finally {
@@ -1592,7 +1580,7 @@ public abstract class SchemaClassImpl {
       return false;
     }
     return !(x instanceof EntityImpl)
-        || linkedClass.getName(session).equalsIgnoreCase(((EntityImpl) x).getSchemaClassName());
+        || linkedClass.getName().equalsIgnoreCase(((EntityImpl) x).getSchemaClassName());
   }
 
   protected static String getEscapedName(final String iName, final boolean iStrictSQL) {
@@ -1645,7 +1633,7 @@ public abstract class SchemaClassImpl {
 
   public abstract void dropProperty(DatabaseSessionInternal session, String iPropertyName);
 
-  public Collection<SchemaClassImpl> getAllSuperClasses() {
+  public Collection<SchemaClassImpl> getAllSuperClasses(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       return new HashSet<>(this.getAllSuperClassesInternal(session));
@@ -1671,7 +1659,7 @@ public abstract class SchemaClassImpl {
    */
   public void addSubClass(DatabaseSessionInternal session,
       final SchemaClassImpl subClass,
-    boolean validateIndexes) {
+      boolean validateIndexes) {
     addBaseClass(session, subClass, validateIndexes);
   }
 
@@ -1683,31 +1671,32 @@ public abstract class SchemaClassImpl {
    */
   @Deprecated
   public void addBaseClass(DatabaseSessionInternal session,
-      final SchemaClassImpl subClass) {
+      final SchemaClassImpl subClass,
+      boolean validateIndexes) {
     checkRecursion(session, subClass);
 
-    String subClassName = subClass.getName(session);
+    String subClassName = subClass.getName();
     if (subclasses.containsKey(subClassName)) {
       return;
     }
 
     LazySchemaClass lazyClass = owner.getLazyClass(subClassName);
     subclasses.put(subClassName, lazyClass);
-    owner.markClassDirty(session, this);
-    owner.markClassDirty(session, subClass);
-    addPolymorphicCollectionIdsWithInheritance(session, subClass);
+    owner.markClassDirty(this);
+    owner.markClassDirty(subClass);
+    addPolymorphicCollectionIdsWithInheritance(session, subClass, validateIndexes);
   }
 
   protected void checkParametersConflict(DatabaseSessionInternal session,
       final SchemaClassImpl subClass) {
     final var subClassProperties = subClass.properties(session);
     for (var property : subClassProperties) {
-      var thisProperty = getProperty(session, property.getName(session));
-      if (thisProperty != null && !thisProperty.getType(session)
-          .equals(property.getType(session))) {
+      var thisProperty = getProperty(session, property.getName());
+      if (thisProperty != null && !thisProperty.getType()
+          .equals(property.getType())) {
         throw new SchemaException(session.getDatabaseName(),
             "Cannot add base class '"
-                + subClass.getName(session)
+                + subClass.getName()
                 + "', because of property conflict: '"
                 + thisProperty
                 + "' vs '"
@@ -1733,7 +1722,7 @@ public abstract class SchemaClassImpl {
         if (comulative.containsKey(entry.getKey())) {
           final var property = entry.getKey();
           final var existingProperty = comulative.get(property);
-          if (!existingProperty.getType(session).equals(entry.getValue().getType(session))) {
+          if (!existingProperty.getType().equals(entry.getValue().getType())) {
             throw new SchemaException(
                 "Properties conflict detected: '"
                     + existingProperty
@@ -1750,7 +1739,7 @@ public abstract class SchemaClassImpl {
   }
 
   private void checkRecursion(DatabaseSessionInternal session, final SchemaClassImpl baseClass) {
-    if (isSubClassOf(baseClass)) {
+    if (isSubClassOf(session, baseClass)) {
       throw new SchemaException(session.getDatabaseName(),
           "Cannot add base class '" + baseClass.getName() + "', because of recursion");
     }
@@ -1841,14 +1830,17 @@ public abstract class SchemaClassImpl {
   }
 
   private void addPolymorphicCollectionIdsWithInheritance(DatabaseSessionInternal session,
-      final SchemaClassImpl subClass) {
-    addPolymorphicCollectionIds(session, subClass);
+      final SchemaClassImpl subClass,
+      boolean validateIndexes) {
+    addPolymorphicCollectionIds(session, subClass, validateIndexes);
     for (var superClass : superClasses.values()) {
       // this load of superclass breaks content of this class
       superClass.loadIfNeeded(session);
       (superClass.getDelegate()).addPolymorphicCollectionIds(
           session,
-          subClass);
+          subClass,
+          validateIndexes
+      );
     }
   }
 
