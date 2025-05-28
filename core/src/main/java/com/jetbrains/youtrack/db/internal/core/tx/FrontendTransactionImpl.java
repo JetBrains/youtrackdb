@@ -322,7 +322,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public void rollbackInternal() {
+  public void rollbackInternal(boolean clearQueries) {
     if (txStartCounter < 0) {
       throw new TransactionException(session, "Invalid value of TX counter");
     }
@@ -351,7 +351,7 @@ public class FrontendTransactionImpl implements
         }
 
         invalidateChangesInCacheDuringRollback();
-        clear();
+        clear(clearQueries);
       }
       case INVALID, COMPLETED -> {
         throw new IllegalStateException("Transaction is in invalid state: " + status);
@@ -366,7 +366,7 @@ public class FrontendTransactionImpl implements
     }
 
     if (txStartCounter == 0) {
-      close();
+      closeInternal(clearQueries);
       status = TXSTATUS.ROLLED_BACK;
 
       //There are could be exceptions during session opening
@@ -817,14 +817,20 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void close() {
-    clear();
+    closeInternal(true);
+  }
+
+  public void closeInternal(boolean clearQueries) {
+    clear(clearQueries);
 
     session.setNoTxMode();
     status = TXSTATUS.INVALID;
   }
 
-  private void clear() {
-    session.closeActiveQueries();
+  private void clear(boolean clearQueries) {
+    if (clearQueries) {
+      session.closeActiveQueries();
+    }
 
     final var dbCache = session.getLocalCache();
     for (var txEntry : recordOperations.values()) {

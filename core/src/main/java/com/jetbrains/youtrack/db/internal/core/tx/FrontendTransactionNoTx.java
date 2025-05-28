@@ -233,7 +233,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void rollbackInternal() {
+  public void rollbackInternal(boolean clearQueries) {
     throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
   }
 

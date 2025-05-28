@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
-import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.function.Consumer;
@@ -32,7 +31,7 @@ public class PaginatedResultSet implements RemoteResultSet {
     this.hasNextPage = hasNextPage;
 
     if (session != null) {
-      session.queryStarted(queryId, new QueryDatabaseState<>(this));
+      session.queryStarted(queryId, this);
     }
   }
 

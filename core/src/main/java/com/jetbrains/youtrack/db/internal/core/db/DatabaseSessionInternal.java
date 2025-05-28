@@ -227,7 +227,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     throw new UnsupportedOperationException();
   }
 
-  default Map<String, QueryDatabaseState<?>> getActiveQueries() {
+  default Map<String, ResultSet> getActiveQueries() {
     throw new UnsupportedOperationException();
   }
 

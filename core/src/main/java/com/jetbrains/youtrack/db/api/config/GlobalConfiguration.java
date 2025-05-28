@@ -826,6 +826,12 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
+  QUERY_RESULT_SET_OPEN_WARNING_THRESHOLD(
+      "youtrackdb.query.resultSetOpenThresholdWarning",
+      "Number of simultaneous open result sets to warn about. Negative number means no warning.",
+      Integer.class,
+      10),
+
   STATEMENT_CACHE_SIZE(
       "youtrackdb.statement.cacheSize",
       "Number of parsed SQL statements kept in cache. Zero means cache disabled",
