@@ -32,12 +32,14 @@ public class IndexConcurrentCommitTest extends BaseDBTest {
       // Commit
       session.commit();
 
+      session.begin();
       // Ensure that the people made it in correctly
       final var result1 = session.query("select from Person");
       while (result1.hasNext()) {
         System.out.println(result1.next());
       }
       result1.close();
+      session.commit();
 
       // Transaction 2
       session.begin();

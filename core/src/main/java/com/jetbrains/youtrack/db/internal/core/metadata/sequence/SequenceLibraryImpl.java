@@ -52,13 +52,34 @@ public class SequenceLibraryImpl {
     sequences.clear();
 
     if (session.getMetadata().getImmutableSchemaSnapshot().existsClass(DBSequence.CLASS_NAME)) {
-      try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
-        while (result.hasNext()) {
-          var res = result.next();
 
-          final var sequence =
-              SequenceHelper.createSequence((EntityImpl) res.asEntity());
-          sequences.put(sequence.getName(session).toUpperCase(Locale.ENGLISH), sequence);
+      final Runnable initLogic = () -> {
+        try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
+          while (result.hasNext()) {
+            var res = result.next();
+
+            final var sequence =
+                SequenceHelper.createSequence((EntityImpl) res.asEntity());
+            sequences.put(sequence.getName(session).toUpperCase(Locale.ENGLISH), sequence);
+          }
+        }
+      };
+
+      // not a very nice trick.
+      // this code can be called from within the "afterCommitOperations" phase in another
+      // transaction. if we commit the transaction here, we will
+      // initiate "afterCommitOperations" again, and this may result in duplicate
+      // sequence creation events in MetadataUpdateListener.
+      // at the same time, we can't just rollback transaction here, because it will
+      // make parent transaction to fail in case of nested transactions.
+      if (session.isTxActive()) {
+        initLogic.run();
+      } else {
+        final var tx = session.begin();
+        try {
+          initLogic.run();
+        } finally {
+          tx.rollback();
         }
       }
     }

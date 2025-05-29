@@ -67,4 +67,17 @@ public class ResultSetTest extends DbTestBase {
           });
         });
   }
+
+  @Test
+  public void testMultipleResultSetsNonTxMode() {
+    session.command("CREATE CLASS XYZ;");
+
+    final var rs1 = session.query("SELECT FROM XYZ;");
+    final var rs2 = session.query("SELECT FROM XYZ;");
+
+    rs1.close();
+
+    rs2.toList();
+
+  }
 }

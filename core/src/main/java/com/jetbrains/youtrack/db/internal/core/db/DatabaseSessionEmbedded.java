@@ -177,6 +177,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionEmbedded.class);
 
   private static final byte recordType = EntityImpl.RECORD_TYPE;
+  private final boolean serverMode;
 
   private YouTrackDBConfigImpl config;
   private final Storage storage;
@@ -209,7 +210,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   private boolean prefetchRecords;
 
-  private final Map<String, ResultSet> activeQueries = new WeakValueHashMap<>();
+  private final Map<String, ResultSet> activeQueries;
   private final int resultSetReportThreshold;
 
   // database stats!
@@ -228,8 +229,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private boolean openedAsRemoteSession;
   private int remoteCallsCount;
 
-  public DatabaseSessionEmbedded(final Storage storage) {
+  public DatabaseSessionEmbedded(final Storage storage, boolean serverMode) {
     super(false);
+    this.serverMode = serverMode;
+    // in server mode we don't enable result set auto-closing
+    this.activeQueries = serverMode ? new HashMap<>() : new WeakValueHashMap<>();
 
     activateOnCurrentThread();
 
@@ -572,7 +576,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       user = null;
     }
 
-    var database = new DatabaseSessionEmbedded(storage);
+    var database = new DatabaseSessionEmbedded(storage, this.serverMode);
     database.init(config, this.sharedContext);
     database.internalOpen(user, null, false);
     database.callOnOpenListeners();
@@ -1876,7 +1880,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public void afterCommitOperations() {
+  public void afterCommitOperations(boolean rootTx) {
     assert assertIfNotActive();
 
     for (var operation : currentTx.getRecordOperationsInternal()) {

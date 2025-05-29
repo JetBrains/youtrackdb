@@ -57,11 +57,7 @@ public interface FrontendTransaction extends Transaction {
   @Nullable
   Map<RID, RID> commitInternal(boolean force);
 
-  default void rollbackInternal() {
-    rollbackInternal(true);
-  }
-
-  void rollbackInternal(boolean clearQueries);
+  void rollbackInternal();
 
   @Override
   @Nonnull

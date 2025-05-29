@@ -116,6 +116,7 @@ public class FrontendTransactionImpl implements
   protected int txStartCounter;
   protected boolean sentToServer = false;
   private final boolean readOnly;
+  private final StackTraceElement[] creationStack;
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
 
@@ -127,6 +128,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txSerial.incrementAndGet();
     this.readOnly = readOnly;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
   public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long txId,
@@ -134,6 +136,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txId;
     this.readOnly = readOnly;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
 
@@ -141,6 +144,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = id;
     readOnly = false;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
   @Override
@@ -322,7 +326,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public void rollbackInternal(boolean clearQueries) {
+  public void rollbackInternal() {
     if (txStartCounter < 0) {
       throw new TransactionException(session, "Invalid value of TX counter");
     }
@@ -351,7 +355,7 @@ public class FrontendTransactionImpl implements
         }
 
         invalidateChangesInCacheDuringRollback();
-        clear(clearQueries);
+        clear();
       }
       case INVALID, COMPLETED -> {
         throw new IllegalStateException("Transaction is in invalid state: " + status);
@@ -366,7 +370,7 @@ public class FrontendTransactionImpl implements
     }
 
     if (txStartCounter == 0) {
-      closeInternal(clearQueries);
+      close();
       status = TXSTATUS.ROLLED_BACK;
 
       //There are could be exceptions during session opening
@@ -582,7 +586,7 @@ public class FrontendTransactionImpl implements
             .writeTransactions()
             .record();
         try {
-          session.afterCommitOperations();
+          session.afterCommitOperations(true);
         } catch (Exception e) {
           LogManager.instance().error(this,
               "Error during after commit callback invocation", e);
@@ -817,20 +821,14 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void close() {
-    closeInternal(true);
-  }
-
-  public void closeInternal(boolean clearQueries) {
-    clear(clearQueries);
+    clear();
 
     session.setNoTxMode();
     status = TXSTATUS.INVALID;
   }
 
-  private void clear(boolean clearQueries) {
-    if (clearQueries) {
-      session.closeActiveQueries();
-    }
+  private void clear() {
+    session.closeActiveQueries();
 
     final var dbCache = session.getLocalCache();
     for (var txEntry : recordOperations.values()) {

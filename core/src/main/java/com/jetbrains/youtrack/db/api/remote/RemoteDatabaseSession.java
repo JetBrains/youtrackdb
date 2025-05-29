@@ -113,4 +113,16 @@ public interface RemoteDatabaseSession extends
       throws CommandSQLParsingException, CommandExecutionException {
     execute(query, args).close();
   }
+
+  default void begin() {
+    command("BEGIN;");
+  }
+
+  default void commit() {
+    command("COMMIT;");
+  }
+
+  default void rollback() {
+    command("ROLLBACK;");
+  }
 }

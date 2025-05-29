@@ -356,12 +356,12 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testFetchedJson() {
+    session.begin();
     var rs = session
         .query("select * from Profile where name = 'Barack' and surname = 'Obama'");
-    final var resultSet =
-        rs.toList();
-
+    final var resultSet = rs.toList();
     rs.close();
+    session.commit();
 
     for (var result : resultSet) {
       final var entity = result.asEntity();

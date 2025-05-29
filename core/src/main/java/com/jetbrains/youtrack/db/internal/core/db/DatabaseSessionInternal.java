@@ -713,7 +713,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   MetadataInternal getMetadata();
 
-  void afterCommitOperations();
+  void afterCommitOperations(boolean rootTx);
 
   Object get(ATTRIBUTES_INTERNAL attribute);
 
