@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
@@ -394,6 +395,78 @@ public interface Transaction {
   @SuppressWarnings("rawtypes")
   void command(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException;
+
+  /**
+   * Execute a script in a specified query language. The result set has to be closed after usage
+   * <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * String script = "INSERT INTO Person SET name = 'foo', surname = ?;"+ "INSERT INTO Person SET
+   * name = 'bar', surname = ?;"+ "INSERT INTO Person SET name = 'baz', surname = ?;";
+   * <p>
+   * ResultSet rs = db.runScript("sql", script, "Surname1", "Surname2", "Surname3"); ...
+   * rs.close();
+   * </code>
+   */
+  ResultSet computeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException;
+
+  default ResultSet computeSQLScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("sql", script, args);
+  }
+
+  default void executeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    computeScript(language, script, args).close();
+  }
+
+  default void executeSQLScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("sql", script, args);
+  }
+
+
+  /**
+   * Execute a script of a specified query language The result set has to be closed after usage
+   * <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * Map&lt;String, Object&gt params = new HashMapMap&lt;&gt(); params.put("surname1", "Jones");
+   * params.put("surname2", "May"); params.put("surname3", "Ali");
+   * <p>
+   * String script = "INSERT INTO Person SET name = 'foo', surname = :surname1;"+ "INSERT INTO
+   * Person SET name = 'bar', surname = :surname2;"+ "INSERT INTO Person SET name = 'baz', surname =
+   * :surname3;";
+   * <p>
+   * ResultSet rs = db.runScript("sql", script, params); ... rs.close(); </code>
+   */
+  ResultSet computeScript(String language, String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException;
+
+  default ResultSet computeSQLScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("sql", script, args);
+  }
+
+  default void executeScript(String language, String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    computeScript(language, script, args).close();
+  }
+
+  default void executeSQLScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("sql", script, args);
+  }
+
 
   default <T> EmbeddedList<T> newEmbeddedList() {
     return getDatabaseSession().newEmbeddedList();

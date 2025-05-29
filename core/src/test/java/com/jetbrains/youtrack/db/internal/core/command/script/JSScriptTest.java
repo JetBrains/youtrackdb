@@ -122,7 +122,7 @@ public class JSScriptTest extends DbTestBase {
 
   @Test
   public void jsSandboxWithBigDecimal() {
-    final var scriptManager = ((YouTrackDBInternalEmbedded)YouTrackDBInternal.extract(context)).getScriptManager();
+    final var scriptManager = ((YouTrackDBInternalEmbedded)YouTrackDBInternal.extract(youTrackDB)).getScriptManager();
     try {
       scriptManager.addAllowedPackages(new HashSet<>(List.of("java.math.BigDecimal")));
 

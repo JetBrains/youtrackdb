@@ -1,0 +1,69 @@
+package com.jetbrain.youtrack.db.gremlin.internal;
+
+import com.jetbrain.youtrack.db.gremlin.api.YTDBGraphFactory;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+
+import com.jetbrains.youtrack.db.api.common.SessionPool;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import org.apache.commons.configuration2.Configuration;
+
+public final class YTDBSingleThreadGraphFactoryImpl implements AutoCloseable,
+    YTDBSingleThreadGraphFactory {
+
+  private final String dbName;
+  private final YouTrackDB youTrackDB;
+  private final SessionPool<DatabaseSession> pool;
+  private final boolean shouldCloseYouTrackDB;
+  private final Configuration configuration;
+
+  public YTDBSingleThreadGraphFactoryImpl(YouTrackDB youTrackDB, Configuration config,  boolean shouldCloseYouTrackDB) {
+    dbName = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME);
+
+    var user = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER);
+    var password = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PASS);
+
+    this.pool = youTrackDB.cachedPool(dbName, user, password);
+    this.configuration = config;
+    this.shouldCloseYouTrackDB = shouldCloseYouTrackDB;
+    this.youTrackDB = youTrackDB;
+  }
+
+  @Override
+  public YTDBSingleThreadGraph openGraph() {
+    return new YTDBSingleThreadGraph(this, (DatabaseSessionEmbedded) pool.acquire(), configuration);
+  }
+
+
+  @Override
+  public void close() {
+    if (pool != null) {
+      pool.close();
+    }
+
+    if (shouldCloseYouTrackDB) {
+      youTrackDB.close();
+    }
+  }
+
+  @Override
+  public String toString() {
+    return YTDBGraphImpl.class.getSimpleName().toLowerCase()
+        + "[" + dbName + "]";
+  }
+
+  @Override
+  public boolean isOpen() {
+    return youTrackDB.isOpen();
+  }
+
+  @Override
+  public YouTrackDB getYouTrackDB() {
+    return youTrackDB;
+  }
+
+  @Override
+  public String getDatabaseName() {
+    return dbName;
+  }
+}

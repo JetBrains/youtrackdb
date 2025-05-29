@@ -10,6 +10,7 @@
         <module name="youtrackdb-test-commons" />
         <module name="youtrackdb-console-distribution" />
         <module name="youtrackdb-server" />
+        <module name="youtrackdb-gremlin" />
         <module name="youtrackdb-tests" />
         <module name="youtrackdb-tools" />
         <module name="youtrackdb-lucene" />

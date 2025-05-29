@@ -23,6 +23,7 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
@@ -1743,6 +1744,18 @@ public class FrontendTransactionImpl implements
       throws CommandSQLParsingException, CommandExecutionException {
     checkIfActive();
     session.command(query, args);
+  }
+
+  @Override
+  public ResultSet computeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return session.computeScript(language, script, args);
+  }
+
+  @Override
+  public ResultSet computeScript(String language, String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    return session.computeScript(language, script, args);
   }
 
   private void checkIfActive() {
