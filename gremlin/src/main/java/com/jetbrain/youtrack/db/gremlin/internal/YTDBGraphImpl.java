@@ -25,7 +25,6 @@ import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 @Graph.OptIn(Graph.OptIn.SUITE_STRUCTURE_INTEGRATE)
 @Graph.OptIn(Graph.OptIn.SUITE_PROCESS_STANDARD)
 @Graph.OptIn(Graph.OptIn.SUITE_PROCESS_COMPUTER)
-@Graph.OptIn("org.apache.tinkerpop.gremlin.orientdb.gremlintest.suite.OrientDBDebugSuite")
 @GraphFactoryClass(YTDBGraphFactory.class)
 public final class YTDBGraphImpl implements YTDBGraphInternal {
 

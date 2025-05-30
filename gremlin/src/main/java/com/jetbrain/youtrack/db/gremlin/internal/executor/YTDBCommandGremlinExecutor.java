@@ -1,6 +1,5 @@
 /*
  *
- *  *  Copyright 2010-2016 OrientDB LTD (http://orientdb.com)
  *  *
  *  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  *  you may not use this file except in compliance with the License.
@@ -14,15 +13,19 @@
  *  *  See the License for the specific language governing permissions and
  *  *  limitations under the License.
  *  *
- *  * For more information: http://orientdb.com
  *
  */
 package com.jetbrain.youtrack.db.gremlin.internal.executor;
 
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBElement;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBSingleThreadGraph;
+import com.jetbrain.youtrack.db.gremlin.internal.YTDBStatefulEdge;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertex;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertexProperty;
+import com.jetbrain.youtrack.db.gremlin.internal.executor.transformer.YTDBEntityTransformer;
+import com.jetbrain.youtrack.db.gremlin.internal.executor.transformer.YTDBGremlinTransformer;
+import com.jetbrain.youtrack.db.gremlin.internal.executor.transformer.YTDBPropertyTransformer;
+import com.jetbrain.youtrack.db.gremlin.internal.executor.transformer.YTDBTraversalMetricTransformer;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
@@ -44,7 +47,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import groovy.lang.MissingPropertyException;
-
 import java.util.HashMap;
 import java.util.Map;
 import javax.script.Bindings;
@@ -52,16 +54,10 @@ import javax.script.Invocable;
 import javax.script.ScriptContext;
 import javax.script.ScriptEngine;
 import javax.script.ScriptException;
-
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngineFactory;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.GroovyCompilerGremlinPlugin;
 import org.apache.tinkerpop.gremlin.jsr223.CachedGremlinScriptEngineManager;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBStatefulEdge;
-import com.jetbrain.youtrack.db.gremlin.internal.executor.transformer.YTDBEntityTransformer;
-import com.jetbrain.youtrack.db.gremlin.internal.executor.transformer.YTDBGremlinTransformer;
-import com.jetbrain.youtrack.db.gremlin.internal.executor.transformer.YTDBPropertyTransformer;
-import com.jetbrain.youtrack.db.gremlin.internal.executor.transformer.YTDBTraversalMetricTransformer;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalMetrics;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalExplanation;

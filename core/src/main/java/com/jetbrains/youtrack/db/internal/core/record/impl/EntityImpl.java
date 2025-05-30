@@ -2092,7 +2092,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     for (var entry : properties.entrySet()) {
       var propertyName = entry.getKey();
-      var value = entry.getValue().value;
+      var propertyEntry = entry.getValue();
+
+      if (!propertyEntry.exists()) {
+        continue;
+      }
+      var value = propertyEntry.value;
 
       if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
         if (!isSystemProperty(propertyName)) {

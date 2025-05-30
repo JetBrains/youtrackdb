@@ -47,7 +47,7 @@ public class YTDBVertexProperty<V> extends YTDBProperty<V> implements VertexProp
       return Collections.emptyIterator();
     }
 
-    var properties = getMetadataEntity().toMap();
+    var properties = getMetadataEntity().toMap(false);
     var keys = new HashSet<>(Arrays.asList(propertyKeys));
 
     var entries =

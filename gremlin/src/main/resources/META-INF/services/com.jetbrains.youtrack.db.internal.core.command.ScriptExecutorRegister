@@ -12,7 +12,6 @@
 #  *  See the License for the specific language governing permissions and
 #  *  limitations under the License.
 #  *
-#  * For more information: http://www.orientechnologies.com
 #  */
 #
 com.jetbrain.youtrack.db.gremlin.internal.executor.YTDBGremlinExecutorRegister

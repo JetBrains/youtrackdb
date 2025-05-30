@@ -108,6 +108,8 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
         var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
         vertexClass = schema.getOrCreateClass(label, vClass);
       }
+    } else if (!vertexClass.isVertexType()) {
+      throw new IllegalArgumentException("Class " + label + " is not a vertex type");
     }
 
     var transaction = session.getActiveTransaction();

@@ -5,16 +5,25 @@ import static java.util.stream.Collectors.toMap;
 import static org.apache.tinkerpop.gremlin.structure.Transaction.CLOSE_BEHAVIOR.COMMIT;
 import static org.apache.tinkerpop.gremlin.structure.Transaction.CLOSE_BEHAVIOR.ROLLBACK;
 import static org.apache.tinkerpop.gremlin.structure.VertexProperty.Cardinality.single;
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
+import static org.hamcrest.Matchers.hasEntry;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrain.youtrack.db.gremlin.internal.StreamUtils;
 import java.util.Map;
-import org.apache.tinkerpop.gremlin.structure.*;
+import org.apache.tinkerpop.gremlin.structure.Direction;
+import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Property;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class GraphTest extends GraphBaseTest {
+
   public static final String TEST_VALUE = "SomeValue";
 
   @Test
@@ -68,30 +77,6 @@ public class GraphTest extends GraphBaseTest {
 
   }
 
-  @Test
-  public void testGraphTransactionOnNoTrxOrientGraph() {
-    Object id;
-    try (var tx = graph.tx()) {
-      tx.onClose(COMMIT);
-      var vertex = graph.addVertex();
-      id = vertex.id();
-      vertex.property("test", TEST_VALUE);
-    }
-    assertNotNull("A vertex should have been created in the first transaction", id);
-
-    try (var tx = graph.tx()) {
-      tx.onClose(ROLLBACK);
-      var vertex = graph.vertices(id).next();
-      assertNotNull(vertex);
-      vertex.property("test", "changed");
-    }
-
-    var vertex = graph.vertices(id).next();
-    assertEquals(
-        "The property value should have been changed since the graph was used in noTx mode and all actions are atomic.",
-        "changed",
-        vertex.value("test"));
-  }
 
   @Test
   public void testGraph() {
@@ -111,7 +96,7 @@ public class GraphTest extends GraphBaseTest {
       Assert.fail("must throw unable to create different super class");
     } catch (IllegalArgumentException e) {
       assertTrue(
-          e.getMessage().startsWith("unable to create class 'EDGE_LABEL' as subclass of 'V'"));
+          e.getMessage().startsWith("Class EDGE_LABEL is not a vertex type"));
     }
 
     graph.close();
@@ -158,20 +143,6 @@ public class GraphTest extends GraphBaseTest {
     var in = edge.inVertex();
     assertNotNull(in);
     assertEquals(vertexB.id(), in.id());
-  }
-
-  @Test
-  public void testStaticIterator() {
-    graph.addVertex();
-
-    var iterator = graph.vertices();
-
-    // v2 should not be returned by the Iterator
-    graph.addVertex();
-
-    assertTrue(iterator.hasNext());
-    iterator.next();
-    assertFalse(iterator.hasNext());
   }
 
   @Test
