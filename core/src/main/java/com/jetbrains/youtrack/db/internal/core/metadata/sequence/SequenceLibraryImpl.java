@@ -33,6 +33,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
 /**
@@ -43,26 +45,31 @@ public class SequenceLibraryImpl {
   public static final String DROPPED_SEQUENCES_MAP = "droppedSequencesMap";
   private final ConcurrentHashMap<String, DBSequence> sequences = new ConcurrentHashMap<>();
   private final AtomicLong reloadNeeded = new AtomicLong();
+  private final Lock lock = new ReentrantLock();
 
   public static void create(DatabaseSessionInternal database) {
     init(database);
   }
 
-  public synchronized void load(final DatabaseSessionInternal session) {
-    sequences.clear();
+  public void load(final DatabaseSessionInternal session) {
+    lock.lock();
+    try {
+      sequences.clear();
 
-    if (session.getMetadata().getImmutableSchemaSnapshot().existsClass(DBSequence.CLASS_NAME)) {
+      if (session.getMetadata().getImmutableSchemaSnapshot().existsClass(DBSequence.CLASS_NAME)) {
+        session.executeInTx(tx -> {
+          try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
+            while (result.hasNext()) {
+              var res = result.next();
 
-      session.executeInTx(tx -> {
-        try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
-          while (result.hasNext()) {
-            var res = result.next();
-
-            final var sequence = SequenceHelper.createSequence((EntityImpl) res.asEntity());
-            sequences.put(normalizeName(sequence.getName(session)), sequence);
+              final var sequence = SequenceHelper.createSequence((EntityImpl) res.asEntity());
+              sequences.put(normalizeName(sequence.getName(session)), sequence);
+            }
           }
-        }
-      });
+        });
+      }
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -70,12 +77,12 @@ public class SequenceLibraryImpl {
     sequences.clear();
   }
 
-  public synchronized Set<String> getSequenceNames(DatabaseSessionInternal session) {
+  public Set<String> getSequenceNames(DatabaseSessionInternal session) {
     reloadIfNeeded(session);
     return sequences.keySet();
   }
 
-  public synchronized int getSequenceCount(DatabaseSessionInternal session) {
+  public int getSequenceCount(DatabaseSessionInternal session) {
     reloadIfNeeded(session);
     return sequences.size();
   }
@@ -88,35 +95,45 @@ public class SequenceLibraryImpl {
     return sequences.get(normalizeName(iName));
   }
 
-  public synchronized DBSequence createSequence(
+  public DBSequence createSequence(
       final DatabaseSessionInternal session,
       final String iName,
       final SEQUENCE_TYPE sequenceType,
       final DBSequence.CreateParams params) {
-    init(session);
-    reloadIfNeeded(session);
+    lock.lock();
+    try {
+      init(session);
+      reloadIfNeeded(session);
 
-    final var key = normalizeName(iName);
-    validateSequenceNoExists(key);
+      final var key = normalizeName(iName);
+      validateSequenceNoExists(key);
 
-    final var sequence = SequenceHelper.createSequence(session, sequenceType, params, iName);
-    sequences.put(key, sequence);
+      final var sequence = SequenceHelper.createSequence(session, sequenceType, params, iName);
+      sequences.put(key, sequence);
 
-    return sequence;
+      return sequence;
+    } finally {
+      lock.unlock();
+    }
   }
 
-  public synchronized void dropSequence(
+  public void dropSequence(
       final DatabaseSessionInternal session, final String iName) {
-    final var seq = getSequence(session, iName);
-    if (seq != null) {
-      try {
-        var entity = session.loadEntity(seq.entityRid);
-        session.delete(entity);
-        sequences.remove(normalizeName(iName));
-      } catch (NeedRetryException e) {
-        var rec = session.load(seq.entityRid);
-        rec.delete();
+    lock.lock();
+    try {
+      final var seq = getSequence(session, iName);
+      if (seq != null) {
+        try {
+          var entity = session.loadEntity(seq.entityRid);
+          session.delete(entity);
+          sequences.remove(normalizeName(iName));
+        } catch (NeedRetryException e) {
+          var rec = session.load(seq.entityRid);
+          rec.delete();
+        }
       }
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -128,11 +145,14 @@ public class SequenceLibraryImpl {
       return;
     }
 
-    synchronized (this) {
+    lock.lock();
+    try {
       final var seq = getSequence(session, name);
       if (seq == null) {
         sequences.put(name, SequenceHelper.createSequence(entity));
       }
+    } finally {
+      lock.unlock();
     }
 
     onSequenceLibraryUpdate(session);

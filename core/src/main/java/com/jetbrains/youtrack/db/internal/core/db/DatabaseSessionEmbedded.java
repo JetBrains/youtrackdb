@@ -4138,6 +4138,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public <X extends Exception> void executeInTxInternal(
       @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
+    if (currentTx.getStatus() == TXSTATUS.COMMITTING ||
+        currentTx.getStatus() == TXSTATUS.ROLLBACKING) {
+      throw new TransactionException(getDatabaseName(),
+          "Cannot start a new transaction while a transaction is committing or rolling back");
+    }
     var ok = false;
     assert assertIfNotActive();
     begin();
