@@ -21,7 +21,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.sequence;
 
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence.CreateParams;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.DBSequence.SEQUENCE_TYPE;
 import java.util.Set;
@@ -48,7 +47,7 @@ public class SequenceLibraryProxy extends SequenceLibraryAbstract {
 
   @Override
   public DBSequence getSequence(String iName) {
-    return delegate.getSequence(session, iName);
+    return delegate.getOrInitSequence(session, iName, null);
   }
 
 

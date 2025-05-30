@@ -30,10 +30,10 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.Nullable;
 
 /**
  * @since 3/2/2015
@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SequenceLibraryImpl {
 
   public static final String DROPPED_SEQUENCES_MAP = "droppedSequencesMap";
-  private final Map<String, DBSequence> sequences = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, DBSequence> sequences = new ConcurrentHashMap<>();
   private final AtomicLong reloadNeeded = new AtomicLong();
 
   public static void create(DatabaseSessionInternal database) {
@@ -53,35 +53,16 @@ public class SequenceLibraryImpl {
 
     if (session.getMetadata().getImmutableSchemaSnapshot().existsClass(DBSequence.CLASS_NAME)) {
 
-      final Runnable initLogic = () -> {
+      session.executeInTx(tx -> {
         try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
           while (result.hasNext()) {
             var res = result.next();
 
-            final var sequence =
-                SequenceHelper.createSequence((EntityImpl) res.asEntity());
-            sequences.put(sequence.getName(session).toUpperCase(Locale.ENGLISH), sequence);
+            final var sequence = SequenceHelper.createSequence((EntityImpl) res.asEntity());
+            sequences.put(normalizeName(sequence.getName(session)), sequence);
           }
         }
-      };
-
-      // not a very nice trick.
-      // this code can be called from within the "afterCommitOperations" phase in another
-      // transaction. if we commit the transaction here, we will
-      // initiate "afterCommitOperations" again, and this may result in duplicate
-      // sequence creation events in MetadataUpdateListener.
-      // at the same time, we can't just rollback transaction here, because it will
-      // make parent transaction to fail in case of nested transactions.
-      if (session.isTxActive()) {
-        initLogic.run();
-      } else {
-        final var tx = session.begin();
-        try {
-          initLogic.run();
-        } finally {
-          tx.rollback();
-        }
-      }
+      });
     }
   }
 
@@ -99,15 +80,19 @@ public class SequenceLibraryImpl {
     return sequences.size();
   }
 
-  public DBSequence getSequence(final DatabaseSessionInternal session, final String iName) {
-    final var name = iName.toUpperCase(Locale.ENGLISH);
+  public DBSequence getOrInitSequence(
+      final DatabaseSessionInternal session,
+      final String iName,
+      final EntityImpl entity
+  ) {
+    final var name = normalizeName(iName);
     reloadIfNeeded(session);
     DBSequence seq;
     synchronized (this) {
       seq = sequences.get(name);
-      if (seq == null) {
-        load(session);
-        seq = sequences.get(name);
+      if (seq == null && entity != null) {
+        seq = SequenceHelper.createSequence(entity);
+        sequences.put(name, seq);
       }
     }
 
@@ -122,7 +107,7 @@ public class SequenceLibraryImpl {
     init(session);
     reloadIfNeeded(session);
 
-    final var key = iName.toUpperCase(Locale.ENGLISH);
+    final var key = normalizeName(iName);
     validateSequenceNoExists(key);
 
     final var sequence = SequenceHelper.createSequence(session, sequenceType, params, iName);
@@ -133,12 +118,12 @@ public class SequenceLibraryImpl {
 
   public synchronized void dropSequence(
       final DatabaseSessionInternal session, final String iName) {
-    final var seq = getSequence(session, iName);
+    final var seq = getOrInitSequence(session, iName, null);
     if (seq != null) {
       try {
         var entity = session.loadEntity(seq.entityRid);
         session.delete(entity);
-        sequences.remove(iName.toUpperCase(Locale.ENGLISH));
+        sequences.remove(normalizeName(iName));
       } catch (NeedRetryException e) {
         var rec = session.load(seq.entityRid);
         rec.delete();
@@ -146,27 +131,15 @@ public class SequenceLibraryImpl {
     }
   }
 
-  public void onSequenceCreated(
-      final DatabaseSessionInternal session, final EntityImpl entity) {
+  public void onSequenceCreated(final DatabaseSessionInternal session, final EntityImpl entity) {
     init(session);
 
-    var name = DBSequence.getSequenceName(entity);
+    final var name = normalizeName(DBSequence.getSequenceName(entity));
     if (name == null) {
       return;
     }
 
-    name = name.toUpperCase(Locale.ENGLISH);
-
-    final var seq = getSequence(session, name);
-
-    if (seq != null) {
-      onSequenceLibraryUpdate(session);
-      return;
-    }
-
-    final var sequence = SequenceHelper.createSequence(entity);
-
-    sequences.put(name, sequence);
+    getOrInitSequence(session, name, entity);
     onSequenceLibraryUpdate(session);
   }
 
@@ -201,8 +174,7 @@ public class SequenceLibraryImpl {
       return;
     }
 
-    var name = sequenceName.toUpperCase(Locale.ENGLISH);
-    sequences.remove(name);
+    sequences.remove(normalizeName(sequenceName));
     onSequenceLibraryUpdate(session);
   }
 
@@ -237,5 +209,10 @@ public class SequenceLibraryImpl {
 
   public void update() {
     reloadNeeded.incrementAndGet();
+  }
+
+  @Nullable
+  private static String normalizeName(String name) {
+    return name == null ? null : name.toUpperCase(Locale.ROOT);
   }
 }
