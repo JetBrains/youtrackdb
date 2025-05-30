@@ -47,7 +47,7 @@ public class SequenceLibraryProxy extends SequenceLibraryAbstract {
 
   @Override
   public DBSequence getSequence(String iName) {
-    return delegate.getOrInitSequence(session, iName, null);
+    return delegate.getSequence(session, iName);
   }
 
 

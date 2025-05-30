@@ -80,23 +80,12 @@ public class SequenceLibraryImpl {
     return sequences.size();
   }
 
-  public DBSequence getOrInitSequence(
+  public DBSequence getSequence(
       final DatabaseSessionInternal session,
-      final String iName,
-      final EntityImpl entity
+      final String iName
   ) {
-    final var name = normalizeName(iName);
     reloadIfNeeded(session);
-    DBSequence seq;
-    synchronized (this) {
-      seq = sequences.get(name);
-      if (seq == null && entity != null) {
-        seq = SequenceHelper.createSequence(entity);
-        sequences.put(name, seq);
-      }
-    }
-
-    return seq;
+    return sequences.get(normalizeName(iName));
   }
 
   public synchronized DBSequence createSequence(
@@ -118,7 +107,7 @@ public class SequenceLibraryImpl {
 
   public synchronized void dropSequence(
       final DatabaseSessionInternal session, final String iName) {
-    final var seq = getOrInitSequence(session, iName, null);
+    final var seq = getSequence(session, iName);
     if (seq != null) {
       try {
         var entity = session.loadEntity(seq.entityRid);
@@ -139,7 +128,13 @@ public class SequenceLibraryImpl {
       return;
     }
 
-    getOrInitSequence(session, name, entity);
+    synchronized (this) {
+      final var seq = getSequence(session, name);
+      if (seq != null) {
+        sequences.put(name, SequenceHelper.createSequence(entity));
+      }
+    }
+
     onSequenceLibraryUpdate(session);
   }
 
