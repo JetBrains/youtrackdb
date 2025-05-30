@@ -3,9 +3,6 @@ package com.jetbrain.youtrack.db.gremlin.internal;
 import static com.jetbrain.youtrack.db.gremlin.internal.StreamUtils.asStream;
 
 import com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry;
-import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphCountStrategy;
-import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
-import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -31,10 +28,8 @@ import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
-import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
-import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
@@ -43,19 +38,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
-
   public static final Logger logger = LoggerFactory.getLogger(YTDBSingleThreadGraph.class);
 
-  static {
-    TraversalStrategies.GlobalCache.registerStrategies(
-        YTDBSingleThreadGraph.class,
-        TraversalStrategies.GlobalCache.getStrategies(Graph.class)
-            .clone()
-            .addStrategies(
-                YTDBGraphStepStrategy.instance(),
-                YTDBGraphCountStrategy.instance(),
-                YTDBGraphMatchStepStrategy.instance()));
-  }
 
   private final Features features;
   private final Configuration configuration;
@@ -420,7 +404,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   public <I extends Io> I io(Io.Builder<I> builder) {
     return (I)
         YTDBGraphInternal.super.io(
-            builder.onMapper(mb -> mb.addRegistry(new YTDBIoRegistry(session))));
+            builder.onMapper(mb -> mb.addRegistry(YTDBIoRegistry.instance())));
   }
 
   @Override

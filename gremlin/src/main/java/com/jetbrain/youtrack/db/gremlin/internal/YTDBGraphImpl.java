@@ -4,6 +4,7 @@ package com.jetbrain.youtrack.db.gremlin.internal;
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraphFactory;
 import com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry;
 import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphCountStrategy;
+import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
@@ -36,7 +37,8 @@ public final class YTDBGraphImpl implements YTDBGraphInternal {
             .addStrategies(
                 YTDBGraphStepStrategy.instance(),
                 YTDBGraphCountStrategy.instance(),
-                YTDBGraphMatchStepStrategy.instance()));
+                YTDBGraphMatchStepStrategy.instance(),
+                YTDBGraphIoStepStrategy.instance()));
   }
 
   private final ThreadLocal<YTDBSingleThreadGraph> graphInternal = new ThreadLocal<>();
@@ -121,10 +123,9 @@ public final class YTDBGraphImpl implements YTDBGraphInternal {
   @SuppressWarnings("deprecation")
   @Override
   public <I extends Io> I io(Io.Builder<I> builder) {
-    var graph = graph();
     return (I)
         YTDBGraphInternal.super.io(builder.onMapper(
-            mb -> mb.addRegistry(new YTDBIoRegistry(graph.getUnderlyingSession()))));
+            mb -> mb.addRegistry(YTDBIoRegistry.instance())));
   }
 
   private void closeGraphs() {

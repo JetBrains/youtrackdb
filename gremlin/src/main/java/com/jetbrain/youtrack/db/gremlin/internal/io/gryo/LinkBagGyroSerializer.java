@@ -1,6 +1,6 @@
 package com.jetbrain.youtrack.db.gremlin.internal.io.gryo;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrain.youtrack.db.gremlin.internal.io.LinkBagStub;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import org.apache.tinkerpop.shaded.kryo.Kryo;
@@ -10,15 +10,14 @@ import org.apache.tinkerpop.shaded.kryo.io.Output;
 
 public class LinkBagGyroSerializer extends Serializer<LinkBag> {
 
-  private final DatabaseSessionEmbedded session;
+  public static final LinkBagGyroSerializer INSTANCE = new LinkBagGyroSerializer();
 
-  public LinkBagGyroSerializer(DatabaseSessionEmbedded session) {
-    this.session = session;
+  public LinkBagGyroSerializer() {
   }
 
   @Override
   public LinkBag read(final Kryo kryo, final Input input, final Class<LinkBag> tinkerGraphClass) {
-    final var bag = new LinkBag(session);
+    final var bag = new LinkBagStub();
     final var ids = input.readString().split(";");
 
     for (final var id : ids) {

@@ -5,7 +5,6 @@ import com.jetbrain.youtrack.db.gremlin.internal.io.graphson.YTDBGraphSONV3;
 import com.jetbrain.youtrack.db.gremlin.internal.io.gryo.LinkBagGyroSerializer;
 import com.jetbrain.youtrack.db.gremlin.internal.io.gryo.RecordIdGyroSerializer;
 import com.jetbrain.youtrack.db.gremlin.internal.io.gryo.YTDBVertexPropertyIdGyroSerializer;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -17,22 +16,28 @@ import org.apache.tinkerpop.gremlin.structure.io.gryo.GryoIo;
 
 public final class YTDBIoRegistry extends AbstractIoRegistry {
 
+  public static final YTDBIoRegistry INSTANCE = new YTDBIoRegistry();
+
   public static final String COLLECTION_ID = "collectionId";
   public static final String COLLECTION_POSITION = "collectionPosition";
   public static final String PROPERTY_KEY = "propertyKey";
 
-  public YTDBIoRegistry(DatabaseSessionEmbedded session) {
+  public static YTDBIoRegistry instance() {
+    return INSTANCE;
+  }
+
+  public YTDBIoRegistry() {
     register(GryoIo.class, RecordId.class, RecordIdGyroSerializer.INSTANCE);
     register(GryoIo.class, ChangeableRecordId.class, RecordIdGyroSerializer.INSTANCE);
     register(GryoIo.class, YTDBVertexPropertyId.class, YTDBVertexPropertyIdGyroSerializer.INSTANCE);
 
     register(GraphSONIo.class, RecordId.class, YTDBGraphSONV3.INSTANCE);
-    register(GryoIo.class, LinkBag.class, new LinkBagGyroSerializer(session));
+    register(GryoIo.class, LinkBag.class, LinkBagGyroSerializer.INSTANCE);
   }
 
 
   @Nullable
-  public static Object newYTDBId(final Object obj) {
+  public static Object newYTdbId(final Object obj) {
     return switch (obj) {
       case null -> null;
       case RecordId recordId -> recordId;

@@ -1,7 +1,7 @@
 package com.jetbrain.youtrack.db.gremlin.internal.io.graphson;
 
 import static com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry.isYTDBRecord;
-import static com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry.newYTDBId;
+import static com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry.newYTdbId;
 
 import com.jetbrain.youtrack.db.gremlin.api.YTDBVertexPropertyId;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -26,7 +26,6 @@ import org.apache.tinkerpop.shaded.jackson.databind.JsonDeserializer;
  * Created by Enrico Risa on 06/09/2017.
  */
 public class YTDBGraphSONV3 extends YTDBGraphSON {
-
   public static final YTDBGraphSONV3 INSTANCE = new YTDBGraphSONV3();
 
   @SuppressWarnings("rawtypes")
@@ -72,12 +71,12 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
     @Override
     public Edge createObject(final Map<String, Object> edgeData) {
       return new DetachedEdge(
-          newYTDBId(edgeData.get(GraphSONTokens.ID)),
+          newYTdbId(edgeData.get(GraphSONTokens.ID)),
           edgeData.get(GraphSONTokens.LABEL).toString(),
           (Map) edgeData.get(GraphSONTokens.PROPERTIES),
-          newYTDBId(edgeData.get(GraphSONTokens.OUT)),
+          newYTdbId(edgeData.get(GraphSONTokens.OUT)),
           edgeData.get(GraphSONTokens.OUT_LABEL).toString(),
-          newYTDBId(edgeData.get(GraphSONTokens.IN)),
+          newYTdbId(edgeData.get(GraphSONTokens.IN)),
           edgeData.get(GraphSONTokens.IN_LABEL).toString());
     }
   }
@@ -95,7 +94,7 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
     @Override
     public Vertex createObject(final Map<String, Object> vertexData) {
       return new DetachedVertex(
-          newYTDBId(vertexData.get(GraphSONTokens.ID)),
+          newYTdbId(vertexData.get(GraphSONTokens.ID)),
           vertexData.get(GraphSONTokens.LABEL).toString(),
           (Map<String, Object>) vertexData.get(GraphSONTokens.PROPERTIES));
     }
@@ -138,7 +137,7 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
     @Override
     public Object createObject(Map<String, Object> data) {
       if (isYTDBRecord(data)) {
-        return newYTDBId(data);
+        return newYTdbId(data);
       }
       return data;
     }

@@ -22,13 +22,8 @@ import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.AbstractGraphProvider;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.structure.Element;
-import org.apache.tinkerpop.gremlin.structure.FeatureSupportTest.GraphFunctionalityTest;
 import org.apache.tinkerpop.gremlin.structure.Graph;
-import org.apache.tinkerpop.gremlin.structure.GraphTest;
-import org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest;
 import org.apache.tinkerpop.gremlin.structure.TransactionTest;
-import org.apache.tinkerpop.gremlin.structure.VertexTest;
-import org.apache.tinkerpop.gremlin.structure.io.IoCustomTest;
 import org.junit.AssumptionViolatedException;
 
 
@@ -38,43 +33,9 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
   static {
     IGNORED_TESTS = new HashMap<>();
     IGNORED_TESTS.put(
-        GraphTest.class,
-        List.of(
-            "shouldNotMixTypesForGettingSpecificEdgesWithStringFirst",
-            "shouldNotMixTypesForGettingSpecificEdgesWithEdgeFirst",
-            "shouldNotMixTypesForGettingSpecificVerticesWithStringFirst",
-            "shouldNotMixTypesForGettingSpecificVerticesWithVertexFirst",
-            "shouldRemoveVertices"));
-
-    // YouTrackDB can not modify schema when the transaction is on, which
-    // break the tests
-    IGNORED_TESTS.put(
-        GraphFunctionalityTest.class, List.of("shouldSupportTransactionsIfAGraphConstructsATx"));
-
-    // This tests become broken after gremlin 3.2.0
-    IGNORED_TESTS.put(IoCustomTest.class, List.of("shouldSerializeTree"));
-
-    IGNORED_TESTS.put(
         TransactionTest.class,
         List.of(
-            "shouldExecuteWithCompetingThreads",
-            "shouldAllowReferenceOfEdgeIdOutsideOfOriginalThreadManual",
-            "shouldAllowReferenceOfVertexIdOutsideOfOriginalThreadManual",
-            "shouldSupportTransactionIsolationCommitCheck",
-            "shouldNotShareTransactionReadWriteConsumersAcrossThreads",
-            "shouldNotShareTransactionCloseConsumersAcrossThreads",
-            "shouldNotifyTransactionListenersInSameThreadOnlyOnCommitSuccess",
-            "shouldNotifyTransactionListenersInSameThreadOnlyOnRollbackSuccess"));
-    IGNORED_TESTS.put(
-        TransactionMultiThreadedTest.class,
-        List.of(
-            "shouldCommit",
-            "shouldCommitEdge",
-            "shouldDeleteVertexOnCommit",
-            "shouldRollbackAddedVertex"));
-    IGNORED_TESTS.put(
-        VertexTest.BasicVertexTest.class,
-        List.of("shouldNotGetConcurrentModificationException"));
+            "shouldExecuteWithCompetingThreads"));
   }
 
   @Override

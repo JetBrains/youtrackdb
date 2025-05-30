@@ -2,8 +2,10 @@ package com.jetbrain.youtrack.db.gremlin.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+import com.jetbrain.youtrack.db.gremlin.internal.io.LinkBagStub;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -69,6 +71,12 @@ public abstract class YTDBElement implements Element {
       return new YTDBProperty<>(key, null, this);
     }
 
+    if (value instanceof LinkBagStub linkBagStub) {
+      var linkBag = new LinkBag(graph.getUnderlyingSession(), linkBagStub);
+      entity.setProperty(key, linkBag);
+      //noinspection unchecked
+      return new YTDBProperty<>(key, (V) linkBag, this);
+    }
     if (value instanceof List<?> || value instanceof Set<?> || value instanceof Map<?, ?>) {
       var type = PropertyTypeInternal.getTypeByValue(value);
       if (type == null) {

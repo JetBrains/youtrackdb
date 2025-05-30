@@ -4,16 +4,13 @@ package com.youtrack.db.gremlin.internal;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertThat;
 
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphInternal;
+import com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.io.StringWriter;
-
-import com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry;
 import org.apache.tinkerpop.gremlin.structure.io.graphson.GraphSONIo;
 import org.apache.tinkerpop.shaded.jackson.databind.Module;
 import org.apache.tinkerpop.shaded.jackson.databind.ObjectMapper;
-
 import org.junit.Before;
 import org.junit.Test;
 
@@ -23,7 +20,7 @@ public class IoRegistryTest extends GraphBaseTest {
 
   @Before
   public void setup() {
-    var modules = new YTDBIoRegistry(((YTDBGraphInternal) graph).getUnderlyingSession()).find(
+    var modules = YTDBIoRegistry.instance().find(
         GraphSONIo.class);
     objectMapper = new ObjectMapper();
     modules.forEach(module -> objectMapper.registerModule((Module) module.getValue1()));
