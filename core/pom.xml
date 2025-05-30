@@ -116,6 +116,7 @@
         <configuration>
           <systemPropertyVariables>
             <buildDirectory>${project.build.directory}</buildDirectory>
+            <build.dir>${project.build.directory}</build.dir>
           </systemPropertyVariables>
           <properties>
             <property>

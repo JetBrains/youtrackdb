@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import java.util.List;
 import org.junit.Test;
@@ -54,8 +53,8 @@ public class EmbeddedEntityImplTest extends DbTestBase {
       try {
         invalidOp.run();
         fail("Adding links to embedded entities should fail.");
-      } catch (DatabaseException e) {
-
+      } catch (IllegalArgumentException e) {
+        //expected
       }
     }
     session.rollback();

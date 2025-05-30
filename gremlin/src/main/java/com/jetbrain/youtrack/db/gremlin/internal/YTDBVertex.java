@@ -4,14 +4,18 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.jetbrain.youtrack.db.gremlin.internal.StreamUtils.asStream;
 
-import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import org.apache.tinkerpop.gremlin.structure.*;
+import org.apache.tinkerpop.gremlin.structure.Direction;
+import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Property;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
@@ -39,6 +43,11 @@ public final class YTDBVertex extends YTDBElement implements Vertex {
 
   @Override
   public <V> VertexProperty<V> property(String key) {
+    graph.tx().readWrite();
+    if (key == null || key.isEmpty()) {
+      return VertexProperty.empty();
+    }
+
     var entity = getRawEntity();
     if (entity.hasProperty(key) && !INTERNAL_FIELDS.contains(key) &&
         !key.startsWith("_meta_")) {
@@ -111,10 +120,20 @@ public final class YTDBVertex extends YTDBElement implements Vertex {
     }
 
     var session = graph.getUnderlyingSession();
-    var schema = session.getSchema();
-
-    var edgeCls = schema.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
-    schema.getOrCreateClass(label, edgeCls);
+    var edgeClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
+    if (edgeClass == null) {
+      if (session.isTxActive()) {
+        try (var copy = session.copy()) {
+          var schemaCopy = copy.getSchema();
+          var edgeCls = schemaCopy.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
+          schemaCopy.getOrCreateClass(label, edgeCls);
+        }
+      } else {
+        var schema = session.getSchema();
+        var edgeCls = schema.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
+        schema.getOrCreateClass(label, edgeCls);
+      }
+    }
 
     this.graph.tx().readWrite();
 

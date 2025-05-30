@@ -4,32 +4,35 @@ import com.google.common.collect.Sets;
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraphFactory;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBElement;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphInternal;
+import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphImpl;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBProperty;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBSingleThreadGraph;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBStatefulEdge;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertex;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertexProperty;
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-
-import java.util.*;
-
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.AbstractGraphProvider;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
-import org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest;
-import org.apache.tinkerpop.gremlin.structure.TransactionTest;
-import org.apache.tinkerpop.gremlin.structure.VertexTest;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.FeatureSupportTest.GraphFunctionalityTest;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.GraphTest;
+import org.apache.tinkerpop.gremlin.structure.TransactionMultiThreadedTest;
+import org.apache.tinkerpop.gremlin.structure.TransactionTest;
+import org.apache.tinkerpop.gremlin.structure.VertexTest;
 import org.apache.tinkerpop.gremlin.structure.io.IoCustomTest;
 import org.junit.AssumptionViolatedException;
 
-public class YTDBGraphProvider extends AbstractGraphProvider {
 
+public class YTDBGraphProvider extends AbstractGraphProvider {
   protected static final Map<Class<?>, List<String>> IGNORED_TESTS;
 
   static {
@@ -90,17 +93,18 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
 
     var configs = new HashMap<String, Object>();
     configs.put(Graph.GRAPH, YTDBGraph.class.getName());
-    configs.put("name", graphName);
-    if (testMethodName.equals("shouldPersistDataOnClose")) {
-      configs.put(
-          YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH,
-          "./target/databases/test-"
-              + graphName
-              + "-"
-              + test.getSimpleName()
-              + "-"
-              + testMethodName);
-    }
+
+    var dbType = calculateDbType();
+    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+
+    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME, graphName);
+    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER, "adminuser");
+    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_PWD, "adminpwd");
+    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH, directoryPath);
+    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_CREATE_IF_NOT_EXISTS, true);
+    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_TYPE, dbType.name());
+    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_ROLE, "admin");
+
     return configs;
   }
 
@@ -110,7 +114,7 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
     return Sets.newHashSet(
         YTDBStatefulEdge.class,
         YTDBElement.class,
-        YTDBSingleThreadGraph.class,
+        YTDBGraphImpl.class,
         YTDBProperty.class,
         YTDBVertex.class,
         YTDBVertexProperty.class);
@@ -119,12 +123,18 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
   @Override
   public void clear(Graph graph, Configuration configuration) {
     if (graph != null) {
-      var g = (YTDBGraphInternal) graph;
-      var f = g.getFactory();
-      var ytdb = f.getYouTrackDB();
+      try {
+        graph.close();
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
 
-      if (ytdb.isOpen()) {
-        ytdb.drop(f.getDatabaseName());
+      var ytdb = YTDBGraphFactory.getYTDBInstance(
+          configuration.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH));
+      var dbName = configuration.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME);
+      if (ytdb != null && ytdb.exists(dbName)) {
+        ytdb.drop(dbName);
+        YTDBGraphFactory.closeYTDBInstance(configuration);
       }
     }
   }
@@ -158,5 +168,16 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
     }
 
     return new MockRID("Invalid id: " + id + " for " + c);
+  }
+
+  private static DatabaseType calculateDbType() {
+    final var testConfig =
+        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
+
+    if ("ci".equals(testConfig) || "release".equals(testConfig)) {
+      return DatabaseType.DISK;
+    }
+
+    return DatabaseType.MEMORY;
   }
 }

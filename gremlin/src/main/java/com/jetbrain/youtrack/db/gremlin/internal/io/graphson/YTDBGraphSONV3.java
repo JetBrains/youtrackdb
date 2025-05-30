@@ -1,8 +1,9 @@
 package com.jetbrain.youtrack.db.gremlin.internal.io.graphson;
 
 import static com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry.isYTDBRecord;
-import static com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry.newYTDBRecordId;
+import static com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry.newYTDBId;
 
+import com.jetbrain.youtrack.db.gremlin.api.YTDBVertexPropertyId;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.io.IOException;
@@ -28,24 +29,31 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
 
   public static final YTDBGraphSONV3 INSTANCE = new YTDBGraphSONV3();
 
+  @SuppressWarnings("rawtypes")
   protected static final Map<Class, String> TYPES =
       Collections.unmodifiableMap(
           new LinkedHashMap<>() {
             {
               put(RecordId.class, "RecordId");
+              put(YTDBVertexPropertyId.class, "VertexPropertyId");
             }
           });
 
   public YTDBGraphSONV3() {
-    super("orient-graphson-v3");
-    addSerializer(RID.class, new RecordIdJacksonSerializer());
+    super("ytdb-graphson-v3");
+    addSerializer(RID.class, new YTDBRecordIdJacksonSerializer());
     addDeserializer(RID.class, new YTDBRecordIdJacksonDeserializer());
+
+    addSerializer(YTDBVertexPropertyId.class, new YTDBVertexPropertyIdJacksonSerializer());
+    addDeserializer(YTDBVertexPropertyId.class, new YTDBVertexPropertyIdJacksonDeserializer());
 
     addDeserializer(Edge.class, new EdgeJacksonDeserializer());
     addDeserializer(Vertex.class, new VertexJacksonDeserializer());
-    addDeserializer(Map.class, (JsonDeserializer) new YTDBRecordIdDeserializer());
+    //noinspection rawtypes,unchecked
+    addDeserializer(Map.class, (JsonDeserializer) new YTDBIdDeserializer());
   }
 
+  @SuppressWarnings("rawtypes")
   @Override
   public Map<Class, String> getTypeDefinitions() {
     return TYPES;
@@ -64,12 +72,12 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
     @Override
     public Edge createObject(final Map<String, Object> edgeData) {
       return new DetachedEdge(
-          newYTDBRecordId(edgeData.get(GraphSONTokens.ID)),
+          newYTDBId(edgeData.get(GraphSONTokens.ID)),
           edgeData.get(GraphSONTokens.LABEL).toString(),
           (Map) edgeData.get(GraphSONTokens.PROPERTIES),
-          newYTDBRecordId(edgeData.get(GraphSONTokens.OUT)),
+          newYTDBId(edgeData.get(GraphSONTokens.OUT)),
           edgeData.get(GraphSONTokens.OUT_LABEL).toString(),
-          newYTDBRecordId(edgeData.get(GraphSONTokens.IN)),
+          newYTDBId(edgeData.get(GraphSONTokens.IN)),
           edgeData.get(GraphSONTokens.IN_LABEL).toString());
     }
   }
@@ -87,23 +95,25 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
     @Override
     public Vertex createObject(final Map<String, Object> vertexData) {
       return new DetachedVertex(
-          newYTDBRecordId(vertexData.get(GraphSONTokens.ID)),
+          newYTDBId(vertexData.get(GraphSONTokens.ID)),
           vertexData.get(GraphSONTokens.LABEL).toString(),
           (Map<String, Object>) vertexData.get(GraphSONTokens.PROPERTIES));
     }
   }
 
-  static final class YTDBRecordIdDeserializer extends AbstractObjectDeserializer<Object> {
-    public YTDBRecordIdDeserializer() {
+  static final class YTDBIdDeserializer extends AbstractObjectDeserializer<Object> {
+
+    public YTDBIdDeserializer() {
       super(Object.class);
     }
 
     @Override
     public Object deserialize(JsonParser jsonParser, DeserializationContext deserializationContext)
-        throws IOException{
+        throws IOException {
       var keyString = true;
       if (jsonParser.currentToken() == JsonToken.START_OBJECT) {
-        Map<String, Object> m = deserializationContext.readValue(jsonParser, LinkedHashMap.class);
+        var m = deserializationContext.readValue(jsonParser, HashMap.class);
+        //noinspection unchecked
         return createObject(m);
       } else {
         final var m = new HashMap<>();
@@ -117,6 +127,7 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
           m.put(key, val);
         }
         if (keyString) {
+          //noinspection unchecked,rawtypes
           return createObject((Map<String, Object>) (Map) m);
         } else {
           return m;
@@ -126,9 +137,8 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
 
     @Override
     public Object createObject(Map<String, Object> data) {
-
       if (isYTDBRecord(data)) {
-        return newYTDBRecordId(data);
+        return newYTDBId(data);
       }
       return data;
     }

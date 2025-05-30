@@ -2,12 +2,13 @@ package com.jetbrain.youtrack.db.gremlin.internal;
 
 import static com.jetbrain.youtrack.db.gremlin.internal.StreamUtils.asStream;
 
-import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Stream;
-
+import com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry;
+import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphCountStrategy;
+import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
+import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -18,13 +19,17 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.lang.NotImplementedException;
-import com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry;
-import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphCountStrategy;
-import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
-import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -38,6 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
+
   public static final Logger logger = LoggerFactory.getLogger(YTDBSingleThreadGraph.class);
 
   static {
@@ -62,7 +68,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
       final DatabaseSessionEmbedded session, final Configuration configuration) {
     this.factory = factory;
     this.configuration = configuration;
-    this.features = YouTrackDBFeatures.YTDBFeatures.INSTANCE_TX;
+    this.features = YouTrackDBFeatures.YTDBFeatures.INSTANCE;
     this.tx = new YTDBSingleThreadGraphTransaction(this);
     this.elementFactory = new YTDBElementFactory(this);
     this.session = session;
@@ -86,12 +92,22 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
       throw Vertex.Exceptions.userSuppliedIdsNotSupported();
     }
 
-    var label = ElementHelper.getLabelValue(keyValues).orElse(SchemaClass.VERTEX_CLASS_NAME);
-    var schema = session.getSchema();
-    var vertexClass = schema.getClass(label);
+    var label = ElementHelper.getLabelValue(keyValues).orElse(Vertex.DEFAULT_LABEL);
+    var vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
+
     if (vertexClass == null) {
-      var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
-      vertexClass = schema.createClass(label, vClass);
+      if (session.isTxActive()) {
+        try (var copy = session.copy()) {
+          var schemaCopy = copy.getSchema();
+          var vClass = schemaCopy.getClass(SchemaClass.VERTEX_CLASS_NAME);
+          schemaCopy.getOrCreateClass(label, vClass);
+        }
+        vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
+      } else {
+        var schema = session.getSchema();
+        var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
+        vertexClass = schema.getOrCreateClass(label, vClass);
+      }
     }
 
     var transaction = session.getActiveTransaction();
@@ -200,24 +216,33 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
       var tx = session.getActiveTransaction();
       var ids = Stream.of(elementIds).map(YTDBSingleThreadGraph::createRecordId);
       var entities =
-          ids.filter(id -> ((RecordId) id).isValidPosition()).map(tx::loadEntity);
+          ids.filter(id -> ((RecordId) id).isValidPosition()).map(rid -> {
+            try {
+              return tx.loadEntity(rid);
+            } catch (RecordNotFoundException e) {
+              throw new NoSuchElementException(e);
+            }
+          });
       return entities.map(toA).iterator();
     }
   }
 
   private static RID createRecordId(Object id) {
-    if (id instanceof RecordId) {
-      return (RecordId) id;
+    if (id instanceof RID rid) {
+      return rid;
     }
-    if (id instanceof String) {
-      return new RecordId((String) id);
+    if (id instanceof String strRid) {
+      return new RecordId(strRid);
     }
-    if (id instanceof YTDBElement) {
-      return ((YTDBElement) id).id();
+    if (id instanceof YTDBElement ytdbElement) {
+      return ytdbElement.id();
+    }
+    if (id instanceof Identifiable identifiable) {
+      return identifiable.getIdentity();
     }
 
     throw new IllegalArgumentException(
-        "Orient IDs have to be a String or ORecordId - you provided a " + id.getClass());
+        "YouTrackDB IDs have to be a String or RID - you provided a " + id.getClass());
   }
 
 
@@ -392,7 +417,8 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   @Override
   public <I extends Io> I io(Io.Builder<I> builder) {
     return (I)
-        YTDBGraphInternal.super.io(builder.onMapper(mb -> mb.addRegistry(new YTDBIoRegistry(session))));
+        YTDBGraphInternal.super.io(
+            builder.onMapper(mb -> mb.addRegistry(new YTDBIoRegistry(session))));
   }
 
   @Override

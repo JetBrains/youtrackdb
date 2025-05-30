@@ -2,16 +2,19 @@ package com.jetbrain.youtrack.db.gremlin.internal.traversal.step.sideeffect;
 
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphBaseQuery;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphImpl;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphInternal;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphQueryBuilder;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBStatefulEdge;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertex;
 import com.jetbrains.youtrack.db.api.query.Result;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Function;
-
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
@@ -20,8 +23,6 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.DefaultCloseableIterator;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
-
-import javax.annotation.Nullable;
 
 public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     implements HasContainerHolder {
@@ -72,6 +73,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
       Function<YTDBGraph, Iterator<ElementType>> getAllElements,
       Function<Result, ElementType> getElement) {
     final var graph = getGraph();
+    graph.tx().readWrite();
 
     if (this.ids != null && this.ids.length > 0) {
       /* Got some element IDs, so just get the elements using those */

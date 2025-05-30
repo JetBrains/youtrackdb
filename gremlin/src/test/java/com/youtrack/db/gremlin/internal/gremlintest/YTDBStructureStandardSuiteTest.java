@@ -16,11 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package com.youtrack.db.gremlin.internal.gremlintest.structure;
+package com.youtrack.db.gremlin.internal.gremlintest;
 
-import org.apache.tinkerpop.gremlin.GraphProviderClass;
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
-import com.youtrack.db.gremlin.internal.gremlintest.YTDBGraphProvider;
+import org.apache.tinkerpop.gremlin.GraphProviderClass;
 import org.apache.tinkerpop.gremlin.structure.StructureStandardSuite;
 import org.junit.runner.RunWith;
 
@@ -31,4 +30,6 @@ import org.junit.runner.RunWith;
  */
 @RunWith(StructureStandardSuite.class)
 @GraphProviderClass(provider = YTDBGraphProvider.class, graph = YTDBGraph.class)
-public class GraphStructureIT {}
+public class YTDBStructureStandardSuiteTest {
+
+}

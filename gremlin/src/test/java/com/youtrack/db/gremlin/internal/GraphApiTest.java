@@ -1,11 +1,11 @@
 package com.youtrack.db.gremlin.internal;
 
 import com.jetbrain.youtrack.db.gremlin.internal.StreamUtils;
+import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.T;
-import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -41,7 +41,7 @@ public class GraphApiTest extends GraphBaseTest {
     @SuppressWarnings("unchecked")
     var resultList = (List<Object>) retrieved;
     for (var o : resultList) {
-      Assert.assertTrue(o instanceof Vertex);
+      Assert.assertTrue(o instanceof RID);
     }
   }
 }

@@ -1,24 +1,25 @@
 package com.jetbrain.youtrack.db.gremlin.internal;
 
 
-import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraphFactory;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-
-import java.util.Iterator;
-import java.util.Set;
-
-import java.util.concurrent.ConcurrentHashMap;
-import org.apache.commons.configuration2.Configuration;
-import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 import com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry;
 import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
-import org.apache.tinkerpop.gremlin.structure.*;
+import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Transaction;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
+import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 
 @Graph.OptIn(Graph.OptIn.SUITE_STRUCTURE_STANDARD)
 @Graph.OptIn(Graph.OptIn.SUITE_STRUCTURE_INTEGRATE)
@@ -27,6 +28,7 @@ import org.apache.tinkerpop.gremlin.structure.io.Io;
 @Graph.OptIn("org.apache.tinkerpop.gremlin.orientdb.gremlintest.suite.OrientDBDebugSuite")
 @GraphFactoryClass(YTDBGraphFactory.class)
 public final class YTDBGraphImpl implements YTDBGraphInternal {
+
   static {
     TraversalStrategies.GlobalCache.registerStrategies(
         YTDBGraphImpl.class,
@@ -87,7 +89,6 @@ public final class YTDBGraphImpl implements YTDBGraphInternal {
   @Override
   public void close() throws Exception {
     closeGraphs();
-    factory.close();
   }
 
   @Override
@@ -97,7 +98,7 @@ public final class YTDBGraphImpl implements YTDBGraphInternal {
 
   @Override
   public Features features() {
-    return YouTrackDBFeatures.YTDBFeatures.INSTANCE_TX;
+    return YouTrackDBFeatures.YTDBFeatures.INSTANCE;
   }
 
   @Override
@@ -129,7 +130,13 @@ public final class YTDBGraphImpl implements YTDBGraphInternal {
 
   private void closeGraphs() {
     graphInternal.set(null);
-    graphs.forEach((k, v) -> v.close());
+
+    graphs.forEach((k, v) -> {
+      var session = v.getUnderlyingSession();
+      session.activateOnCurrentThread();
+      v.close();
+    });
+
     graphs.clear();
   }
 

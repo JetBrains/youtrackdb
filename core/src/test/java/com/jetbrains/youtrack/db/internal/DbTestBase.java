@@ -36,6 +36,7 @@ public class DbTestBase {
 
   protected String readerUser = "reader";
   protected String readerPassword = "readerpwd";
+  protected String dbPath;
 
   @Before
   public void beforeTest() throws Exception {
@@ -92,11 +93,12 @@ public class DbTestBase {
   }
 
   protected YouTrackDBImpl createContext() {
-    var directoryPath = getBaseDirectoryPath(getClass());
+    dbPath = getBaseDirectoryPath(getClass());
+
     var builder = YouTrackDBConfig.builder();
     var config = createConfig((YouTrackDBConfigBuilderImpl) builder);
 
-    return (YouTrackDBImpl) YourTracks.embedded(directoryPath, config);
+    return (YouTrackDBImpl) YourTracks.embedded(dbPath, config);
   }
 
   protected DatabaseType calculateDbType() {

@@ -1,10 +1,12 @@
 package com.jetbrain.youtrack.db.gremlin.internal;
 
+import com.jetbrain.youtrack.db.gremlin.api.YTDBVertexPropertyId;
 import com.jetbrains.youtrack.db.api.record.Entity;
-
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.stream.Stream;
-
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -23,8 +25,8 @@ public class YTDBVertexProperty<V> extends YTDBProperty<V> implements VertexProp
   }
 
   @Override
-  public String id() {
-    return String.format("%s_%s", element.id(), key());
+  public YTDBVertexPropertyId id() {
+    return new YTDBVertexPropertyId(element.id(), key());
   }
 
   @Override
@@ -45,10 +47,10 @@ public class YTDBVertexProperty<V> extends YTDBProperty<V> implements VertexProp
       return Collections.emptyIterator();
     }
 
-    Map<String, Object> properties = getMetadataEntity().toMap();
-    HashSet<String> keys = new HashSet<>(Arrays.asList(propertyKeys));
+    var properties = getMetadataEntity().toMap();
+    var keys = new HashSet<>(Arrays.asList(propertyKeys));
 
-    Stream<Map.Entry<String, Object>> entries =
+    var entries =
         StreamUtils.asStream(properties.entrySet().iterator());
     if (!keys.isEmpty()) {
       entries = entries.filter(entry -> keys.contains(entry.getKey()));
@@ -118,4 +120,5 @@ public class YTDBVertexProperty<V> extends YTDBProperty<V> implements VertexProp
   public Vertex element() {
     return (Vertex) element;
   }
+
 }

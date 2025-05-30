@@ -1,13 +1,12 @@
 package com.jetbrain.youtrack.db.gremlin.internal;
 
 
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.Collection;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
-
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.RID;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
@@ -53,8 +52,8 @@ public class YTDBProperty<V> implements Property<V> {
         return result;
     }
 
-    private boolean containsGraphElements(Collection<?> result) {
-        for (Object o : result) {
+    private static boolean containsGraphElements(Collection<?> result) {
+        for (var o : result) {
             if (o instanceof Entity entity) {
                 if (entity.isVertex() || entity.isStatefulEdge()) {
                     return true;

@@ -13,6 +13,7 @@ public abstract class YTDBGraphSON extends TinkerPopJacksonModule {
     super(name);
   }
 
+  @SuppressWarnings("rawtypes")
   @Override
   @Nullable
   public Map<Class, String> getTypeDefinitions() {

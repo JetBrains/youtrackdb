@@ -1,9 +1,9 @@
 package com.jetbrain.youtrack.db.gremlin.internal;
 
+import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraphFactory;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-
 import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import org.apache.commons.configuration2.Configuration;
@@ -14,6 +14,7 @@ public final class YTDBSingleThreadGraphFactoryImpl implements AutoCloseable,
   private final String dbName;
   private final YouTrackDB youTrackDB;
   private final SessionPool<DatabaseSession> pool;
+
   private final boolean shouldCloseYouTrackDB;
   private final Configuration configuration;
 
@@ -21,7 +22,7 @@ public final class YTDBSingleThreadGraphFactoryImpl implements AutoCloseable,
     dbName = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME);
 
     var user = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER);
-    var password = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PASS);
+    var password = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_PWD);
 
     this.pool = youTrackDB.cachedPool(dbName, user, password);
     this.configuration = config;
@@ -48,7 +49,7 @@ public final class YTDBSingleThreadGraphFactoryImpl implements AutoCloseable,
 
   @Override
   public String toString() {
-    return YTDBGraphImpl.class.getSimpleName().toLowerCase()
+    return YTDBGraph.class.getSimpleName()
         + "[" + dbName + "]";
   }
 

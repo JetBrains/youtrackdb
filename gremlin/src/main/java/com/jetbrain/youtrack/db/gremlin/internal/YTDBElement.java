@@ -2,14 +2,19 @@ package com.jetbrain.youtrack.db.gremlin.internal;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
 import com.jetbrains.youtrack.db.api.record.Entity;
-
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.Arrays;
 import java.util.Iterator;
-
-import com.jetbrains.youtrack.db.api.record.RID;
-import org.apache.tinkerpop.gremlin.structure.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Property;
+import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
 public abstract class YTDBElement implements Element {
@@ -59,13 +64,34 @@ public abstract class YTDBElement implements Element {
     this.graph.tx().readWrite();
 
     var entity = getRawEntity();
-    entity.setProperty(key, value);
+    if (value == null) {
+      entity.setProperty(key, null);
+      return new YTDBProperty<>(key, null, this);
+    }
 
+    if (value instanceof List<?> || value instanceof Set<?> || value instanceof Map<?, ?>) {
+      var type = PropertyTypeInternal.getTypeByValue(value);
+      if (type == null) {
+        throw new IllegalArgumentException("Unsupported type: " + value.getClass().getName());
+      }
+      var convertedValue = type.convert(value, graph.getUnderlyingSession());
+      entity.setProperty(key, convertedValue);
+
+      return new YTDBProperty<>(key, value, this);
+    }
+
+    entity.setProperty(key, value);
     return new YTDBProperty<>(key, value, this);
   }
 
   @Override
   public <V> Property<V> property(String key) {
+    graph.tx().readWrite();
+
+    if (key == null || key.isEmpty()) {
+      return Property.empty();
+    }
+
     var entity = getRawEntity();
     if (entity.hasProperty(key)) {
       return new YTDBProperty<>(key, getRawEntity().getProperty(key), this);
@@ -96,7 +122,7 @@ public abstract class YTDBElement implements Element {
 
     if (propertyKeys.length > 0) {
       return Arrays.stream(propertyKeys)
-          .filter(entity::hasProperty)
+          .filter(key -> key != null && !key.isEmpty() && entity.hasProperty(key))
           .map(entry -> new YTDBProperty<V>(entry, entity.getProperty(entry), this))
           .iterator();
     } else {

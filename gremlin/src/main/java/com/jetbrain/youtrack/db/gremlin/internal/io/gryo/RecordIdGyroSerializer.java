@@ -6,8 +6,11 @@ import org.apache.tinkerpop.shaded.kryo.Serializer;
 import org.apache.tinkerpop.shaded.kryo.io.Input;
 import org.apache.tinkerpop.shaded.kryo.io.Output;
 
-/** Created by Enrico Risa on 06/09/2017. */
+/**
+ * Created by Enrico Risa on 06/09/2017.
+ */
 public class RecordIdGyroSerializer extends Serializer<RecordId> {
+
   public static final RecordIdGyroSerializer INSTANCE = new RecordIdGyroSerializer();
 
   @Override

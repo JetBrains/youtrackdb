@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -538,10 +539,14 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   public static void deleteLinks(Vertex vertex) {
     var allEdges = vertex.getEdges(Direction.BOTH);
-    List<Edge> items = new ArrayList<>();
+
+    //remove self-references when in and out is the same relation.
+    var items = Collections.newSetFromMap(new IdentityHashMap<Edge, Boolean>());
+
     for (var edge : allEdges) {
       items.add(edge);
     }
+
     for (var edge : items) {
       edge.delete();
     }

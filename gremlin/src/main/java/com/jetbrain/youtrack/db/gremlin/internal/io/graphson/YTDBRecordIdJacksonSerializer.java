@@ -1,15 +1,16 @@
 package com.jetbrain.youtrack.db.gremlin.internal.io.graphson;
 
-import com.jetbrains.youtrack.db.api.record.RID;
-import java.io.IOException;
 import com.jetbrain.youtrack.db.gremlin.internal.io.YTDBIoRegistry;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import java.io.IOException;
 import org.apache.tinkerpop.shaded.jackson.core.JsonGenerator;
 import org.apache.tinkerpop.shaded.jackson.databind.JsonSerializer;
 import org.apache.tinkerpop.shaded.jackson.databind.SerializerProvider;
 import org.apache.tinkerpop.shaded.jackson.databind.jsontype.TypeSerializer;
 
-/** Created by Enrico Risa on 06/09/2017. */
-public final class RecordIdJacksonSerializer extends JsonSerializer<RID> {
+public final class YTDBRecordIdJacksonSerializer extends JsonSerializer<RID> {
 
   @Override
   public void serialize(RID value, JsonGenerator jgen, SerializerProvider provider)
@@ -26,6 +27,11 @@ public final class RecordIdJacksonSerializer extends JsonSerializer<RID> {
   public void serializeWithType(
       RID value, JsonGenerator jgen, SerializerProvider serializers, TypeSerializer typeSer)
       throws IOException {
+    if (value instanceof ChangeableRecordId changeableRecordId) {
+      value = new RecordId(changeableRecordId.getCollectionId(),
+          changeableRecordId.getCollectionPosition());
+    }
+
     typeSer.writeTypePrefixForScalar(value, jgen);
     jgen.writeString(value.toString());
     typeSer.writeTypeSuffixForScalar(value, jgen);

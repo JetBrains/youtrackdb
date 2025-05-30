@@ -1,12 +1,15 @@
 package com.jetbrain.youtrack.db.gremlin.internal;
 
-import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
-
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
@@ -14,8 +17,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.annotation.Nullable;
 
 public class YTDBGraphQueryBuilder {
 
@@ -44,7 +45,7 @@ public class YTDBGraphQueryBuilder {
   }
 
   private void addClass(String classLabel) {
-    if (!classes.contains(classLabel)) {
+    if (classLabel != null && !classLabel.isEmpty() && !classes.contains(classLabel)) {
       classes.add(classLabel);
     }
   }
@@ -170,6 +171,10 @@ public class YTDBGraphQueryBuilder {
 
   private boolean isLabelKey(String key) {
     try {
+      if (key == null || key.isEmpty()) {
+        return false;
+      }
+
       return T.fromString(key) == T.label;
     } catch (IllegalArgumentException e) {
       return false;

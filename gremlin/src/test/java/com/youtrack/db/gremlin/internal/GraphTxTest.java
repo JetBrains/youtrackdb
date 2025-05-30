@@ -96,7 +96,7 @@ public class GraphTxTest extends GraphBaseTest {
       }
       Assert.assertEquals(threadCount * recCount, counter);
     } finally {
-      session.command("DROP CLASS TestSequence");
+      session.command("DROP CLASS TestSequence unsafe");
     }
   }
 
