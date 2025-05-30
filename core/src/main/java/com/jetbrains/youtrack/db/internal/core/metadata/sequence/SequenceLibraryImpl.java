@@ -130,7 +130,7 @@ public class SequenceLibraryImpl {
 
     synchronized (this) {
       final var seq = getSequence(session, name);
-      if (seq != null) {
+      if (seq == null) {
         sequences.put(name, SequenceHelper.createSequence(entity));
       }
     }
