@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.client.remote.db;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
@@ -30,21 +31,22 @@ import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
 import com.jetbrains.youtrack.db.internal.client.remote.message.PaginatedResultSet;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
+import com.jetbrains.youtrack.db.internal.core.cache.WeakValueHashMap;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.TimeZone;
-import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 
 public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
   private final ThreadLocal<DatabaseSessionRemote> activeSession = new ThreadLocal<>();
-  private final ConcurrentHashMap<String, QueryDatabaseState<RemoteResultSet>>
-      activeQueries = new ConcurrentHashMap<>();
+
+  private final Map<String, RemoteResultSet> activeQueries =
+      new WeakValueHashMap<>(true, this::closeRemoteQuery);
 
   private String url;
   protected STATUS status;
@@ -55,6 +57,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
   private BinaryProtocolSession sessionMetadata;
   private final RemoteCommandsDispatcherImpl commandsOrchestrator;
+  private int resultSetReportThreshold = 10;
 
   @Nullable
   private TimeZone serverTimeZone;
@@ -81,6 +84,9 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
       status = STATUS.OPEN;
 
       initAtFirstOpen();
+
+      this.resultSetReportThreshold = config.getConfiguration().getValueAsInteger(
+          GlobalConfiguration.QUERY_RESULT_SET_OPEN_WARNING_THRESHOLD);
 
       this.userName = user;
     } catch (BaseException e) {
@@ -203,27 +209,33 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     return result.getResult();
   }
 
-  public synchronized void queryStarted(String id, QueryDatabaseState<RemoteResultSet> state) {
+  public synchronized void queryStarted(String id, RemoteResultSet resultSet) {
     assert assertIfNotActive();
 
-    if (this.activeQueries.size() > 1 && this.activeQueries.size() % 10 == 0) {
+    final var activeQueriesSize = activeQueries.size();
+
+    if (resultSetReportThreshold > 0 &&
+        activeQueriesSize > 1 &&
+        activeQueriesSize % resultSetReportThreshold == 0) {
       var msg =
           "This database instance has "
-              + activeQueries.size()
+              + activeQueriesSize
               + " open command/query result sets, please make sure you close them with"
               + " ResultSet.close()";
       LogManager.instance().warn(this, msg);
     }
 
-    this.activeQueries.put(id, state);
+    this.activeQueries.put(id, resultSet);
   }
-
 
   public void closeQuery(String queryId) {
     assert assertIfNotActive();
-    commandsOrchestrator.closeQuery(this, queryId);
-
+    closeRemoteQuery(queryId);
     queryClosed(queryId);
+  }
+
+  private void closeRemoteQuery(String queryId) {
+    commandsOrchestrator.closeQuery(this, queryId);
   }
 
   public void rollbackActiveTx() {
@@ -233,7 +245,6 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
   public void queryClosed(String id) {
     assert assertIfNotActive();
-
     this.activeQueries.remove(id);
   }
 
@@ -359,14 +370,9 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
     }
   }
 
-
   public synchronized void closeActiveQueries() {
-    while (!activeQueries.isEmpty()) {
-      this.activeQueries
-          .values()
-          .iterator()
-          .next()
-          .close(); // the query automatically unregisters itself
+    for (var rs : new ArrayList<>(activeQueries.values())) {
+      rs.close();
     }
   }
 }

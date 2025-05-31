@@ -141,9 +141,10 @@ public class IndexTest extends BaseDBTest {
   public void testIndexSize() {
     checkEmbeddedDB();
 
+    session.begin();
     var resultSet = executeQuery("select * from Profile where nick is not null");
-
     var profileSize = resultSet.size();
+    session.commit();
 
     Assert.assertEquals(
         session

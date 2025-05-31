@@ -54,7 +54,9 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.execute("INSERT INTO company SET name = 'MyCompany'").close();
     session.commit();
 
+    session.begin();
     final var r = session.query("SELECT FROM company").findFirst(Result::asEntity);
+    session.commit();
 
     session.begin();
     session.executeInTx(transaction -> {
@@ -109,9 +111,11 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.execute("UPDATE V content {\"value\":\"foo\\\\\"}").close();
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from V")) {
       assertEquals(result.next().getProperty("value"), "foo\\");
     }
+    session.commit();
 
     session.begin();
     session.execute("UPDATE V content {\"value\":\"foo\\\\\\\\\"}").close();
@@ -217,10 +221,13 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.begin();
     session.execute("insert into test set birthDate = ?", date).close();
     session.commit();
+
+    session.begin();
     try (var result = session.query("select from test")) {
       var doc = result.next();
       assertEquals(doc.getProperty("birthDate"), date);
     }
+    session.commit();
 
     date = new Date();
     session.begin();
