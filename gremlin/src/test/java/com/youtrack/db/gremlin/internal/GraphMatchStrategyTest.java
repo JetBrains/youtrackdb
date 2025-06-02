@@ -2,13 +2,11 @@ package com.youtrack.db.gremlin.internal;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrain.youtrack.db.gremlin.internal.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrain.youtrack.db.gremlin.internal.traversal.step.sideeffect.YTDBGraphStep;
-
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -16,13 +14,13 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
 
   @Test
   public void shouldUseMatchOptimization() {
-    var cls = session.getClass("VMatch");
+    var cls = session.createClass("VMatch");
     var property = cls.createProperty("name", PropertyType.STRING);
     property.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     var traversal = graph.traversal();
     var admin =
-        traversal.V("VMatch").
+        traversal.V().hasLabel("VMatch").
             match(__.as("a").has("name", "Enrico").out("Friends").as("b"))
             .asAdmin();
 
@@ -31,8 +29,8 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
     var startStep = admin.getStartStep();
     assertEquals(YTDBGraphStep.class, startStep.getClass());
 
-    var countStep = (YTDBGraphStep<?, ?>) startStep;
-    assertEquals(1, countStep.getHasContainers().size());
+    var graphStep = (YTDBGraphStep<?, ?>) startStep;
+    assertEquals(2, graphStep.getHasContainers().size());
 
     Assert.assertEquals(1, usedIndexes(graph, admin));
   }

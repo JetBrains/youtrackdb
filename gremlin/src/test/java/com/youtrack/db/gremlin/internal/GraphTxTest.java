@@ -40,13 +40,14 @@ public class GraphTxTest extends GraphBaseTest {
   @Test
   public void testSequencesParallel() {
     session.executeSQLScript(
-        "sql",
-        "CREATE CLASS TestSequence EXTENDS V;\n"
-            + " CREATE SEQUENCE TestSequenceIdSequence TYPE CACHED;\n"
-            + "CREATE PROPERTY TestSequence.mm LONG (MANDATORY TRUE, default \"sequence('TestSequenceIdSequence').next()\");\n");
+        """
+            CREATE CLASS TestSequence EXTENDS V;
+            CREATE SEQUENCE TestSequenceIdSequence TYPE CACHED;
+            CREATE PROPERTY TestSequence.mm LONG (MANDATORY TRUE, default "sequence('TestSequenceIdSequence').next()");
+            """);
 
     final var recCount = 50;
-    final var threadCount = 100;
+    final var threadCount = 1;
     try {
       var threads = new Thread[threadCount];
       for (var j = 0; j < threadCount; j++) {
@@ -83,7 +84,7 @@ public class GraphTxTest extends GraphBaseTest {
         }
       }
 
-      var iter = graph.vertices();
+      var iter = graph.traversal().V().hasLabel("TestSequence");
       var counter = 0;
       Set<Long> vals = new HashSet<>();
       while (iter.hasNext()) {

@@ -56,9 +56,9 @@ public abstract class GraphBaseTest extends DbTestBase {
     var ytdbGraph = (YTDBGraphInternal) graph;
     var session = ytdbGraph.getUnderlyingSession();
 
-    return session.computeInTxInternal(transaction -> {
-      YTDBGraphStepStrategy.instance().apply(traversal.asAdmin());
+    YTDBGraphStepStrategy.instance().apply(traversal.asAdmin());
 
+    return session.computeInTxInternal(transaction -> {
       var usedIndexes = 0;
       for (var step : traversal.asAdmin().getSteps()) {
         if (step instanceof YTDBGraphStep<?, ?> ytdbGraphStep) {

@@ -88,7 +88,13 @@ public abstract class YTDBElement implements Element {
       return new YTDBProperty<>(key, value, this);
     }
 
-    entity.setProperty(key, value);
+    if (value instanceof YTDBElement ytDBElement) {
+      var rid = ytDBElement.rid;
+      entity.setProperty(key, rid);
+    } else {
+      entity.setProperty(key, value);
+    }
+
     return new YTDBProperty<>(key, value, this);
   }
 
