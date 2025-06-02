@@ -16,6 +16,7 @@ import org.junit.Assert;
 import org.junit.Before;
 
 public abstract class GraphBaseTest extends DbTestBase {
+
   protected Graph graph;
 
   @Before
@@ -52,12 +53,17 @@ public abstract class GraphBaseTest extends DbTestBase {
   }
 
   protected static int usedIndexes(Graph graph, GraphTraversal<?, ?> traversal) {
-    YTDBGraphStepStrategy.instance().apply(traversal.asAdmin());
+    var ytdbGraph = (YTDBGraphInternal) graph;
+    var session = ytdbGraph.getUnderlyingSession();
 
-    var ytdbGraphStep = (YTDBGraphStep<?, ?>) traversal.asAdmin().getStartStep();
-    var query = ytdbGraphStep.buildQuery();
+    return session.computeInTxInternal(transaction -> {
+      YTDBGraphStepStrategy.instance().apply(traversal.asAdmin());
 
-    Assert.assertNotNull(query);
-    return query.usedIndexes((YTDBGraphInternal) graph);
+      var ytdbGraphStep = (YTDBGraphStep<?, ?>) traversal.asAdmin().getStartStep();
+      var query = ytdbGraphStep.buildQuery();
+
+      Assert.assertNotNull(query);
+      return query.usedIndexes((YTDBGraphInternal) graph);
+    });
   }
 }
