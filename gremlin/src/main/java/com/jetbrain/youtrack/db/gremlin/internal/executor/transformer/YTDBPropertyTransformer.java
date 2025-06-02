@@ -1,15 +1,13 @@
 package com.jetbrain.youtrack.db.gremlin.internal.executor.transformer;
 
+import com.jetbrain.youtrack.db.gremlin.internal.YTDBProperty;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
-
-import java.util.Collection;
-import java.util.stream.Collectors;
-
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBProperty;
+import java.util.Collection;
+import java.util.stream.Collectors;
 
 public class YTDBPropertyTransformer implements ResultTransformer<YTDBProperty<?>> {
     private final ScriptTransformer transformer;
@@ -20,9 +18,9 @@ public class YTDBPropertyTransformer implements ResultTransformer<YTDBProperty<?
 
     @Override
     public Result transform(DatabaseSessionInternal session, YTDBProperty element) {
-        ResultInternal internal = new ResultInternal(session);
+      var internal = new ResultInternal(session);
 
-        Object value = element.value();
+      var value = element.value();
         if (value instanceof Collection<?> collection) {
             internal.setProperty(
                     element.key(),

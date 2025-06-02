@@ -19,11 +19,12 @@
 
 package com.youtrack.db.gremlin.internal.executor;
 
+import com.jetbrain.youtrack.db.gremlin.internal.StreamUtils;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.youtrack.db.gremlin.internal.GraphBaseTest;
 import java.util.Collection;
 import java.util.Iterator;
-
-import com.jetbrain.youtrack.db.gremlin.internal.StreamUtils;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
@@ -43,8 +44,9 @@ public class GraphExecuteFunctionTest extends GraphBaseTest {
     testGremlin.setLanguage("gremlin-groovy");
     testGremlin.setCode("g.V()");
 
-    @SuppressWarnings("deprecation")
-    var gremlin = (Iterator<?>) testGremlin.execute();
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+    var gremlin = (Iterator<?>) testGremlin.executeInContext(context);
 
     Assert.assertEquals(2, StreamUtils.asStream(gremlin).count());
     tx.commit();
@@ -65,11 +67,14 @@ public class GraphExecuteFunctionTest extends GraphBaseTest {
     testGremlin.setCode("g.V().count()");
 
     @SuppressWarnings("deprecation")
-    var gremlin = (Iterator<?>) testGremlin.execute();
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+    @SuppressWarnings("unchecked") var gremlin = (Iterator<Result>) testGremlin.executeInContext(
+        context);
 
     Assert.assertTrue(gremlin.hasNext());
     var result = gremlin.next();
-    Assert.assertEquals(2L, result);
+    Assert.assertEquals(2L, result.getLong("value").longValue());
     tx.commit();
   }
 
@@ -92,7 +97,7 @@ public class GraphExecuteFunctionTest extends GraphBaseTest {
       var iterator = resultSet.stream().iterator();
       Assert.assertTrue(iterator.hasNext());
       var result = iterator.next();
-      var collection = (Collection<?>) result.getEmbeddedList("gremlin");
+      var collection = (Collection<?>) result.getLinkList("gremlin");
       Assert.assertNotNull(collection);
       Assert.assertEquals(2, collection.size());
     }

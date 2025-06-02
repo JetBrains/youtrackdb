@@ -1,16 +1,14 @@
 package com.jetbrain.youtrack.db.gremlin.internal.executor.transformer;
 
+import com.jetbrain.youtrack.db.gremlin.internal.YTDBElement;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBElement;
 
 public class YTDBGremlinMapTransformer implements ResultTransformer<Map<Object, Object>> {
     protected ScriptTransformer transformer;
@@ -21,7 +19,7 @@ public class YTDBGremlinMapTransformer implements ResultTransformer<Map<Object, 
 
     @Override
     public Result transform(DatabaseSessionInternal session, Map<Object, Object> element) {
-        ResultInternal internal = new ResultInternal(session);
+      var internal = new ResultInternal(session);
         element.forEach(
                 (key, val) -> {
                     if (this.transformer.doesHandleResult(val)) {

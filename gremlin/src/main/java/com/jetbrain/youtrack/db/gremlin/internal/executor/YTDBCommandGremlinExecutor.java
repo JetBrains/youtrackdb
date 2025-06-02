@@ -33,7 +33,6 @@ import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorUtility;
 import com.jetbrains.youtrack.db.internal.core.command.script.ScriptInjection;
 import com.jetbrains.youtrack.db.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrack.db.internal.core.command.script.ScriptResultHandler;
@@ -49,6 +48,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import groovy.lang.MissingPropertyException;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nonnull;
 import javax.script.Bindings;
 import javax.script.Invocable;
 import javax.script.ScriptContext;
@@ -133,22 +133,7 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
 
       var eval = engine.eval(iText);
 
-      if (eval instanceof Traversal<?, ?> traversal) {
-        return new YTDBGremlinScriptResultSet(session, traversal, this.transformer);
-      } else if (eval instanceof TraversalExplanation) {
-        var resultSet = new InternalResultSet(session);
-        resultSet.setPlan(new YTDBGremlinExecutionPlan((TraversalExplanation) eval));
-        var item = new ResultInternal(session);
-        item.setProperty("executionPlan", ((TraversalExplanation) eval).prettyPrint());
-        resultSet.add(item);
-        return resultSet;
-      } else {
-        var resultSet = new InternalResultSet(session);
-        var item = new ResultInternal(session);
-        item.setProperty("value", this.transformer.toResult(session, eval));
-        resultSet.add(item);
-        return resultSet;
-      }
+      return transformResult(session, eval);
 
     } catch (ScriptException e) {
       if (isGroovyException(e)) {
@@ -166,6 +151,26 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
       if (engine != null) {
         releaseGremlinEngine(session.getDatabaseName(), engine);
       }
+    }
+  }
+
+  @Nonnull
+  private ResultSet transformResult(DatabaseSessionEmbedded session, Object eval) {
+    if (eval instanceof Traversal<?, ?> traversal) {
+      return new YTDBGremlinScriptResultSet(session, traversal, this.transformer);
+    } else if (eval instanceof TraversalExplanation) {
+      var resultSet = new InternalResultSet(session);
+      resultSet.setPlan(new YTDBGremlinExecutionPlan((TraversalExplanation) eval));
+      var item = new ResultInternal(session);
+      item.setProperty("executionPlan", ((TraversalExplanation) eval).prettyPrint());
+      resultSet.add(item);
+      return resultSet;
+    } else {
+      var resultSet = new InternalResultSet(session);
+      var item = new ResultInternal(session);
+      item.setProperty("value", this.transformer.toResult(session, eval));
+      resultSet.add(item);
+      return resultSet;
     }
   }
 
@@ -210,7 +215,7 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
           final var args = iArgs == null ? null : iArgs.values().toArray();
           result = scriptEngine.eval(scriptManager.getFunctionInvoke(session, f, args), binding);
         }
-        return CommandExecutorUtility.transformResult(
+        return transformResult(session,
             scriptManager.handleResult(f.getLanguage(), result, scriptEngine, binding, session));
 
       } catch (ScriptException e) {
