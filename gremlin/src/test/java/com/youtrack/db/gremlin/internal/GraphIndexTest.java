@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -67,6 +66,8 @@ public class GraphIndexTest extends GraphBaseTest {
       // ok
     }
 
+    v1 = graph.addVertex(label, vertexLabel1);
+    v2 = graph.addVertex(label, vertexLabel1);
     // allow duplicate for vertex with label2
     v2.addEdge(edgeLabel2, v1, key, value);
     graph.tx().commit();

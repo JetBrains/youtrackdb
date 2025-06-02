@@ -59,11 +59,17 @@ public abstract class GraphBaseTest extends DbTestBase {
     return session.computeInTxInternal(transaction -> {
       YTDBGraphStepStrategy.instance().apply(traversal.asAdmin());
 
-      var ytdbGraphStep = (YTDBGraphStep<?, ?>) traversal.asAdmin().getStartStep();
-      var query = ytdbGraphStep.buildQuery();
+      var usedIndexes = 0;
+      for (var step : traversal.asAdmin().getSteps()) {
+        if (step instanceof YTDBGraphStep<?, ?> ytdbGraphStep) {
+          var query = ytdbGraphStep.buildQuery();
 
-      Assert.assertNotNull(query);
-      return query.usedIndexes((YTDBGraphInternal) graph);
+          Assert.assertNotNull(query);
+          usedIndexes += query.usedIndexes(ytdbGraph);
+        }
+      }
+
+      return usedIndexes;
     });
   }
 }
