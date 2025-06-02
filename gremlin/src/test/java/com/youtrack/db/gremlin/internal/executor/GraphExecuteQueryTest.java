@@ -19,12 +19,13 @@
 
 package com.youtrack.db.gremlin.internal.executor;
 
-import java.util.*;
-
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.youtrack.db.gremlin.internal.GraphBaseTest;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Date;
+import java.util.List;
 import org.apache.tinkerpop.gremlin.structure.T;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -148,15 +149,15 @@ public class GraphExecuteQueryTest extends GraphBaseTest {
         Assert.assertNotNull(results);
         Assert.assertEquals(3, results.size());
 
-        Assert.assertTrue(results.getFirst() instanceof Result);
+        Assert.assertTrue(results.getFirst() instanceof Identifiable);
 
-        var r = (Result) results.get(0);
-        Assert.assertNotNull(r.asVertexOrNull());
+        var identifiable = (Identifiable) results.get(0);
+        Assert.assertNotNull(transaction.loadVertex(identifiable));
 
-        Assert.assertTrue(results.get(1) instanceof Result);
+        Assert.assertTrue(results.get(1) instanceof Identifiable);
 
-        r = (Result) results.get(1);
-        Assert.assertNotNull(r.asVertexOrNull());
+        identifiable = (Identifiable) results.get(1);
+        Assert.assertNotNull(transaction.loadVertex(identifiable));
 
         Assert.assertTrue(results.get(2) instanceof Collection);
 
