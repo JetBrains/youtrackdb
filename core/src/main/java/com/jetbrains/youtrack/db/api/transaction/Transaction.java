@@ -418,6 +418,11 @@ public interface Transaction {
     return computeScript("sql", script, args);
   }
 
+  default ResultSet computeGremlinScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("gremlin", script, args);
+  }
+
   default void executeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     computeScript(language, script, args).close();
@@ -426,6 +431,11 @@ public interface Transaction {
   default void executeSQLScript(String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     executeScript("sql", script, args);
+  }
+
+  default void executeGremlinScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("gremlin", script, args);
   }
 
 
@@ -455,6 +465,12 @@ public interface Transaction {
     return computeScript("sql", script, args);
   }
 
+  default ResultSet computeGremlinScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("gremlin", script, args);
+  }
+
   default void executeScript(String language, String script,
       Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
@@ -465,6 +481,12 @@ public interface Transaction {
       Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     executeScript("sql", script, args);
+  }
+
+  default void executeGremlinScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("gremlin", script, args);
   }
 
 

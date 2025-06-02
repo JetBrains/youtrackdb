@@ -1,0 +1,9 @@
+package com.jetbrains.youtrack.db.api.gremlin;
+
+import org.apache.tinkerpop.gremlin.structure.Element;
+
+public interface YTDBElement extends Element {
+
+  @Override
+  YTDBGraph graph();
+}
