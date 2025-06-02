@@ -1,5 +1,6 @@
 package com.jetbrain.youtrack.db.gremlin.api;
 
+import com.jetbrain.youtrack.db.gremlin.internal.GremlinUtils;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphImpl;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBSingleThreadGraphFactory;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBSingleThreadGraphFactoryImpl;
@@ -17,12 +18,12 @@ import org.apache.tinkerpop.gremlin.structure.Graph;
 
 public class YTDBGraphFactory {
 
-  public static final String CONFIG_YOUTRACK_DB_PATH = "youtrackdb-path";
-  public static final String CONFIG_YOUTRACK_DB_NAME = "youtrackdb-name";
-  public static final String CONFIG_YOUTRACK_DB_USER = "youtrackdb-user";
-  public static final String CONFIG_YOUTRACK_DB_USER_PWD = "youtrackdb-user-pwd";
-  public static final String CONFIG_YOUTRACK_DB_USER_ROLE = "youtrackdb-user-role";
-  public static final String CONFIG_YOUTRACK_DB_CREATE_IF_NOT_EXISTS = "youtrackdb-create-if-not-exists";
+  public static final String CONFIG_YOUTRACK_DB_PATH = "youtrackdb.gremlin.path";
+  public static final String CONFIG_YOUTRACK_DB_NAME = "youtrackdb.gremlin.name";
+  public static final String CONFIG_YOUTRACK_DB_USER = "youtrackdb.gremlin.user";
+  public static final String CONFIG_YOUTRACK_DB_USER_PWD = "youtrackdb.gremlin.pwd";
+  public static final String CONFIG_YOUTRACK_DB_USER_ROLE = "youtrackdb.gremlin.user.role";
+  public static final String CONFIG_YOUTRACK_DB_CREATE_IF_NOT_EXISTS = "youtrackdb.gremlin.createIfNotExists";
   public static final String CONFIG_YOUTRACK_DB_TYPE = "youtrackdb-type";
 
   private static final ConcurrentHashMap<String, RawPair<YouTrackDB, ConcurrentHashMap<YTDBInstanceConfiguration, YTDBSingleThreadGraphFactory>>>
@@ -102,7 +103,8 @@ public class YTDBGraphFactory {
       var singleThreadGraphFactory = new YTDBSingleThreadGraphFactory[1];
       dbFactoriesMap.compute(dbPath, (dp, ytdbFactoryMap) -> {
         if (ytdbFactoryMap == null) {
-          var ytdb = YourTracks.embedded(dbPath);
+
+          var ytdb = YourTracks.embedded(dbPath, GremlinUtils.createYTDBConfig(configuration));
           var factoryMap = new ConcurrentHashMap<YTDBInstanceConfiguration, YTDBSingleThreadGraphFactory>();
           ytdbFactoryMap = new RawPair<>(ytdb, factoryMap);
         }
@@ -131,7 +133,7 @@ public class YTDBGraphFactory {
 
         singleThreadGraphFactory[0] = factoryMap.compute(instanceConfiguration, (ic, factory) -> {
           if (factory == null) {
-            return new YTDBSingleThreadGraphFactoryImpl(ytdb, configuration, false);
+            return new YTDBSingleThreadGraphFactoryImpl(ytdb, configuration);
           } else if (ytdb != factory.getYouTrackDB()) {
             throw new IllegalStateException(
                 "YouTrackDB instance is already created for path " + dbPath);

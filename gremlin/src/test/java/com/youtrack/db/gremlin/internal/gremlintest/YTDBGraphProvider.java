@@ -3,11 +3,11 @@ package com.youtrack.db.gremlin.internal.gremlintest;
 import com.google.common.collect.Sets;
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraphFactory;
+import com.jetbrain.youtrack.db.gremlin.internal.YTDBEdgeImpl;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBElement;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphImpl;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBProperty;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBStatefulEdge;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertex;
+import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertexImpl;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertexProperty;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -73,11 +73,11 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
   @Override
   public Set<Class> getImplementations() {
     return Sets.newHashSet(
-        YTDBStatefulEdge.class,
+        YTDBEdgeImpl.class,
         YTDBElement.class,
         YTDBGraphImpl.class,
         YTDBProperty.class,
-        YTDBVertex.class,
+        YTDBVertexImpl.class,
         YTDBVertexProperty.class);
   }
 

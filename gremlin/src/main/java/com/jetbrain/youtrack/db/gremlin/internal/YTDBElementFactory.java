@@ -1,6 +1,5 @@
 package com.jetbrain.youtrack.db.gremlin.internal;
 
-import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 
@@ -12,11 +11,11 @@ public class YTDBElementFactory {
     this.graph = graph;
   }
 
-  public YTDBStatefulEdge wrapEdge(StatefulEdge edge) {
-    return new YTDBStatefulEdge(graph, edge);
+  public YTDBEdgeImpl wrapEdge(StatefulEdge edge) {
+    return new YTDBEdgeImpl(graph, edge);
   }
 
-  public YTDBVertex wrapVertex(Vertex vertex) {
-    return new YTDBVertex(graph, vertex);
+  public YTDBVertexImpl wrapVertex(Vertex vertex) {
+    return new YTDBVertexImpl(graph, vertex);
   }
 }

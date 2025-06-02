@@ -19,11 +19,11 @@ import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
-public final class YTDBVertex extends YTDBElement implements Vertex {
+public final class YTDBVertexImpl extends YTDBElement implements Vertex {
 
   private static final List<String> INTERNAL_FIELDS = Arrays.asList("@rid", "@class");
 
-  public YTDBVertex(final YTDBGraphInternal graph,
+  public YTDBVertexImpl(final YTDBGraphInternal graph,
       final com.jetbrains.youtrack.db.api.record.Vertex rawElement) {
     super(graph, rawElement);
   }
@@ -65,7 +65,7 @@ public final class YTDBVertex extends YTDBElement implements Vertex {
         .map(
             p ->
                 (VertexProperty<V>)
-                    new YTDBVertexProperty<>(p.key(), p.value(), (YTDBVertex) p.element()))
+                    new YTDBVertexProperty<>(p.key(), p.value(), (YTDBVertexImpl) p.element()))
         .iterator();
   }
 
@@ -138,7 +138,8 @@ public final class YTDBVertex extends YTDBElement implements Vertex {
     this.graph.tx().readWrite();
 
     var vertex = getRawEntity().asVertex();
-    var ytdbEdge = vertex.addStateFulEdge(((YTDBVertex) inVertex).getRawEntity().asVertex(), label);
+    var ytdbEdge = vertex.addStateFulEdge(((YTDBVertexImpl) inVertex).getRawEntity().asVertex(),
+        label);
     var edge = graph.elementFactory().wrapEdge(ytdbEdge);
     edge.property(keyValues);
 
@@ -156,7 +157,7 @@ public final class YTDBVertex extends YTDBElement implements Vertex {
             getRawEntity().asVertex()
                 .getEdges(YTDBGraphUtils.mapDirection(direction), edgeLabels)
                 .iterator())
-            .filter(e -> e != null && e.getFrom() != null && e.getTo() != null)
+            .filter(e -> e != null && e.isStateful() && e.getFrom() != null && e.getTo() != null)
             .map(e -> graph.elementFactory().wrapEdge(e.asStatefulEdge()));
 
     return edgeStream.collect(Collectors.toList()).iterator();

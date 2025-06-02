@@ -16,11 +16,11 @@ import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
 public class YTDBVertexProperty<V> extends YTDBProperty<V> implements VertexProperty<V> {
 
-  public YTDBVertexProperty(Property<V> property, YTDBVertex vertex) {
+  public YTDBVertexProperty(Property<V> property, YTDBVertexImpl vertex) {
     super(property.key(), property.value(), vertex);
   }
 
-  public YTDBVertexProperty(String key, V value, YTDBVertex vertex) {
+  public YTDBVertexProperty(String key, V value, YTDBVertexImpl vertex) {
     super(key, value, vertex);
   }
 

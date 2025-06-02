@@ -14,19 +14,17 @@ public final class YTDBSingleThreadGraphFactoryImpl implements AutoCloseable,
   private final String dbName;
   private final YouTrackDB youTrackDB;
   private final SessionPool<DatabaseSession> pool;
-
-  private final boolean shouldCloseYouTrackDB;
   private final Configuration configuration;
 
-  public YTDBSingleThreadGraphFactoryImpl(YouTrackDB youTrackDB, Configuration config,  boolean shouldCloseYouTrackDB) {
+  public YTDBSingleThreadGraphFactoryImpl(final YouTrackDB youTrackDB, final Configuration config) {
     dbName = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME);
 
     var user = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER);
     var password = config.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_PWD);
 
-    this.pool = youTrackDB.cachedPool(dbName, user, password);
+    this.pool = youTrackDB.cachedPool(dbName, user, password,
+        GremlinUtils.createYTDBConfig(config));
     this.configuration = config;
-    this.shouldCloseYouTrackDB = shouldCloseYouTrackDB;
     this.youTrackDB = youTrackDB;
   }
 
@@ -40,10 +38,6 @@ public final class YTDBSingleThreadGraphFactoryImpl implements AutoCloseable,
   public void close() {
     if (pool != null) {
       pool.close();
-    }
-
-    if (shouldCloseYouTrackDB) {
-      youTrackDB.close();
     }
   }
 

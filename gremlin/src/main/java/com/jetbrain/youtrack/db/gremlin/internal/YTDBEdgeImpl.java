@@ -1,25 +1,22 @@
 package com.jetbrain.youtrack.db.gremlin.internal;
 
 
-import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
-
-import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
-public final class YTDBStatefulEdge extends YTDBElement implements Edge {
-
+public final class YTDBEdgeImpl extends YTDBElement implements Edge {
   private static final List<String> INTERNAL_FIELDS = Arrays.asList("@rid", "@class",
       com.jetbrains.youtrack.db.api.record.Edge.DIRECTION_IN,
       com.jetbrains.youtrack.db.api.record.Edge.DIRECTION_OUT);
 
-  public YTDBStatefulEdge(YTDBGraphInternal graph, StatefulEdge ytdbEdge) {
+  public YTDBEdgeImpl(YTDBGraphInternal graph, StatefulEdge ytdbEdge) {
     super(graph, ytdbEdge);
   }
 

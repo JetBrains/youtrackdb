@@ -20,7 +20,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -38,6 +38,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
+
   public static final Logger logger = LoggerFactory.getLogger(YTDBSingleThreadGraph.class);
 
 
@@ -206,9 +207,10 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
             try {
               return tx.loadEntity(rid);
             } catch (RecordNotFoundException e) {
-              throw new NoSuchElementException(e);
+              //noinspection ReturnOfNull
+              return null;
             }
-          });
+          }).filter(Objects::nonNull);
       return entities.map(toA).iterator();
     }
   }

@@ -2,16 +2,15 @@ package com.jetbrain.youtrack.db.gremlin.internal.traversal.strategy.optimizatio
 
 import com.jetbrain.youtrack.db.gremlin.internal.traversal.step.map.YTDBClassCountStep;
 import com.jetbrain.youtrack.db.gremlin.internal.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
-import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
@@ -53,15 +52,15 @@ public class YTDBGraphCountStrategy
       return;
     }
 
-    Step<?, ?> startStep = traversal.getStartStep();
-    Step<?, ?> endStep = traversal.getEndStep();
+    var startStep = traversal.getStartStep();
+    var endStep = traversal.getEndStep();
     if (steps.size() == 2
         && startStep instanceof YTDBGraphStep<?, ?> step
         && endStep instanceof CountGlobalStep) {
 
       if (step.getHasContainers().size() == 1) {
-        List<HasContainer> hasContainers = step.getHasContainers();
-        List<String> classes =
+        var hasContainers = step.getHasContainers();
+        var classes =
             hasContainers.stream()
                 .filter(this::isLabelFilter)
                 .map(this::extractLabels)
@@ -71,9 +70,10 @@ public class YTDBGraphCountStrategy
           TraversalHelper.removeAllSteps(traversal);
           traversal.addStep(new YTDBClassCountStep<>(traversal, classes, step.isVertexStep()));
         }
-      } else if (step.getHasContainers().isEmpty()) {
+      } else if (step.getHasContainers().isEmpty() && step.getIds().length == 0) {
         TraversalHelper.removeAllSteps(traversal);
-        String baseClass = step.isVertexStep() ? "V" : "E";
+        var baseClass =
+            step.isVertexStep() ? SchemaClass.VERTEX_CLASS_NAME : SchemaClass.EDGE_CLASS_NAME;
         traversal.addStep(
             new YTDBClassCountStep<>(
                 traversal, Collections.singletonList(baseClass), step.isVertexStep()));
@@ -82,9 +82,9 @@ public class YTDBGraphCountStrategy
   }
 
   protected boolean isLabelFilter(HasContainer f) {
-    boolean labelFilter = f.getKey().equals("~label");
+    var labelFilter = f.getKey().equals("~label");
 
-    BiPredicate<?, ?> predicate = f.getBiPredicate();
+    var predicate = f.getBiPredicate();
 
     if (predicate instanceof Compare) {
       return labelFilter && Compare.eq.equals(predicate);
@@ -97,7 +97,7 @@ public class YTDBGraphCountStrategy
   }
 
   protected List<String> extractLabels(HasContainer f) {
-    Object value = f.getValue();
+    var value = f.getValue();
     List<String> classLabels = new ArrayList<>();
     if (value instanceof List<?> list) {
       list.forEach(label -> classLabels.add((String) label));

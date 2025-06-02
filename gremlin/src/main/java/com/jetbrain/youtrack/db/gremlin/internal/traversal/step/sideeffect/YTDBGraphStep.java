@@ -1,11 +1,11 @@
 package com.jetbrain.youtrack.db.gremlin.internal.traversal.step.sideeffect;
 
 import com.jetbrain.youtrack.db.gremlin.api.YTDBGraph;
+import com.jetbrain.youtrack.db.gremlin.internal.YTDBEdgeImpl;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphBaseQuery;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphInternal;
 import com.jetbrain.youtrack.db.gremlin.internal.YTDBGraphQueryBuilder;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBStatefulEdge;
-import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertex;
+import com.jetbrain.youtrack.db.gremlin.internal.YTDBVertexImpl;
 import com.jetbrains.youtrack.db.api.query.Result;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -48,13 +48,13 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
   private Iterator<? extends Vertex> vertices() {
     return elements(
         YTDBGraph::vertices, YTDBGraph::vertices,
-        result -> new YTDBVertex(getGraph(), result.asVertex()));
+        result -> new YTDBVertexImpl(getGraph(), result.asVertex()));
   }
 
   private Iterator<? extends Edge> edges() {
     return elements(
         YTDBGraph::edges, YTDBGraph::edges,
-        result -> new YTDBStatefulEdge(getGraph(), result.asStatefulEdge()));
+        result -> new YTDBEdgeImpl(getGraph(), result.asStatefulEdge()));
   }
 
   /**
