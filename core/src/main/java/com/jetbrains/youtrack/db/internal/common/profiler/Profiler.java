@@ -11,7 +11,7 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBStartupListener;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import java.io.File;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
@@ -76,8 +76,8 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
     long diskCacheUsed = 0;
     long diskCacheTotal = 0;
     for (Storage stg : YouTrackDBEnginesManager.instance().getStorages()) {
-      if (stg instanceof LocalStorage) {
-        diskCacheUsed += ((LocalStorage) stg).getReadCache().getUsedMemory();
+      if (stg instanceof DiskStorage) {
+        diskCacheUsed += ((DiskStorage) stg).getReadCache().getUsedMemory();
         diskCacheTotal += GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024 * 1024;
         stgs++;
       }
@@ -157,9 +157,9 @@ public class Profiler implements YouTrackDBStartupListener, YouTrackDBShutdownLi
         final long jvmMaxMemory = Runtime.getRuntime().maxMemory();
 
         for (Storage s : YouTrackDBEnginesManager.instance().getStorages()) {
-          if (s instanceof LocalStorage) {
-            final ReadCache dk = ((LocalStorage) s).getReadCache();
-            final WriteCache wk = ((LocalStorage) s).getWriteCache();
+          if (s instanceof DiskStorage) {
+            final ReadCache dk = ((DiskStorage) s).getReadCache();
+            final WriteCache wk = ((DiskStorage) s).getWriteCache();
             if (dk == null || wk == null)
             // NOT YET READY
             {

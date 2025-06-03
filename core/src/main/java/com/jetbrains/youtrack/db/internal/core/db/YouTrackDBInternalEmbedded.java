@@ -49,7 +49,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
@@ -512,7 +512,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
       }
 
       var configs = configuration.getConfiguration();
-      LocalStorage.deleteFilesFromDisc(
+      DiskStorage.deleteFilesFromDisc(
           name,
           configs.getValueAsInteger(FILE_DELETE_RETRY),
           configs.getValueAsInteger(FILE_DELETE_DELAY),
@@ -661,7 +661,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
             "Cannot open database '" + name + "' because it does not exists");
       }
       var storagePath = Paths.get(buildName(name));
-      if (LocalStorage.exists(storagePath)) {
+      if (DiskStorage.exists(storagePath)) {
         name = storagePath.getFileName().toString();
       }
 
@@ -831,7 +831,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
         storages.remove(name);
       }
       var configs = configuration.getConfiguration();
-      LocalStorage.deleteFilesFromDisc(
+      DiskStorage.deleteFilesFromDisc(
           name,
           configs.getValueAsInteger(FILE_DELETE_RETRY),
           configs.getValueAsInteger(FILE_DELETE_DELAY),
@@ -867,7 +867,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     Storage storage = storages.get(name);
     if (storage == null) {
       if (basePath != null) {
-        return LocalStorage.exists(Paths.get(buildName(name)));
+        return DiskStorage.exists(Paths.get(buildName(name)));
       } else {
         return false;
       }
@@ -1094,7 +1094,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   public synchronized void initCustomStorage(String name, String path) {
     DatabaseSessionEmbedded embedded = null;
     synchronized (this) {
-      var exists = LocalStorage.exists(Paths.get(path));
+      var exists = DiskStorage.exists(Paths.get(path));
       var storage =
           (AbstractStorage)
               disk.createStorage(

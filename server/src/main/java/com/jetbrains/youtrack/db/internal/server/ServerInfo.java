@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.text.DateFormat;
@@ -167,8 +167,8 @@ public class ServerInfo {
           json,
           2,
           "path",
-          s instanceof LocalStorage
-              ? ((LocalStorage) s).getStoragePath().toString().replace('\\', '/')
+          s instanceof DiskStorage
+              ? ((DiskStorage) s).getStoragePath().toString().replace('\\', '/')
               : "");
       writeField(json, 2, "activeUsers", "n.a.");
       json.endObject(2);

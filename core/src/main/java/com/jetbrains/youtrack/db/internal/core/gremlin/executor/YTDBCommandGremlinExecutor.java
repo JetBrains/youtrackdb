@@ -21,6 +21,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
+import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -33,7 +34,6 @@ import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptEx
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBSingleThreadGraph;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
@@ -54,7 +54,6 @@ import javax.script.Invocable;
 import javax.script.ScriptContext;
 import javax.script.ScriptEngine;
 import javax.script.ScriptException;
-import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.GremlinGroovyScriptEngineFactory;
 import org.apache.tinkerpop.gremlin.groovy.jsr223.GroovyCompilerGremlinPlugin;
 import org.apache.tinkerpop.gremlin.jsr223.CachedGremlinScriptEngineManager;
@@ -244,9 +243,10 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
     };
   }
 
-  private ScriptEngine acquireGremlinEngine(final YTDBSingleThreadGraph graph) {
+  private ScriptEngine acquireGremlinEngine(final YTDBGraph graph) {
     final var engine =
-        scriptManager.acquireDatabaseEngine(graph.getUnderlyingDatabaseSession(), GREMLIN_GROOVY);
+        scriptManager.acquireDatabaseEngine(
+            (DatabaseSessionEmbedded) graph.getUnderlyingDatabaseSession(), GREMLIN_GROOVY);
     var bindings = engine.getBindings(ScriptContext.ENGINE_SCOPE);
     bindGraph(graph, bindings);
     return engine;
@@ -256,7 +256,7 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
     scriptManager.releaseDatabaseEngine(GREMLIN_GROOVY, dbName, engine);
   }
 
-  private static void bindGraph(YTDBSingleThreadGraph graph, Bindings bindings) {
+  private static void bindGraph(YTDBGraph graph, Bindings bindings) {
     bindings.put("graph", graph);
     bindings.put("g", graph.traversal());
   }
@@ -280,9 +280,8 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
     }
   }
 
-  public static YTDBSingleThreadGraph acquireGraph(final DatabaseSessionInternal session) {
-    return new YTDBSingleThreadGraph(null, (DatabaseSessionEmbedded) session,
-        new BaseConfiguration());
+  public static YTDBGraph acquireGraph(final DatabaseSessionInternal session) {
+    return YTDBGraph.wrapSession(session);
   }
 
   @Override

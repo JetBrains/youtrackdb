@@ -1,18 +1,23 @@
 package com.jetbrains.youtrack.db.api.gremlin;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.GremlinUtils;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBSingleThreadGraphFactory;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBSingleThreadGraphFactoryImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.memory.DirectMemoryStorage;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 
@@ -203,6 +208,39 @@ public class YTDBGraphFactory {
                 e);
       }
     });
+  }
+
+  public static Configuration createGraphConfiguration(DatabaseSession session) {
+    var config = new BaseConfiguration();
+    var embeddedSession = (DatabaseSessionEmbedded) session;
+    var storage = embeddedSession.getStorage();
+    String dbPath;
+    if (storage instanceof DirectMemoryStorage) {
+      dbPath = ".";
+    } else if (storage instanceof DiskStorage diskStorage) {
+      var storagePath = diskStorage.getStoragePath();
+      dbPath = storagePath.toAbsolutePath().toString();
+    } else {
+      throw new IllegalArgumentException("Unsupported storage type: " + storage.getClass().getName()
+          + " (only DirectMemoryStorage and DiskStorage are supported at the moment) ");
+    }
+
+    config.addProperty(CONFIG_YOUTRACK_DB_PATH, dbPath);
+    config.addProperty(CONFIG_YOUTRACK_DB_NAME, storage.getName());
+
+    var user = embeddedSession.getCurrentUser();
+    if (user != null) {
+      config.addProperty(CONFIG_YOUTRACK_DB_USER,
+          embeddedSession.getCurrentUser().getName(embeddedSession));
+    }
+
+    var ytdbConfig = embeddedSession.getConfiguration();
+    var ytdbConfigKeys = ytdbConfig.getContextKeys();
+    for (var key : ytdbConfigKeys) {
+      config.addProperty(key, config.getProperty(key));
+    }
+
+    return config;
   }
 
   public static boolean isYTDBInstanceRegistered(String dbPath) {
