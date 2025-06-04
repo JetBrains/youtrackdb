@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -424,6 +425,8 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
    */
   @Override
   String getDatabaseName();
+
+  YTDBGraph graph();
 
   /**
    * Opens the current session in remote mode. This instance cannot be used until the remote session

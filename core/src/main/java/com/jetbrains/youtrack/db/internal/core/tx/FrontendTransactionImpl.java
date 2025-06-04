@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -73,6 +74,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 public class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
@@ -1750,6 +1752,13 @@ public class FrontendTransactionImpl implements
   public ResultSet computeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     return session.computeScript(language, script, args);
+  }
+
+  @Override
+  public GraphTraversalSource traversal() {
+    checkIfActive();
+
+    return YTDBGraph.wrapSession(session).traversal();
   }
 
   @Override

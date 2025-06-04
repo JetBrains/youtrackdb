@@ -43,6 +43,7 @@ import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
@@ -3067,7 +3068,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-
     if (record instanceof EntityImpl entity) {
       ensureEdgeConsistencyOnDeletion(entity);
     }
@@ -3170,6 +3170,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenedAsRemoteSession();
 
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
+  }
+
+  @Override
+  public YTDBGraph graph() {
+    return YTDBGraph.wrapSession(this);
   }
 
   @Override

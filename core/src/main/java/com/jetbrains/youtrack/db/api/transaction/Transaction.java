@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 @SuppressWarnings("unused")
 public interface Transaction {
@@ -412,6 +413,8 @@ public interface Transaction {
    */
   ResultSet computeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException;
+
+  GraphTraversalSource traversal();
 
   default ResultSet computeSQLScript(String script, Object... args)
       throws CommandExecutionException, CommandScriptException {

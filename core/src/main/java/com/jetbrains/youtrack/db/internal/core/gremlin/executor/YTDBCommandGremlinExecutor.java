@@ -32,7 +32,6 @@ import com.jetbrains.youtrack.db.internal.core.command.script.formatter.GroovySc
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
@@ -280,13 +279,13 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
     }
   }
 
-  public static YTDBGraph acquireGraph(final DatabaseSessionInternal session) {
-    return YTDBGraph.wrapSession(session);
+  public static YTDBGraph acquireGraph(final DatabaseSessionEmbedded session) {
+    return session.graph();
   }
 
   @Override
   public void bind(ScriptEngine engine, Bindings binding, DatabaseSession database) {
-    var graph = acquireGraph((DatabaseSessionInternal) database);
+    var graph = acquireGraph((DatabaseSessionEmbedded) database);
 
     bindGraph(graph, binding);
   }
