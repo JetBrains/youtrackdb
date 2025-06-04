@@ -23,8 +23,7 @@ YouTrackDB's key features are:
 3. **SQL-like query language**: Uses a dialect of SQL query language enriched by graph and
    object-oriented functions and commands.
 4. **Implementation of TinkerPop API and [Gremlin query language](https://tinkerpop.apache.org/)**:
-   YouTrackDB implements rich API and Gremlin Server to work with non-Java clients.
-   You can also use Gremlin query language for your queries out of the box.
+   You can use both Gremlin query language for your queries and TinkerPop API out of the box.
 4. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full
    modes.
 5. **Strong security**: A strong security profiling system based on user, role, and predicate
