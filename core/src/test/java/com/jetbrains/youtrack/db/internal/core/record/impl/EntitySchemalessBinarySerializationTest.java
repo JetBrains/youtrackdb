@@ -7,7 +7,6 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -567,7 +566,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
     });
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = IllegalArgumentException.class)
   public void testListOfWrongData() {
     session.executeInTx(transaction -> {
       var document = (EntityImpl) session.newEntity();

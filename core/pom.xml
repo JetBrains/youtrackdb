@@ -47,6 +47,7 @@
       -Dyoutrackdb.security.createDefaultUsers=false
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
       --add-opens java.base/sun.security.x509=ALL-UNNAMED
+      --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
       -Dyoutrackdb.memory.directMemory.preallocate=false
       -Dyoutrackdb.file.log.deletion=false
     </argLine>
@@ -116,6 +117,7 @@
         <configuration>
           <systemPropertyVariables>
             <buildDirectory>${project.build.directory}</buildDirectory>
+            <build.dir>${project.build.directory}</build.dir>
           </systemPropertyVariables>
           <properties>
             <property>
@@ -252,6 +254,22 @@
       <groupId>javax.activation</groupId>
       <artifactId>javax.activation-api</artifactId>
       <version>1.2.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-core</artifactId>
+      <version>${gremlin.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-groovy</artifactId>
+      <version>${gremlin.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-test</artifactId>
+      <version>${gremlin.version}</version>
+      <scope>test</scope>
     </dependency>
 
 

@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
@@ -18,6 +17,7 @@ import org.junit.Test;
  */
 public class DocumentSerializationPersistentTest extends BaseMemoryInternalDatabase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 
@@ -33,7 +33,7 @@ public class DocumentSerializationPersistentTest extends BaseMemoryInternalDatab
     session.commit();
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = IllegalArgumentException.class)
   public void testRidBagInEmbeddedDocument() {
     session.executeInTx(transaction -> {
       var doc = (EntityImpl) session.newEntity();

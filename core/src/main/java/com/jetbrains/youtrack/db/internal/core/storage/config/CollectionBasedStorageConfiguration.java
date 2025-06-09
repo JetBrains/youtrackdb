@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.PaginatedCollection;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
@@ -1065,8 +1065,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   @Override
   @Nullable
   public String getDirectory() {
-    if (storage instanceof LocalStorage) {
-      return ((LocalStorage) storage).getStoragePath().toString();
+    if (storage instanceof DiskStorage) {
+      return ((DiskStorage) storage).getStoragePath().toString();
     } else {
       return null;
     }

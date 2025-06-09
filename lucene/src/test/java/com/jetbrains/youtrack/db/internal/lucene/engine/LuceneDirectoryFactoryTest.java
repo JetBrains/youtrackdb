@@ -86,12 +86,12 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
   public void shouldCreateRamDirectoryOnMemoryFromMmapDatabase() {
     meta.put(DIRECTORY_TYPE, DIRECTORY_MMAP);
     var dbName = databaseName + "memory";
-    context.execute(
+    youTrackDB.execute(
         "create database "
             + dbName
             + " memory users (admin identified by 'adminpwd' role admin)");
     var db =
-        (DatabaseSessionInternal) context.open(dbName, "admin", "adminpwd");
+        (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "adminpwd");
     final var directory =
         fc.createDirectory(db.getStorage(), "index.name", meta).getDirectory();
     // 'DatabaseType.MEMORY' plus 'DIRECTORY_MMAP' leads to the same result as just

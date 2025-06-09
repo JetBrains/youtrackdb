@@ -97,6 +97,7 @@
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
+    <gremlin.version>3.7.3</gremlin.version>
   </properties>
 
 
@@ -132,7 +133,6 @@
         <artifactId>fastutil</artifactId>
         <version>8.5.15</version>
       </dependency>
-
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-core</artifactId>
@@ -142,6 +142,21 @@
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
         <version>2.19.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tinkerpop</groupId>
+        <artifactId>gremlin-core</artifactId>
+        <version>${gremlin.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tinkerpop</groupId>
+        <artifactId>gremlin-groovy</artifactId>
+        <version>${gremlin.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.tinkerpop</groupId>
+        <artifactId>gremlin-test</artifactId>
+        <version>${gremlin.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

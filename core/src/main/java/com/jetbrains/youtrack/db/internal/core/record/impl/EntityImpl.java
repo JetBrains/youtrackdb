@@ -1420,7 +1420,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
       case EntityImpl entity -> {
         if (propertyType == PropertyTypeInternal.EMBEDDED) {
           entity.setOwner(this);
+          return entity;
         }
+
+        return entity.getIdentity();
       }
       case StorageBackedMultiValue storageBackedMultiValue -> {
         storageBackedMultiValue.setOwner(this);
@@ -2099,7 +2102,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     for (var entry : properties.entrySet()) {
       var propertyName = entry.getKey();
-      var value = entry.getValue().value;
+      var propertyEntry = entry.getValue();
+
+      if (!propertyEntry.exists()) {
+        continue;
+      }
+      var value = propertyEntry.value;
 
       if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
         if (!isSystemProperty(propertyName)) {
@@ -3975,7 +3983,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private void validatePropertyValue(String propertyName, @Nullable Object propertyValue) {
     var error = checkPropertyValue(propertyName, propertyValue);
     if (error != null) {
-      throw new DatabaseException(session.getDatabaseName(), error);
+      throw new IllegalArgumentException("[" + session.getDatabaseName() + "]:" + error);
     }
   }
 

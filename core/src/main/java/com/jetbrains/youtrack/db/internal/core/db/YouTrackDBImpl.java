@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import java.util.Map;
 
 public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> implements
@@ -31,7 +31,7 @@ public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> 
     var pool = internal.openPool(databaseName, user, password, config);
 
     try (var session = (DatabaseSessionInternal) pool.acquire()) {
-      var storage = (LocalStorage) session.getStorage();
+      var storage = (DiskStorage) session.getStorage();
       return storage.live(pool, query, listener, args);
     }
   }
@@ -43,7 +43,7 @@ public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> 
     var pool = internal.openPool(databaseName, user, password, config);
 
     try (var session = (DatabaseSessionInternal) pool.acquire()) {
-      var storage = (LocalStorage) session.getStorage();
+      var storage = (DiskStorage) session.getStorage();
       return storage.live(pool, query, listener, args);
     }
   }

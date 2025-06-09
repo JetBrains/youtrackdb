@@ -2,9 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 
-/**
- *
- */
+
 public interface DatabasePoolInternal<S extends BasicDatabaseSession<?, ?>> extends AutoCloseable {
   S acquire();
 
@@ -31,4 +29,8 @@ public interface DatabasePoolInternal<S extends BasicDatabaseSession<?, ?>> exte
    * Check last time that a resource was returned to the pool
    */
   long getLastCloseTime();
+
+  String getDatabaseName();
+
+  String getUserName();
 }
