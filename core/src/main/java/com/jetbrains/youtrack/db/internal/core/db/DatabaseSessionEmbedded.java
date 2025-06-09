@@ -4853,7 +4853,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   private void updateOppositeLinks(@Nonnull EntityImpl entity, String propertyName,
       HashMap<RecordId, int[]> linksToUpdateMap) {
-    var oppositeLinkBagPropertyName = EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
+    var oppositeLinkBagPropertyName = EntityImpl.getOppositeLinkBagPropertyName(propertyName);
     for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
       var oppositeLink = entitiesToUpdate.getKey();
       var diff = entitiesToUpdate.getValue()[0];

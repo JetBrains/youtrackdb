@@ -2,11 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 public class SQLFromClause extends SimpleNode {
 
@@ -20,12 +22,14 @@ public class SQLFromClause extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (item != null) {
       item.toString(params, builder);
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (item != null) {
       item.toGenericStatement(builder);
@@ -36,10 +40,20 @@ public class SQLFromClause extends SimpleNode {
     return item;
   }
 
+  @Nullable
+  public SchemaClassInternal getSchemaClass(DatabaseSessionEmbedded session) {
+    if (item != null) {
+      return item.getSchemaClass(session);
+    }
+
+    return null;
+  }
+
   public void setItem(SQLFromItem item) {
     this.item = item;
   }
 
+  @Override
   public SQLFromClause copy() {
     var result = new SQLFromClause(-1);
     result.item = item.copy();
@@ -65,9 +79,9 @@ public class SQLFromClause extends SimpleNode {
     return item != null ? item.hashCode() : 0;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
-    result.setProperty("item", item.serialize(db));
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
+    result.setProperty("item", item.serialize(session));
     return result;
   }
 
@@ -76,7 +90,7 @@ public class SQLFromClause extends SimpleNode {
     item.deserialize(fromResult.getProperty("item"));
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return item.isCacheable(session);
   }
 

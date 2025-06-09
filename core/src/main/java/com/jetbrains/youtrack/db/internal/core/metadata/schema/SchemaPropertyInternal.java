@@ -15,4 +15,6 @@ public interface SchemaPropertyInternal extends SchemaProperty {
   Collection<Index> getAllIndexesInternal();
 
   DatabaseSession getBoundToSession();
+
+  PropertyTypeInternal getTypeInternal();
 }

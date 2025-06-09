@@ -532,7 +532,7 @@ public class SecurityShared implements SecurityInternal {
       allClasses.addAll(clazz.getAllSuperClasses());
       for (var c : allClasses) {
         for (var index : ((SchemaClassInternal) c).getIndexesInternal()) {
-          var indexFields = index.getDefinition().getFields();
+          var indexFields = index.getDefinition().getProperties();
           if (indexFields.size() > 1
               && indexFields.contains(((SecurityResourceProperty) res).getPropertyName())) {
             throw new IllegalArgumentException(
@@ -1307,7 +1307,7 @@ public class SecurityShared implements SecurityInternal {
         continue;
       }
       var predicate = SecurityEngine.parsePredicate(predicateString);
-      if (!predicate.isAlwaysTrue()) {
+      if (!predicate.isConstantExpression()) {
         return false;
       }
     }
@@ -1727,7 +1727,7 @@ public class SecurityShared implements SecurityInternal {
     return null;
   }
 
-  protected void putPredicateInCache(DatabaseSessionInternal session, String roleName, String key,
+  protected void putPredicateInCache(DatabaseSessionEmbedded session, String roleName, String key,
       SQLBooleanExpression predicate) {
     if (predicate.isCacheable(session)) {
       var roleMap = this.securityPredicateCache.computeIfAbsent(roleName,
@@ -1739,15 +1739,14 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
-    var sessionInternal = (DatabaseSessionInternal) session;
-    if (sessionInternal.getCurrentUser() == null) {
+    if (session.getCurrentUser() == null) {
       // executeNoAuth
       return false;
     }
 
     var predicate =
         SecurityEngine.getPredicateForSecurityResource(
-            sessionInternal, this, resource, SecurityPolicy.Scope.READ);
+            session, this, resource, SecurityPolicy.Scope.READ);
     return predicate != null && !SQLBooleanExpression.TRUE.equals(predicate);
   }
 

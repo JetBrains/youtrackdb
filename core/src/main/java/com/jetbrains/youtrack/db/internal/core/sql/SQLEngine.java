@@ -34,6 +34,7 @@ import com.jetbrains.youtrack.db.internal.core.collate.CollateFactory;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutor;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -60,6 +61,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import javax.annotation.Nonnull;
@@ -67,7 +69,8 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 public class SQLEngine {
 
-  protected static final SQLEngine INSTANCE = new SQLEngine();
+  protected static final ReentrantLock LOCK = new ReentrantLock();
+
   private static final Pattern REPLACE_PATTERN = Pattern.compile(" +");
   private static volatile List<SQLFunctionFactory> FUNCTION_FACTORIES = null;
   private static volatile List<SQLMethodFactory> METHOD_FACTORIES = null;
@@ -166,7 +169,9 @@ public class SQLEngine {
   public static Iterator<SQLFunctionFactory> getFunctionFactories(
       DatabaseSessionInternal session) {
     if (FUNCTION_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+
+      try {
         if (FUNCTION_FACTORIES == null) {
           final var ite =
               lookupProviderWithYouTrackDBClassLoader(SQLFunctionFactory.class,
@@ -185,6 +190,8 @@ public class SQLEngine {
           }
           FUNCTION_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return FUNCTION_FACTORIES.iterator();
@@ -192,7 +199,8 @@ public class SQLEngine {
 
   public static Iterator<SQLMethodFactory> getMethodFactories() {
     if (METHOD_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (METHOD_FACTORIES == null) {
           final var ite =
               lookupProviderWithYouTrackDBClassLoader(SQLMethodFactory.class,
@@ -204,6 +212,8 @@ public class SQLEngine {
           }
           METHOD_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return METHOD_FACTORIES.iterator();
@@ -214,7 +224,8 @@ public class SQLEngine {
    */
   public static Iterator<CollateFactory> getCollateFactories() {
     if (COLLATE_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (COLLATE_FACTORIES == null) {
 
           final var ite =
@@ -226,6 +237,8 @@ public class SQLEngine {
           }
           COLLATE_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return COLLATE_FACTORIES.iterator();
@@ -236,7 +249,8 @@ public class SQLEngine {
    */
   public static Iterator<QueryOperatorFactory> getOperatorFactories() {
     if (OPERATOR_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (OPERATOR_FACTORIES == null) {
 
           final var ite =
@@ -249,6 +263,8 @@ public class SQLEngine {
           }
           OPERATOR_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return OPERATOR_FACTORIES.iterator();
@@ -259,7 +275,8 @@ public class SQLEngine {
    */
   public static Iterator<CommandExecutorSQLFactory> getCommandFactories() {
     if (EXECUTOR_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (EXECUTOR_FACTORIES == null) {
 
           final var ite =
@@ -281,6 +298,8 @@ public class SQLEngine {
 
           EXECUTOR_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return EXECUTOR_FACTORIES.iterator();
@@ -396,10 +415,6 @@ public class SQLEngine {
     return null;
   }
 
-  public static SQLEngine getInstance() {
-    return INSTANCE;
-  }
-
   @Nullable
   public static Collate getCollate(final String name) {
     for (var iter = getCollateFactories(); iter.hasNext(); ) {
@@ -429,7 +444,8 @@ public class SQLEngine {
 
   public static QueryOperator[] getRecordOperators() {
     if (SORTED_OPERATORS == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (SORTED_OPERATORS == null) {
           // sort operators, will happen only very few times since we cache the
           // result
@@ -486,6 +502,8 @@ public class SQLEngine {
           }
           SORTED_OPERATORS = sorted.toArray(new QueryOperator[0]);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return SORTED_OPERATORS;
@@ -496,10 +514,26 @@ public class SQLEngine {
   }
 
   @Nullable
-  public static SQLFunction getFunction(DatabaseSessionInternal session, String iFunctionName) {
-    iFunctionName = iFunctionName.toLowerCase(Locale.ENGLISH);
+  public static SQLFunction getFunction(DatabaseSessionEmbedded session, String functionName) {
+    var functionInstance = getFunctionOrNull(session, functionName);
 
-    if (iFunctionName.equalsIgnoreCase("any") || iFunctionName.equalsIgnoreCase("all"))
+    if (functionInstance != null) {
+      return functionInstance;
+    }
+
+    throw new CommandSQLParsingException(session.getDatabaseName(),
+        "No function with name '"
+            + functionName
+            + "', available names are : "
+            + Collections.toString(getFunctionNames(session)));
+  }
+
+  @Nullable
+  public static SQLFunction getFunctionOrNull(DatabaseSessionEmbedded session,
+      String iFunctionName) {
+    var functionName = iFunctionName.toLowerCase(Locale.ENGLISH);
+
+    if (functionName.equalsIgnoreCase("any") || functionName.equalsIgnoreCase("all"))
     // SPECIAL FUNCTIONS
     {
       return null;
@@ -508,16 +542,12 @@ public class SQLEngine {
     final var ite = getFunctionFactories(session);
     while (ite.hasNext()) {
       final var factory = ite.next();
-      if (factory.hasFunction(iFunctionName, session)) {
-        return factory.createFunction(iFunctionName, session);
+      if (factory.hasFunction(functionName, session)) {
+        return factory.createFunction(functionName, session);
       }
     }
 
-    throw new CommandSQLParsingException(session.getDatabaseName(),
-        "No function with name '"
-            + iFunctionName
-            + "', available names are : "
-            + Collections.toString(getFunctionNames(session)));
+    return null;
   }
 
   public static void unregisterFunction(String iName) {

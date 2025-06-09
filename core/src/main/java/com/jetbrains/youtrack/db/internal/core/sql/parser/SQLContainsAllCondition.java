@@ -6,7 +6,8 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -15,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SQLContainsAllCondition extends SQLBooleanExpression {
@@ -33,7 +35,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
     super(p, id);
   }
 
-  public boolean execute(Object left, Object right) {
+  public static boolean execute(Object left, Object right) {
     if (left instanceof Collection) {
       if (right instanceof Collection) {
         if (((Collection) left).containsAll((Collection) right)) {
@@ -181,6 +183,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" CONTAINSALL ");
@@ -353,11 +356,11 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
       result.addAll(rightBlockX);
     }
 
-    return result.size() == 0 ? null : result;
+    return result.isEmpty() ? null : result;
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (left != null && !left.isCacheable(session)) {
       return false;
     }
@@ -367,6 +370,29 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
     }
 
     return rightBlock == null || rightBlock.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=ab7b4e192a01cda09a82d5b80ef4ec60 (do not edit this line) */

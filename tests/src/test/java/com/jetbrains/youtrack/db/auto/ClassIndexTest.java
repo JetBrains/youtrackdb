@@ -32,8 +32,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -211,7 +209,7 @@ public class ClassIndexTest extends BaseDBTest {
         .getDefinition();
 
     assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    assertEquals(indexDefinition.getFields().getFirst(), "fEmbeddedMap");
+    assertEquals(indexDefinition.getProperties().getFirst(), "fEmbeddedMap");
     assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.STRING);
     assertEquals(
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
@@ -239,7 +237,8 @@ public class ClassIndexTest extends BaseDBTest {
         .getDefinition();
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    assertEquals(indexDefinition.getFields().toArray(), new String[]{"fFifteen", "fEmbeddedMap"});
+    assertEquals(indexDefinition.getProperties().toArray(),
+        new String[]{"fFifteen", "fEmbeddedMap"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING});
@@ -271,7 +270,7 @@ public class ClassIndexTest extends BaseDBTest {
         "ClassIndexTestCompositeEmbeddedMapByKey").getDefinition();
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    assertEquals(indexDefinition.getFields().toArray(), new String[]{"fEight", "fEmbeddedMap"});
+    assertEquals(indexDefinition.getProperties().toArray(), new String[]{"fEight", "fEmbeddedMap"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.STRING});
@@ -303,7 +302,7 @@ public class ClassIndexTest extends BaseDBTest {
         "ClassIndexTestCompositeEmbeddedMapByValue").getDefinition();
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    assertEquals(indexDefinition.getFields().toArray(), new String[]{"fTen", "fEmbeddedMap"});
+    assertEquals(indexDefinition.getProperties().toArray(), new String[]{"fTen", "fEmbeddedMap"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.INTEGER});
@@ -334,7 +333,7 @@ public class ClassIndexTest extends BaseDBTest {
         "ClassIndexTestCompositeLinkMapByValue").getDefinition();
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    assertEquals(indexDefinition.getFields().toArray(), new String[]{"fEleven", "fLinkMap"});
+    assertEquals(indexDefinition.getProperties().toArray(), new String[]{"fEleven", "fLinkMap"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.LINK});
@@ -365,7 +364,8 @@ public class ClassIndexTest extends BaseDBTest {
         .getDefinition();
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    assertEquals(indexDefinition.getFields().toArray(), new String[]{"fTwelve", "fEmbeddedSet"});
+    assertEquals(indexDefinition.getProperties().toArray(),
+        new String[]{"fTwelve", "fEmbeddedSet"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.INTEGER});
@@ -397,7 +397,7 @@ public class ClassIndexTest extends BaseDBTest {
         .getDefinition();
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    assertEquals(indexDefinition.getFields().toArray(), new String[]{"fTwelve", "fLinkSet"});
+    assertEquals(indexDefinition.getProperties().toArray(), new String[]{"fTwelve", "fLinkSet"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.LINK});
@@ -430,7 +430,7 @@ public class ClassIndexTest extends BaseDBTest {
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
     assertEquals(
-        indexDefinition.getFields().toArray(), new String[]{"fThirteen", "fEmbeddedList"});
+        indexDefinition.getProperties().toArray(), new String[]{"fThirteen", "fEmbeddedList"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.INTEGER});
@@ -460,7 +460,7 @@ public class ClassIndexTest extends BaseDBTest {
     final var indexDefinition = session.getIndex(indexName).getDefinition();
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    assertEquals(indexDefinition.getFields().toArray(), new String[]{"fFourteen", "fLinkList"});
+    assertEquals(indexDefinition.getProperties().toArray(), new String[]{"fFourteen", "fLinkList"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.LINK});
@@ -489,7 +489,7 @@ public class ClassIndexTest extends BaseDBTest {
     final var indexDefinition = session.getIndex(indexName).getDefinition();
 
     assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    assertEquals(indexDefinition.getFields().toArray(), new String[]{"fFourteen", "fRidBag"});
+    assertEquals(indexDefinition.getProperties().toArray(), new String[]{"fFourteen", "fRidBag"});
 
     assertEquals(indexDefinition.getTypes(),
         new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER, PropertyTypeInternal.LINK});
@@ -519,7 +519,7 @@ public class ClassIndexTest extends BaseDBTest {
     final var indexDefinition = session.getIndex(indexName).getDefinition();
 
     assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    assertEquals(indexDefinition.getFields().getFirst(), "fLinkMap");
+    assertEquals(indexDefinition.getProperties().getFirst(), "fLinkMap");
     assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.STRING);
     assertEquals(
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
@@ -549,7 +549,7 @@ public class ClassIndexTest extends BaseDBTest {
     final var indexDefinition = session.getIndex(indexName).getDefinition();
 
     assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    assertEquals(indexDefinition.getFields().getFirst(), "fLinkMap");
+    assertEquals(indexDefinition.getProperties().getFirst(), "fLinkMap");
     assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.STRING);
     assertEquals(
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
@@ -580,7 +580,7 @@ public class ClassIndexTest extends BaseDBTest {
     final var indexDefinition = session.getIndex(indexName).getDefinition();
 
     assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    assertEquals(indexDefinition.getFields().getFirst(), "fLinkMap");
+    assertEquals(indexDefinition.getProperties().getFirst(), "fLinkMap");
     assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.LINK);
     assertEquals(
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
@@ -612,7 +612,7 @@ public class ClassIndexTest extends BaseDBTest {
     final var indexDefinition = session.getIndex(indexName).getDefinition();
 
     assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    assertEquals(indexDefinition.getFields().getFirst(), "fEmbeddedMap");
+    assertEquals(indexDefinition.getProperties().getFirst(), "fEmbeddedMap");
     assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.STRING);
     assertEquals(
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
@@ -644,7 +644,7 @@ public class ClassIndexTest extends BaseDBTest {
     final var indexDefinition = session.getIndex(indexName).getDefinition();
 
     assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    assertEquals(indexDefinition.getFields().getFirst(), "fEmbeddedMap");
+    assertEquals(indexDefinition.getProperties().getFirst(), "fEmbeddedMap");
     assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.INTEGER);
     assertEquals(
         ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),

@@ -61,7 +61,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     return className;
   }
 
-  public List<String> getFields() {
+  public List<String> getProperties() {
     return Collections.singletonList(field);
   }
 

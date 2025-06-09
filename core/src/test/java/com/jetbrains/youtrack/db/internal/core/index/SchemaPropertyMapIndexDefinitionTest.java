@@ -218,8 +218,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testGetFields() {
-    final var result = propertyIndexByKey.getFields();
+  public void testGetProperties() {
+    final var result = propertyIndexByKey.getProperties();
     Assert.assertEquals(1, result.size());
     Assert.assertEquals("fOne", result.getFirst());
   }

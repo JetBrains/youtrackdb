@@ -54,7 +54,7 @@ public class LuceneAnalyzerFactory {
       final LucenePerFieldAnalyzerWrapper analyzer) {
     final var specializedAnalyzerFQN = (String) metadata.get(kind.toString());
     if (specializedAnalyzerFQN != null) {
-      for (final var field : index.getFields()) {
+      for (final var field : index.getProperties()) {
         analyzer.add(field, buildAnalyzer(specializedAnalyzerFQN));
         analyzer.add(prefix + field, buildAnalyzer(specializedAnalyzerFQN));
       }
@@ -67,7 +67,7 @@ public class LuceneAnalyzerFactory {
       final Map<String, ?> metadata,
       final String prefix,
       final LucenePerFieldAnalyzerWrapper analyzer) {
-    for (final var field : index.getFields()) {
+    for (final var field : index.getProperties()) {
       final var analyzerName = field + "_" + kind.toString();
       final var analyzerStopwords = analyzerName + "_stopwords";
 

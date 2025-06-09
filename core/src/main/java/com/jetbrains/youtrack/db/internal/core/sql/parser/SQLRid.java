@@ -2,12 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -34,9 +34,10 @@ public class SQLRid extends SimpleNode {
     return "#" + collection.getValue() + ":" + position.getValue();
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (legacy || (expression == null && collection != null && position != null)) {
-      builder.append("#" + collection.getValue() + ":" + position.getValue());
+      builder.append("#").append(collection.getValue()).append(":").append(position.getValue());
     } else {
       builder.append("{\"@rid\":");
       expression.toString(params, builder);
@@ -44,6 +45,7 @@ public class SQLRid extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (legacy || (expression == null && collection != null && position != null)) {
       builder.append(PARAMETER_PLACEHOLDER);
@@ -60,16 +62,12 @@ public class SQLRid extends SimpleNode {
       return new RecordId(collection.value.intValue(), position.value.longValue());
     } else {
       var result = expression.execute(target, ctx);
-      if (result == null) {
-        return null;
-      }
-      if (result instanceof Identifiable) {
-        return (RecordId) ((Identifiable) result).getIdentity();
-      }
-      if (result instanceof String) {
-        return new RecordId((String) result);
-      }
-      return null;
+      return switch (result) {
+        case null -> null;
+        case Identifiable identifiable -> (RecordId) identifiable.getIdentity();
+        case String s -> new RecordId(s);
+        default -> null;
+      };
     }
   }
 
@@ -79,19 +77,16 @@ public class SQLRid extends SimpleNode {
       return new RecordId(collection.value.intValue(), position.value.longValue());
     } else {
       var result = expression.execute(target, ctx);
-      if (result == null) {
-        return null;
-      }
-      if (result instanceof Identifiable) {
-        return (RecordId) ((Identifiable) result).getIdentity();
-      }
-      if (result instanceof String) {
-        return new RecordId((String) result);
-      }
-      return null;
+      return switch (result) {
+        case null -> null;
+        case Identifiable identifiable -> (RecordId) identifiable.getIdentity();
+        case String s -> new RecordId(s);
+        default -> null;
+      };
     }
   }
 
+  @Override
   public SQLRid copy() {
     var result = new SQLRid(-1);
     result.collection = collection == null ? null : collection.copy();
@@ -168,18 +163,20 @@ public class SQLRid extends SimpleNode {
     return position;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
+
     if (collection != null) {
-      result.setProperty("collection", collection.serialize(db));
+      result.setProperty("collection", collection.serialize(session));
     }
     if (position != null) {
-      result.setProperty("position", position.serialize(db));
+      result.setProperty("position", position.serialize(session));
     }
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     result.setProperty("legacy", legacy);
+
     return result;
   }
 

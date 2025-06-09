@@ -125,10 +125,10 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
-  public List<String> getFields() {
+  public List<String> getProperties() {
     final List<String> fields = new LinkedList<>();
     for (final var indexDefinition : indexDefinitions) {
-      fields.addAll(indexDefinition.getFields());
+      fields.addAll(indexDefinition.getProperties());
     }
     return Collections.unmodifiableList(fields);
   }
@@ -187,7 +187,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   @Nullable
   public String getMultiValueField() {
     if (multiValueDefinitionIndex >= 0) {
-      return indexDefinitions.get(multiValueDefinitionIndex).getFields().getFirst();
+      return indexDefinitions.get(multiValueDefinitionIndex).getProperties().getFirst();
     }
 
     return null;

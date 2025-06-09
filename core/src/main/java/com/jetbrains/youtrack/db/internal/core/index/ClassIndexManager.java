@@ -101,14 +101,14 @@ public class ClassIndexManager {
     final var indexDefinition =
         (CompositeIndexDefinition) index.getDefinition();
 
-    final var indexFields = indexDefinition.getFields();
+    final var indexProperties = indexDefinition.getProperties();
     final var multiValueField = indexDefinition.getMultiValueField();
 
-    for (final var indexField : indexFields) {
+    for (final var indexField : indexProperties) {
       if (dirtyFields.contains(indexField)) {
-        final List<Object> origValues = new ArrayList<>(indexFields.size());
+        final List<Object> origValues = new ArrayList<>(indexProperties.size());
 
-        for (final var field : indexFields) {
+        for (final var field : indexProperties) {
           if (!field.equals(multiValueField)) {
             if (dirtyFields.contains(field)) {
               origValues.add(iRecord.getOriginalValue(field));
@@ -198,7 +198,7 @@ public class ClassIndexManager {
       final EntityImpl iRecord,
       FrontendTransaction transaction) {
     final var indexDefinition = index.getDefinition();
-    final var indexFields = indexDefinition.getFields();
+    final var indexFields = indexDefinition.getProperties();
 
     if (indexFields.isEmpty()) {
       return;
@@ -286,7 +286,7 @@ public class ClassIndexManager {
 
     final var multiValueField = indexDefinition.getMultiValueField();
 
-    final var indexFields = indexDefinition.getFields();
+    final var indexFields = indexDefinition.getProperties();
     for (final var indexField : indexFields) {
       // REMOVE IT
       if (dirtyFields.contains(indexField)) {
@@ -354,7 +354,7 @@ public class ClassIndexManager {
       final EntityImpl iRecord) {
     final var indexDefinition = index.getDefinition();
 
-    final var indexFields = indexDefinition.getFields();
+    final var indexFields = indexDefinition.getProperties();
     if (indexFields.isEmpty()) {
       return false;
     }

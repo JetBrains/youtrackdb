@@ -5,7 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.lang.reflect.Array;
 import java.util.LinkedHashSet;
@@ -30,6 +30,7 @@ public class SQLArraySelector extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (rid != null) {
       rid.toString(params, builder);
@@ -56,7 +57,7 @@ public class SQLArraySelector extends SimpleNode {
   }
 
   @Nullable
-  public Object getValue(Identifiable iCurrentRecord, Object iResult, CommandContext ctx) {
+  public Object getValue(Identifiable iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputParam != null) {
       result = inputParam.getValue(ctx.getInputParameters());
@@ -76,7 +77,7 @@ public class SQLArraySelector extends SimpleNode {
   }
 
   @Nullable
-  public Object getValue(Result iCurrentRecord, Object iResult, CommandContext ctx) {
+  public Object getValue(Result iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputParam != null) {
       result = inputParam.getValue(ctx.getInputParameters());
@@ -102,6 +103,7 @@ public class SQLArraySelector extends SimpleNode {
     return false;
   }
 
+  @Override
   public SQLArraySelector copy() {
     var result = new SQLArraySelector(-1);
 
@@ -168,17 +170,20 @@ public class SQLArraySelector extends SimpleNode {
     }
 
     if (target instanceof Set && idx instanceof Number) {
-      setValue((Set) target, ((Number) idx).intValue(), value, ctx);
+      //noinspection unchecked
+      setValue((Set<Object>) target, ((Number) idx).intValue(), value);
     } else if (target instanceof List && idx instanceof Number) {
-      setValue((List) target, ((Number) idx).intValue(), value, ctx);
+      //noinspection unchecked
+      setValue((List<Object>) target, ((Number) idx).intValue(), value);
     } else if (target instanceof Map) {
-      setValue((Map) target, idx, value, ctx);
+      //noinspection unchecked
+      setValue((Map<Object, Object>) target, idx, value);
     } else if (target != null && target.getClass().isArray() && idx instanceof Number) {
-      setArrayValue(target, ((Number) idx).intValue(), value, ctx);
+      setArrayValue(target, ((Number) idx).intValue(), value);
     }
   }
 
-  public void setValue(List target, int idx, Object value, CommandContext ctx) {
+  public static void setValue(List<Object> target, int idx, Object value) {
     var originalSize = target.size();
     for (var i = originalSize; i <= idx; i++) {
       if (i >= originalSize) {
@@ -188,8 +193,8 @@ public class SQLArraySelector extends SimpleNode {
     target.set(idx, value);
   }
 
-  public void setValue(Set target, int idx, Object value, CommandContext ctx) {
-    Set result = new LinkedHashSet<>();
+  public static void setValue(Set<Object> target, int idx, Object value) {
+    var result = new LinkedHashSet<>();
     var originalSize = target.size();
     var max = Math.max(idx, originalSize - 1);
     var targetIterator = target.iterator();
@@ -210,29 +215,29 @@ public class SQLArraySelector extends SimpleNode {
     }
   }
 
-  public void setValue(Map target, Object idx, Object value, CommandContext ctx) {
+  public static void setValue(Map<Object, Object> target, Object idx, Object value) {
     target.put(idx, value);
   }
 
-  private void setArrayValue(Object target, int idx, Object value, CommandContext ctx) {
+  private static void setArrayValue(Object target, int idx, Object value) {
     if (idx >= 0 && idx < Array.getLength(target)) {
       Array.set(target, idx, value);
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (rid != null) {
-      result.setProperty("rid", rid.serialize(db));
+      result.setProperty("rid", rid.serialize(session));
     }
     if (inputParam != null) {
-      result.setProperty("inputParam", inputParam.serialize(db));
+      result.setProperty("inputParam", inputParam.serialize(session));
     }
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     if (integer != null) {
-      result.setProperty("integer", integer.serialize(db));
+      result.setProperty("integer", integer.serialize(session));
     }
     return result;
   }

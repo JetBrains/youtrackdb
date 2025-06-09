@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -17,20 +18,20 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
-public class SelectStatementTest {
+public class SelectStatementTest extends DbTestBase {
 
-  protected SimpleNode checkRightSyntax(String query) {
+  protected static SimpleNode checkRightSyntax(String query) {
     var result = checkSyntax(query, true);
     var builder = new StringBuilder();
     result.toString(null, builder);
     return checkSyntax(builder.toString(), true);
   }
 
-  protected SimpleNode checkWrongSyntax(String query) {
+  protected static SimpleNode checkWrongSyntax(String query) {
     return checkSyntax(query, false);
   }
 
-  protected SimpleNode checkSyntax(String query, boolean isCorrect) {
+  protected static SimpleNode checkSyntax(String query, boolean isCorrect) {
     var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
@@ -74,7 +75,7 @@ public class SelectStatementTest {
     var select = (SQLSelectStatement) stm;
     assertNotNull(select.getProjection());
     assertNotNull(select.getProjection().getItems());
-    assertEquals(select.getProjection().getItems().size(), 1);
+    assertEquals(1, select.getProjection().getItems().size());
     assertNotNull(select.getTarget());
     assertNull(select.getWhereClause());
   }
@@ -310,7 +311,7 @@ public class SelectStatementTest {
 
       var parsed = new StringBuilder();
       stm.toString(params, parsed);
-      assertEquals(parsed.toString(), "SELECT FROM bar WHERE name NOT IN []");
+      assertEquals("SELECT FROM bar WHERE name NOT IN []", parsed.toString());
     } catch (Exception e) {
       fail();
     }
@@ -318,13 +319,7 @@ public class SelectStatementTest {
 
   @Test
   public void testEscape2() {
-    try {
-      var result =
-          checkWrongSyntax("select from collection:internal where \"\\u005C\" = \"\\u005C\" ");
-      fail();
-    } catch (Error e) {
-
-    }
+    checkWrongSyntax("select from collection:internal where \"\\u005C\" = \"\\u005C\" ");
   }
 
   @Test
@@ -384,11 +379,13 @@ public class SelectStatementTest {
   @Test
   public void testEval() {
     checkRightSyntax(
-        "  select  sum(weight) , f.name as name from (\n"
-            + "      select weight, if(eval(\"out.name = 'one'\"),out,in) as f  from (\n"
-            + "      select expand(bothE('E')) from V\n"
-            + "  )\n"
-            + "      ) group by name\n");
+        """
+              select  sum(weight) , f.name as name from (
+                  select weight, if(eval("out.name = 'one'"),out,in) as f  from (
+                  select expand(bothE('E')) from V
+              )
+                  ) group by name
+            """);
   }
 
   @Test
@@ -405,10 +402,11 @@ public class SelectStatementTest {
   public void testGroupBy() {
     // issue #4245
     checkRightSyntax(
-        "select in.name from (  \n"
-            + "select expand(outE()) from V\n"
-            + ")\n"
-            + "group by in.name");
+        """
+            select in.name from ( \s
+            select expand(outE()) from V
+            )
+            group by in.name""");
   }
 
   @Test
@@ -599,17 +597,22 @@ public class SelectStatementTest {
 
   @Test
   public void testFlatten() {
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
     var stm =
         (SQLSelectStatement) checkRightSyntax("select from ouser where name = 'foo'");
-    var flattended = stm.whereClause.flatten();
-    assertTrue(((SQLBinaryCondition) flattended.get(0).subBlocks.get(0)).left.isBaseIdentifier());
-    assertFalse(((SQLBinaryCondition) flattended.get(0).subBlocks.get(0)).right.isBaseIdentifier());
-    assertFalse(
-        ((SQLBinaryCondition) flattended.get(0).subBlocks.get(0))
-            .left.isEarlyCalculated(new BasicCommandContext()));
+
+    var flattended = stm.whereClause.flatten(ctx, session.getClassInternal("OUser"));
     assertTrue(
-        ((SQLBinaryCondition) flattended.get(0).subBlocks.get(0))
-            .right.isEarlyCalculated(new BasicCommandContext()));
+        ((SQLBinaryCondition) flattended.getFirst().subBlocks.getFirst()).left.isBaseIdentifier());
+    assertFalse(
+        ((SQLBinaryCondition) flattended.getFirst().subBlocks.getFirst()).right.isBaseIdentifier());
+    assertFalse(
+        ((SQLBinaryCondition) flattended.getFirst().subBlocks.getFirst())
+            .left.isEarlyCalculated(ctx));
+    assertTrue(
+        ((SQLBinaryCondition) flattended.getFirst().subBlocks.getFirst())
+            .right.isEarlyCalculated(ctx));
   }
 
   @Test
@@ -644,7 +647,7 @@ public class SelectStatementTest {
     checkRightSyntax("SELECT \"\\/\\/\"");
   }
 
-  private void printTree(String s) {
+  private static void printTree(String s) {
     var osql = getParserFor(s);
     try {
       SimpleNode n = osql.parse();
@@ -658,16 +661,18 @@ public class SelectStatementTest {
   public void testSkipLimitInQueryWithNoTarget() {
     // issue #5589
     checkRightSyntax(
-        "SELECT eval('$TotalListsQuery[0].Count') AS TotalLists\n"
-            + "   LET $TotalListsQuery = ( SELECT Count(1) AS Count FROM ContactList WHERE"
-            + " Account=#20:1 AND EntityInfo.State=0)\n"
-            + " LIMIT 1");
+        """
+            SELECT eval('$TotalListsQuery[0].Count') AS TotalLists
+               LET $TotalListsQuery = ( SELECT Count(1) AS Count FROM ContactList WHERE\
+             Account=#20:1 AND EntityInfo.State=0)
+             LIMIT 1""");
 
     checkRightSyntax(
-        "SELECT eval('$TotalListsQuery[0].Count') AS TotalLists\n"
-            + "   LET $TotalListsQuery = ( SELECT Count(1) AS Count FROM ContactList WHERE"
-            + " Account=#20:1 AND EntityInfo.State=0)\n"
-            + " SKIP 10 LIMIT 1");
+        """
+            SELECT eval('$TotalListsQuery[0].Count') AS TotalLists
+               LET $TotalListsQuery = ( SELECT Count(1) AS Count FROM ContactList WHERE\
+             Account=#20:1 AND EntityInfo.State=0)
+             SKIP 10 LIMIT 1""");
   }
 
   @Test
@@ -775,7 +780,7 @@ public class SelectStatementTest {
     checkWrongSyntax("select from V order by foo asc collate ");
   }
 
-  protected void checkGenericStatement(String query, String expectedGeneric) {
+  protected static void checkGenericStatement(String query, String expectedGeneric) {
     var result = checkSyntax(query, true);
     Assert.assertEquals(expectedGeneric, result.toGenericStatement());
   }
@@ -793,9 +798,8 @@ public class SelectStatementTest {
     checkGenericStatement("select funct(#10:20) ", "SELECT funct(?)");
   }
 
-  protected YouTrackDBSql getParserFor(String string) {
+  protected static YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    var osql = new YouTrackDBSql(is);
-    return osql;
+    return new YouTrackDBSql(is);
   }
 }

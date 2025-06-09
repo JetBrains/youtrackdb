@@ -19,33 +19,31 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.parser.operators;
 
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLContainsKeyOperator;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
-public class ContainsKeyOperatorTest {
+public class ContainsKeyOperatorTest extends DbTestBase {
 
   @Test
   public void test() {
     var op = new SQLContainsKeyOperator(-1);
 
-    Assert.assertFalse(op.execute(null, null));
-    Assert.assertFalse(op.execute(null, "foo"));
+    Assert.assertFalse(op.execute(session, null, null));
+    Assert.assertFalse(op.execute(session, null, "foo"));
 
     Map<Object, Object> originMap = new HashMap<Object, Object>();
-    Assert.assertFalse(op.execute(originMap, "foo"));
-    Assert.assertFalse(op.execute(originMap, null));
+    Assert.assertFalse(op.execute(session, originMap, "foo"));
+    Assert.assertFalse(op.execute(session, originMap, null));
 
     originMap.put("foo", "bar");
     originMap.put(1, "baz");
 
-    Assert.assertTrue(op.execute(originMap, "foo"));
-    Assert.assertTrue(op.execute(originMap, 1));
-    Assert.assertFalse(op.execute(originMap, "fooz"));
+    Assert.assertTrue(op.execute(session, originMap, "foo"));
+    Assert.assertTrue(op.execute(session, originMap, 1));
+    Assert.assertFalse(op.execute(session, originMap, "fooz"));
   }
 }

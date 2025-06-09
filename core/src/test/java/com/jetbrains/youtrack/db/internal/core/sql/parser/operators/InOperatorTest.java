@@ -19,37 +19,35 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.parser.operators;
 
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInOperator;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
-public class InOperatorTest {
+public class InOperatorTest extends DbTestBase {
 
   @Test
   public void test() {
     var op = new SQLInOperator(-1);
 
-    Assert.assertFalse(op.execute(null, null));
-    Assert.assertFalse(op.execute(null, "foo"));
-    Assert.assertFalse(op.execute("foo", null));
-    Assert.assertFalse(op.execute("foo", "foo"));
+    Assert.assertFalse(op.execute(session, null, null));
+    Assert.assertFalse(op.execute(session, null, "foo"));
+    Assert.assertFalse(op.execute(session, "foo", null));
+    Assert.assertFalse(op.execute(session, "foo", "foo"));
 
     List<Object> list1 = new ArrayList<Object>();
-    Assert.assertFalse(op.execute("foo", list1));
-    Assert.assertFalse(op.execute(null, list1));
-    Assert.assertTrue(op.execute(list1, list1));
+    Assert.assertFalse(op.execute(session, "foo", list1));
+    Assert.assertFalse(op.execute(session, null, list1));
+    Assert.assertTrue(op.execute(session, list1, list1));
 
     list1.add("a");
     list1.add(1);
 
-    Assert.assertFalse(op.execute("foo", list1));
-    Assert.assertTrue(op.execute("a", list1));
-    Assert.assertTrue(op.execute(1, list1));
+    Assert.assertFalse(op.execute(session, "foo", list1));
+    Assert.assertTrue(op.execute(session, "a", list1));
+    Assert.assertTrue(op.execute(session, 1, list1));
 
     // TODO
   }

@@ -8,8 +8,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
@@ -34,7 +32,7 @@ public class LuceneDirectoryFactoryTest extends BaseLuceneTest {
   public void setUp() throws Exception {
     meta = new HashMap<>();
     indexDef = Mockito.mock(IndexDefinition.class);
-    when(indexDef.getFields()).thenReturn(Collections.emptyList());
+    when(indexDef.getProperties()).thenReturn(Collections.emptyList());
     when(indexDef.getClassName()).thenReturn("Song");
     fc = new LuceneDirectoryFactory();
   }

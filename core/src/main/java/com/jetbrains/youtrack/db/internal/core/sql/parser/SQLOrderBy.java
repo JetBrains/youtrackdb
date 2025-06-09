@@ -2,9 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,8 +40,9 @@ public class SQLOrderBy extends SimpleNode {
     this.items.add(item);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    if (items != null && items.size() > 0) {
+    if (items != null && !items.isEmpty()) {
       builder.append("ORDER BY ");
       for (var i = 0; i < items.size(); i++) {
         if (i > 0) {
@@ -52,8 +53,9 @@ public class SQLOrderBy extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
-    if (items != null && items.size() > 0) {
+    if (items != null && !items.isEmpty()) {
       builder.append("ORDER BY ");
       for (var i = 0; i < items.size(); i++) {
         if (i > 0) {
@@ -74,10 +76,12 @@ public class SQLOrderBy extends SimpleNode {
     return 0;
   }
 
+  @Override
   public SQLOrderBy copy() {
     var result = new SQLOrderBy(-1);
     result.items =
-        items == null ? null : items.stream().map(x -> x.copy()).collect(Collectors.toList());
+        items == null ? null
+            : items.stream().map(SQLOrderByItem::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -119,11 +123,11 @@ public class SQLOrderBy extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (items != null) {
       result.setProperty(
-          "items", items.stream().map(oOrderByItem -> oOrderByItem.serialize(db))
+          "items", items.stream().map(oOrderByItem -> oOrderByItem.serialize(session))
               .collect(Collectors.toList()));
     }
     return result;

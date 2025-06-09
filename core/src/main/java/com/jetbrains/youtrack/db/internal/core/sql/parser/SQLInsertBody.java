@@ -2,7 +2,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +26,7 @@ public class SQLInsertBody extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
 
     if (identifierList != null) {
@@ -96,6 +97,7 @@ public class SQLInsertBody extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
 
     if (identifierList != null) {
@@ -166,6 +168,7 @@ public class SQLInsertBody extends SimpleNode {
     }
   }
 
+  @Override
   public SQLInsertBody copy() {
     var result = new SQLInsertBody(-1);
     result.identifierList =
@@ -282,7 +285,7 @@ public class SQLInsertBody extends SimpleNode {
     content.add(json);
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
 
     if (this.valueExpressions != null) {
       for (var valueExpression : valueExpressions) {
@@ -303,7 +306,7 @@ public class SQLInsertBody extends SimpleNode {
 
     if (content != null) {
       for (var item : content) {
-        if (!item.isCacheable()) {
+        if (!false) {
           return false;
         }
       }

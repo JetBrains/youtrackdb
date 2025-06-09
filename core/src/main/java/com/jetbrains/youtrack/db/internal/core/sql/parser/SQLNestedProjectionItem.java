@@ -2,9 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -50,9 +50,6 @@ public class SQLNestedProjectionItem extends SimpleNode {
    *   <li>the field name for this projection item is the same as the input property name
    *   <li>this item has a wildcard and the partial field is a prefix of the input property name
    * </ul>
-   *
-   * @param propertyName
-   * @return
    */
   public boolean matches(String propertyName) {
     if (star) {
@@ -159,19 +156,19 @@ public class SQLNestedProjectionItem extends SimpleNode {
     return expansion.apply(expression, value, ctx);
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("exclude", exclude);
     result.setProperty("star", star);
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     result.setProperty("rightWildcard", rightWildcard);
     if (expansion != null) {
-      result.setProperty("expansion", expansion.serialize(db));
+      result.setProperty("expansion", expansion.serialize(session));
     }
     if (alias != null) {
-      result.setProperty("alias", alias.serialize(db));
+      result.setProperty("alias", alias.serialize(session));
     }
     return result;
   }

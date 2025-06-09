@@ -41,19 +41,26 @@ public class GlobalPropertyImpl implements GlobalProperty {
     this.id = id;
   }
 
+  @Override
   @Nonnull
   public Integer getId() {
     return id;
   }
 
+  @Override
   @Nonnull
   public String getName() {
     return name;
   }
 
+  @Override
   @Nonnull
   public PropertyType getType() {
     return type.getPublicPropertyType();
+  }
+
+  public PropertyTypeInternal getTypeInternal() {
+    return type;
   }
 
   public void fromEntity(final Entity entity) {
