@@ -75,6 +75,7 @@ import com.jetbrains.youtrack.db.internal.common.profiler.metrics.Stopwatch;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
+import com.jetbrains.youtrack.db.internal.core.cache.WeakValueHashMap;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
@@ -176,6 +177,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionEmbedded.class);
 
   private static final byte recordType = EntityImpl.RECORD_TYPE;
+  private final boolean serverMode;
 
   private YouTrackDBConfigImpl config;
   private final Storage storage;
@@ -208,7 +210,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   private boolean prefetchRecords;
 
-  private final HashMap<String, QueryDatabaseState<ResultSet>> activeQueries = new HashMap<>();
+  private final Map<String, ResultSet> activeQueries;
+  private final int resultSetReportThreshold;
 
   // database stats!
   private long loadedRecordsCount;
@@ -226,8 +229,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private boolean openedAsRemoteSession;
   private int remoteCallsCount;
 
-  public DatabaseSessionEmbedded(final Storage storage) {
+  public DatabaseSessionEmbedded(final Storage storage, boolean serverMode) {
     super(false);
+    this.serverMode = serverMode;
+    // in server mode we don't enable result set auto-closing
+    this.activeQueries = serverMode ? new HashMap<>() : new WeakValueHashMap<>();
 
     activateOnCurrentThread();
 
@@ -251,6 +257,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_RATE, getDatabaseName()),
           metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE, getDatabaseName())
       );
+
+      this.resultSetReportThreshold =
+          getConfiguration().getValueAsInteger(
+              GlobalConfiguration.QUERY_RESULT_SET_OPEN_WARNING_THRESHOLD);
 
     } catch (Exception t) {
       activeSession.remove();
@@ -566,7 +576,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       user = null;
     }
 
-    var database = new DatabaseSessionEmbedded(storage);
+    var database = new DatabaseSessionEmbedded(storage, this.serverMode);
     database.init(config, this.sharedContext);
     database.internalOpen(user, null, false);
     database.callOnOpenListeners();
@@ -821,10 +831,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
 
   private void queryStarted(LocalResultSetLifecycleDecorator result) {
-    var queryState = new QueryDatabaseState<ResultSet>();
 
-    queryState.setResultSet(result);
-    this.queryStarted(result.getQueryId(), queryState);
+    this.queryStarted(result.getQueryId(), result);
 
     result.addLifecycleListener(this);
   }
@@ -1872,7 +1880,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public void afterCommitOperations() {
+  public void afterCommitOperations(boolean rootTx) {
     assert assertIfNotActive();
 
     for (var operation : currentTx.getRecordOperationsInternal()) {
@@ -4056,25 +4064,29 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
 
-  public void queryStarted(String id, QueryDatabaseState<ResultSet> state) {
+  public void queryStarted(String id, ResultSet resultSet) {
     assert assertIfNotActive();
 
-    if (this.activeQueries.size() > 1 && this.activeQueries.size() % 10 == 0) {
+    final var activeQueriesSize = activeQueries.size();
+
+    if (this.resultSetReportThreshold > 0 &&
+        activeQueriesSize > 1 &&
+        activeQueriesSize % resultSetReportThreshold == 0) {
       var msg =
           "This database instance has "
-              + activeQueries.size()
+              + activeQueriesSize
               + " open command/query result sets, please make sure you close them with"
               + " ResultSet.close()";
       LogManager.instance().warn(this, msg);
       if (logger.isDebugEnabled()) {
         activeQueries.values().stream()
-            .map(pendingQuery -> pendingQuery.getResultSet().getExecutionPlan())
+            .map(ResultSet::getExecutionPlan)
             .forEach(plan -> LogManager.instance().debug(this, plan.toString(), logger));
       }
     }
 
-    this.activeQueries.put(id, state);
-    getListeners().forEach((it) -> it.onCommandStart(this, state.getResultSet()));
+    this.activeQueries.put(id, resultSet);
+    getListeners().forEach((it) -> it.onCommandStart(this, resultSet));
   }
 
   @Override
@@ -4082,39 +4094,28 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     var removed = this.activeQueries.remove(id);
-    getListeners().forEach((it) -> it.onCommandEnd(this, removed.getResultSet()));
-
+    getListeners().forEach((it) -> it.onCommandEnd(this, removed));
   }
 
   @Override
   public void closeActiveQueries() {
-    while (!activeQueries.isEmpty()) {
-      this.activeQueries
-          .values()
-          .iterator()
-          .next()
-          .close(); // the query automatically unregisters itself
+    for (var rs : new ArrayList<>(activeQueries.values())) {
+      rs.close();
     }
   }
 
   @Override
-  public Map<String, QueryDatabaseState<?>> getActiveQueries() {
+  public Map<String, ResultSet> getActiveQueries() {
     assert assertIfNotActive();
 
-    //noinspection rawtypes,unchecked
-    return (Map) activeQueries;
+    return activeQueries;
   }
 
   @Override
   public ResultSet getActiveQuery(String id) {
     assert assertIfNotActive();
 
-    var state = activeQueries.get(id);
-    if (state != null) {
-      return state.getResultSet();
-    } else {
-      return null;
-    }
+    return activeQueries.get(id);
   }
 
   @Override
@@ -4137,6 +4138,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public <X extends Exception> void executeInTxInternal(
       @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
+    if (currentTx.getStatus() == TXSTATUS.COMMITTING ||
+        currentTx.getStatus() == TXSTATUS.ROLLBACKING) {
+      throw new TransactionException(getDatabaseName(),
+          "Cannot start a new transaction while a transaction is committing or rolling back");
+    }
     var ok = false;
     assert assertIfNotActive();
     begin();

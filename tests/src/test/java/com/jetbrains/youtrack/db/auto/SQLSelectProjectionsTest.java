@@ -321,6 +321,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
 
       session.commit();
 
+      session.begin();
       var res =
           executeQuery("select a,b, child.exclude('d') as child from " + rootElement.getIdentity());
 
@@ -332,6 +333,8 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertNotNull(child.getProperty("c"));
       Assert.assertNull(child.getProperty("d"));
       Assert.assertNotNull(child.getProperty("e"));
+      session.commit();
+
     } finally {
       session.execute("drop class A").close();
       session.execute("drop class B").close();

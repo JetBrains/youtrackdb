@@ -73,23 +73,25 @@ public class FunctionLibraryImpl {
 
     // LOAD ALL THE FUNCTIONS IN MEMORY
     if (session.getMetadata().getImmutableSchemaSnapshot().existsClass("OFunction")) {
-      try (var result = session.query("select from OFunction order by name")) {
-        while (result.hasNext()) {
-          var res = result.next();
-          var d = (EntityImpl) res.asEntity();
-          // skip the function records which do not contain real data
-          if (d.getPropertiesCount() == 0) {
-            continue;
+      session.executeInTx(tx -> {
+        try (var result = tx.query("select from OFunction order by name")) {
+          while (result.hasNext()) {
+            var res = result.next();
+            var d = (EntityImpl) res.asEntity();
+            // skip the function records which do not contain real data
+            if (d.getPropertiesCount() == 0) {
+              continue;
+            }
+
+            final var f = new Function(d);
+
+            // RESTORE CALLBACK IF ANY
+            f.setCallback(callbacks.get(f.getName()));
+
+            functions.put(d.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
           }
-
-          final var f = new Function(d);
-
-          // RESTORE CALLBACK IF ANY
-          f.setCallback(callbacks.get(f.getName()));
-
-          functions.put(d.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
         }
-      }
+      });
     }
   }
 

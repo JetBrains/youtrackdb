@@ -49,6 +49,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.execute("DELETE FROM RidBagIndexTestClass").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from RidBagIndexTestClass");
     Assert.assertEquals(result.stream().count(), 0);
 
@@ -57,6 +58,7 @@ public class LinkBagIndexTest extends BaseDBTest {
       Assert.assertEquals(index.size(session), 0);
     }
     result.close();
+    session.commit();
   }
 
   public void testIndexRidBag() {
@@ -663,6 +665,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var result =
         session.query(
             "select * from RidBagIndexTestClass where ridBag contains ?", docOne.getIdentity());
@@ -675,5 +678,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     result.close();
 
     Assert.assertEquals(Set.of(docOne.getIdentity(), docTwo.getIdentity()), resultSet);
+    session.commit();
+
   }
 }

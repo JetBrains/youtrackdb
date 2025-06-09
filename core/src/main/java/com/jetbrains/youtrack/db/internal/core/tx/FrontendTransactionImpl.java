@@ -116,6 +116,7 @@ public class FrontendTransactionImpl implements
   protected int txStartCounter;
   protected boolean sentToServer = false;
   private final boolean readOnly;
+  private final StackTraceElement[] creationStack;
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
 
@@ -127,6 +128,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txSerial.incrementAndGet();
     this.readOnly = readOnly;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
   public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long txId,
@@ -134,6 +136,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txId;
     this.readOnly = readOnly;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
 
@@ -141,6 +144,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = id;
     readOnly = false;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
   @Override
@@ -510,8 +514,14 @@ public class FrontendTransactionImpl implements
           }
         } else {
           if (txEntry.record != record) {
+            final var desc = switch (record) {
+              case Entity entity -> entity.getSchemaClassName();
+              case Blob ignored -> "BLOB";
+              default -> record.getClass().getSimpleName(); // in case we extend our hierarchy
+            };
             throw new TransactionException(session,
-                "Found record in transaction with the same RID but different instance");
+                "Found record in transaction with the same RID but different instance: " +
+                    desc + " " + record.getIdentity());
           }
           if (record.txEntry != txEntry) {
             throw new TransactionException(session,
@@ -576,7 +586,7 @@ public class FrontendTransactionImpl implements
             .writeTransactions()
             .record();
         try {
-          session.afterCommitOperations();
+          session.afterCommitOperations(true);
         } catch (Exception e) {
           LogManager.instance().error(this,
               "Error during after commit callback invocation", e);

@@ -59,7 +59,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   static YouTrackDBInternal<?> fromUrl(String url, YouTrackDBConfig configuration) {
     var what = url.substring(0, url.indexOf(':'));
     if ("embedded".equals(what)) {
-      return embedded(url.substring(url.indexOf(':') + 1), configuration);
+      return embedded(url.substring(url.indexOf(':') + 1), configuration, false);
     } else if ("remote".equals(what)) {
       return remote(url.substring(url.indexOf(':') + 1).split(";"),
           (YouTrackDBConfigImpl) configuration);
@@ -116,11 +116,14 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
    * @param directoryPath base path where the database are hosted
    * @param config        configuration for the specific factory for the list of option
    *                      {@see GlobalConfiguration}
+   * @param serverMode
    * @return a new embedded databases factory
    */
-  static YouTrackDBInternal<DatabaseSession> embedded(String directoryPath,
-      YouTrackDBConfig config) {
-    return new YouTrackDBInternalEmbedded(directoryPath, config, YouTrackDBEnginesManager.instance());
+  static YouTrackDBInternal<DatabaseSession> embedded(
+      String directoryPath,
+      YouTrackDBConfig config,
+      boolean serverMode) {
+    return new YouTrackDBInternalEmbedded(directoryPath, config, YouTrackDBEnginesManager.instance(), serverMode);
   }
 
 
