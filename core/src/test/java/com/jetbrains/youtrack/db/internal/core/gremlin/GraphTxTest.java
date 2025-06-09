@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import java.util.HashSet;
 import java.util.Set;
-import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
@@ -54,23 +53,10 @@ public class GraphTxTest extends GraphBaseTest {
         var thread =
             new Thread(
                 () -> {
-                  Graph graph = null;
-                  try {
-                    graph = openGraph();
-                    for (var i = 0; i < recCount; i++) {
-                      graph.addVertex("TestSequence");
-                    }
-                    graph.tx().commit();
-                  } finally {
-                    if (graph != null) {
-                      try {
-                        graph.close();
-                      } catch (Exception e) {
-                        //noinspection ThrowFromFinallyBlock
-                        throw new RuntimeException(e);
-                      }
-                    }
+                  for (var i = 0; i < recCount; i++) {
+                    graph.addVertex("TestSequence");
                   }
+                  graph.tx().commit();
                 });
         threads[j] = thread;
         thread.start();

@@ -14,151 +14,153 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class VertexEdgeSetWrapper implements Set {
-    private final Set wrapped;
-    private final YTDBElementImpl parent;
 
-    public VertexEdgeSetWrapper(Set wrapped, YTDBElementImpl parentElement) {
-        this.wrapped = wrapped;
-        this.parent = parentElement;
+  private final Set wrapped;
+  private final YTDBAbstractElement parent;
+
+  public VertexEdgeSetWrapper(Set wrapped, YTDBAbstractElement parentElement) {
+    this.wrapped = wrapped;
+    this.parent = parentElement;
+  }
+
+  private Object unbox(Object next) {
+    if (next instanceof YTDBAbstractElement gremlinElement) {
+      return gremlinElement.getRawEntity();
     }
+    return next;
+  }
 
-    private Object unbox(Object next) {
-        if (next instanceof YTDBElementImpl) {
-            return ((YTDBElementImpl) next).getRawEntity();
-        }
-        return next;
+  private Object box(Object elem) {
+    var graph = parent.getGraph();
+    if (elem instanceof RID rid) {
+      var session = graph.getUnderlyingDatabaseSession();
+      var tx = session.getActiveTransaction();
+      elem = tx.loadEntity(rid);
     }
-
-    private Object box(Object elem) {
-        if (elem instanceof RID rid) {
-            var session = parent.getGraph().getUnderlyingDatabaseSession();
-            var tx = session.getActiveTransaction();
-            elem = tx.loadEntity(rid);
-        }
-        if (elem instanceof Entity entity) {
-            if (entity.isVertex()) {
-                elem = parent.getGraph().elementFactory().wrapVertex(entity.asVertex());
-            } else if (entity.isStatefulEdge()) {
-                elem = parent.getGraph().elementFactory().wrapEdge(entity.asStatefulEdge());
-            }
-        }
-        return elem;
+    if (elem instanceof Entity entity) {
+      if (entity.isVertex()) {
+        elem = graph.elementFactory().wrapVertex(graph, entity.asVertex());
+      } else if (entity.isStatefulEdge()) {
+        elem = graph.elementFactory().wrapEdge(graph, entity.asStatefulEdge());
+      }
     }
+    return elem;
+  }
 
-    @Override
-    public int size() {
-        return wrapped.size();
+  @Override
+  public int size() {
+    return wrapped.size();
+  }
+
+  @Override
+  public boolean isEmpty() {
+    return wrapped.isEmpty();
+  }
+
+  @Override
+  public boolean contains(Object o) {
+    if (o instanceof YTDBAbstractElement gremlinElement && wrapped.contains(
+        gremlinElement.getRawEntity())) {
+      return true;
     }
+    return wrapped.contains(o);
+  }
 
-    @Override
-    public boolean isEmpty() {
-        return wrapped.isEmpty();
+  @Override
+  public Iterator iterator() {
+
+    return new Iterator() {
+      final Iterator baseIter = wrapped.iterator();
+
+      @Override
+      public boolean hasNext() {
+        return baseIter.hasNext();
+      }
+
+      @Override
+      public Object next() {
+        return box(baseIter.next());
+      }
+    };
+  }
+
+  @Override
+  public Object[] toArray() {
+    return wrapped.stream().map(x -> box(x)).toArray();
+  }
+
+  @Override
+  public Object[] toArray(Object[] a) {
+    return wrapped.stream().map(x -> box(x)).toArray();
+  }
+
+  @Override
+  public boolean add(Object o) {
+    return wrapped.add(unbox(o));
+  }
+
+  @Override
+  public boolean remove(Object o) {
+    return wrapped.remove(unbox(o));
+  }
+
+  @Override
+  public boolean containsAll(Collection c) {
+
+    return wrapped.containsAll((List) c.stream().map(x -> unbox(x)).collect(Collectors.toList()));
+  }
+
+  @Override
+  public boolean addAll(Collection c) {
+    boolean changed = false;
+    for (Object o : c) {
+      changed = changed || wrapped.add(unbox(o));
     }
+    return changed;
+  }
 
-    @Override
-    public boolean contains(Object o) {
-        if (o instanceof YTDBElementImpl && wrapped.contains(
-            ((YTDBElementImpl) o).getRawEntity())) {
-            return true;
-        }
-        return wrapped.contains(o);
+  @Override
+  public void clear() {
+    wrapped.clear();
+  }
+
+  @Override
+  public boolean removeAll(Collection c) {
+    boolean changed = false;
+    for (Object o : c) {
+      changed = changed || wrapped.remove(unbox(o));
     }
+    return changed;
+  }
 
-    @Override
-    public Iterator iterator() {
+  @Override
+  public boolean retainAll(Collection c) {
+    return wrapped.retainAll(
+        (Collection<?>) c.stream().map(x -> unbox(x)).collect(Collectors.toList()));
+  }
 
-        return new Iterator() {
-            final Iterator baseIter = wrapped.iterator();
+  @Override
+  public Spliterator spliterator() {
+    throw new UnsupportedOperationException();
+  }
 
-            @Override
-            public boolean hasNext() {
-                return baseIter.hasNext();
-            }
+  @Override
+  public boolean removeIf(Predicate filter) {
+    return wrapped.removeIf(filter);
+  }
 
-            @Override
-            public Object next() {
-                return box(baseIter.next());
-            }
-        };
-    }
+  @Override
+  public Stream stream() {
+    return wrapped.stream().map(x -> box(x));
+  }
 
-    @Override
-    public Object[] toArray() {
-        return wrapped.stream().map(x -> box(x)).toArray();
-    }
+  @Override
+  public Stream parallelStream() {
+    return wrapped.parallelStream().map(x -> box(x));
+  }
 
-    @Override
-    public Object[] toArray(Object[] a) {
-        return wrapped.stream().map(x -> box(x)).toArray();
-    }
-
-    @Override
-    public boolean add(Object o) {
-        return wrapped.add(unbox(o));
-    }
-
-    @Override
-    public boolean remove(Object o) {
-        return wrapped.remove(unbox(o));
-    }
-
-    @Override
-    public boolean containsAll(Collection c) {
-
-        return wrapped.containsAll((List) c.stream().map(x -> unbox(x)).collect(Collectors.toList()));
-    }
-
-    @Override
-    public boolean addAll(Collection c) {
-        boolean changed = false;
-        for (Object o : c) {
-            changed = changed || wrapped.add(unbox(o));
-        }
-        return changed;
-    }
-
-    @Override
-    public void clear() {
-        wrapped.clear();
-    }
-
-    @Override
-    public boolean removeAll(Collection c) {
-        boolean changed = false;
-        for (Object o : c) {
-            changed = changed || wrapped.remove(unbox(o));
-        }
-        return changed;
-    }
-
-    @Override
-    public boolean retainAll(Collection c) {
-        return wrapped.retainAll(
-                (Collection<?>) c.stream().map(x -> unbox(x)).collect(Collectors.toList()));
-    }
-
-    @Override
-    public Spliterator spliterator() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public boolean removeIf(Predicate filter) {
-        return wrapped.removeIf(filter);
-    }
-
-    @Override
-    public Stream stream() {
-        return wrapped.stream().map(x -> box(x));
-    }
-
-    @Override
-    public Stream parallelStream() {
-        return wrapped.parallelStream().map(x -> box(x));
-    }
-
-    @Override
-    public void forEach(Consumer action) {
-        wrapped.forEach(action);
-    }
+  @Override
+  public void forEach(Consumer action) {
+    wrapped.forEach(action);
+  }
 }

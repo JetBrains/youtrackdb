@@ -34,20 +34,17 @@ public class ScriptTransformerImpl implements ScriptTransformer {
         final var c = Class.forName("jdk.nashorn.api.scripting.JSObject");
         registerResultTransformer(
             c,
-            new ResultTransformer() {
-              @Override
-              public Result transform(DatabaseSessionInternal db, Object value) {
-                var internal = new ResultInternal(db);
+            (db, value) -> {
+              var internal = new ResultInternal(db);
 
-                final List res = new ArrayList();
-                internal.setProperty("value", res);
+              var res = new ArrayList();
+              internal.setProperty("value", res);
 
-                for (var v : ((Map) value).values()) {
-                  res.add(new ResultInternal(db, (Identifiable) v));
-                }
-
-                return internal;
+              for (var v : ((Map) value).values()) {
+                res.add(new ResultInternal(db, (Identifiable) v));
               }
+
+              return internal;
             });
       } catch (Exception e) {
         // NASHORN NOT INSTALLED, IGNORE IT

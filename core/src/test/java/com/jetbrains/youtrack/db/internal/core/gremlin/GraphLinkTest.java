@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -21,7 +22,7 @@ public class GraphLinkTest extends GraphBaseTest {
     var v = graph.vertices(rid).next();
     var val = v.value("friend");
 
-    Assert.assertTrue(val instanceof YTDBVertexImpl);
-    Assert.assertEquals("Luke", ((YTDBVertexImpl) val).value("name"));
+    Assert.assertTrue(val instanceof Vertex);
+    Assert.assertEquals("Luke", ((YTDBAbstractElement) val).value("name"));
   }
 }

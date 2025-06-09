@@ -13,99 +13,100 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
 public class YTDBPropertyImpl<V> implements
     org.apache.tinkerpop.gremlin.structure.Property<V> {
-    protected String key;
-    protected V value;
-    protected Object wrappedValue;
-    protected YTDBElementImpl element;
-    private boolean removed = false;
 
-    public YTDBPropertyImpl(String key, V value, YTDBElementImpl element) {
-        this.key = key;
-        this.value = value;
-        this.element = element;
-        this.wrappedValue = wrapIntoGraphElement(value);
+  protected String key;
+  protected V value;
+  protected Object wrappedValue;
+  protected YTDBAbstractElement element;
+  private boolean removed = false;
+
+  public YTDBPropertyImpl(String key, V value, YTDBAbstractElement element) {
+    this.key = key;
+    this.value = value;
+    this.element = element;
+    this.wrappedValue = wrapIntoGraphElement(value);
+  }
+
+  private Object wrapIntoGraphElement(V value) {
+    Object result = value;
+    var graph = element.getGraph();
+    if (result instanceof RID rid) {
+      var session = graph.getUnderlyingDatabaseSession();
+      var tx = session.getActiveTransaction();
+      result = tx.loadEntity(rid);
     }
+    if (result instanceof Entity entity) {
+      if (entity.isVertex()) {
+        result =
+            graph.elementFactory().wrapVertex(graph, entity.asVertex());
+      } else if (entity.isStatefulEdge()) {
+        result = graph.elementFactory().wrapEdge(graph, entity.asStatefulEdge());
+      }
+    }
+    if (result instanceof Collection<?> collection && containsGraphElements(collection)) {
+      if (result instanceof List<?> list) {
+        result = new VertexEdgeListWrapper(list, element);
+      } else if (result instanceof Set<?> set) {
+        result = new VertexEdgeSetWrapper(set, element);
+      }
+    }
+    return result;
+  }
 
-    private Object wrapIntoGraphElement(V value) {
-        Object result = value;
-        if (result instanceof RID rid) {
-            var graph = element.getGraph();
-            var session = graph.getUnderlyingDatabaseSession();
-            var tx = session.getActiveTransaction();
-            result = tx.loadEntity(rid);
+  private static boolean containsGraphElements(Collection<?> result) {
+    for (var o : result) {
+      if (o instanceof Entity entity) {
+        if (entity.isVertex() || entity.isStatefulEdge()) {
+          return true;
         }
-        if (result instanceof Entity entity) {
-            if (entity.isVertex()) {
-                result =
-                        element.getGraph().elementFactory().wrapVertex(entity.asVertex());
-            } else if (entity.isStatefulEdge()) {
-                result = element.getGraph().elementFactory().wrapEdge(entity.asStatefulEdge());
-            }
-        }
-        if (result instanceof Collection<?> collection && containsGraphElements(collection)) {
-            if (result instanceof List<?> list) {
-                result = new VertexEdgeListWrapper(list, element);
-            } else if (result instanceof Set<?> set) {
-                result = new VertexEdgeSetWrapper(set, element);
-            }
-        }
-        return result;
+      }
     }
+    return false;
+  }
 
-    private static boolean containsGraphElements(Collection<?> result) {
-        for (var o : result) {
-            if (o instanceof Entity entity) {
-                if (entity.isVertex() || entity.isStatefulEdge()) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
+  @Override
+  public String key() {
+    return key;
+  }
 
-    @Override
-    public String key() {
-        return key;
-    }
+  @Override
+  public V value() throws NoSuchElementException {
+    //noinspection unchecked
+    return (V) wrappedValue;
+  }
 
-    @Override
-    public V value() throws NoSuchElementException {
-        //noinspection unchecked
-        return (V) wrappedValue;
-    }
+  @Override
+  public boolean isPresent() {
+    return !removed;
+  }
 
-    @Override
-    public boolean isPresent() {
-        return !removed;
-    }
+  @Override
+  public YTDBElement element() {
+    return this.element;
+  }
 
-    @Override
-    public YTDBElement element() {
-        return this.element;
-    }
+  @Override
+  public void remove() {
+    var entity = element.getRawEntity();
+    entity.removeProperty(key);
+    this.value = null;
+    wrappedValue = null;
+    removed = true;
+  }
 
-    @Override
-    public void remove() {
-        var entity = element.getRawEntity();
-        entity.removeProperty(key);
-        this.value = null;
-        wrappedValue = null;
-        removed = true;
-    }
+  @Override
+  public String toString() {
+    return StringFactory.propertyString(this);
+  }
 
-    @Override
-    public String toString() {
-        return StringFactory.propertyString(this);
-    }
+  @SuppressWarnings("EqualsDoesntCheckParameterClass")
+  @Override
+  public boolean equals(final Object object) {
+    return ElementHelper.areEqual(this, object);
+  }
 
-    @SuppressWarnings("EqualsDoesntCheckParameterClass")
-    @Override
-    public boolean equals(final Object object) {
-        return ElementHelper.areEqual(this, object);
-    }
-
-    @Override
-    public int hashCode() {
-        return ElementHelper.hashCode(this);
-    }
+  @Override
+  public int hashCode() {
+    return ElementHelper.hashCode(this);
+  }
 }

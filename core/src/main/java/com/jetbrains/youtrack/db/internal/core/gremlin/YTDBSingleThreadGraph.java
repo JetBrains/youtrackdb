@@ -7,20 +7,16 @@ import com.jetbrains.youtrack.db.api.gremlin.YTDBVertex;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
@@ -38,21 +34,22 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
 
   public static final Logger logger = LoggerFactory.getLogger(YTDBSingleThreadGraph.class);
 
-
   private final Features features;
   private final Configuration configuration;
-  private final YTDBSingleThreadGraphFactory factory;
-  private YTDBElementFactory elementFactory;
   private final YTDBSingleThreadGraphTransaction tx;
   private final DatabaseSessionEmbedded session;
+  private final YTDBElementFactory elementFactory;
+  @Nullable
+  private final YTDBGraphImpl parentGraph;
 
-  public YTDBSingleThreadGraph(final YTDBSingleThreadGraphFactory factory,
-      final DatabaseSessionEmbedded session, final Configuration configuration) {
-    this.factory = factory;
+  public YTDBSingleThreadGraph(final DatabaseSessionEmbedded session,
+      final Configuration configuration, YTDBElementFactory elementFactory,
+      @Nullable YTDBGraphImpl parentGraph) {
     this.configuration = configuration;
+    this.elementFactory = elementFactory;
+    this.parentGraph = parentGraph;
     this.features = YouTrackDBFeatures.YTDBFeatures.INSTANCE;
     this.tx = new YTDBSingleThreadGraphTransaction(this);
-    this.elementFactory = new YTDBElementFactory(this);
     this.session = session;
   }
 
@@ -72,7 +69,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
 
     var label = ElementHelper.getLabelValue(keyValues).orElse(Vertex.DEFAULT_LABEL);
     var vertex = createVertexWithClass(label);
-    vertex.property(keyValues);
+    ((YTDBAbstractElement) vertex).property(keyValues);
 
     return vertex;
   }
@@ -82,7 +79,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
     return this.addVertex(T.label, label);
   }
 
-  private YTDBVertexImpl createVertexWithClass(String label) {
+  private YTDBVertex createVertexWithClass(String label) {
     var vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
 
     if (vertexClass == null) {
@@ -105,7 +102,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
     var transaction = session.getActiveTransaction();
     var ytdbVertex = transaction.newVertex(vertexClass);
 
-    return elementFactory().wrapVertex(ytdbVertex);
+    return elementFactory.wrapVertex(this, ytdbVertex);
   }
 
 
@@ -121,63 +118,15 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   }
 
   @Override
-  public YTDBElementFactory elementFactory() {
-    return elementFactory;
-  }
-
-  @Override
   public Iterator<Vertex> vertices(Object... vertexIds) {
     this.tx().readWrite();
     return elements(
         SchemaClass.VERTEX_CLASS_NAME,
         entity ->
             elementFactory()
-                .wrapVertex(
+                .wrapVertex(this,
                     entity.asVertex()),
         vertexIds);
-  }
-
-  private IndexManagerEmbedded getIndexManager() {
-    return session.getSharedContext().getIndexManager();
-  }
-
-  private Schema getSchema() {
-    return session.getMetadata().getSchema();
-  }
-
-  public Set<String> getIndexedKeys(String className) {
-    var indexes = getIndexManager().getClassIndexes(session, className).iterator();
-    var indexedKeys = new HashSet<String>();
-    indexes.forEachRemaining(
-        index -> indexedKeys.addAll(index.getDefinition().getFields()));
-    return indexedKeys;
-  }
-
-  @Override
-  public Set<String> getIndexedKeys(final Class<? extends Element> elementClass, String label) {
-    if (Vertex.class.isAssignableFrom(elementClass)) {
-      return getVertexIndexedKeys(label);
-    } else if (Edge.class.isAssignableFrom(elementClass)) {
-      return getEdgeIndexedKeys(label);
-    } else {
-      throw new IllegalArgumentException("Class is not indexable: " + elementClass);
-    }
-  }
-
-  public Set<String> getVertexIndexedKeys(final String label) {
-    var cls = getSchema().getClass(label);
-    if (cls != null && cls.isSubClassOf(SchemaClass.VERTEX_CLASS_NAME)) {
-      return getIndexedKeys(label);
-    }
-    return Collections.emptySet();
-  }
-
-  public Set<String> getEdgeIndexedKeys(final String label) {
-    var cls = getSchema().getClass(label);
-    if (cls != null && cls.isSubClassOf(SchemaClass.EDGE_CLASS_NAME)) {
-      return getIndexedKeys(label);
-    }
-    return Collections.emptySet();
   }
 
   @Override
@@ -188,7 +137,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
         SchemaClass.EDGE_CLASS_NAME,
         entity ->
             elementFactory()
-                .wrapEdge(entity.asStatefulEdge()),
+                .wrapEdge(this, entity.asStatefulEdge()),
         edgeIds);
   }
 
@@ -222,8 +171,8 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
     if (id instanceof String strRid) {
       return new RecordId(strRid);
     }
-    if (id instanceof YTDBElementImpl ytdbElement) {
-      return ytdbElement.id();
+    if (id instanceof YTDBAbstractElement gremlinElement) {
+      return gremlinElement.id();
     }
     if (id instanceof Identifiable identifiable) {
       return identifiable.getIdentity();
@@ -283,6 +232,9 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
       } catch (Exception e) {
         LogManager.instance().error(this, "Error during context close for db " + url, e);
       }
+      if (parentGraph != null) {
+        parentGraph.removeFromGraphs(this);
+      }
     }
   }
 
@@ -312,6 +264,11 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
     return session;
   }
 
+  @Override
+  public YTDBElementFactory elementFactory() {
+    return elementFactory;
+  }
+
 
   @SuppressWarnings("rawtypes")
   @Override
@@ -327,12 +284,5 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
     return StringFactory.graphString(this, session.getURL());
   }
 
-  public void setElementFactory(YTDBElementFactory elementFactory) {
-    this.elementFactory = elementFactory;
-  }
 
-  @Override
-  public YTDBSingleThreadGraphFactory getFactory() {
-    return factory;
-  }
 }

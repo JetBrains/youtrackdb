@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 public interface YTDBVertex extends Vertex, YTDBElement {
-
   @Override
   RID id();
 

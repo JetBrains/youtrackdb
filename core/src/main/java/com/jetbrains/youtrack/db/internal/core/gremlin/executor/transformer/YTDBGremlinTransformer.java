@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.transformer.Script
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.resultset.ResultSetTransformer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.stream.Collectors;
@@ -35,7 +35,7 @@ public class YTDBGremlinTransformer implements ScriptTransformer {
                     StreamSupport.stream(spliterator, false)
                             .map(
                                     (e) -> {
-                                      if (e instanceof YTDBElementImpl) {
+                                        if (e instanceof YTDBAbstractElement) {
                                             return this.transformer.toResult(session, e);
                                         } else {
                                             return e;

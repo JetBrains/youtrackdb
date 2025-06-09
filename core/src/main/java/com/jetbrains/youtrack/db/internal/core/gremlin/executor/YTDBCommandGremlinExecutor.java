@@ -32,9 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.formatter.GroovySc
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.executor.transformer.YTDBEntityTransformer;
 import com.jetbrains.youtrack.db.internal.core.gremlin.executor.transformer.YTDBGremlinTransformer;
@@ -99,9 +97,7 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
   private static void initCustomTransformer(ScriptTransformer transformer) {
     transformer.registerResultTransformer(
         DefaultTraversalMetrics.class, new YTDBTraversalMetricTransformer());
-    transformer.registerResultTransformer(YTDBStatefulEdgeImpl.class, new YTDBEntityTransformer());
-    transformer.registerResultTransformer(YTDBVertexImpl.class, new YTDBEntityTransformer());
-    transformer.registerResultTransformer(YTDBElementImpl.class, new YTDBEntityTransformer());
+    transformer.registerResultTransformer(YTDBAbstractElement.class, new YTDBEntityTransformer());
     transformer.registerResultTransformer(
         YTDBVertexPropertyImpl.class, new YTDBPropertyTransformer(transformer));
   }
@@ -280,7 +276,7 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
   }
 
   public static YTDBGraph acquireGraph(final DatabaseSessionEmbedded session) {
-    return session.graph();
+    return session.asGraph();
   }
 
   @Override

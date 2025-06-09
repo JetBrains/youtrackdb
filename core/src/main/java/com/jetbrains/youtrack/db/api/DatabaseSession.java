@@ -426,7 +426,9 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
   @Override
   String getDatabaseName();
 
-  YTDBGraph graph();
+  /// Returns **single-threaded** version of TinkerPop graph that is allowed to be used inside of
+  /// the current thread only.
+  YTDBGraph asGraph();
 
   /**
    * Opens the current session in remote mode. This instance cannot be used until the remote session

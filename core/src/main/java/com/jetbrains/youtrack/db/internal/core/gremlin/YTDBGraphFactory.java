@@ -1,14 +1,9 @@
-package com.jetbrains.youtrack.db.api.gremlin;
+package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.gremlin.GremlinUtils;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBSingleThreadGraphFactory;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBSingleThreadGraphFactoryImpl;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -26,33 +21,20 @@ public class YTDBGraphFactory {
   public static final String CONFIG_YOUTRACK_DB_CREATE_IF_NOT_EXISTS = "youtrackdb.gremlin.createIfNotExists";
   public static final String CONFIG_YOUTRACK_DB_TYPE = "youtrackdb.gremlin.db.type";
 
-  private static final ConcurrentHashMap<String, RawPair<YouTrackDB, ConcurrentHashMap<YTDBInstanceConfiguration, YTDBSingleThreadGraphFactory>>>
-      dbFactoriesMap = new ConcurrentHashMap<>();
-
+  private static final ConcurrentHashMap<String, YouTrackDB> storagePathYTDBMap = new ConcurrentHashMap<>();
   private static volatile Thread shutdownHook = new Thread() {
     @Override
     public void run() {
-      dbFactoriesMap.values().forEach(f -> {
+      storagePathYTDBMap.values().forEach(ytdb -> {
         try {
-          //closing all factories for the same YouTrackDB instance
-          var factories = f.second().values();
-          factories.forEach(factory -> {
-            try {
-              factory.close();
-            } catch (Exception e) {
-              LogManager.instance()
-                  .error(this, "Error closing YouTrackDB Graph Factory instance", e);
-            }
-          });
-
           //closing YouTrackDB instance
-          f.first().close();
+          ytdb.close();
         } catch (Exception e) {
           LogManager.instance().error(this, "Error closing YouTrackDB instance", e);
         }
       });
 
-      dbFactoriesMap.clear();
+      storagePathYTDBMap.clear();
     }
   };
   private static final ReentrantLock shutdownHookLock = new ReentrantLock();
@@ -100,19 +82,14 @@ public class YTDBGraphFactory {
             "YouTrackDB path is not specified : " + CONFIG_YOUTRACK_DB_PATH);
       }
 
-      var singleThreadGraphFactory = new YTDBSingleThreadGraphFactory[1];
-      dbFactoriesMap.compute(dbPath, (dp, ytdbFactoryMap) -> {
-        if (ytdbFactoryMap == null) {
-
-          var ytdb = YourTracks.embedded(dbPath, GremlinUtils.createYTDBConfig(configuration));
-          var factoryMap = new ConcurrentHashMap<YTDBInstanceConfiguration, YTDBSingleThreadGraphFactory>();
-          ytdbFactoryMap = new RawPair<>(ytdb, factoryMap);
+      var ytdb = storagePathYTDBMap.compute(dbPath, (dp, mappedYTDB) -> {
+        if (mappedYTDB == null) {
+          mappedYTDB = YourTracks.embedded(dbPath, GremlinUtils.createYTDBConfig(configuration));
         }
 
-        var ytdb = ytdbFactoryMap.first();
         var createIfNotExists = configuration.getBoolean(CONFIG_YOUTRACK_DB_CREATE_IF_NOT_EXISTS,
             false);
-        if (createIfNotExists && !ytdb.exists(dbName)) {
+        if (createIfNotExists && !mappedYTDB.exists(dbName)) {
           var dbTypeStr = configuration.getString(CONFIG_YOUTRACK_DB_TYPE);
           if (dbTypeStr == null) {
             throw new IllegalArgumentException(
@@ -125,27 +102,13 @@ public class YTDBGraphFactory {
             throw new IllegalArgumentException(
                 "YouTrackDB user role is not specified : " + CONFIG_YOUTRACK_DB_USER_ROLE);
           }
-          ytdb.create(dbName, dbType, user, password, userRole);
+          mappedYTDB.createIfNotExists(dbName, dbType, user, password, userRole);
         }
 
-        var factoryMap = ytdbFactoryMap.second();
-        var instanceConfiguration = new YTDBInstanceConfiguration(dbPath, dbName, user);
-
-        singleThreadGraphFactory[0] = factoryMap.compute(instanceConfiguration, (ic, factory) -> {
-          if (factory == null) {
-            return new YTDBSingleThreadGraphFactoryImpl(ytdb, configuration);
-          } else if (ytdb != factory.getYouTrackDB()) {
-            throw new IllegalStateException(
-                "YouTrackDB instance is already created for path " + dbPath);
-          }
-
-          return factory;
-        });
-
-        return ytdbFactoryMap;
+        return mappedYTDB;
       });
 
-      return new YTDBGraphImpl(singleThreadGraphFactory[0], configuration);
+      return new YTDBGraphImpl(ytdb.cachedPool(dbName, user, password), configuration);
     } finally {
       configuration.clearProperty(CONFIG_YOUTRACK_DB_USER_PWD);
     }
@@ -158,19 +121,10 @@ public class YTDBGraphFactory {
           "YouTrackDB path is not specified : " + CONFIG_YOUTRACK_DB_PATH);
     }
 
-    var ytDBFactoryMap = dbFactoriesMap.remove(dbPath);
-    if (ytDBFactoryMap != null) {
+    var ytdb = storagePathYTDBMap.remove(dbPath);
+    if (ytdb != null) {
       try {
-        ytDBFactoryMap.second().values().forEach(factory -> {
-          try {
-            factory.close();
-          } catch (Exception e) {
-            LogManager.instance()
-                .error(YTDBGraphFactory.class, "Error closing YouTrackDB Graph Factory instance",
-                    e);
-          }
-        });
-        ytDBFactoryMap.first().close();
+        ytdb.close();
       } catch (Exception e) {
         LogManager.instance().error(YTDBGraphFactory.class, "Error closing YouTrackDB instance", e);
       }
@@ -178,54 +132,29 @@ public class YTDBGraphFactory {
   }
 
   public static void registerYTDBInstance(String dbPath, YouTrackDB youTrackDB) {
-    dbFactoriesMap.compute(dbPath, (dp, ytdbFactoryMap) -> {
-      if (ytdbFactoryMap == null) {
-        var factoryMap = new ConcurrentHashMap<YTDBInstanceConfiguration, YTDBSingleThreadGraphFactory>();
-        return new RawPair<>(youTrackDB, factoryMap);
-      }
-      if (youTrackDB != ytdbFactoryMap.first()) {
+    storagePathYTDBMap.compute(dbPath, (dp, mappedYouTrackDB) -> {
+      if (mappedYouTrackDB != null && mappedYouTrackDB.isOpen() && youTrackDB != mappedYouTrackDB) {
         throw new IllegalStateException(
             "YouTrackDB instance is already created for path " + dbPath);
       }
 
-      return ytdbFactoryMap;
+      return youTrackDB;
     });
   }
 
   public static void unregisterYTDBInstance(String dbPath) {
-    var factoryMap = dbFactoriesMap.remove(dbPath);
-    factoryMap.second().values().forEach(factory -> {
-      try {
-        factory.close();
-      } catch (Exception e) {
-        LogManager.instance()
-            .error(YTDBGraphFactory.class, "Error closing YouTrackDB Graph Factory instance",
-                e);
-      }
-    });
-  }
-
-  public static boolean isYTDBInstanceRegistered(String dbPath) {
-    return dbFactoriesMap.containsKey(dbPath);
-  }
-
-  public static boolean registerYTDBInstanceIfNotExist(String dbPath, YouTrackDB youTrackDB) {
-    var result = dbFactoriesMap.computeIfAbsent(dbPath,
-        dp -> new RawPair<>(youTrackDB, new ConcurrentHashMap<>()));
-    return result.first() == youTrackDB;
+    var ytdb = storagePathYTDBMap.remove(dbPath);
+    try {
+      ytdb.close();
+    } catch (Exception e) {
+      LogManager.instance()
+          .error(YTDBGraphFactory.class, "Error closing YouTrackDB instance.",
+              e);
+    }
   }
 
   @Nullable
   public static YouTrackDB getYTDBInstance(String dbPath) {
-    var ytdbFactoryMap = dbFactoriesMap.get(dbPath);
-    if (ytdbFactoryMap == null) {
-      return null;
-    }
-
-    return dbFactoriesMap.get(dbPath).first();
-  }
-
-  private record YTDBInstanceConfiguration(String dbPath, String dbName, String user) {
-
+    return storagePathYTDBMap.get(dbPath);
   }
 }

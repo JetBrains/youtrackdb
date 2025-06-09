@@ -6,10 +6,12 @@ import java.util.Iterator;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
-public final class YTDBStatefulEdgeImpl extends YTDBElementImpl implements YTDBEdgeInternal,
+public class YTDBStatefulEdgeWrapper extends YTDBElementWrapper implements YTDBEdgeInternal,
     YTDBStatefulEdge {
-  public YTDBStatefulEdgeImpl(YTDBGraphInternal graph, StatefulEdge ytdbEdge) {
-    super(graph, ytdbEdge);
+
+  public YTDBStatefulEdgeWrapper(YTDBGraphInternal graph,
+      StatefulEdge rawEntity) {
+    super(graph, rawEntity);
   }
 
   @Override

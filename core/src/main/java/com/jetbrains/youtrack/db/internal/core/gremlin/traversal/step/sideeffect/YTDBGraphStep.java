@@ -5,8 +5,6 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphBaseQuery;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphQueryBuilder;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -46,15 +44,17 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
   }
 
   private Iterator<? extends Vertex> vertices() {
+    var graph = getGraph();
     return elements(
         YTDBGraph::vertices, YTDBGraph::vertices,
-        result -> new YTDBVertexImpl(getGraph(), result.asVertex()));
+        result -> graph.elementFactory().wrapVertex(graph, result.asVertex()));
   }
 
   private Iterator<? extends Edge> edges() {
+    var graph = getGraph();
     return elements(
         YTDBGraph::edges, YTDBGraph::edges,
-        result -> new YTDBStatefulEdgeImpl(getGraph(), result.asStatefulEdge()));
+        result -> graph.elementFactory().wrapEdge(graph, result.asStatefulEdge()));
   }
 
   /**

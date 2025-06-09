@@ -1,7 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
-import com.jetbrains.youtrack.db.api.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
@@ -25,7 +24,16 @@ public abstract class GraphBaseTest extends DbTestBase {
 
   protected Graph openGraph() {
     YTDBGraphFactory.registerYTDBInstance(dbPath, youTrackDB);
+
     var config = getBaseConfiguration();
+
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH, dbPath);
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME, databaseName);
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER, adminUser);
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_ROLE, "admin");
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_PWD, adminPassword);
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_TYPE, dbType);
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_CREATE_IF_NOT_EXISTS, true);
 
     return GraphFactory.open(config);
   }
@@ -47,8 +55,6 @@ public abstract class GraphBaseTest extends DbTestBase {
   @After
   public void closeGraphDB() throws Exception {
     graph.close();
-
-    YTDBGraphFactory.unregisterYTDBInstance(dbPath);
   }
 
   protected static int usedIndexes(Graph graph, GraphTraversal<?, ?> traversal) {

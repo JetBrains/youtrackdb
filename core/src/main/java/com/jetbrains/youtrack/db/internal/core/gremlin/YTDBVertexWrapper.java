@@ -6,20 +6,21 @@ import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
-public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexInternal {
-  public YTDBVertexImpl(final YTDBGraphInternal graph,
-      final com.jetbrains.youtrack.db.api.record.Vertex rawElement) {
-    super(graph, rawElement);
-  }
+public final class YTDBVertexWrapper extends YTDBElementWrapper implements YTDBVertexInternal {
 
-  @Override
-  public <V> VertexProperty<V> property(final String key, final V value) {
-    return new YTDBVertexPropertyImpl<>(super.property(key, value), this);
+  public YTDBVertexWrapper(YTDBGraphInternal graph,
+      com.jetbrains.youtrack.db.api.record.Vertex rawEntity) {
+    super(graph, rawEntity);
   }
 
   @Override
   public <V> VertexProperty<V> property(String key) {
     return YTDBVertexInternal.super.property(key);
+  }
+
+  @Override
+  public <V> VertexProperty<V> property(final String key, final V value) {
+    return new YTDBVertexPropertyImpl<>(super.property(key, value), this);
   }
 
   @Override
@@ -32,7 +33,8 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
         .map(
             p ->
                 (VertexProperty<V>)
-                    new YTDBVertexPropertyImpl<>(p.key(), p.value(), (YTDBVertexImpl) p.element()))
+                    new YTDBVertexPropertyImpl<>(p.key(), p.value(),
+                        (org.apache.tinkerpop.gremlin.structure.Vertex) p.element()))
         .iterator();
   }
 

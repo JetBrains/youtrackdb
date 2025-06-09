@@ -12,18 +12,19 @@ import java.util.stream.Stream;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
 public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     VertexProperty<V> {
 
-  public YTDBVertexPropertyImpl(Property<V> property, YTDBVertexImpl vertex) {
-    super(property.key(), property.value(), vertex);
+  public YTDBVertexPropertyImpl(Property<V> property, Vertex vertex) {
+    super(property.key(), property.value(), (YTDBAbstractElement) vertex);
   }
 
-  public YTDBVertexPropertyImpl(String key, V value, YTDBVertexImpl vertex) {
-    super(key, value, vertex);
+  public YTDBVertexPropertyImpl(String key, V value, Vertex vertex) {
+    super(key, value, (YTDBAbstractElement) vertex);
   }
 
   @Override

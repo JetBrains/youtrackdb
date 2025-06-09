@@ -3,15 +3,19 @@ package com.jetbrains.youtrack.db.internal.core.gremlin.gremlintest;
 import com.google.common.collect.Sets;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
-import com.jetbrains.youtrack.db.api.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapper;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexWrapper;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.HashMap;
 import java.util.List;
@@ -28,6 +32,7 @@ import org.junit.AssumptionViolatedException;
 
 
 public class YTDBGraphProvider extends AbstractGraphProvider {
+
   protected static final Map<Class<?>, List<String>> IGNORED_TESTS;
 
   static {
@@ -73,11 +78,16 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
   @Override
   public Set<Class> getImplementations() {
     return Sets.newHashSet(
-        YTDBStatefulEdgeImpl.class,
+        YTDBAbstractElement.class,
+        YTDBElementWrapper.class,
         YTDBElementImpl.class,
+        YTDBStatefulEdgeImpl.class,
+        YTDBStatefulEdgeWrapper.class,
         YTDBGraphImpl.class,
         YTDBPropertyImpl.class,
         YTDBVertexImpl.class,
+        YTDBVertexWrapper.class,
+        YTDBStatefulEdgeWrapper.class,
         YTDBVertexPropertyImpl.class);
   }
 

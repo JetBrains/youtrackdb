@@ -27,7 +27,6 @@ import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
-import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
@@ -1758,7 +1757,7 @@ public class FrontendTransactionImpl implements
   public GraphTraversalSource traversal() {
     checkIfActive();
 
-    return YTDBGraph.wrapSession(session).traversal();
+    return session.asGraph().traversal();
   }
 
   @Override
