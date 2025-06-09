@@ -4,7 +4,6 @@ import com.google.common.collect.Sets;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapper;
@@ -61,7 +60,7 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
     configs.put(Graph.GRAPH, YTDBGraph.class.getName());
 
     var dbType = calculateDbType();
-    var directoryPath = DbTestBase.getBaseDirectoryPath(getClass());
+    var directoryPath = getWorkingDirectory();
 
     configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME, graphName);
     configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER, "adminuser");
@@ -93,19 +92,21 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
 
   @Override
   public void clear(Graph graph, Configuration configuration) {
+
     if (graph != null) {
       try {
         graph.close();
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
+    }
 
+    if (configuration != null) {
       var ytdb = YTDBGraphFactory.getYTDBInstance(
           configuration.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH));
       var dbName = configuration.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME);
       if (ytdb != null && ytdb.exists(dbName)) {
         ytdb.drop(dbName);
-        YTDBGraphFactory.closeYTDBInstance(configuration);
       }
     }
   }

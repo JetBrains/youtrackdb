@@ -114,23 +114,6 @@ public class YTDBGraphFactory {
     }
   }
 
-  public static void closeYTDBInstance(Configuration configuration) {
-    var dbPath = configuration.getString(CONFIG_YOUTRACK_DB_PATH);
-    if (dbPath == null) {
-      throw new IllegalArgumentException(
-          "YouTrackDB path is not specified : " + CONFIG_YOUTRACK_DB_PATH);
-    }
-
-    var ytdb = storagePathYTDBMap.remove(dbPath);
-    if (ytdb != null) {
-      try {
-        ytdb.close();
-      } catch (Exception e) {
-        LogManager.instance().error(YTDBGraphFactory.class, "Error closing YouTrackDB instance", e);
-      }
-    }
-  }
-
   public static void registerYTDBInstance(String dbPath, YouTrackDB youTrackDB) {
     storagePathYTDBMap.compute(dbPath, (dp, mappedYouTrackDB) -> {
       if (mappedYouTrackDB != null && mappedYouTrackDB.isOpen() && youTrackDB != mappedYouTrackDB) {
@@ -140,17 +123,6 @@ public class YTDBGraphFactory {
 
       return youTrackDB;
     });
-  }
-
-  public static void unregisterYTDBInstance(String dbPath) {
-    var ytdb = storagePathYTDBMap.remove(dbPath);
-    try {
-      ytdb.close();
-    } catch (Exception e) {
-      LogManager.instance()
-          .error(YTDBGraphFactory.class, "Error closing YouTrackDB instance.",
-              e);
-    }
   }
 
   @Nullable
