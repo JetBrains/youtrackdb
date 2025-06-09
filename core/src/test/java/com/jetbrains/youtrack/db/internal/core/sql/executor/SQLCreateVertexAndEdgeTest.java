@@ -149,21 +149,23 @@ public class SQLCreateVertexAndEdgeTest extends DbTestBase {
    */
   @Test
   public void testSqlScriptThatCreatesEdge() {
+
+    final var before = session.computeInTx(tx -> {
+      try (final var result = tx.query("select from V")) {
+        return result.stream().count();
+      }
+    });
+
     var cmd = "begin;\n";
     cmd += "let a = create vertex set script = true;\n";
     cmd += "let b = select from v limit 1;\n";
     cmd += "let e = create edge from $a to $b;\n";
     cmd += "commit retry 100;\n";
     cmd += "return $e";
-
-    var result = session.query("select from V");
-    var before = result.stream().count();
-    result.close();
-
     session.computeScript("sql", cmd).close();
 
     session.begin();
-    result = session.query("select from V");
+    final var result = session.query("select from V");
     Assert.assertEquals(result.stream().count(), before + 1);
     session.commit();
   }

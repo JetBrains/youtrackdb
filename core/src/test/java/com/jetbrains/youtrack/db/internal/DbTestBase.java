@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.common.SessionPool;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
@@ -12,6 +13,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -68,8 +70,12 @@ public class DbTestBase {
         adminUser, adminPassword, "admin", readerUser, readerPassword, "reader");
     pool = youTrackDB.cachedPool(this.databaseName, adminUser, adminPassword, config);
 
-    session = (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, "admin", "adminpwd",
-        config);
+    session = openDatabase(config);
+  }
+
+  private DatabaseSessionEmbedded openDatabase(YouTrackDBConfig config) {
+    return (DatabaseSessionEmbedded)
+        context.open(this.databaseName, "admin", "adminpwd", config);
   }
 
   protected YouTrackDBConfig createConfig() {
@@ -176,5 +182,24 @@ public class DbTestBase {
     }
 
     runnable.run();
+  }
+
+  public void withOverriddenConfig(
+      GlobalConfiguration parameter,
+      Object value,
+      Consumer<DatabaseSessionEmbedded> action) {
+
+    var oldValue = parameter.getValue();
+    DatabaseSessionEmbedded session = null;
+    try {
+      parameter.setValue(value);
+      session = openDatabase(createConfig());
+      action.accept(session);
+    } finally {
+      parameter.setValue(oldValue);
+      if (session != null) {
+        session.close();
+      }
+    }
   }
 }

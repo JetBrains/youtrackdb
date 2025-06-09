@@ -118,6 +118,7 @@ public class FrontendTransactionImpl implements
   protected int txStartCounter;
   protected boolean sentToServer = false;
   private final boolean readOnly;
+  private final StackTraceElement[] creationStack;
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
 
@@ -129,6 +130,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txSerial.incrementAndGet();
     this.readOnly = readOnly;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
   public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long txId,
@@ -136,6 +138,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txId;
     this.readOnly = readOnly;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
 
@@ -143,6 +146,7 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = id;
     readOnly = false;
+    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
   @Override
@@ -584,7 +588,7 @@ public class FrontendTransactionImpl implements
             .writeTransactions()
             .record();
         try {
-          session.afterCommitOperations();
+          session.afterCommitOperations(true);
         } catch (Exception e) {
           LogManager.instance().error(this,
               "Error during after commit callback invocation", e);

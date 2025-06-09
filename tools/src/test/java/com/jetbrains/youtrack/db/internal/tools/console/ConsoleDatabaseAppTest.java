@@ -288,6 +288,7 @@ public class ConsoleDatabaseAppTest {
           new ConsoleDatabaseApp(args) {
             @Override
             protected void onException(Throwable e) {
+              e.printStackTrace();
               super.onException(e);
               fail(e.getMessage());
             }

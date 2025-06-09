@@ -342,9 +342,11 @@ public class SQLInsertTest extends BaseDBTest {
       schema.createClass("test");
     }
 
+    session.begin();
     final var usersCount = session.query("select count(*) as count from OUser");
     final long uCount = usersCount.next().getProperty("count");
     usersCount.close();
+    session.commit();
 
     session.begin();
     var doc =

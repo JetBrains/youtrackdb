@@ -29,7 +29,7 @@ public class RecreateIndexesTask implements Runnable {
   public void run() {
     try {
       final var newDb =
-          new DatabaseSessionEmbedded((Storage) ctx.getStorage());
+          new DatabaseSessionEmbedded((Storage) ctx.getStorage(), false);
       try (newDb) {
         newDb.activateOnCurrentThread();
         newDb.init(null, ctx);

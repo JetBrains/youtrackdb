@@ -489,6 +489,7 @@ public class SchemaTest extends BaseDBTest {
     }
     session.commit();
 
+    session.begin();
     try (var rs =
         session.query(
             "select from "
@@ -498,6 +499,7 @@ public class SchemaTest extends BaseDBTest {
                 + " = 'FOO'")) {
       Assert.assertFalse(rs.hasNext());
     }
+    session.commit();
 
     session.begin();
     try (var rs =
