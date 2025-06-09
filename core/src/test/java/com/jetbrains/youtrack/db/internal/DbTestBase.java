@@ -75,7 +75,7 @@ public class DbTestBase {
 
   private DatabaseSessionEmbedded openDatabase(YouTrackDBConfig config) {
     return (DatabaseSessionEmbedded)
-        context.open(this.databaseName, "admin", "adminpwd", config);
+        youTrackDB.open(this.databaseName, "admin", "adminpwd", config);
   }
 
   protected YouTrackDBConfig createConfig() {
