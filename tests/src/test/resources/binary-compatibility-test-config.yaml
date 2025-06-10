@@ -1,0 +1,12 @@
+runs:
+  - dbs:
+      - name: "DbCreationTest"
+        location: "/Users/logart/dev/youtrackdb/tests/target/test-db"
+        user: "admin"
+        password: "admin"
+    versions:
+      - name: "1.0.0-SNAPSHOT"
+        jars:
+          - "file:/Users/logart/dev/youtrackdb/core/target/youtrackdb-core-1.0.0-SNAPSHOT.jar"
+          - "file:/Users/logart/dev/youtrackdb/client/target/youtrackdb-client-1.0.0-SNAPSHOT.jar"
+      - name: "current"
