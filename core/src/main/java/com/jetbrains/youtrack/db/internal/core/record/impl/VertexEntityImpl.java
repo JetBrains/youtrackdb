@@ -376,17 +376,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       return null;
     }
 
-    if (labels.length == 1 && labels[0].equalsIgnoreCase(EdgeInternal.CLASS_NAME)
-        && edgeType != EdgeType.LIGHTWEIGHT) {
-      return switch (direction) {
-        case OUT -> List.of(DIRECTION_OUT_PREFIX);
-        case IN -> List.of(DIRECTION_IN_PREFIX);
-        case BOTH -> List.of(DIRECTION_OUT_PREFIX, DIRECTION_IN_PREFIX);
-      };
-    }
-
     Set<String> allClassNames = new HashSet<>(labels.length);
-
     for (var className : labels) {
       allClassNames.add(className);
       var clazz = schema.getClass(className);
@@ -413,6 +403,16 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     var result = new ArrayList<String>(2 * allClassNames.size());
     for (var className : allClassNames) {
+      if (className.equals(EdgeInternal.CLASS_NAME)) {
+        var prefix = switch (direction) {
+          case OUT -> List.of(DIRECTION_OUT_PREFIX);
+          case IN -> List.of(DIRECTION_IN_PREFIX);
+          case BOTH -> List.of(DIRECTION_OUT_PREFIX, DIRECTION_IN_PREFIX);
+        };
+        result.addAll(prefix);
+        continue;
+      }
+
       switch (direction) {
         case OUT:
           result.add(DIRECTION_OUT_PREFIX + className);
