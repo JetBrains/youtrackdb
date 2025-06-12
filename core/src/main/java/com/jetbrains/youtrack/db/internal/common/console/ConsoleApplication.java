@@ -328,13 +328,9 @@ public class ConsoleApplication {
   }
 
   protected RESULT execute(String iCommand) {
-    var compLevel = getCompatibilityLevel();
-    if (compLevel >= ConsoleProperties.COMPATIBILITY_LEVEL_1) {
-
-      var result = executeServerCommand(iCommand);
-      if (result != RESULT.NOT_EXECUTED) {
-        return result;
-      }
+    var result = executeServerCommand(iCommand);
+    if (result != RESULT.NOT_EXECUTED) {
+      return result;
     }
 
     iCommand = iCommand.replaceAll("\n", ";\n");

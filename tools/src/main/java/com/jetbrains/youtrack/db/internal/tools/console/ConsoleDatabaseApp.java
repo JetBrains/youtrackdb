@@ -192,10 +192,42 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   }
 
   @ConsoleCommand(
-      aliases = {"use database"},
-      description = "Connect to a database or a remote Server instance",
+      description = "Connect to a YouTrackDB instance",
       onlineHelp = "Console-Command-Connect")
   public void connect(
+      @ConsoleParameter(
+          name = "url",
+          description = "The url of the remote server or the database to connect to in the format"
+              + " '<mode>:<path>'")
+      String iURL,
+      @ConsoleParameter(name = "user", description = "User name") String iUserName,
+      @ConsoleParameter(name = "password", description = "User password", optional = true)
+      String iUserPassword
+  ) throws IOException {
+    disconnect();
+
+    if (iUserPassword == null) {
+      message("Enter password: ");
+      final var br = new BufferedReader(new InputStreamReader(this.in));
+      iUserPassword = br.readLine();
+      message("\n");
+    }
+
+    var urlConnection = URLHelper.parseNew(iURL);
+    if (urlConnection.getType().equalsIgnoreCase("remote")) {
+      basicYouTrackDB = YourTracks.remote(urlConnection.getUrl(), iUserName, iUserPassword);
+    } else {
+      basicYouTrackDB = YourTracks.embedded(urlConnection.getPath());
+    }
+
+    message("OK");
+  }
+
+  @ConsoleCommand(
+      description = "Connect to a database or a remote Server instance",
+      onlineHelp = "Console-Command-Open"
+  )
+  public void open(
       @ConsoleParameter(
           name = "url",
           description =
@@ -417,7 +449,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       message(
           "\n"
               + "Not connected to the Server instance. You've to connect to the Server using"
-              + " server's credentials (look at orientdb-*server-config.xml file)");
+              + " server's credentials (look at youtrackdb-*server-config.xml file)");
     }
     out.println();
   }
@@ -1278,7 +1310,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       String storageType)
       throws IOException {
 
-    connect(iDatabaseURL, iUserName, iUserPassword);
+    open(iDatabaseURL, iUserName, iUserPassword);
     dropDatabase();
   }
 
@@ -1665,17 +1697,17 @@ public class ConsoleDatabaseApp extends ConsoleApplication
    * console command to open a db
    *
    * <p>usage: <code>
-   * open dbName dbUser dbPwd
+   * use dbName dbUser dbPwd
    * </code>
    */
-  @ConsoleCommand(description = "Open a database", onlineHelp = "Console-Command-Use")
-  public void open(
+  @ConsoleCommand(description = "Use a database", onlineHelp = "Console-Command-Use")
+  public void use(
       @ConsoleParameter(name = "db-name", description = "The database name") final String dbName,
       @ConsoleParameter(name = "user", description = "The database user") final String user,
       @ConsoleParameter(name = "password", description = "The database password") final String password) {
 
     if (basicYouTrackDB == null) {
-      message("Invalid context. Please use 'connect env' first");
+      message("Invalid context. Please use 'connect' first");
       return;
     }
 
@@ -1814,83 +1846,46 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
   @Override
   protected RESULT executeServerCommand(String iCommand) {
-    if (super.executeServerCommand(iCommand) == RESULT.NOT_EXECUTED) {
-      iCommand = iCommand.trim();
-      if (iCommand.toLowerCase().startsWith("connect ")) {
-        if (iCommand.substring("connect ".length()).trim().toLowerCase().startsWith("env ")) {
-          return connectEnv(iCommand);
-        }
-        return RESULT.NOT_EXECUTED;
-      }
-      if (basicYouTrackDB != null) {
-        var displayLimit = 20;
-        try {
-          if (properties.get(ConsoleProperties.LIMIT) != null) {
-            displayLimit = Integer.parseInt(properties.get(ConsoleProperties.LIMIT));
-          }
-          var rs = basicYouTrackDB.execute(iCommand);
-          var count = 0;
-          List<RawPair<RID, Object>> result = new ArrayList<>();
-          while (rs.hasNext() && (displayLimit < 0 || count < displayLimit)) {
-            var item = rs.next();
-            result.add(new RawPair<>(item.getIdentity(), item.toMap()));
-          }
-
-          currentResultSet = result;
-          dumpResultSet(displayLimit);
-          return RESULT.OK;
-        } catch (CommandExecutionException e) {
-          printError(e);
-          return RESULT.ERROR;
-        } catch (Exception e) {
-          if (e.getCause() instanceof CommandExecutionException) {
-            printError(e);
-            return RESULT.ERROR;
-          }
-          return RESULT.NOT_EXECUTED;
-        }
-      }
+    iCommand = iCommand.trim();
+    if (basicYouTrackDB == null) {
+      return RESULT.NOT_EXECUTED;
     }
-    return RESULT.NOT_EXECUTED;
-  }
+    if (!YouTrackDBInternal.extract(
+            (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ?>>) basicYouTrackDB)
+        .validateServerStatement(iCommand)) {
+      return RESULT.NOT_EXECUTED;
+    }
+    if (super.executeServerCommand(iCommand) != RESULT.NOT_EXECUTED) {
+      return RESULT.NOT_EXECUTED;
+    }
 
-  /**
-   * console command to open an YouTrackDB context
-   *
-   * <p>usage: <code>
-   * connect env URL serverUser serverPwd
-   * </code> eg. <code>
-   * connect env remote:localhost root root
-   * <p>
-   * connect env embedded:. root root
-   * </code>
-   */
-  private RESULT connectEnv(String iCommand) {
-    var p = iCommand.split(" ");
-    var parts = Arrays.stream(p).filter(x -> !x.isEmpty()).toList();
-    if (parts.size() < 3) {
-      error(String.format("\n!Invalid syntax: '%s'", iCommand));
+    var displayLimit = 20;
+    try {
+      if (properties.get(ConsoleProperties.LIMIT) != null) {
+        displayLimit = Integer.parseInt(properties.get(ConsoleProperties.LIMIT));
+      }
+      var rs = basicYouTrackDB.execute(iCommand);
+      var count = 0;
+      List<RawPair<RID, Object>> result = new ArrayList<>();
+      while (rs.hasNext() && (displayLimit < 0 || count < displayLimit)) {
+        var item = rs.next();
+        result.add(new RawPair<>(item.getIdentity(), item.toMap()));
+      }
+
+      currentResultSet = result;
+      dumpResultSet(displayLimit);
+      return RESULT.OK;
+    } catch (CommandExecutionException e) {
+      printError(e);
       return RESULT.ERROR;
+    } catch (Exception e) {
+      if (e.getCause() instanceof CommandExecutionException) {
+        printError(e);
+        return RESULT.ERROR;
+      }
+      return RESULT.NOT_EXECUTED;
     }
-    var url = parts.get(2);
-    String user = null;
-    String pw = null;
-
-    if (parts.size() > 4) {
-      user = parts.get(3);
-      pw = parts.get(4);
-    }
-
-    var urlConnection = URLHelper.parseNew(url);
-    if (urlConnection.getType().equalsIgnoreCase("remote")) {
-      basicYouTrackDB = YourTracks.remote(urlConnection.getUrl(), user, pw);
-    } else {
-      basicYouTrackDB = YourTracks.embedded(urlConnection.getPath());
-    }
-
-    return RESULT.OK;
   }
-
 
   @Override
   protected boolean isCollectingCommands(final String iLine) {
@@ -1982,7 +1977,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
   @Override
   protected String getPrompt() {
-    return String.format("orientdb%s> ", getContext());
+    return String.format("youtrackdb%s> ", getContext());
   }
 
   protected void setResultSet(final List<RawPair<RID, Object>> iResultSet) {
