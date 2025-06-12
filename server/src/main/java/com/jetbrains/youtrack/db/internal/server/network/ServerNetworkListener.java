@@ -69,7 +69,7 @@ public class ServerNetworkListener extends Thread {
       final ServerParameterConfiguration[] iParameters,
       final ServerCommandConfiguration[] iCommands) {
     super(
-        iServer.getThreadGroup(),
+        YouTrackDBServer.getThreadGroup(),
         "YouTrackDB " + iProtocol.getSimpleName() + " listen at " + iHostName + ":"
             + iHostPortRange);
     server = iServer;

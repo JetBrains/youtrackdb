@@ -26,6 +26,7 @@ import javax.annotation.Nonnull;
  * Listener Interface to receive callbacks on database usage.
  */
 public interface DatabaseLifecycleListener {
+
   enum PRIORITY {
     FIRST,
     EARLY,
@@ -38,13 +39,17 @@ public interface DatabaseLifecycleListener {
     return PRIORITY.LAST;
   }
 
-  void onCreate(@Nonnull DatabaseSessionInternal session);
+  default void onCreate(@Nonnull DatabaseSessionInternal session) {
+  }
 
-  void onOpen(@Nonnull DatabaseSessionInternal session);
+  default void onOpen(@Nonnull DatabaseSessionInternal session) {
+  }
 
-  void onClose(@Nonnull DatabaseSessionInternal session);
+  default void onClose(@Nonnull DatabaseSessionInternal session) {
+  }
 
-  void onDrop(@Nonnull DatabaseSessionInternal session);
+  default void onDrop(@Nonnull DatabaseSessionInternal session) {
+  }
 
   @Deprecated
   default void onCreateClass(DatabaseSessionEmbedded session, SchemaClassImpl iClass) {

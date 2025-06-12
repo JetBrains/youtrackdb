@@ -46,23 +46,6 @@ public class SQLServerStatement extends SimpleNode {
   }
 
 
-  public ResultSet execute(YouTrackDBInternal db, Object[] args) {
-    return execute(db, args, true);
-  }
-
-  public ResultSet execute(
-      YouTrackDBInternal db, Object[] args, ServerCommandContext parentContext) {
-    return execute(db, args, parentContext, true);
-  }
-
-  public ResultSet execute(YouTrackDBInternal db, Map args) {
-    return execute(db, args, true);
-  }
-
-  public ResultSet execute(YouTrackDBInternal db, Map args, ServerCommandContext parentContext) {
-    return execute(db, args, parentContext, true);
-  }
-
   public ResultSet execute(YouTrackDBInternal db, Object[] args, boolean usePlanCache) {
     return execute(db, args, null, usePlanCache);
   }

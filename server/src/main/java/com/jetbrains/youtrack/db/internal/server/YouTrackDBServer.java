@@ -15,7 +15,10 @@
  */
 package com.jetbrains.youtrack.db.internal.server;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -23,14 +26,19 @@ import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.common.console.ConsoleReader;
 import com.jetbrains.youtrack.db.internal.common.console.DefaultConsoleReader;
+import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.AnsiCode;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseTask;
 import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
@@ -38,11 +46,16 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.TokenAuthInfo;
 import com.jetbrains.youtrack.db.internal.core.security.InvalidPasswordException;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.server.handler.ConfigurableHooksManager;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
 import com.jetbrains.youtrack.db.internal.server.network.ServerSocketFactory;
@@ -62,19 +75,24 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimerTask;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
 public class YouTrackDBServer {
+
   private static final String ROOT_PASSWORD_VAR = "YOUTRACKDB_ROOT_PASSWORD";
 
-  private static ThreadGroup threadGroup;
   private CountDownLatch startupLatch;
   private CountDownLatch shutdownLatch;
   private final boolean shutdownEngineOnExit;
@@ -85,28 +103,25 @@ public class YouTrackDBServer {
   protected ServerConfigurationManager serverCfg;
   protected ContextConfiguration contextConfiguration;
   protected ServerShutdownHook shutdownHook;
-  protected Map<String, Class<? extends NetworkProtocol>> networkProtocols =
-      new HashMap<String, Class<? extends NetworkProtocol>>();
-  protected Map<String, ServerSocketFactory> networkSocketFactories =
-      new HashMap<String, ServerSocketFactory>();
-  protected List<ServerNetworkListener> networkListeners = new ArrayList<ServerNetworkListener>();
-  protected List<ServerLifecycleListener> lifecycleListeners =
-      new ArrayList<ServerLifecycleListener>();
+  protected Map<String, Class<? extends NetworkProtocol>> networkProtocols = new HashMap<>();
+  protected Map<String, ServerSocketFactory> networkSocketFactories = new HashMap<>();
+  protected List<ServerNetworkListener> networkListeners = new ArrayList<>();
+  protected List<ServerLifecycleListener> lifecycleListeners = new ArrayList<>();
   protected ServerPluginManager pluginManager;
   protected ConfigurableHooksManager hookManager;
-  private final Map<String, Object> variables = new HashMap<String, Object>();
+  private final Map<String, Object> variables = new HashMap<>();
   private String serverRootDirectory;
   private String databaseDirectory;
   private ClientConnectionManager clientConnectionManager;
   private HttpSessionManager httpSessionManager;
   private PushManager pushManager;
-  private ClassLoader extensionClassLoader;
   private TokenHandler tokenHandler;
 
   private YouTrackDBImpl context;
-  private YouTrackDBInternalEmbedded databases;
+  private YTDBInternalProxy databases;
 
-  protected Date startedOn = new Date();
+  private final Set<String> dbNamesCache = ConcurrentHashMap.newKeySet();
+  private final ReentrantLock dbCreationLock = new ReentrantLock();
 
   public YouTrackDBServer() {
     this(!YouTrackDBEnginesManager.instance().isInsideWebContainer());
@@ -132,8 +147,6 @@ public class YouTrackDBServer {
     LogManager.installCustomFormatter();
 
     defaultSettings();
-
-    threadGroup = new ThreadGroup("YouTrackDB Server");
 
     System.setProperty("com.sun.management.jmxremote", "true");
 
@@ -192,16 +205,15 @@ public class YouTrackDBServer {
    * Load an extension class by name.
    */
   private Class<?> loadClass(final String name) throws ClassNotFoundException {
-    var loaded = tryLoadClass(extensionClassLoader, name);
+    var loaded = tryLoadClass(Thread.currentThread().getContextClassLoader(), name);
+
     if (loaded == null) {
-      loaded = tryLoadClass(Thread.currentThread().getContextClassLoader(), name);
+      loaded = tryLoadClass(getClass().getClassLoader(), name);
       if (loaded == null) {
-        loaded = tryLoadClass(getClass().getClassLoader(), name);
-        if (loaded == null) {
-          loaded = Class.forName(name);
-        }
+        loaded = Class.forName(name);
       }
     }
+
     return loaded;
   }
 
@@ -306,7 +318,8 @@ public class YouTrackDBServer {
     databaseDirectory = (new File(databaseDirectory)).getCanonicalPath();
     databaseDirectory = FileUtils.getPath(databaseDirectory);
 
-    if (!databaseDirectory.endsWith("/")) {
+    if (!(!databaseDirectory.isEmpty()
+        && databaseDirectory.charAt(databaseDirectory.length() - 1) == '/')) {
       databaseDirectory += "/";
     }
 
@@ -314,18 +327,16 @@ public class YouTrackDBServer {
     for (var user : serverCfg.getUsers()) {
       builder.addGlobalUser(user.getName(), user.getPassword(), user.getResources());
     }
+
     YouTrackDBConfig config =
         builder
             .fromContext(contextConfiguration)
             .setSecurityConfig(new ServerSecurityConfig(this, this.serverCfg))
             .build();
 
-    databases = (YouTrackDBInternalEmbedded) YouTrackDBInternal.embedded(this.databaseDirectory,
-        config, true);
-    if (databases instanceof ServerAware) {
-      ((ServerAware) databases).init(this);
-    }
-
+    databases = new YTDBInternalProxy(
+        (YouTrackDBInternalEmbedded) YouTrackDBInternal.embedded(this.databaseDirectory,
+            config, true));
     context = databases.newYouTrackDb();
 
     LogManager.instance()
@@ -461,8 +472,7 @@ public class YouTrackDBServer {
 
   public boolean shutdown() {
     try {
-      var res = deinit();
-      return res;
+      return deinit();
     } finally {
       startupLatch = null;
       if (shutdownLatch != null) {
@@ -486,13 +496,13 @@ public class YouTrackDBServer {
         shutdownHook.cancel();
       }
 
-      for (ServerLifecycleListener l : lifecycleListeners) {
+      for (var l : lifecycleListeners) {
         l.onBeforeDeactivate();
       }
 
       lock.lock();
       try {
-        if (networkListeners.size() > 0) {
+        if (!networkListeners.isEmpty()) {
           // SHUTDOWN LISTENERS
           LogManager.instance().info(this, "Shutting down listeners:");
           // SHUTDOWN LISTENERS
@@ -506,7 +516,7 @@ public class YouTrackDBServer {
           }
         }
 
-        if (networkProtocols.size() > 0) {
+        if (!networkProtocols.isEmpty()) {
           // PROTOCOL SHUTDOWN
           LogManager.instance().info(this, "Shutting down protocols");
           networkProtocols.clear();
@@ -571,7 +581,7 @@ public class YouTrackDBServer {
 
   public Map<String, String> getAvailableStorageNames() {
     var dbs = listDatabases();
-    Map<String, String> toSend = new HashMap<String, String>();
+    Map<String, String> toSend = new HashMap<>();
     for (var dbName : dbs) {
       toSend.put(dbName, dbName);
     }
@@ -587,66 +597,15 @@ public class YouTrackDBServer {
         GlobalConfiguration.SERVER_OPEN_ALL_DATABASES_AT_STARTUP)) {
       return;
     }
+
+    dbNamesCache.clear();
+    dbNamesCache.addAll(databases.internal.listDatabases(null, null));
+
     databases.loadAllDatabases();
-  }
-
-  private boolean askForEncryptionKey(final String iDatabaseName) {
-    try {
-      Thread.sleep(500);
-    } catch (InterruptedException e) {
-    }
-
-    System.out.println();
-    System.out.println();
-    System.out.println(
-        AnsiCode.format(
-            "$ANSI{yellow"
-                + " +--------------------------------------------------------------------------+}"));
-    System.out.println(
-        AnsiCode.format(
-            String.format(
-                "$ANSI{yellow | INSERT THE KEY FOR THE ENCRYPTED DATABASE %-31s|}",
-                "'" + iDatabaseName + "'")));
-    System.out.println(
-        AnsiCode.format(
-            "$ANSI{yellow"
-                + " +--------------------------------------------------------------------------+}"));
-    System.out.println(
-        AnsiCode.format(
-            "$ANSI{yellow | To avoid this message set the environment variable or JVM setting      "
-                + "  |}"));
-    System.out.println(
-        AnsiCode.format(
-            "$ANSI{yellow | 'youtrackdb.storage.encryptionKey' to the key to use.                             "
-                + "  |}"));
-    System.out.println(
-        AnsiCode.format(
-            "$ANSI{yellow"
-                + " +--------------------------------------------------------------------------+}"));
-    System.out.print(
-        AnsiCode.format("\n$ANSI{yellow Database encryption key [BLANK=to skip opening]: }"));
-
-    final ConsoleReader reader = new DefaultConsoleReader();
-    try {
-      var key = reader.readPassword();
-      if (key != null) {
-        key = key.trim();
-        if (!key.isEmpty()) {
-          GlobalConfiguration.STORAGE_ENCRYPTION_KEY.setValue(key);
-          return true;
-        }
-      }
-    } catch (IOException e) {
-    }
-    return false;
   }
 
   public String getDatabaseDirectory() {
     return databaseDirectory;
-  }
-
-  public ThreadGroup getServerThreadGroup() {
-    return threadGroup;
   }
 
   /**
@@ -760,7 +719,7 @@ public class YouTrackDBServer {
     return this;
   }
 
-  public DatabaseSessionEmbedded openSession(final String iDbUrl, final ParsedToken iToken) {
+  public DatabaseSessionEmbedded openSession(final ParsedToken iToken) {
     return databases.open(new TokenAuthInfo(iToken), YouTrackDBConfig.defaultConfig());
   }
 
@@ -773,7 +732,7 @@ public class YouTrackDBServer {
       final String iDbUrl, final String user, final String password, NetworkProtocolData data) {
     final DatabaseSessionEmbedded database;
     var serverAuth = false;
-    database = databases.open(iDbUrl, user, password);
+    database = (DatabaseSessionEmbedded) databases.open(iDbUrl, user, password);
     if (SecurityUser.SERVER_USER_TYPE.equals(database.getCurrentUser().getUserType())) {
       serverAuth = true;
     }
@@ -839,7 +798,7 @@ public class YouTrackDBServer {
     for (var stg : configuration.storages) {
       if (stg.loadOnStartup) {
         var url = stg.path;
-        if (url.endsWith("/")) {
+        if (!url.isEmpty() && url.charAt(url.length() - 1) == '/') {
           url = url.substring(0, url.length() - 1);
         }
         url = url.replace('\\', '/');
@@ -889,7 +848,7 @@ public class YouTrackDBServer {
       try {
         // WAIT ANY LOG IS PRINTED
         Thread.sleep(1000);
-      } catch (InterruptedException e) {
+      } catch (InterruptedException ignored) {
       }
 
       System.out.println();
@@ -1022,7 +981,7 @@ public class YouTrackDBServer {
 
     if (configuration.handlers != null) {
       // ACTIVATE PLUGINS
-      final List<ServerPlugin> plugins = new ArrayList<ServerPlugin>();
+      final List<ServerPlugin> plugins = new ArrayList<>();
 
       for (var h : configuration.handlers) {
         if (h.parameters != null) {
@@ -1056,18 +1015,32 @@ public class YouTrackDBServer {
         pluginManager.registerPlugin(
             new ServerPluginInfo(plugin.getName(), null, null, null, plugin, null, 0, null));
 
-        pluginManager.callListenerBeforeConfig(plugin, h.parameters);
-        plugin.config(this, h.parameters);
-        pluginManager.callListenerAfterConfig(plugin, h.parameters);
+        try {
+          pluginManager.callListenerBeforeConfig(plugin, h.parameters);
+          plugin.config(this, h.parameters);
+          pluginManager.callListenerAfterConfig(plugin, h.parameters);
 
-        plugins.add(plugin);
+          plugins.add(plugin);
+        } catch (Exception e) {
+          pluginManager.callListenerAfterConfigError(plugin, e);
+
+          LogManager.instance()
+              .error(this, "Error on plugin registration: %s", e, plugin.getName());
+        }
       }
 
       // START ALL THE CONFIGURED PLUGINS
       for (var plugin : plugins) {
-        pluginManager.callListenerBeforeStartup(plugin);
-        plugin.startup();
-        pluginManager.callListenerAfterStartup(plugin);
+        try {
+          pluginManager.callListenerBeforeStartup(plugin);
+          plugin.startup();
+          pluginManager.callListenerAfterStartup(plugin);
+        } catch (Exception e) {
+          pluginManager.callListenerAfterStartupError(plugin, e);
+          var msg = "Error on plugin startup: " + e.getMessage();
+          LogManager.instance().error(this, msg, e);
+          throw BaseException.wrapException(new SystemException(msg), e, (String) null);
+        }
       }
     }
   }
@@ -1079,7 +1052,7 @@ public class YouTrackDBServer {
     return tokenHandler;
   }
 
-  public ThreadGroup getThreadGroup() {
+  public static ThreadGroup getThreadGroup() {
     return YouTrackDBEnginesManager.instance().getThreadGroup();
   }
 
@@ -1087,7 +1060,7 @@ public class YouTrackDBServer {
     databases.getSystemDatabase().init();
   }
 
-  public YouTrackDBInternalEmbedded getDatabases() {
+  public YTDBInternalProxy getDatabases() {
     return databases;
   }
 
@@ -1114,7 +1087,12 @@ public class YouTrackDBServer {
 
   public Set<String> listDatabases() {
     var dbs = databases.listDatabases(null, null);
-    dbs.remove(SystemDatabase.SYSTEM_DB_NAME);
+    if (dbs.contains(SystemDatabase.SYSTEM_DB_NAME)) {
+      var result = new HashSet<>(dbs);
+      result.remove(SystemDatabase.SYSTEM_DB_NAME);
+      return result;
+    }
+
     return dbs;
   }
 
@@ -1122,7 +1100,303 @@ public class YouTrackDBServer {
     databases.restore(name, null, null, null, path, YouTrackDBConfig.defaultConfig());
   }
 
-  public Date getStartedOn() {
-    return startedOn;
+  public final class YTDBInternalProxy implements YouTrackDBInternal<DatabaseSession>,
+      ServerAware {
+
+    private final YouTrackDBInternalEmbedded internal;
+
+    private YTDBInternalProxy(YouTrackDBInternalEmbedded internal) {
+      this.internal = internal;
+    }
+
+    @Override
+    public YouTrackDBImpl newYouTrackDb() {
+      return new YouTrackDBImpl(this);
+    }
+
+    @Override
+    public DatabaseSession open(String name, String user, String password) {
+      return internal.open(name, user, password);
+    }
+
+    @Override
+    public DatabaseSessionEmbedded open(String name, String user, String password,
+        YouTrackDBConfig config) {
+      return internal.open(name, user, password, config);
+    }
+
+    @Override
+    public DatabaseSessionEmbedded open(AuthenticationInfo authenticationInfo,
+        YouTrackDBConfig config) {
+      return internal.open(authenticationInfo, config);
+    }
+
+    @Override
+    public void create(String name, String user, String password, DatabaseType type) {
+      dbCreationLock.lock();
+      try {
+        internal.create(name, user, password, type);
+        dbNamesCache.add(name);
+      } finally {
+        dbCreationLock.unlock();
+      }
+
+    }
+
+    @Override
+    public void create(String name, String user, String password, DatabaseType type,
+        YouTrackDBConfig config) {
+      dbCreationLock.lock();
+      try {
+        internal.create(name, user, password, type, config);
+        dbNamesCache.add(name);
+      } finally {
+        dbCreationLock.unlock();
+      }
+
+    }
+
+    @Override
+    public boolean exists(String name, String user, String password) {
+      //system database is managed inside of embedded instance autonomously
+      if (SystemDatabase.SYSTEM_DB_NAME.equals(name)) {
+        return internal.exists(name, user, password);
+      }
+
+      return dbNamesCache.contains(name);
+    }
+
+    @Override
+    public void drop(String name, String user, String password) {
+      dbCreationLock.lock();
+      try {
+        internal.drop(name, user, password);
+        dbNamesCache.remove(name);
+      } finally {
+        dbCreationLock.unlock();
+      }
+
+    }
+
+    @Override
+    public Set<String> listDatabases(String user, String password) {
+      return Collections.unmodifiableSet(dbNamesCache);
+    }
+
+    @Override
+    public DatabasePoolInternal<DatabaseSession> openPool(String name, String user,
+        String password) {
+      return internal.openPool(name, user, password);
+    }
+
+    @Override
+    public DatabasePoolInternal<DatabaseSession> openPool(String name, String user, String password,
+        YouTrackDBConfig config) {
+      return internal.openPool(name, user, password, config);
+    }
+
+    @Override
+    public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+        String password) {
+      return internal.cachedPool(database, user, password);
+    }
+
+    @Override
+    public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
+        String password, YouTrackDBConfig config) {
+      return internal.cachedPool(database, user, password, config);
+    }
+
+    @Override
+    public DatabaseSession poolOpen(String name, String user, String password,
+        DatabasePoolInternal<DatabaseSession> pool) {
+      return internal.poolOpen(name, user, password, pool);
+    }
+
+    @Override
+    public void restore(String name, String user, String password, DatabaseType type, String path,
+        YouTrackDBConfig config) {
+      dbCreationLock.lock();
+      try {
+        internal.restore(name, user, password, type, path, config);
+        dbNamesCache.add(name);
+      } finally {
+        dbCreationLock.unlock();
+      }
+
+    }
+
+    @Override
+    public void restore(String name, InputStream in, Map<String, Object> options,
+        Callable<Object> callable, CommandOutputListener iListener) {
+      dbCreationLock.lock();
+      try {
+        internal.restore(name, in, options, callable, iListener);
+        dbNamesCache.add(name);
+      } finally {
+        dbCreationLock.unlock();
+      }
+    }
+
+    @Override
+    public void close() {
+      internal.close();
+    }
+
+    @Override
+    public void internalClose() {
+      internal.internalClose();
+    }
+
+    @Override
+    public void removePool(DatabasePoolInternal<DatabaseSession> toRemove) {
+      internal.removePool(toRemove);
+    }
+
+    @Override
+    public boolean isOpen() {
+      return internal.isOpen();
+    }
+
+    @Override
+    public boolean isEmbedded() {
+      return internal.isEmbedded();
+    }
+
+    @Override
+    public void removeShutdownHook() {
+      internal.removeShutdownHook();
+    }
+
+    @Override
+    public void forceDatabaseClose(String databaseName) {
+      internal.forceDatabaseClose(databaseName);
+    }
+
+    @Override
+    public BasicResultSet<BasicResult> executeServerStatementNamedParams(String script, String user,
+        String pw, Map<String, Object> params) {
+      var statement = SQLEngine.parseServerStatement(script, this);
+
+      var original = statement.execute(this, params, true);
+      LocalResultSetLifecycleDecorator result;
+      var prefetched = new InternalResultSet(null);
+      original.forEachRemaining(prefetched::add);
+      original.close();
+      result = new LocalResultSetLifecycleDecorator(prefetched);
+
+      //noinspection unchecked,rawtypes
+      return (BasicResultSet) result;
+    }
+
+    @Override
+    public BasicResultSet<BasicResult> executeServerStatementPositionalParams(String script,
+        String user, String pw, Object... params) {
+      var statement = SQLEngine.parseServerStatement(script, this);
+
+      var original = statement.execute(this, params, true);
+      LocalResultSetLifecycleDecorator result;
+      var prefetched = new InternalResultSet(null);
+      original.forEachRemaining(prefetched::add);
+      original.close();
+
+      result = new LocalResultSetLifecycleDecorator(prefetched);
+
+      //noinspection unchecked,rawtypes
+      return (BasicResultSet) result;
+    }
+
+    @Override
+    public void create(String name, String user, String password, DatabaseType type,
+        YouTrackDBConfig config, DatabaseTask<Void> createOps) {
+      dbCreationLock.lock();
+      try {
+        internal.create(name, user, password, type, config, createOps);
+        dbNamesCache.add(name);
+      } finally {
+        dbCreationLock.unlock();
+      }
+    }
+
+    @Override
+    public YouTrackDBConfigImpl getConfiguration() {
+      return internal.getConfiguration();
+    }
+
+    @Override
+    public SecuritySystem getSecuritySystem() {
+      return internal.getSecuritySystem();
+    }
+
+    @Override
+    public String getConnectionUrl() {
+      return internal.getConnectionUrl();
+    }
+
+    @Override
+    public void schedule(TimerTask task, long delay, long period) {
+      internal.schedule(task, delay, period);
+    }
+
+    @Override
+    public void scheduleOnce(TimerTask task, long delay) {
+      internal.scheduleOnce(task, delay);
+    }
+
+    @Override
+    public YouTrackDBServer getServer() {
+      return YouTrackDBServer.this;
+    }
+
+    public DatabaseSessionEmbedded openNoAuthorization(String name) {
+      return internal.openNoAuthorization(name);
+    }
+
+    public void loadAllDatabases() {
+      internal.loadAllDatabases();
+    }
+
+    public void initCustomStorage(String name, String path) {
+      internal.initCustomStorage(name, path);
+    }
+
+    public DatabaseSessionEmbedded openNoAuthenticate(String name, String user) {
+      return internal.openNoAuthenticate(name, user);
+    }
+
+    public <X> Future<X> execute(Callable<X> task) {
+      return internal.execute(task);
+    }
+
+    public Future<?> execute(Runnable task) {
+      return internal.execute(task);
+    }
+
+    public Collection<Storage> getStorages() {
+      return internal.getStorages();
+    }
+
+    public void networkRestore(String name, InputStream in, Callable<Object> callable) {
+      internal.networkRestore(name, in, callable);
+    }
+
+    @Override
+    public SystemDatabase getSystemDatabase() {
+      return internal.getSystemDatabase();
+    }
+
+    @Override
+    public boolean isMemoryOnly() {
+      return internal.isMemoryOnly();
+    }
+
+    @Override
+    public String getBasePath() {
+      return internal.getBasePath();
+    }
+
+    public ScriptManager getScriptManager() {
+      return internal.getScriptManager();
+    }
   }
 }

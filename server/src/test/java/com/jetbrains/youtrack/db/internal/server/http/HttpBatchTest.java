@@ -15,7 +15,7 @@ import org.junit.Before;
 public class HttpBatchTest extends BaseHttpDatabaseTest {
 
   @Before
-  public void beforeMethod() {
+  public void beforeMethod() throws Exception {
     getServer().getPlugin("script-interpreter").startup();
   }
 

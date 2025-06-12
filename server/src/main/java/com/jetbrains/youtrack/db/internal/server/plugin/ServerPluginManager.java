@@ -473,6 +473,16 @@ public class ServerPluginManager implements Service {
     }
   }
 
+  public void callListenerAfterConfigError(ServerPlugin plugin, Throwable e) {
+    for (var l : pluginListeners) {
+      try {
+        l.onAfterConfigError(plugin, e);
+      } catch (Exception ex) {
+        LogManager.instance().error(this, "callListenerAfterShutdown()", ex);
+      }
+    }
+  }
+
   public void callListenerBeforeStartup(final ServerPlugin plugin) {
     for (var l : pluginListeners) {
       try {
@@ -493,6 +503,16 @@ public class ServerPluginManager implements Service {
     }
   }
 
+  public void callListenerAfterStartupError(final ServerPlugin plugin, Throwable error) {
+    for (var l : pluginListeners) {
+      try {
+        l.onAfterStartup(plugin);
+      } catch (Exception ex) {
+        LogManager.instance().error(this, "callListenerAfterStartup()", ex);
+      }
+    }
+  }
+
   public void callListenerBeforeShutdown(final ServerPlugin plugin) {
     for (var l : pluginListeners) {
       try {
@@ -503,6 +523,7 @@ public class ServerPluginManager implements Service {
     }
   }
 
+
   public void callListenerAfterShutdown(final ServerPlugin plugin) {
     for (var l : pluginListeners) {
       try {
@@ -512,4 +533,6 @@ public class ServerPluginManager implements Service {
       }
     }
   }
+
+
 }

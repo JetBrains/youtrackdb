@@ -97,7 +97,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
   }
 
   public NetworkProtocolBinary(YouTrackDBServer server, final String iThreadName) {
-    super(server.getThreadGroup(), iThreadName);
+    super(YouTrackDBServer.getThreadGroup(), iThreadName);
     logClientExceptions =
         Level.parse(
             server

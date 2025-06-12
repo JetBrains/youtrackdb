@@ -158,6 +158,12 @@
         <artifactId>gremlin-test</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
+
+      <dependency>
+        <groupId>org.apache.tinkerpop</groupId>
+        <artifactId>gremlin-server</artifactId>
+        <version>${gremlin.version}</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
