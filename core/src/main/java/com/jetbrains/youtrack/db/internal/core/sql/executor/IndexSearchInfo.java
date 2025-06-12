@@ -1,52 +1,16 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import javax.annotation.Nonnull;
 
-public class IndexSearchInfo {
+public record IndexSearchInfo(
+    String fieldName,
+    boolean allowsRangeQueries,
+    boolean isMap,
+    boolean indexedByKey,
+    boolean indexedByValue,
+    @Nonnull SchemaClass schemaClass,
+    CommandContext ctx) {
 
-  private final boolean allowsRangeQueries;
-  private final boolean map;
-  private final boolean indexByKey;
-  private final String field;
-  private final CommandContext ctx;
-  private final boolean indexByValue;
-
-  public IndexSearchInfo(
-      String indexField,
-      boolean allowsRangeQueries,
-      boolean map,
-      boolean indexByKey,
-      boolean indexByValue,
-      CommandContext ctx) {
-    this.field = indexField;
-    this.allowsRangeQueries = allowsRangeQueries;
-    this.map = map;
-    this.indexByKey = indexByKey;
-    this.ctx = ctx;
-    this.indexByValue = indexByValue;
-  }
-
-  public String getField() {
-    return field;
-  }
-
-  public CommandContext getCtx() {
-    return ctx;
-  }
-
-  public boolean allowsRange() {
-    return allowsRangeQueries;
-  }
-
-  public boolean isMap() {
-    return map;
-  }
-
-  public boolean isIndexByKey() {
-    return indexByKey;
-  }
-
-  public boolean isIndexByValue() {
-    return indexByValue;
-  }
 }

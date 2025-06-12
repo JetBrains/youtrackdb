@@ -109,7 +109,7 @@ public class ImmutableSchema implements SchemaInternal {
 
       indexes.put(indexName.toLowerCase(Locale.ROOT),
           new IndexDefinition(indexName, indexDefinition.getClassName(),
-              Collections.unmodifiableList(indexDefinition.getFields()),
+              Collections.unmodifiableList(indexDefinition.getProperties()),
               SchemaClass.INDEX_TYPE.valueOf(index.getType()),
               indexDefinition.isNullValuesIgnored(), collateName, metadata));
     }

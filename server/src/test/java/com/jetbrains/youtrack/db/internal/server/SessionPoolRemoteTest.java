@@ -50,9 +50,11 @@ public class SessionPoolRemoteTest {
     var session = pool.acquire();
     session.command("create class Test");
 
+    session.begin();
     assertEquals(0,
         session.query("select count(*)  as count from Test").
             findFirst(res -> res.getLong("count")).longValue());
+    session.commit();
 
     session.command("begin");
     session.command("insert into Test");

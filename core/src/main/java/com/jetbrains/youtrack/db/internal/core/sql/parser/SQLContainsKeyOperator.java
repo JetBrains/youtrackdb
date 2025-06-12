@@ -2,8 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
+import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquals;
 import java.util.Map;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLContainsKeyOperator extends SimpleNode implements SQLBinaryCompareOperator {
 
@@ -16,7 +20,7 @@ public class SQLContainsKeyOperator extends SimpleNode implements SQLBinaryCompa
   }
 
   @Override
-  public boolean execute(Object left, Object right) {
+  public boolean execute(@Nonnull DatabaseSessionEmbedded session, Object left, Object right) {
     if (left == null) {
       return false;
     }
@@ -47,6 +51,19 @@ public class SQLContainsKeyOperator extends SimpleNode implements SQLBinaryCompa
     return true;
   }
 
+  @Nullable
+  @Override
+  public MergeResult mergeWithOperator(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SQLBinaryCompareOperator otherOperator, Object currentRight,
+      Object otherRight) {
+    if (QueryOperatorEquals.equals(session, currentRight, otherRight)) {
+      return new MergeResult(this, currentRight);
+    }
+
+    return null;
+  }
+
+  @Override
   public SQLContainsKeyOperator copy() {
     return this;
   }

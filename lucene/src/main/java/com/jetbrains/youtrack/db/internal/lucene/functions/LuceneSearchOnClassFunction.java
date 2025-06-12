@@ -6,6 +6,8 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
@@ -61,11 +63,15 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
       result = new ResultInternal(ctx.getDatabaseSession(), (Identifiable) iThis);
     }
 
-    var entity = result.asEntity();
+    var entity = (EntityImpl) result.asEntity();
 
     var session = ctx.getDatabaseSession();
-    var className = entity.getSchemaClassName();
-    var index = searchForIndex(ctx, className);
+    var schemaClass = entity.getImmutableSchemaClass(ctx.getDatabaseSession());
+    if (schemaClass == null) {
+      return false;
+    }
+
+    var index = searchForIndex(schemaClass);
 
     if (index == null) {
       return false;
@@ -76,8 +82,8 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
     var memoryIndex = getOrCreateMemoryIndex(ctx);
 
     var key =
-        index.getDefinition().getFields().stream()
-            .map(s -> entity.getProperty(s))
+        index.getDefinition().getProperties().stream()
+            .map(entity::getProperty)
             .collect(Collectors.toList());
 
     for (var field : index.buildDocument(ctx.getDatabaseSession(), key).getFields()) {
@@ -92,9 +98,9 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
     return memoryIndex.search(index.buildQuery(keyAndMetadata, session)) > 0.0f;
   }
 
-  private Map<String, ?> getMetadata(Object[] params) {
-
+  private static Map<String, ?> getMetadata(Object[] params) {
     if (params.length == 2) {
+      //noinspection unchecked
       return (Map<String, ?>) params[1];
     }
 
@@ -155,27 +161,28 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
       SQLFromClause target, CommandContext ctx, SQLExpression... args) {
     var item = target.getItem();
 
-    var className = item.getIdentifier().getStringValue();
+    var schemaClass = item.getSchemaClass(ctx.getDatabaseSession());
+    if (schemaClass == null) {
+      return null;
+    }
 
-    return searchForIndex(ctx, className);
+    return searchForIndex(schemaClass);
   }
 
   @Nullable
-  private static LuceneFullTextIndex searchForIndex(CommandContext ctx, String className) {
-    var db = ctx.getDatabaseSession();
-    var dbMetadata = db.getMetadata();
-
+  private static LuceneFullTextIndex searchForIndex(SchemaClassInternal schemaClass) {
     var indices =
-        dbMetadata.getImmutableSchemaSnapshot().getClassInternal(className).getIndexesInternal()
+        schemaClass.getIndexesInternal()
             .stream()
             .filter(idx -> idx instanceof LuceneFullTextIndex)
             .map(idx -> (LuceneFullTextIndex) idx)
             .toList();
 
     if (indices.size() > 1) {
-      throw new IllegalArgumentException("too many full-text indices on given class: " + className);
+      throw new IllegalArgumentException(
+          "too many full-text indices on given class: " + schemaClass.getName());
     }
 
-    return indices.isEmpty() ? null : indices.get(0);
+    return indices.isEmpty() ? null : indices.getFirst();
   }
 }

@@ -157,6 +157,7 @@ public class SQLDeleteStatement extends SQLStatement {
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public DeleteExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new DeleteExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling);

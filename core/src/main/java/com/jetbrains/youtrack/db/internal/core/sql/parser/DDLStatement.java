@@ -26,6 +26,7 @@ public abstract class DDLStatement extends SQLStatement {
 
   public abstract ExecutionStream executeDDL(CommandContext ctx);
 
+  @Override
   public ResultSet execute(
       DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
@@ -45,6 +46,7 @@ public abstract class DDLStatement extends SQLStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
+  @Override
   public ResultSet execute(
       DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
       boolean usePlanCache) {
@@ -58,6 +60,7 @@ public abstract class DDLStatement extends SQLStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     return new DDLExecutionPlan(ctx, this);
   }

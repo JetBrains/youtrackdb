@@ -92,9 +92,9 @@ public class CreateEdgeExecutionPlanner {
               .filter(Index::isUnique)
               .filter(
                   x ->
-                      x.getDefinition().getFields().size() == 2
-                          && x.getDefinition().getFields().contains("out")
-                          && x.getDefinition().getFields().contains("in"))
+                      x.getDefinition().getProperties().size() == 2
+                          && x.getDefinition().getProperties().contains("out")
+                          && x.getDefinition().getProperties().contains("in"))
               .map(Index::getName)
               .findFirst()
               .orElse(null);

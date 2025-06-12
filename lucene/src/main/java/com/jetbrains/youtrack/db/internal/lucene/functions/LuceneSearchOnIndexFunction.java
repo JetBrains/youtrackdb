@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
@@ -58,7 +59,7 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
     var memoryIndex = getOrCreateMemoryIndex(ctx);
 
     var key =
-        index.getDefinition().getFields().stream()
+        index.getDefinition().getProperties().stream()
             .map(result::getProperty)
             .collect(Collectors.toList());
 
@@ -145,23 +146,21 @@ public class LuceneSearchOnIndexFunction extends LuceneSearchFunctionTemplate {
   protected LuceneFullTextIndex searchForIndex(
       SQLFromClause target, CommandContext ctx, SQLExpression... args) {
 
-    var item = target.getItem();
-    var identifier = item.getIdentifier();
-    return searchForIndex(identifier.getStringValue(), ctx, args);
+    var schemaClass = target.getSchemaClass(ctx.getDatabaseSession());
+    if (schemaClass == null) {
+      return null;
+    }
+
+    return searchForIndex(schemaClass, ctx, args);
   }
 
   @Nullable
   private static LuceneFullTextIndex searchForIndex(
-      String className, CommandContext ctx, SQLExpression... args) {
+      SchemaClassInternal schemaClass, CommandContext ctx, SQLExpression... args) {
 
     var indexName = (String) args[0].execute((Identifiable) null, ctx);
 
-    final var database = ctx.getDatabaseSession();
-    var index =
-        database
-            .getSharedContext()
-            .getIndexManager()
-            .getClassIndex(database, className, indexName);
+    var index = schemaClass.getClassIndex(ctx.getDatabaseSession(), indexName);
 
     if (index instanceof LuceneFullTextIndex) {
       return (LuceneFullTextIndex) index;

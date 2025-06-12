@@ -15,7 +15,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -356,12 +355,12 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testFetchedJson() {
+    session.begin();
     var rs = session
         .query("select * from Profile where name = 'Barack' and surname = 'Obama'");
-    final var resultSet =
-        rs.toList();
-
+    final var resultSet = rs.toList();
     rs.close();
+    session.commit();
 
     for (var result : resultSet) {
       final var entity = result.asEntity();
@@ -1072,7 +1071,7 @@ public class JSONTest extends BaseDBTest {
         );
         Assert.fail("Nested entities should not be allowed to have links inside them.");
       } catch (SerializationException ex) {
-        Assert.assertTrue(ex.getCause() instanceof DatabaseException);
+        Assert.assertTrue(ex.getCause() instanceof IllegalArgumentException);
       }
     });
   }

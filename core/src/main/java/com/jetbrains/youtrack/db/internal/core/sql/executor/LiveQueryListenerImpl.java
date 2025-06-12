@@ -104,7 +104,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
   }
 
   private static void validateStatement(SQLSelectStatement statement,
-      DatabaseSessionInternal session) {
+      DatabaseSessionEmbedded session) {
     if (statement.getProjection() != null) {
       if (statement.getProjection().getItems().stream().anyMatch(x -> x.isAggregate(session))) {
         throw new CommandExecutionException(session,
@@ -130,6 +130,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
     }
   }
 
+  @Override
   public int getToken() {
     return token;
   }

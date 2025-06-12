@@ -317,6 +317,12 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyImpl
   }
 
   @Override
+  public PropertyTypeInternal getTypeInternal() {
+    assert session.assertIfNotActive();
+    return delegate.getTypeInternal();
+  }
+
+  @Override
   public int hashCode() {
     if (hashCode == 0) {
       var name = delegate.getName();

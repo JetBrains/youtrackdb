@@ -2,10 +2,10 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -27,6 +27,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (inputValue != null) {
       inputValue.toString(params, builder);
@@ -95,11 +96,14 @@ public class SQLArrayNumberSelector extends SimpleNode {
     return false;
   }
 
+  @Override
   public SQLArrayNumberSelector copy() {
     var result = new SQLArrayNumberSelector(-1);
+
     result.inputValue = inputValue == null ? null : inputValue.copy();
     result.expressionValue = expressionValue == null ? null : expressionValue.copy();
     result.integer = integer;
+
     return result;
   }
 
@@ -141,13 +145,13 @@ public class SQLArrayNumberSelector extends SimpleNode {
     return expressionValue != null && expressionValue.refersToParent();
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (inputValue != null) {
-      result.setProperty("inputValue", inputValue.serialize(db));
+      result.setProperty("inputValue", inputValue.serialize(session));
     }
     if (expressionValue != null) {
-      result.setProperty("expressionValue", expressionValue.serialize(db));
+      result.setProperty("expressionValue", expressionValue.serialize(session));
     }
     result.setProperty("integer", integer);
     return result;

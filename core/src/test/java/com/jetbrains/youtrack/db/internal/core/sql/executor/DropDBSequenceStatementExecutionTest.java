@@ -59,12 +59,14 @@ public class DropDBSequenceStatementExecutionTest extends DbTestBase {
 
     var result = session.execute("drop sequence " + name + " if exists");
     Assert.assertFalse(result.hasNext());
+    result.close();
 
     try {
       session.getMetadata()
           .getSequenceLibrary()
           .createSequence(name, DBSequence.SEQUENCE_TYPE.CACHED, new DBSequence.CreateParams());
     } catch (DatabaseException exc) {
+      exc.printStackTrace();
       Assert.fail("Creating sequence failed");
     }
 

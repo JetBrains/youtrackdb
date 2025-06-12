@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InsertExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -132,7 +132,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (expression != null) {
       return expression.isAggregate(session);
     }
@@ -244,13 +244,13 @@ public class SQLParenthesisExpression extends SQLMathExpression {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = (ResultInternal) super.serialize(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = (ResultInternal) super.serialize(session);
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     if (statement != null) {
-      result.setProperty("statement", statement.serialize(db));
+      result.setProperty("statement", statement.serialize(session));
     }
     return result;
   }
@@ -268,7 +268,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (expression != null) {
       return expression.isCacheable(session);
     }

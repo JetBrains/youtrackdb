@@ -12,7 +12,6 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.SelectExecutionPlanner;
@@ -128,6 +127,7 @@ public class SQLSelectStatement extends SQLStatement {
     this.letClause = letClause;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
 
     builder.append("SELECT");
@@ -191,6 +191,7 @@ public class SQLSelectStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
 
     builder.append("SELECT");
@@ -254,6 +255,7 @@ public class SQLSelectStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void validate() throws CommandSQLParsingException {
     if (projection != null) {
       projection.validate();
@@ -264,7 +266,7 @@ public class SQLSelectStatement extends SQLStatement {
   }
 
   @Override
-  public boolean executinPlanCanBeCached(DatabaseSessionInternal session) {
+  public boolean executinPlanCanBeCached(DatabaseSessionEmbedded session) {
     if (originalStatement == null) {
       setOriginalStatement(this.toString());
     }
@@ -326,10 +328,10 @@ public class SQLSelectStatement extends SQLStatement {
       executionPlan = createExecutionPlanNoCache(ctx, false);
     }
 
-    var result = new LocalResultSet(session, executionPlan);
-    return result;
+    return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new SelectExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling, true);
@@ -338,6 +340,7 @@ public class SQLSelectStatement extends SQLStatement {
     return result;
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlanNoCache(
       CommandContext ctx, boolean enableProfiling) {
     var planner = new SelectExecutionPlanner(this);
@@ -493,46 +496,48 @@ public class SQLSelectStatement extends SQLStatement {
     this.noCache = noCache;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = (ResultInternal) super.serialize(db);
+  @Override
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = (ResultInternal) super.serialize(session);
     if (target != null) {
-      result.setProperty("target", target.serialize(db));
+      result.setProperty("target", target.serialize(session));
     }
     if (projection != null) {
-      result.setProperty("projection", projection.serialize(db));
+      result.setProperty("projection", projection.serialize(session));
     }
     if (whereClause != null) {
-      result.setProperty("whereClause", whereClause.serialize(db));
+      result.setProperty("whereClause", whereClause.serialize(session));
     }
     if (groupBy != null) {
-      result.setProperty("groupBy", groupBy.serialize(db));
+      result.setProperty("groupBy", groupBy.serialize(session));
     }
     if (orderBy != null) {
-      result.setProperty("orderBy", orderBy.serialize(db));
+      result.setProperty("orderBy", orderBy.serialize(session));
     }
     if (unwind != null) {
-      result.setProperty("unwind", unwind.serialize(db));
+      result.setProperty("unwind", unwind.serialize(session));
     }
     if (skip != null) {
-      result.setProperty("skip", skip.serialize(db));
+      result.setProperty("skip", skip.serialize(session));
     }
     if (limit != null) {
-      result.setProperty("limit", limit.serialize(db));
+      result.setProperty("limit", limit.serialize(session));
     }
     if (fetchPlan != null) {
-      result.setProperty("fetchPlan", fetchPlan.serialize(db));
+      result.setProperty("fetchPlan", fetchPlan.serialize(session));
     }
     if (letClause != null) {
-      result.setProperty("letClause", letClause.serialize(db));
+      result.setProperty("letClause", letClause.serialize(session));
     }
     if (timeout != null) {
-      result.setProperty("timeout", timeout.serialize(db));
+      result.setProperty("timeout", timeout.serialize(session));
     }
     result.setProperty("parallel", parallel);
     result.setProperty("noCache", noCache);
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     if (fromResult.getProperty("target") != null) {
       target = new SQLFromClause(-1);

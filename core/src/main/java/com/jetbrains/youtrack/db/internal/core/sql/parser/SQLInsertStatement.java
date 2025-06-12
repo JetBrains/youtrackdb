@@ -159,6 +159,7 @@ public class SQLInsertStatement extends SQLStatement {
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public InsertExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new InsertExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling);

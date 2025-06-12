@@ -471,8 +471,8 @@ public interface Index extends Comparable<Index> {
     if (item == null) {
       return null;
     }
-    if (idx.getDefinition().getFields().size() == 1) {
-      var indexProp = idx.getDefinition().getFields().getFirst();
+    if (idx.getDefinition().getProperties().size() == 1) {
+      var indexProp = idx.getDefinition().getProperties().getFirst();
       if (isLabelSecurityDefined(session, security, indexClass, indexProp)) {
         try {
           var transaction = session.getActiveTransaction();

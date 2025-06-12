@@ -18,6 +18,7 @@
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
+      <module name="youtrackdb-gremlin" target="21" />
       <module name="youtrackdb-jdbc" target="21" />
     </bytecodeTargetLevel>
   </component>

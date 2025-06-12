@@ -42,7 +42,7 @@ public interface IndexDefinition extends IndexCallback {
    * @return Names of fields which given index is used to calculate key value. Order of fields is
    * important.
    */
-  List<String> getFields();
+  List<String> getProperties();
 
   /**
    * @return Names of fields and their index modifiers (like "by value" for fields that hold <code>

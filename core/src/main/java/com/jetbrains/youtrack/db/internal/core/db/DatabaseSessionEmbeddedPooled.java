@@ -31,8 +31,8 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
   private final DatabasePoolInternal<DatabaseSession> pool;
 
   public DatabaseSessionEmbeddedPooled(DatabasePoolInternal<DatabaseSession> pool,
-      Storage storage) {
-    super(storage);
+      Storage storage, boolean serverMode) {
+    super(storage, serverMode);
     this.pool = pool;
   }
 

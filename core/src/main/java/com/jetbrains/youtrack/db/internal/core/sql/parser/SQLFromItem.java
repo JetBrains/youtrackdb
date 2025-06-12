@@ -3,13 +3,15 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLFromItem extends SimpleNode {
 
@@ -30,6 +32,7 @@ public class SQLFromItem extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (rids != null && !rids.isEmpty()) {
       if (rids.size() == 1) {
@@ -85,6 +88,7 @@ public class SQLFromItem extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (rids != null && !rids.isEmpty()) {
       if (rids.size() == 1) {
@@ -144,6 +148,20 @@ public class SQLFromItem extends SimpleNode {
     return identifier;
   }
 
+  @Nullable
+  public SchemaClassInternal getSchemaClass(DatabaseSessionEmbedded session) {
+    if (identifier == null) {
+      return null;
+    }
+
+    var stringValue = identifier.getStringValue();
+    if (stringValue != null && !stringValue.isEmpty()) {
+      return session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(stringValue);
+    }
+
+    return null;
+  }
+
   public List<SQLRid> getRids() {
     return rids;
   }
@@ -172,6 +190,7 @@ public class SQLFromItem extends SimpleNode {
     return modifier;
   }
 
+  @Override
   public SQLFromItem copy() {
     var result = new SQLFromItem(-1);
     if (rids != null) {
@@ -271,33 +290,33 @@ public class SQLFromItem extends SimpleNode {
     this.inputParams = inputParams;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (rids != null) {
       result.setProperty(
-          "rids", rids.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          "rids", rids.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     if (inputParams != null) {
       result.setProperty(
-          "inputParams", rids.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          "inputParams", rids.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     if (metadata != null) {
-      result.setProperty("metadata", metadata.serialize(db));
+      result.setProperty("metadata", metadata.serialize(session));
     }
     if (statement != null) {
-      result.setProperty("statement", statement.serialize(db));
+      result.setProperty("statement", statement.serialize(session));
     }
     if (inputParam != null) {
-      result.setProperty("inputParam", inputParam.serialize(db));
+      result.setProperty("inputParam", inputParam.serialize(session));
     }
     if (identifier != null) {
-      result.setProperty("identifier", identifier.serialize(db));
+      result.setProperty("identifier", identifier.serialize(session));
     }
     if (functionCall != null) {
-      result.setProperty("functionCall", functionCall.serialize(db));
+      result.setProperty("functionCall", functionCall.serialize(session));
     }
     if (modifier != null) {
-      result.setProperty("modifier", modifier.serialize(db));
+      result.setProperty("modifier", modifier.serialize(session));
     }
 
     return result;
@@ -344,7 +363,7 @@ public class SQLFromItem extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (modifier != null) {
       return false;
     }
@@ -358,7 +377,7 @@ public class SQLFromItem extends SimpleNode {
       return statement.executinPlanCanBeCached(session);
     }
     if (functionCall != null) {
-      return functionCall.isCacheable();
+      return functionCall.isCacheable(session);
     }
 
     return true;

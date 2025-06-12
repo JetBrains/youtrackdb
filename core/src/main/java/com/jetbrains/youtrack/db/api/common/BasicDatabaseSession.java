@@ -51,6 +51,7 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
    * Closes an opened database, if the database is already closed does nothing, if a transaction is
    * active will be rollback.
    */
+  @Override
   void close();
 
   /**
@@ -141,6 +142,11 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
     return computeScript("sql", script, args);
   }
 
+  default RS computeGremlinScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("gremlin", script, args);
+  }
+
   default void executeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     computeScript(language, script, args).close();
@@ -149,6 +155,11 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
   default void executeSQLScript(String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     executeScript("sql", script, args);
+  }
+
+  default void executeGremlinScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("gremlin", script, args);
   }
 
   /**
@@ -171,10 +182,13 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
       Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException;
 
-  default RS computeSQLScript(String script,
-      Map<String, ?> args)
+  default RS computeSQLScript(String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     return computeScript("sql", script, args);
+  }
+
+  default RS computeGremlinScript(String language, String script, Map<String, ?> args) {
+    return computeScript("gremlin", script, args);
   }
 
   default void executeScript(String language, String script,
@@ -183,10 +197,14 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
     computeScript(language, script, args).close();
   }
 
-  default void executeSQLScript(String script,
-      Map<String, ?> args)
+  default void executeSQLScript(String script, Map<String, ?> args)
       throws CommandExecutionException, CommandScriptException {
     executeScript("sql", script, args);
+  }
+
+  default void executeGremlinScript(String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("gremlin", script, args);
   }
 
   /**

@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
@@ -37,13 +38,13 @@ public class UpsertStep extends AbstractExecutionStep {
     return ExecutionStream.singleton(createNewRecord(ctx, commandTarget, initialFilter));
   }
 
-  private Result createNewRecord(
+  private static Result createNewRecord(
       CommandContext ctx, SQLFromClause commandTarget, SQLWhereClause initialFilter) {
     var session = ctx.getDatabaseSession();
     EntityImpl entity;
-    if (commandTarget.getItem().getIdentifier() != null) {
-      entity = (EntityImpl) session.newEntity(
-          commandTarget.getItem().getIdentifier().getStringValue());
+    var cls = commandTarget.getSchemaClass(session);
+    if (cls != null) {
+      entity = (EntityImpl) session.newEntity(cls);
     } else {
       throw new CommandExecutionException(session,
           "Cannot execute UPSERT on target '" + commandTarget + "'");
@@ -51,13 +52,14 @@ public class UpsertStep extends AbstractExecutionStep {
 
     var result = new UpdatableResult(ctx.getDatabaseSession(), entity);
     if (initialFilter != null) {
-      setContent(result, initialFilter);
+      setContent(result, initialFilter, cls, ctx);
     }
     return result;
   }
 
-  private void setContent(ResultInternal res, SQLWhereClause initialFilter) {
-    var flattened = initialFilter.flatten();
+  private static void setContent(ResultInternal res, SQLWhereClause initialFilter,
+      SchemaClassInternal schemaClass, CommandContext ctx) {
+    var flattened = initialFilter.flatten(ctx, schemaClass);
     if (flattened.isEmpty()) {
       return;
     }

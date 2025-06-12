@@ -169,7 +169,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
     Assert.assertEquals("index type", "FULLTEXT", index.getType());
     Assert.assertEquals("Key type", PropertyTypeInternal.STRING, index.getKeyTypes()[0]);
     Assert.assertEquals(
-        "Definition field", "StringEMBEDDEDMAP", index.getDefinition().getFields().get(0));
+        "Definition field", "StringEMBEDDEDMAP", index.getDefinition().getProperties().get(0));
     Assert.assertEquals(
         "Definition field to index",
         "StringEMBEDDEDMAP by value",

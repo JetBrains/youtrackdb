@@ -302,8 +302,11 @@ public class ResultInternal implements Result, BasicResultInternal {
             }
           } else {
             if (allIdentifiable) {
-              throw new IllegalArgumentException(
-                  "Invalid property value, if list contains identifiables, it should contain only them");
+              var lst = new EmbeddedListResultImpl<>(array.length);
+              lst.addAll(listCopy);
+
+              listCopy = lst;
+              allIdentifiable = false;
             }
             if (listCopy == null) {
               listCopy = new EmbeddedListResultImpl<>(array.length);
@@ -332,8 +335,11 @@ public class ResultInternal implements Result, BasicResultInternal {
             }
           } else {
             if (allIdentifiable) {
-              throw new IllegalArgumentException(
-                  "Invalid property value, if list contains identifiables, it should contain only them");
+              var lst = new EmbeddedListResultImpl<>(collection.size());
+              lst.addAll(listCopy);
+
+              listCopy = lst;
+              allIdentifiable = false;
             }
             if (listCopy == null) {
               listCopy = new EmbeddedListResultImpl<>(collection.size());

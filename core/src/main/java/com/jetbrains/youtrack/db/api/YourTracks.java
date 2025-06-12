@@ -30,7 +30,7 @@ public abstract class YourTracks {
    * @param config        custom configuration for current environment
    */
   public static YouTrackDB embedded(String directoryPath, YouTrackDBConfig config) {
-    return new YouTrackDBImpl(YouTrackDBInternal.embedded(directoryPath, config));
+    return new YouTrackDBImpl(YouTrackDBInternal.embedded(directoryPath, config, false));
   }
 
   /**

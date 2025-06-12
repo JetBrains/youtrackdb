@@ -4,12 +4,13 @@ import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Relation;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nullable;
 
-public class SQLFunctionInV extends SQLFunctionMove implements SQLGraphRelationsFunction {
+public class SQLFunctionInV extends SQLFunctionMove implements SQLGraphNavigationFunction {
 
   public static final String NAME = "inV";
 
@@ -31,7 +32,8 @@ public class SQLFunctionInV extends SQLFunctionMove implements SQLGraphRelations
 
   @Nullable
   @Override
-  public Collection<String> propertyNamesForIndexCandidates(String[] labels) {
+  public Collection<String> propertyNamesForIndexCandidates(String[] labels,
+      SchemaClass schemaClass, boolean polymorphic, DatabaseSessionEmbedded session) {
     return List.of(Edge.DIRECTION_IN);
   }
 }

@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -62,7 +63,7 @@ public class SQLValueExpression extends SQLExpression {
   }
 
   @Override
-  public boolean isIndexedFunctionCal(DatabaseSessionInternal session) {
+  public boolean isIndexedFunctionCal(DatabaseSessionEmbedded session) {
     return false;
   }
 
@@ -104,7 +105,7 @@ public class SQLValueExpression extends SQLExpression {
   }
 
   @Override
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     return false;
   }
 
@@ -174,7 +175,12 @@ public class SQLValueExpression extends SQLExpression {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
+  public boolean isEarlyCalculated(CommandContext ctx) {
+    return true;
+  }
+
+  @Override
+  public Result serialize(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException(
         "Cannot serialize value expression (not supported yet)");
   }
@@ -202,7 +208,7 @@ public class SQLValueExpression extends SQLExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return true;
   }
 }

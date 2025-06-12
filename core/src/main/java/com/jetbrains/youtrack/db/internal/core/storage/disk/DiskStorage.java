@@ -48,7 +48,6 @@ import com.jetbrains.youtrack.db.internal.core.compression.impl.ZIPCompressionUt
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.engine.local.EngineLocalPaginated;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidInstanceIdException;
@@ -138,9 +137,9 @@ import org.slf4j.LoggerFactory;
 /**
  * @since 28.03.13
  */
-public class LocalStorage extends AbstractStorage {
+public class DiskStorage extends AbstractStorage {
 
-  private static final Logger logger = LoggerFactory.getLogger(LocalStorage.class);
+  private static final Logger logger = LoggerFactory.getLogger(DiskStorage.class);
 
   private static final String INCREMENTAL_BACKUP_LOCK = "backup.ibl";
 
@@ -148,7 +147,7 @@ public class LocalStorage extends AbstractStorage {
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
 
   private static final ThreadLocal<Cipher> CIPHER =
-      ThreadLocal.withInitial(LocalStorage::getCipherInstance);
+      ThreadLocal.withInitial(DiskStorage::getCipherInstance);
 
   private static final String IBU_EXTENSION_V3 = ".ibu3";
   private static final int INCREMENTAL_BACKUP_VERSION = 423;
@@ -214,7 +213,7 @@ public class LocalStorage extends AbstractStorage {
 
   protected volatile byte[] iv;
 
-  public LocalStorage(
+  public DiskStorage(
       final String name,
       final String filePath,
       final int id,
@@ -274,6 +273,7 @@ public class LocalStorage extends AbstractStorage {
         .info(this, "Storage '%s' is created under YouTrackDB distribution : %s", additionalArgs);
   }
 
+  @Override
   protected void doCreate(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
     final var storageFolder = storagePath;
@@ -689,7 +689,7 @@ public class LocalStorage extends AbstractStorage {
           if (!dbDir.delete()) {
             LogManager.instance()
                 .error(
-                    LocalStorage.class,
+                    DiskStorage.class,
                     "Cannot delete storage directory with path "
                         + dbDir.getAbsolutePath()
                         + " because directory is not empty. Files: "
@@ -703,7 +703,7 @@ public class LocalStorage extends AbstractStorage {
       }
       LogManager.instance()
           .debug(
-              LocalStorage.class,
+              DiskStorage.class,
               "Cannot delete database files because they are still locked by the YouTrackDB process:"
                   + " waiting %d ms and retrying %d/%d...",
               logger, waitTime,
@@ -736,6 +736,7 @@ public class LocalStorage extends AbstractStorage {
     return startupMetadata.isDirty();
   }
 
+  @Override
   protected String getOpenedAtVersion() {
     return startupMetadata.getOpenedAtVersion();
   }
@@ -890,7 +891,7 @@ public class LocalStorage extends AbstractStorage {
             iv,
             aesKey,
             contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC),
-            ((YouTrackDBInternalEmbedded) context).getIoExecutor());
+            context.getIoExecutor());
 
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
@@ -1556,6 +1557,7 @@ public class LocalStorage extends AbstractStorage {
     return lastLsn;
   }
 
+  @Override
   public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
       final String filePath) {
     restoreFromIncrementalBackup(new java.io.File(filePath));

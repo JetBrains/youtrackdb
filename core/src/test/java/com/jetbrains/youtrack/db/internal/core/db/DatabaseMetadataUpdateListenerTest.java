@@ -94,6 +94,7 @@ public class DatabaseMetadataUpdateListenerTest {
           .getSequenceLibrary()
           .createSequence("sequence1", DBSequence.SEQUENCE_TYPE.ORDERED, null);
     } catch (DatabaseException exc) {
+      exc.printStackTrace();
       Assert.fail("Failed to create sequence");
     }
     assertEquals(1, sequenceCount);

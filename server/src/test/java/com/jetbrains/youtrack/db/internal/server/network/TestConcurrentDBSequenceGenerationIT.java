@@ -69,9 +69,11 @@ public class TestConcurrentDBSequenceGenerationIT {
                           commit;
                           return $v;
                           """).findFirst(BasicResult::getIdentity);
-                      var entity = db.query("select id from ?", rid)
-                          .findFirst();
+
+                      db.begin();
+                      var entity = db.query("select id from ?", rid) .findFirst();
                       assertNotNull(entity.getLong("id"));
+                      db.commit();
                     }
                   }
 

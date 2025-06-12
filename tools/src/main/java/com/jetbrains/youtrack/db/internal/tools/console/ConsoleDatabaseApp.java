@@ -976,6 +976,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     final var start = System.currentTimeMillis();
     List<RawPair<RID, Object>> result = new ArrayList<>();
+    currentDatabaseSession.begin();
     try (var rs = currentDatabaseSession.query(queryText)) {
       var count = 0;
       while (rs.hasNext()) {
@@ -986,6 +987,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           result.add(new RawPair<>(item.getIdentity(), item.toMap()));
         }
       }
+    } finally {
+      currentDatabaseSession.commit();
     }
     currentResultSet = result;
 

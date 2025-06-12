@@ -101,6 +101,7 @@ public class SQLSelectGroupByTest extends BaseDBTest {
       session.execute("insert into GroupByTest set location = 'Austin'").close();
       session.commit();
 
+      session.begin();
       final var result =
           executeQuery(
               "select location, count(*) from GroupByTest group by location");
@@ -116,6 +117,8 @@ public class SQLSelectGroupByTest extends BaseDBTest {
       }
 
       Assert.assertTrue(foundNullGroup);
+      session.commit();
+
     } finally {
       session.begin();
       session.execute("delete vertex GroupByTest").close();
@@ -135,6 +138,7 @@ public class SQLSelectGroupByTest extends BaseDBTest {
       session.execute("insert into GroupByTest set location = 'Austin'").close();
       session.commit();
 
+      session.begin();
       final var result = executeQuery(
           "select location, count(*) from GroupByTest group by location");
 
@@ -143,6 +147,7 @@ public class SQLSelectGroupByTest extends BaseDBTest {
       for (var d : result) {
         Assert.assertNotNull(d.getProperty("location"), "Found null in resultset with groupby");
       }
+      session.commit();
 
     } finally {
       session.begin();

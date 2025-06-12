@@ -27,6 +27,7 @@ public abstract class SQLSimpleExecStatement extends SQLStatement {
 
   public abstract ExecutionStream executeSimple(CommandContext ctx);
 
+  @Override
   public ResultSet execute(
       DatabaseSessionEmbedded session,
       Object[] args,
@@ -48,6 +49,7 @@ public abstract class SQLSimpleExecStatement extends SQLStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
+  @Override
   public ResultSet execute(
       DatabaseSessionEmbedded session,
       Map<Object, Object> params,
@@ -63,6 +65,7 @@ public abstract class SQLSimpleExecStatement extends SQLStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     return new SingleOpExecutionPlan(ctx, this);
   }

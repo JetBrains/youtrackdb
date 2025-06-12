@@ -6,15 +6,13 @@ import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public class FilterByClassStep extends AbstractExecutionStep {
 
   private SQLIdentifier identifier;
@@ -64,7 +62,7 @@ public class FilterByClassStep extends AbstractExecutionStep {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal session) {
+  public Result serialize(DatabaseSessionEmbedded session) {
     var result = ExecutionStepInternal.basicSerialize(session, this);
     result.setProperty("identifier", identifier.serialize(session));
 

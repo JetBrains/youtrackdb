@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.Service;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.NetworkProtocolHttpAbstract;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent;
@@ -33,8 +33,10 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.g
 import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -57,14 +59,13 @@ public class ServerPluginManager implements Service {
   private static final int CHECK_DELAY = 5000;
   private YouTrackDBServer server;
   private final ConcurrentHashMap<String, ServerPluginInfo> activePlugins =
-      new ConcurrentHashMap<String, ServerPluginInfo>();
+      new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, String> loadedPlugins =
-      new ConcurrentHashMap<String, String>();
+      new ConcurrentHashMap<>();
   private volatile TimerTask autoReloadTimerTask;
   private String directory;
 
-  protected List<PluginLifecycleListener> pluginListeners =
-      new ArrayList<PluginLifecycleListener>();
+  protected List<PluginLifecycleListener> pluginListeners = new ArrayList<>();
 
   public void config(YouTrackDBServer iServer) {
     server = iServer;
@@ -80,14 +81,11 @@ public class ServerPluginManager implements Service {
 
     if (server.getConfiguration() != null && server.getConfiguration().properties != null) {
       for (var p : server.getConfiguration().properties) {
-        if (p.name.equals("plugin.hotReload")) {
-          hotReload = Boolean.parseBoolean(p.value);
-        } else if (p.name.equals("plugin.dynamic")) {
-          dynamic = Boolean.parseBoolean(p.value);
-        } else if (p.name.equals("plugin.loadAtStartup")) {
-          loadAtStartup = Boolean.parseBoolean(p.value);
-        } else if (p.name.equals("plugin.directory")) {
-          directory = p.value;
+        switch (p.name) {
+          case "plugin.hotReload" -> hotReload = Boolean.parseBoolean(p.value);
+          case "plugin.dynamic" -> dynamic = Boolean.parseBoolean(p.value);
+          case "plugin.loadAtStartup" -> loadAtStartup = Boolean.parseBoolean(p.value);
+          case "plugin.directory" -> directory = p.value;
         }
       }
     }
@@ -125,7 +123,7 @@ public class ServerPluginManager implements Service {
   }
 
   public String[] getPluginNames() {
-    return activePlugins.keySet().toArray(new String[activePlugins.size()]);
+    return activePlugins.keySet().toArray(new String[0]);
   }
 
   public void registerPlugin(final ServerPluginInfo iPlugin) {
@@ -227,10 +225,10 @@ public class ServerPluginManager implements Service {
     return pluginFileName;
   }
 
-  protected void registerStaticDirectory(final ServerPluginInfo iPluginData) {
-    var pluginWWW = iPluginData.getParameter("www");
+  protected void registerStaticDirectory(final ServerPluginInfo pluginData) {
+    var pluginWWW = pluginData.getParameter("www");
     if (pluginWWW == null) {
-      pluginWWW = iPluginData.getName();
+      pluginWWW = pluginData.getName();
     }
 
     final var httpListener =
@@ -246,45 +244,37 @@ public class ServerPluginManager implements Service {
             httpListener.getCommand(ServerCommandGetStaticContent.class);
 
     if (command != null) {
-      final var wwwURL = iPluginData.getClassLoader().findResource("www/");
+      final var wwwURL = pluginData.getClassLoader().findResource("www/");
 
       final CallableFunction<Object, String> callback;
       if (wwwURL != null) {
-        callback = createStaticLinkCallback(iPluginData, wwwURL);
+        callback = createStaticLinkCallback(pluginData);
       } else
       // LET TO THE COMMAND TO CONTROL IT
       {
         callback =
-            new CallableFunction<Object, String>() {
-              @Override
-              public Object call(final String iArgument) {
-                return iPluginData.getInstance().getContent(iArgument);
-              }
-            };
+            argument -> pluginData.getInstance().getContent(argument);
       }
 
       command.registerVirtualFolder(pluginWWW.toString(), callback);
     }
   }
 
-  protected CallableFunction<Object, String> createStaticLinkCallback(
-      final ServerPluginInfo iPluginData, final URL wwwURL) {
-    return new CallableFunction<Object, String>() {
-      @Override
-      public Object call(final String iArgument) {
-        var fileName = "www/" + iArgument;
-        final var url = iPluginData.getClassLoader().findResource(fileName);
+  protected static CallableFunction<Object, String> createStaticLinkCallback(
+      final ServerPluginInfo iPluginData) {
+    return iArgument -> {
+      var fileName = "www/" + iArgument;
+      final var url = iPluginData.getClassLoader().findResource(fileName);
 
-        if (url != null) {
-          final var content = new StaticContent();
-          content.is =
-              new BufferedInputStream(iPluginData.getClassLoader().getResourceAsStream(fileName));
-          content.contentSize = -1;
-          content.type = ServerCommandGetStaticContent.getContentType(url.getFile());
-          return content;
-        }
-        return null;
+      if (url != null) {
+        final var content = new StaticContent();
+        content.is =
+            new BufferedInputStream(iPluginData.getClassLoader().getResourceAsStream(fileName));
+        content.contentSize = -1;
+        content.type = ServerCommandGetStaticContent.getContentType(url.getFile());
+        return content;
       }
+      return null;
     };
   }
 
@@ -326,12 +316,16 @@ public class ServerPluginManager implements Service {
     // load plugins.directory from server configuration or default to $YOUTRACKDB_HOME/plugins
     final var pluginsDirectory = new File(directory);
     if (!pluginsDirectory.exists()) {
-      pluginsDirectory.mkdirs();
+      try {
+        Files.createDirectories(pluginsDirectory.toPath());
+      } catch (IOException e) {
+        throw new IllegalStateException("Error during  creation of directory for plugins", e);
+      }
     }
 
     final var plugins = pluginsDirectory.listFiles();
 
-    final Set<String> currentDynamicPlugins = new HashSet<String>();
+    final Set<String> currentDynamicPlugins = new HashSet<>();
     for (var entry : loadedPlugins.entrySet()) {
       currentDynamicPlugins.add(entry.getKey());
     }
@@ -351,6 +345,7 @@ public class ServerPluginManager implements Service {
     }
   }
 
+  @SuppressWarnings("unchecked")
   private void installDynamicPlugin(final File pluginFile) {
     var pluginName = pluginFile.getName();
 
@@ -378,9 +373,7 @@ public class ServerPluginManager implements Service {
                 pluginName));
       }
 
-      final var pluginConfigFile = r.openStream();
-
-      try {
+      try (var pluginConfigFile = r.openStream()) {
         if (pluginConfigFile == null || pluginConfigFile.available() == 0) {
           LogManager.instance()
               .error(
@@ -393,30 +386,30 @@ public class ServerPluginManager implements Service {
                   "Error on loading 'plugin.json' file for dynamic plugin '%s'", pluginName));
         }
 
-        final EntityImpl properties = new EntityImpl(null).updateFromJSON(pluginConfigFile);
+        final var properties = JSONSerializerJackson.INSTANCE.mapFromJson(pluginConfigFile);
 
-        if (properties.hasProperty("name"))
+        if (properties.containsKey("name"))
         // OVERWRITE PLUGIN NAME
         {
-          pluginName = properties.getProperty("name");
+          pluginName = (String) properties.get("name");
         }
 
-        final String pluginClass = properties.getProperty("javaClass");
+        final var pluginClass = (String) properties.get("javaClass");
 
         final ServerPlugin pluginInstance;
         final Map<String, Object> parameters;
 
         if (pluginClass != null) {
           // CREATE PARAMETERS
-          parameters = properties.getProperty("parameters");
+          parameters = (Map<String, Object>) properties.get("parameters");
           final List<ServerParameterConfiguration> params =
-              new ArrayList<ServerParameterConfiguration>();
-          for (var paramName : parameters.keySet()) {
+              new ArrayList<>();
+          for (var entry : parameters.entrySet()) {
             params.add(
-                new ServerParameterConfiguration(paramName, (String) parameters.get(paramName)));
+                new ServerParameterConfiguration(entry.getKey(), (String) entry.getValue()));
           }
           final var pluginParams =
-              params.toArray(new ServerParameterConfiguration[params.size()]);
+              params.toArray(new ServerParameterConfiguration[0]);
 
           pluginInstance = startPluginClass(pluginClass, pluginClassLoader, pluginParams);
         } else {
@@ -428,9 +421,9 @@ public class ServerPluginManager implements Service {
         currentPluginData =
             new ServerPluginInfo(
                 pluginName,
-                properties.getProperty("version"),
-                properties.getProperty("description"),
-                properties.getProperty("web"),
+                (String) properties.get("version"),
+                (String) properties.get("description"),
+                (String) properties.get("web"),
                 pluginInstance,
                 parameters,
                 pluginFile.lastModified(),
@@ -440,8 +433,6 @@ public class ServerPluginManager implements Service {
         loadedPlugins.put(pluginFile.getName(), pluginName);
 
         registerStaticDirectory(currentPluginData);
-      } finally {
-        pluginConfigFile.close();
       }
 
     } catch (Exception e) {

@@ -54,7 +54,9 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.execute("INSERT INTO company SET name = 'MyCompany'").close();
     session.commit();
 
+    session.begin();
     final var r = session.query("SELECT FROM company").findFirst(Result::asEntity);
+    session.commit();
 
     session.begin();
     session.executeInTx(transaction -> {
@@ -70,7 +72,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.executeInTx(transaction ->
         {
           var activeTx = session.getActiveTransaction();
-          assertEquals(((Set) activeTx.<Entity>load(r).getProperty("employees")).size(), 4);
+          assertEquals(4, ((Set) activeTx.<Entity>load(r).getProperty("employees")).size());
         }
     );
 
@@ -84,7 +86,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.executeInTx(transaction ->
         {
           var activeTx = session.getActiveTransaction();
-          assertEquals(((Set) activeTx.<Entity>load(r).getProperty("employees")).size(), 3);
+          assertEquals(3, ((Set) activeTx.<Entity>load(r).getProperty("employees")).size());
         }
     );
   }
@@ -98,7 +100,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     try (var result = session.query("select from V")) {
       var doc = result.next();
-      assertEquals(doc.getProperty("value"), "foo");
+      assertEquals("foo", doc.getProperty("value"));
     }
   }
 
@@ -109,15 +111,17 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.execute("UPDATE V content {\"value\":\"foo\\\\\"}").close();
     session.commit();
 
+    session.begin();
     try (var result = session.query("select from V")) {
-      assertEquals(result.next().getProperty("value"), "foo\\");
+      assertEquals("foo\\", result.next().getProperty("value"));
     }
+    session.commit();
 
     session.begin();
     session.execute("UPDATE V content {\"value\":\"foo\\\\\\\\\"}").close();
 
     try (var result = session.query("select from V")) {
-      assertEquals(result.next().getProperty("value"), "foo\\\\");
+      assertEquals("foo\\\\", result.next().getProperty("value"));
     }
     session.commit();
   }
@@ -135,8 +139,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
             "INSERT INTO i_have_a_list CONTENT {\"id\": \"the_id\", \"types\": [\"aaa\", \"bbb\"]}")
         .close();
 
-    var result = session.query("SELECT * FROM i_have_a_list WHERE types = 'aaa'");
-    assertEquals(result.stream().count(), 1);
+    var result = session.query("SELECT * FROM i_have_a_list WHERE types contains 'aaa'");
+    assertEquals(1, result.stream().count());
 
     session.execute(
             "UPDATE i_have_a_list CONTENT {\"id\": \"the_id\", \"types\": [\"ccc\", \"bbb\"]} WHERE"
@@ -145,11 +149,11 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.commit();
 
     session.executeInTx(transaction -> {
-      var r = session.query("SELECT * FROM i_have_a_list WHERE types = 'ccc'");
-      assertEquals(r.stream().count(), 1);
+      var r = session.query("SELECT * FROM i_have_a_list WHERE types contains 'ccc'");
+      assertEquals(1, r.stream().count());
 
-      r = session.query("SELECT * FROM i_have_a_list WHERE types = 'aaa'");
-      assertEquals(r.stream().count(), 0);
+      r = session.query("SELECT * FROM i_have_a_list WHERE types contains 'aaa'");
+      assertEquals(0, r.stream().count());
     });
 
   }
@@ -204,8 +208,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     try (var result = session.query("select from test")) {
       var doc = result.next();
       Set<?> set = doc.getProperty("addField");
-      assertEquals(set.size(), 1);
-      assertEquals(set.iterator().next(), "xxxx");
+      assertEquals(1, set.size());
+      assertEquals("xxxx", set.iterator().next());
     }
   }
 
@@ -217,10 +221,13 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.begin();
     session.execute("insert into test set birthDate = ?", date).close();
     session.commit();
+
+    session.begin();
     try (var result = session.query("select from test")) {
       var doc = result.next();
       assertEquals(doc.getProperty("birthDate"), date);
     }
+    session.commit();
 
     date = new Date();
     session.begin();
@@ -271,8 +278,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
         var docResult = queryResult.next();
         List<?> resultBooleanList = docResult.getProperty("booleanList");
         assertNotNull(resultBooleanList);
-        assertEquals(resultBooleanList.size(), 1);
-        assertEquals(resultBooleanList.iterator().next(), true);
+        assertEquals(1, resultBooleanList.size());
+        assertEquals(true, resultBooleanList.iterator().next());
         assertFalse(queryResult.hasNext());
       }
     });
@@ -341,7 +348,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     final var queried =
         session.computeInTx(transaction -> {
           final var q = session.query("SELECT FROM test").next().asEntity();
-          assertEquals(q.getProperty("text"), "initial value");
+          assertEquals("initial value", q.getProperty("text"));
           return q;
         });
 
@@ -355,7 +362,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.executeInTx(transaction ->
         {
           var activeTx = session.getActiveTransaction();
-          assertEquals(activeTx.<Entity>load(queried).getProperty("text"), "single \"");
+          assertEquals("single \"", activeTx.<Entity>load(queried).getProperty("text"));
         }
     );
   }
@@ -372,7 +379,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
     final var queried = session.computeInTx(transaction -> {
       var q = session.query("SELECT FROM test").next().asEntity();
-      assertEquals(q.getProperty("text"), "initial value");
+      assertEquals("initial value", q.getProperty("text"));
       return q;
     });
 
@@ -385,7 +392,8 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.executeInTx(transaction ->
         {
           var activeTx = session.getActiveTransaction();
-          assertEquals(activeTx.<Entity>load(queried).getProperty("text"), "quoted \"value\" string");
+          assertEquals("quoted \"value\" string",
+              activeTx.<Entity>load(queried).getProperty("text"));
         }
     );
   }
@@ -402,7 +410,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.commit();
 
     var queried = session.query("SELECT FROM testquotesinjson").next().asEntity();
-    assertEquals(((Map) queried.getProperty("value")).get("f12"), "test\\");
+    assertEquals("test\\", ((Map) queried.getProperty("value")).get("f12"));
   }
 
   @Test
@@ -441,7 +449,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.commit();
 
     try (var result = session.query("select from `foo-bar`")) {
-      assertEquals(result.next().getProperty("name"), "bar");
+      assertEquals("bar", result.next().getProperty("name"));
     }
   }
 
@@ -452,7 +460,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
     session.execute("insert into foo set name = 'foo'").close();
     session.execute("UPDATE foo set name = 'bar' where name = 'foo' lock record limit 1").close();
     try (var result = session.query("select from foo")) {
-      assertEquals(result.next().getProperty("name"), "bar");
+      assertEquals("bar", result.next().getProperty("name"));
     }
     session.execute("UPDATE foo set name = 'foo' where name = 'bar' lock record limit 1").close();
   }

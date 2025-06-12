@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
@@ -48,6 +48,7 @@ public class SQLMethodCall extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(".");
     methodName.toString(params, builder);
@@ -63,6 +64,7 @@ public class SQLMethodCall extends SimpleNode {
     builder.append(")");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(".");
     methodName.toGenericStatement(builder);
@@ -91,7 +93,7 @@ public class SQLMethodCall extends SimpleNode {
     return execute(targetObjects, ctx, methodName.getStringValue(), params, iPossibleResults);
   }
 
-  private void resolveMethod(DatabaseSessionInternal session) {
+  private void resolveMethod(DatabaseSessionEmbedded session) {
     if (!resolved) {
       var name = methodName.getStringValue();
       for (var graphMethod : graphMethods) {
@@ -111,7 +113,7 @@ public class SQLMethodCall extends SimpleNode {
     }
   }
 
-  private boolean resolveIsGraphFunction(DatabaseSessionInternal session) {
+  private boolean resolveIsGraphFunction(DatabaseSessionEmbedded session) {
     resolveMethod(session);
     return isGraph;
   }
@@ -279,10 +281,11 @@ public class SQLMethodCall extends SimpleNode {
     return false;
   }
 
+  @Override
   public SQLMethodCall copy() {
     var result = new SQLMethodCall(-1);
     result.methodName = methodName.copy();
-    result.params = params.stream().map(x -> x.copy()).collect(Collectors.toList());
+    result.params = params.stream().map(SQLExpression::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -329,14 +332,14 @@ public class SQLMethodCall extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (methodName != null) {
-      result.setProperty("methodName", methodName.serialize(db));
+      result.setProperty("methodName", methodName.serialize(session));
     }
     if (params != null) {
       result.setProperty(
-          "items", params.stream().map(oExpression -> oExpression.serialize(db))
+          "items", params.stream().map(oExpression -> oExpression.serialize(session))
               .collect(Collectors.toList()));
     }
     return result;
@@ -357,7 +360,7 @@ public class SQLMethodCall extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return resolveIsGraphFunction(session); // TODO
   }
 

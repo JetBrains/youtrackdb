@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import java.util.List;
 
 /**
@@ -40,7 +39,7 @@ public class OrderByOptimizer {
     }
 
     final var definition = index.getDefinition();
-    final var fields = definition.getFields();
+    final var fields = definition.getProperties();
     final var endIndex = Math.min(fields.size(), orderedFields.size());
 
     final var firstOrder = orderedFields.get(0).getValue();
@@ -81,7 +80,7 @@ public class OrderByOptimizer {
     }
 
     final var definition = index.getDefinition();
-    final var indexFields = definition.getFields();
+    final var indexFields = definition.getProperties();
     var endIndex = Math.min(indexFields.size(), equalsFilterFields.size());
 
     final var firstOrder = orderedFields.get(0).getValue();

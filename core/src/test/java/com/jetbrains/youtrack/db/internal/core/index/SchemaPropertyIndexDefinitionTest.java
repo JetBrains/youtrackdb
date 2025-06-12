@@ -76,8 +76,8 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testGetFields() {
-    final var result = propertyIndex.getFields();
+  public void testGetProperties() {
+    final var result = propertyIndex.getProperties();
     Assert.assertEquals(1, result.size());
     Assert.assertEquals("fOne", result.getFirst());
   }

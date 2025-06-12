@@ -6,7 +6,6 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.CreateEdgeExecutionPlanner;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InsertExecutionPlan;
 import java.util.HashMap;
@@ -81,6 +80,7 @@ public class SQLCreateEdgeStatement extends SQLStatement {
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public InsertExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new CreateEdgeExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling, true);
@@ -89,6 +89,7 @@ public class SQLCreateEdgeStatement extends SQLStatement {
     return result;
   }
 
+  @Override
   public InsertExecutionPlan createExecutionPlanNoCache(
       CommandContext ctx, boolean enableProfiling) {
     var planner = new CreateEdgeExecutionPlanner(this);
@@ -98,6 +99,7 @@ public class SQLCreateEdgeStatement extends SQLStatement {
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("CREATE EDGE");
     if (targetClass != null) {
@@ -164,7 +166,7 @@ public class SQLCreateEdgeStatement extends SQLStatement {
   }
 
   @Override
-  public boolean executinPlanCanBeCached(DatabaseSessionInternal session) {
+  public boolean executinPlanCanBeCached(DatabaseSessionEmbedded session) {
     if (this.leftExpression != null && !this.leftExpression.isCacheable(session)) {
       return false;
     }

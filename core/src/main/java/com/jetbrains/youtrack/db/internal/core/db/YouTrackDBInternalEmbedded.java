@@ -49,7 +49,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
@@ -100,6 +100,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   private final Engine memory;
   private final Engine disk;
   private final YouTrackDBEnginesManager youTrack;
+  private final boolean serverMode;
   private final CachedDatabasePoolFactory<DatabaseSession> cachedPoolFactory;
   private volatile boolean open = true;
   private final ExecutorService executor;
@@ -115,9 +116,10 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   private final long doubleWriteLogMaxSegSize;
 
   public YouTrackDBInternalEmbedded(String directoryPath, YouTrackDBConfig configuration,
-      YouTrackDBEnginesManager youTrack) {
+      YouTrackDBEnginesManager youTrack, boolean serverMode) {
     super();
     this.youTrack = youTrack;
+    this.serverMode = serverMode;
     youTrack.onEmbeddedFactoryInit(this);
     memory = youTrack.getEngine("memory");
     disk = youTrack.getEngine("disk");
@@ -450,14 +452,15 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
 
   private DatabaseSessionEmbedded newSessionInstance(
       AbstractStorage storage, YouTrackDBConfigImpl config) {
-    var embedded = new DatabaseSessionEmbedded(storage);
+    var embedded = new DatabaseSessionEmbedded(storage, serverMode);
     embedded.init(config, getOrCreateSharedContext(storage));
     return embedded;
   }
 
   private static DatabaseSessionEmbedded newCreateSessionInstance(
-      AbstractStorage storage, YouTrackDBConfigImpl config, SharedContext sharedContext) {
-    var embedded = new DatabaseSessionEmbedded(storage);
+      AbstractStorage storage, YouTrackDBConfigImpl config, SharedContext sharedContext,
+      boolean serverMode) {
+    var embedded = new DatabaseSessionEmbedded(storage, false);
     embedded.internalCreate(config, sharedContext);
     return embedded;
   }
@@ -512,7 +515,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
       }
 
       var configs = configuration.getConfiguration();
-      LocalStorage.deleteFilesFromDisc(
+      DiskStorage.deleteFilesFromDisc(
           name,
           configs.getValueAsInteger(FILE_DELETE_RETRY),
           configs.getValueAsInteger(FILE_DELETE_DELAY),
@@ -621,7 +624,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     synchronized (this) {
       checkOpen();
       var storage = getAndOpenStorage(name, pool.getConfig());
-      embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage));
+      embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage), serverMode);
     }
     embedded.rebuildIndexes();
     embedded.internalOpen(user, password);
@@ -635,7 +638,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     synchronized (this) {
       checkOpen();
       var storage = getAndOpenStorage(name, pool.getConfig());
-      embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage));
+      embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage), serverMode);
     }
 
     embedded.rebuildIndexes();
@@ -647,8 +650,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
 
   private static DatabaseSessionEmbedded newPooledSessionInstance(
       DatabasePoolInternal<DatabaseSession> pool, AbstractStorage storage,
-      SharedContext sharedContext) {
-    var embedded = new DatabaseSessionEmbeddedPooled(pool, storage);
+      SharedContext sharedContext, boolean serverMode) {
+    var embedded = new DatabaseSessionEmbeddedPooled(pool, storage, serverMode);
     embedded.init(pool.getConfig(), sharedContext);
     return embedded;
   }
@@ -661,7 +664,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
             "Cannot open database '" + name + "' because it does not exists");
       }
       var storagePath = Paths.get(buildName(name));
-      if (LocalStorage.exists(storagePath)) {
+      if (DiskStorage.exists(storagePath)) {
         name = storagePath.getFileName().toString();
       }
 
@@ -831,7 +834,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
         storages.remove(name);
       }
       var configs = configuration.getConfiguration();
-      LocalStorage.deleteFilesFromDisc(
+      DiskStorage.deleteFilesFromDisc(
           name,
           configs.getValueAsInteger(FILE_DELETE_RETRY),
           configs.getValueAsInteger(FILE_DELETE_DELAY),
@@ -844,7 +847,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   private DatabaseSessionEmbedded internalCreate(
       YouTrackDBConfigImpl config, AbstractStorage storage) {
     storage.create(config.getConfiguration());
-    return newCreateSessionInstance(storage, config, getOrCreateSharedContext(storage));
+    return newCreateSessionInstance(storage, config, getOrCreateSharedContext(storage), serverMode);
   }
 
   private synchronized SharedContext getOrCreateSharedContext(
@@ -867,7 +870,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     Storage storage = storages.get(name);
     if (storage == null) {
       if (basePath != null) {
-        return LocalStorage.exists(Paths.get(buildName(name)));
+        return DiskStorage.exists(Paths.get(buildName(name)));
       } else {
         return false;
       }
@@ -1094,7 +1097,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   public synchronized void initCustomStorage(String name, String path) {
     DatabaseSessionEmbedded embedded = null;
     synchronized (this) {
-      var exists = LocalStorage.exists(Paths.get(path));
+      var exists = DiskStorage.exists(Paths.get(path));
       var storage =
           (AbstractStorage)
               disk.createStorage(

@@ -28,10 +28,12 @@ public class SQLDeleteTest extends BaseDBTest {
 
     final var total = session.countClass("Profile");
 
+    session.begin();
     var resultset =
         session.query("select from Profile where sex = 'female' and salary = 2100");
     var queryCount = resultset.stream().count();
     resultset.close();
+    session.commit();
 
     session.begin();
     var result =
@@ -50,18 +52,20 @@ public class SQLDeleteTest extends BaseDBTest {
 
     final var total = db.countClass("Profile");
 
+    db.begin();
     var resultset =
         db.query("select from Profile where sex = 'male' and salary > 120 and salary <= 133");
 
     var queryCount = resultset.stream().count();
     resultset.close();
+    db.commit();
 
     db.begin();
     var records =
         db.execute("delete from Profile where sex = 'male' and salary > 120 and salary <= 133");
-    db.commit();
 
     long count = records.next().getProperty("count");
+    db.commit();
     Assert.assertEquals(count, queryCount);
 
     Assert.assertEquals(db.countClass("Profile"), total - count);

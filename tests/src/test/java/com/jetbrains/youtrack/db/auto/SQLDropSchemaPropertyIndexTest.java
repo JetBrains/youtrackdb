@@ -144,7 +144,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), Arrays.asList("prop1", "prop2"));
+    Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
         indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
     Assert.assertEquals(index.getType(), "UNIQUE");
@@ -181,7 +181,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), Arrays.asList("prop1", "prop2"));
+    Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
         indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
     Assert.assertEquals(index.getType(), "UNIQUE");
