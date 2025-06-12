@@ -30,16 +30,17 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolListener;
 
-/**
- *
- */
 public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     DatabasePoolInternal<S> {
 
   private volatile ResourcePool<Void, S> pool;
   private final YouTrackDBInternal<S> factory;
   private final YouTrackDBConfigImpl config;
+  private final String databaseName;
+  private final String userName;
+
   private volatile long lastCloseTime = System.currentTimeMillis();
+
 
   public DatabasePoolImpl(
       YouTrackDBInternal<S> factory,
@@ -51,6 +52,9 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
     this.factory = factory;
     this.config = config;
+    this.databaseName = database;
+    this.userName = user;
+
     pool =
         new ResourcePool<>(
             min,
@@ -85,6 +89,9 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
     this.factory = factory;
     this.config = config;
+    this.databaseName = database;
+    this.userName = user;
+
     pool =
         new ResourcePool<>(
             min,
@@ -174,6 +181,16 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
   @Override
   public long getLastCloseTime() {
     return lastCloseTime;
+  }
+
+  @Override
+  public String getDatabaseName() {
+    return databaseName;
+  }
+
+  @Override
+  public String getUserName() {
+    return userName;
   }
 
   @Override

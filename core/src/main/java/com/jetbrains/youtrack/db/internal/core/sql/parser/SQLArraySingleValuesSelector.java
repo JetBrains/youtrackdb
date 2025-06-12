@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -59,13 +59,13 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
   public Object execute(Identifiable iCurrentRecord, Object iResult, CommandContext ctx) {
     List<Object> result = new ArrayList<Object>();
     for (var item : items) {
-      var index = item.getValue(iCurrentRecord, iResult, ctx);
+      var index = item.getValue(iCurrentRecord, ctx);
       if (index == null) {
         return null;
       }
 
       if (index instanceof Integer) {
-        result.add(MultiValue.getValue(iResult, ((Integer) index).intValue()));
+        result.add(MultiValue.getValue(iResult, (Integer) index));
       } else {
         if (iResult instanceof Map) {
           result.add(((Map) iResult).get(index));
@@ -92,7 +92,7 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
   public Object execute(Result iCurrentRecord, Object iResult, CommandContext ctx) {
     List<Object> result = new ArrayList<>();
     for (var item : items) {
-      var index = item.getValue(iCurrentRecord, iResult, ctx);
+      var index = item.getValue(iCurrentRecord, ctx);
       if (index == null) {
         return null;
       }
@@ -210,7 +210,7 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
     }
     List values =
         this.items.stream()
-            .map(x -> x.getValue(originalRecord, null, ctx))
+            .map(x -> x.getValue(originalRecord, ctx))
             .collect(Collectors.toList());
     if (currentValue instanceof List) {
       List<Object> list = (List) currentValue;
@@ -263,11 +263,11 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (items != null) {
       result.setProperty(
-          "items", items.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          "items", items.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     return result;
   }

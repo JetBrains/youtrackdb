@@ -15,7 +15,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -1072,7 +1071,7 @@ public class JSONTest extends BaseDBTest {
         );
         Assert.fail("Nested entities should not be allowed to have links inside them.");
       } catch (SerializationException ex) {
-        Assert.assertTrue(ex.getCause() instanceof DatabaseException);
+        Assert.assertTrue(ex.getCause() instanceof IllegalArgumentException);
       }
     });
   }

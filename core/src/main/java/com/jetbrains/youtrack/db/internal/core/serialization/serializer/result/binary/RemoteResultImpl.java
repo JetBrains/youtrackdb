@@ -32,7 +32,7 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class RemoteResultImpl implements RemoteResult, BasicResultInternal {
+public final class RemoteResultImpl implements RemoteResult, BasicResultInternal {
 
   private Map<String, Object> content;
   private Map<String, Object> metadata;
@@ -42,7 +42,7 @@ public class RemoteResultImpl implements RemoteResult, BasicResultInternal {
   private byte[] blob;
 
   @Nullable
-  protected RemoteDatabaseSessionInternal session;
+  private RemoteDatabaseSessionInternal session;
 
   public RemoteResultImpl(@Nullable RemoteDatabaseSessionInternal session) {
     content = new HashMap<>();

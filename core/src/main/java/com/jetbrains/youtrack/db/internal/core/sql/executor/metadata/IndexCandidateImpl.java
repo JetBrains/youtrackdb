@@ -46,7 +46,7 @@ public class IndexCandidateImpl implements IndexCandidate {
   public IndexCandidate normalize(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     var index = session.getSharedContext().getIndexManager().getIndex(name);
-    if (property.getName().equals(index.getDefinition().getFields().getFirst())) {
+    if (property.getName().equals(index.getDefinition().getProperties().getFirst())) {
       return this;
     } else {
       return null;

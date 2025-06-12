@@ -74,8 +74,8 @@ public abstract class SchemaShared implements CloseableInStorage {
   private final CollectionSelectionFactory collectionSelectionFactory = new CollectionSelectionFactory();
 
   private final ModifiableInteger modificationCounter = new ModifiableInteger();
-  private final List<GlobalProperty> properties = new ArrayList<>();
-  private final Map<String, GlobalProperty> propertiesByNameType = new HashMap<>();
+  private final List<GlobalPropertyImpl> properties = new ArrayList<>();
+  private final Map<String, GlobalPropertyImpl> propertiesByNameType = new HashMap<>();
   private IntOpenHashSet blobCollections = new IntOpenHashSet();
   private volatile int version = 0;
   private volatile RecordId identity;
@@ -725,7 +725,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   @Nullable
-  public GlobalProperty getGlobalPropertyById(int id) {
+  public GlobalPropertyImpl getGlobalPropertyById(int id) {
     acquireSchemaReadLock();
     try {
       if (id >= properties.size()) {
@@ -744,7 +744,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
     acquireSchemaWriteLock(session);
     try {
-      GlobalProperty global;
+      GlobalPropertyImpl global;
       if (id < properties.size() && (global = properties.get(id)) != null) {
         if (!global.getName().equals(name)
             || PropertyTypeInternal.convertFromPublicType(global.getType()) != type) {
@@ -772,7 +772,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  protected GlobalProperty findOrCreateGlobalProperty(final String name,
+  protected GlobalPropertyImpl findOrCreateGlobalProperty(final String name,
       final PropertyTypeInternal type) {
     var global = propertiesByNameType.get(name + "|" + type.name());
     if (global == null) {

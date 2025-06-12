@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinkToEntityIterator;
@@ -246,7 +246,7 @@ public class SQLProjectionItem extends SimpleNode {
     return result;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (aggregate != null) {
       return aggregate;
     }
@@ -335,18 +335,18 @@ public class SQLProjectionItem extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("all", all);
     if (alias != null) {
-      result.setProperty("alias", alias.serialize(db));
+      result.setProperty("alias", alias.serialize(session));
     }
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     result.setProperty("aggregate", aggregate);
     if (nestedProjection != null) {
-      result.setProperty("nestedProjection", nestedProjection.serialize(db));
+      result.setProperty("nestedProjection", nestedProjection.serialize(session));
     }
     result.setProperty("exclude", exclude);
     return result;
@@ -375,7 +375,7 @@ public class SQLProjectionItem extends SimpleNode {
     this.nestedProjection = nestedProjection;
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (expression != null) {
       return expression.isCacheable(session);
     }

@@ -23,6 +23,7 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
@@ -72,6 +73,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 public class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
@@ -116,7 +118,6 @@ public class FrontendTransactionImpl implements
   protected int txStartCounter;
   protected boolean sentToServer = false;
   private final boolean readOnly;
-  private final StackTraceElement[] creationStack;
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
 
@@ -128,7 +129,6 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txSerial.incrementAndGet();
     this.readOnly = readOnly;
-    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
   public FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long txId,
@@ -136,7 +136,6 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = txId;
     this.readOnly = readOnly;
-    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
 
@@ -144,7 +143,6 @@ public class FrontendTransactionImpl implements
     this.session = session;
     this.id = id;
     readOnly = false;
-    this.creationStack = Thread.currentThread().getStackTrace();
   }
 
   @Override
@@ -1747,6 +1745,25 @@ public class FrontendTransactionImpl implements
       throws CommandSQLParsingException, CommandExecutionException {
     checkIfActive();
     session.command(query, args);
+  }
+
+  @Override
+  public ResultSet computeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return session.computeScript(language, script, args);
+  }
+
+  @Override
+  public GraphTraversalSource traversal() {
+    checkIfActive();
+
+    return session.asGraph().traversal();
+  }
+
+  @Override
+  public ResultSet computeScript(String language, String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    return session.computeScript(language, script, args);
   }
 
   private void checkIfActive() {

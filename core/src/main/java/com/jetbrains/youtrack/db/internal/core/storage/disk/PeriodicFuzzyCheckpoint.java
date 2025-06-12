@@ -7,12 +7,12 @@ public class PeriodicFuzzyCheckpoint implements Runnable {
   /**
    *
    */
-  private final LocalStorage storage;
+  private final DiskStorage storage;
 
   /**
    * @param storage
    */
-  public PeriodicFuzzyCheckpoint(LocalStorage storage) {
+  public PeriodicFuzzyCheckpoint(DiskStorage storage) {
     this.storage = storage;
   }
 

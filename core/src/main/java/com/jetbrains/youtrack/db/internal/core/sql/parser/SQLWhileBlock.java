@@ -85,6 +85,7 @@ public class SQLWhileBlock extends SQLStatement {
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public UpdateExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var plan = new ForEachExecutionPlan(ctx);
     plan.chain(new WhileStep(condition, statements, ctx, enableProfiling));
@@ -95,7 +96,7 @@ public class SQLWhileBlock extends SQLStatement {
   public SQLStatement copy() {
     var result = new SQLWhileBlock(-1);
     result.condition = condition.copy();
-    result.statements = statements.stream().map(x -> x.copy()).collect(Collectors.toList());
+    result.statements = statements.stream().map(SQLStatement::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -141,6 +142,7 @@ public class SQLWhileBlock extends SQLStatement {
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("WHILE (");
     condition.toString(params, builder);
@@ -152,6 +154,7 @@ public class SQLWhileBlock extends SQLStatement {
     builder.append("}");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("WHILE (");
     condition.toGenericStatement(builder);

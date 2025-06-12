@@ -89,6 +89,7 @@ public class SQLForEachBlock extends SQLStatement {
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public UpdateExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var plan = new ForEachExecutionPlan(ctx);
     var nextProg = ++FOREACH_VARIABLE_PROGR;

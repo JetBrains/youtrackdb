@@ -118,8 +118,8 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
         json.writeAttribute(session, "type", index.getType());
 
         final var indexDefinition = index.getDefinition();
-        if (indexDefinition != null && !indexDefinition.getFields().isEmpty()) {
-          json.writeAttribute(session, "fields", indexDefinition.getFields());
+        if (indexDefinition != null && !indexDefinition.getProperties().isEmpty()) {
+          json.writeAttribute(session, "fields", indexDefinition.getProperties());
         }
         json.endObject();
       }

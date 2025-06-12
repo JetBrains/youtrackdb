@@ -42,6 +42,7 @@ public class SQLUpdateStatement extends SQLStatement {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(getStatementType());
     if (target != null) {
@@ -84,6 +85,7 @@ public class SQLUpdateStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(getStatementType());
     if (target != null) {
@@ -143,7 +145,7 @@ public class SQLUpdateStatement extends SQLStatement {
     result.operations =
         operations == null
             ? null
-            : operations.stream().map(x -> x.copy()).collect(Collectors.toList());
+            : operations.stream().map(SQLUpdateOperations::copy).collect(Collectors.toList());
     result.upsert = upsert;
     result.returnBefore = returnBefore;
     result.returnAfter = returnAfter;
@@ -200,6 +202,7 @@ public class SQLUpdateStatement extends SQLStatement {
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public UpdateExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new UpdateExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling);

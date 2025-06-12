@@ -26,7 +26,7 @@ public class DbTestBase {
 
   protected DatabaseSessionEmbedded session;
   protected SessionPool<DatabaseSession> pool;
-  protected YouTrackDBImpl context;
+  protected YouTrackDBImpl youTrackDB;
 
   @Rule
   public TestName name = new TestName();
@@ -38,10 +38,11 @@ public class DbTestBase {
 
   protected String readerUser = "reader";
   protected String readerPassword = "readerpwd";
+  protected String dbPath;
 
   @Before
   public void beforeTest() throws Exception {
-    context = createContext();
+    youTrackDB = createContext();
     var dbName = name.getMethodName();
 
     dbName = dbName.replace('[', '_');
@@ -65,16 +66,16 @@ public class DbTestBase {
     }
 
     var config = createConfig();
-    context.create(this.databaseName, dbType, config,
+    youTrackDB.create(this.databaseName, dbType, config,
         adminUser, adminPassword, "admin", readerUser, readerPassword, "reader");
-    pool = context.cachedPool(this.databaseName, adminUser, adminPassword, config);
+    pool = youTrackDB.cachedPool(this.databaseName, adminUser, adminPassword, config);
 
     session = openDatabase(config);
   }
 
   private DatabaseSessionEmbedded openDatabase(YouTrackDBConfig config) {
     return (DatabaseSessionEmbedded)
-        context.open(this.databaseName, "admin", "adminpwd", config);
+        youTrackDB.open(this.databaseName, "admin", "adminpwd", config);
   }
 
   protected YouTrackDBConfig createConfig() {
@@ -98,11 +99,12 @@ public class DbTestBase {
   }
 
   protected YouTrackDBImpl createContext() {
-    var directoryPath = getBaseDirectoryPath(getClass());
+    dbPath = getBaseDirectoryPath(getClass());
+
     var builder = YouTrackDBConfig.builder();
     var config = createConfig((YouTrackDBConfigBuilderImpl) builder);
 
-    return (YouTrackDBImpl) YourTracks.embedded(directoryPath, config);
+    return (YouTrackDBImpl) YourTracks.embedded(dbPath, config);
   }
 
   protected DatabaseType calculateDbType() {
@@ -120,22 +122,22 @@ public class DbTestBase {
   protected void reOpen(String user, String password) {
     if (!pool.isClosed()) {
       pool.close();
-      this.pool = context.cachedPool(this.databaseName, user, password);
+      this.pool = youTrackDB.cachedPool(this.databaseName, user, password);
     }
 
     if (!session.isClosed()) {
       session.activateOnCurrentThread();
       session.close();
-      this.session = (DatabaseSessionEmbedded) context.open(this.databaseName, user, password);
+      this.session = (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
     }
   }
 
   public DatabaseSessionEmbedded openDatabase() {
-    return (DatabaseSessionEmbedded) context.open(this.databaseName, adminUser, adminPassword);
+    return (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, adminUser, adminPassword);
   }
 
   public DatabaseSessionEmbedded openDatabase(String user, String password) {
-    return (DatabaseSessionEmbedded) context.open(this.databaseName, user, password);
+    return (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
   }
 
   protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
@@ -145,7 +147,7 @@ public class DbTestBase {
   @After
   public void afterTest() {
     dropDatabase();
-    context.close();
+    youTrackDB.close();
   }
 
   public void dropDatabase() {
@@ -157,8 +159,8 @@ public class DbTestBase {
       pool.close();
     }
 
-    if (context.exists(this.databaseName)) {
-      context.drop(databaseName);
+    if (youTrackDB.exists(this.databaseName)) {
+      youTrackDB.drop(databaseName);
     }
   }
 

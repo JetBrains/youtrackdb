@@ -69,7 +69,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields().get(0), "prop1");
+    Assert.assertEquals(indexDefinition.getProperties().get(0), "prop1");
     Assert.assertEquals(indexDefinition.getTypes()[0], EXPECTED_PROP1_TYPE);
     Assert.assertEquals(index.getType(), "UNIQUE");
   }
@@ -94,7 +94,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), Arrays.asList("prop1", "prop2"));
+    Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
         indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
     Assert.assertEquals(index.getType(), "UNIQUE");
@@ -119,7 +119,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop3"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop3"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
     Assert.assertEquals(index.getType(), "UNIQUE");
     Assert.assertEquals(
@@ -143,7 +143,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop3"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop3"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
     Assert.assertEquals(index.getType(), "UNIQUE");
     Assert.assertEquals(
@@ -236,7 +236,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop3"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop3"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
     Assert.assertEquals(index.getType(), "UNIQUE");
     Assert.assertEquals(
@@ -264,7 +264,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop3"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop3"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
     Assert.assertEquals(index.getType(), "UNIQUE");
     Assert.assertEquals(
@@ -292,7 +292,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyListIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop5"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop5"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
     Assert.assertEquals(index.getType(), "NOTUNIQUE");
   }
@@ -315,7 +315,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyLinkBagIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop9"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop9"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.LINK});
     Assert.assertEquals(index.getType(), "NOTUNIQUE");
   }
@@ -335,7 +335,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyListIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop5"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop5"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
     Assert.assertEquals(index.getType(), "NOTUNIQUE");
   }
@@ -355,7 +355,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyLinkBagIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop9"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop9"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.LINK});
     Assert.assertEquals(index.getType(), "NOTUNIQUE");
   }
@@ -435,7 +435,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), Arrays.asList("prop1", "prop2"));
+    Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
         indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
     Assert.assertEquals(index.getType(), "UNIQUE");
@@ -496,7 +496,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), Arrays.asList("prop1", "prop2"));
+    Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
         indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
     Assert.assertEquals(index.getType(), "UNIQUE");
@@ -525,7 +525,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), List.of("prop8"));
+    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop8"));
     Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
     Assert.assertEquals(index.getType(), "NOTUNIQUE");
 
@@ -558,7 +558,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    Assert.assertEquals(indexDefinition.getFields(), Arrays.asList("prop1", "prop2"));
+    Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
         indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
     Assert.assertEquals(index.getType(), "UNIQUE");

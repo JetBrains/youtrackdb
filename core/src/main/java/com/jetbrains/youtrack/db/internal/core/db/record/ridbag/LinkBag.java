@@ -88,13 +88,16 @@ public class LinkBag
   private int topThreshold;
   private int bottomThreshold;
 
-  @Nonnull
   private final DatabaseSessionInternal session;
 
-  public LinkBag(@Nonnull DatabaseSessionInternal session, final LinkBag linkBag) {
+  protected LinkBag() {
+    session = null;
+  }
+
+  public LinkBag(@Nonnull DatabaseSessionInternal session, final LinkBag source) {
     initThresholds(session);
     init();
-    for (var identifiable : linkBag) {
+    for (var identifiable : source) {
       add(identifiable);
     }
     this.session = session;

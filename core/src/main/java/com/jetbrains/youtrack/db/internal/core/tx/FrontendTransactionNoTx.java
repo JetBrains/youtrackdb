@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.NoTxRecordReadException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
@@ -52,6 +53,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 /**
  * No operation transaction.
@@ -295,6 +297,23 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public void command(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet computeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public GraphTraversalSource traversal() {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet computeScript(String language, String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 

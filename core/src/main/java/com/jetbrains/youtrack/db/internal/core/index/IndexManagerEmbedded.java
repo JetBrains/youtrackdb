@@ -300,8 +300,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     final var manualIndexesAreUsed =
         indexDefinition == null
             || indexDefinition.getClassName() == null
-            || indexDefinition.getFields() == null
-            || indexDefinition.getFields().isEmpty();
+            || indexDefinition.getProperties() == null
+            || indexDefinition.getProperties().isEmpty();
     if (manualIndexesAreUsed) {
       throw new UnsupportedOperationException("Manual indexes are not supported: " + iName);
     } else {
@@ -400,7 +400,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     var security = database.getSharedContext().getSecurity();
 
     var indexClass = indexDefinition.getClassName();
-    var indexedFields = indexDefinition.getFields();
+    var indexedFields = indexDefinition.getProperties();
     if (indexedFields.size() == 1) {
       return;
     }
@@ -582,7 +582,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     final var paramCount = indexDefinition.getParamCount();
 
     for (var i = 1; i <= paramCount; i++) {
-      final var fields = indexDefinition.getFields().subList(0, i);
+      final var fields = indexDefinition.getProperties().subList(0, i);
       final var multiKey = new MultiKey(fields);
 
       var indexSet = map.get(multiKey);

@@ -293,7 +293,7 @@ public interface ResultSet extends BasicResultSet<Result> {
   }
 
   @Nonnull
-  default List<Vertex> vertexList() {
+  default List<Vertex> toVertexList() {
     return vertexStream().toList();
   }
 

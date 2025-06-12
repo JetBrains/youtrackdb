@@ -2,10 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
-public class SQLLuceneOperator extends SimpleNode implements SQLBinaryCompareOperator {
+public final class SQLLuceneOperator extends SimpleNode implements SQLBinaryCompareOperator {
 
   public SQLLuceneOperator(int id) {
     super(id);
@@ -16,7 +18,7 @@ public class SQLLuceneOperator extends SimpleNode implements SQLBinaryCompareOpe
   }
 
   @Override
-  public boolean execute(Object left, Object right) {
+  public boolean execute(@Nonnull DatabaseSessionEmbedded session, Object left, Object right) {
     throw new UnsupportedOperationException(this + " operator cannot be evaluated in this context");
   }
 

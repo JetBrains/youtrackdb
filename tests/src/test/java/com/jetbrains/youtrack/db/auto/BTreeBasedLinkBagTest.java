@@ -23,7 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.File;
 import java.util.ArrayList;
@@ -88,7 +88,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     final var directory = session.getStorage().getConfiguration().getDirectory();
 
     final var wowCache =
-        (WOWCache) ((LocalStorage) (session.getStorage())).getWriteCache();
+        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
 
     final var fileId =
         wowCache.fileIdByName(

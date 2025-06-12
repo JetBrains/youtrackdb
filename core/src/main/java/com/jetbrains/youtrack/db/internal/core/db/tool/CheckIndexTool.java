@@ -70,7 +70,7 @@ public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
     if (className == null) {
       return false; // manual index, not supported yet
     }
-    var fields = indexDef.getFields();
+    var fields = indexDef.getProperties();
     var fieldDefs = indexDef.getFieldsToIndex();
 
     // check if there are fields defined on maps (by key/value). Not supported yet
@@ -83,7 +83,7 @@ public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
   }
 
   private void checkIndex(DatabaseSessionEmbedded session, Index index) {
-    var fields = index.getDefinition().getFields();
+    var fields = index.getDefinition().getProperties();
     var className = index.getDefinition().getClassName();
     var clazz = this.session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
     var collectionIds = clazz.getPolymorphicCollectionIds();

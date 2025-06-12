@@ -75,6 +75,7 @@ public class SQLDeleteVertexStatement extends SQLStatement {
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public DeleteExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new DeleteVertexExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling);

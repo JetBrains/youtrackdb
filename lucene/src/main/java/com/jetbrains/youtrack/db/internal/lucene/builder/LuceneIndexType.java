@@ -133,8 +133,8 @@ public class LuceneIndexType {
     Query query = null;
     if (key instanceof String) {
       final var queryBuilder = new BooleanQuery.Builder();
-      if (index.getFields().size() > 0) {
-        for (var idx : index.getFields()) {
+      if (index.getProperties().size() > 0) {
+        for (var idx : index.getProperties()) {
           queryBuilder.add(
               new TermQuery(new Term(idx, key.toString())), BooleanClause.Occur.SHOULD);
         }
@@ -147,7 +147,7 @@ public class LuceneIndexType {
     } else if (key instanceof CompositeKey keys) {
       final var queryBuilder = new BooleanQuery.Builder();
       var i = 0;
-      for (var idx : index.getFields()) {
+      for (var idx : index.getProperties()) {
         var val = (String) keys.getKeys().get(i);
         queryBuilder.add(new TermQuery(new Term(idx, val)), BooleanClause.Occur.MUST);
         i++;

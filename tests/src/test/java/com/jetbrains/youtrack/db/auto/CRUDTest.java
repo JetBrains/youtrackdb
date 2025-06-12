@@ -18,7 +18,6 @@ package com.jetbrains.youtrack.db.auto;
 import static org.testng.Assert.fail;
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
@@ -49,8 +48,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -204,8 +201,8 @@ public class CRUDTest extends BaseDBTest {
         element.setProperty(p.getKey(), p.getValue());
         fail("Should fail on array values");
         //
-      } catch (DatabaseException ex) {
-
+      } catch (IllegalArgumentException ex) {
+        //ignore
       }
     }
 

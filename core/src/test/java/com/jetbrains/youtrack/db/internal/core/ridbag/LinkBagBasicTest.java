@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.ridbag;
 
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
@@ -73,7 +72,7 @@ public class LinkBagBasicTest extends DbTestBase {
       });
 
       fail("Should not be possible to save a ridbag in a set");
-    } catch (DatabaseException ex) {
+    } catch (IllegalArgumentException ex) {
       // this is expected
     }
 
@@ -89,7 +88,7 @@ public class LinkBagBasicTest extends DbTestBase {
       });
 
       fail("Should not be possible to save a ridbag in a list");
-    } catch (DatabaseException ex) {
+    } catch (IllegalArgumentException ex) {
       // this is expected
     }
 
@@ -105,7 +104,7 @@ public class LinkBagBasicTest extends DbTestBase {
       });
 
       fail("Should not be possible to save a ridbag in a set");
-    } catch (DatabaseException ex) {
+    } catch (IllegalArgumentException ex) {
       // this is expected
     }
 
@@ -119,7 +118,7 @@ public class LinkBagBasicTest extends DbTestBase {
       });
 
       fail("Should not be possible to save a ridbag in a set");
-    } catch (DatabaseException ex) {
+    } catch (IllegalArgumentException ex) {
       // this is expected
     }
   }
