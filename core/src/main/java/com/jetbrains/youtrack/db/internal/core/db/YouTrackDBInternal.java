@@ -27,12 +27,14 @@ import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
@@ -306,6 +308,15 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   void removeShutdownHook();
 
   void forceDatabaseClose(String databaseName);
+
+  default boolean validateServerStatement(String query) {
+    try {
+      StatementCache.getServerStatement(query, this);
+      return true;
+    } catch (CommandSQLParsingException e) {
+      return false;
+    }
+  }
 
   BasicResultSet<BasicResult> executeServerStatementNamedParams(String script,
       String user, String pw,

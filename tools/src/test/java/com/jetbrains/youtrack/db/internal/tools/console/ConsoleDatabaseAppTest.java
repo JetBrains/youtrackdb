@@ -22,10 +22,10 @@ public class ConsoleDatabaseAppTest {
   @Test
   public void testWrongCommand() {
     var builder =
-        "connect env embedded:./target/ root root;\n"
-            + "create database OConsoleDatabaseAppTest2 memory users (admin identified by 'admin'"
+        "connect embedded:./target/ root root;\n"
+            + "create database ConsoleDatabaseAppTest2 memory users (admin identified by 'admin'"
             + " role admin);\n"
-            + "open OConsoleDatabaseAppTest2 admin admin;\n"
+            + "use ConsoleDatabaseAppTest2 admin admin;\n"
             + "create class foo;\n"
             + "begin;\n"
             + "insert into foo set name ="
@@ -56,7 +56,7 @@ public class ConsoleDatabaseAppTest {
   public void testOldCreateDatabase() {
     var builder =
         """
-            create database memory:./target/OConsoleDatabaseAppTest2 admin adminpwd memory
+            create database memory:./target/ConsoleDatabaseAppTest2 admin adminpwd memory
             create class foo;
             begin;\
             insert into foo set name = 'foo';
@@ -85,7 +85,7 @@ public class ConsoleDatabaseAppTest {
       c.console()
           .createDatabase("embedded:./target/ConsoleDatabaseAppTestDumpRecordDetails", "admin",
               "admin", "memory", null);
-      c.console().open("ConsoleDatabaseAppTestDumpRecordDetails", "admin", "admin");
+      c.console().use("ConsoleDatabaseAppTestDumpRecordDetails", "admin", "admin");
 
       c.console().createClass("class foo");
       c.console().begin();
@@ -151,11 +151,11 @@ public class ConsoleDatabaseAppTest {
   @Test
   public void testSimple() {
     var builder =
-        "connect env embedded:./target/ root root;\n"
+        "connect embedded:./target/ root root;\n"
             + "create database "
             + testName.getMethodName()
             + " memory users (admin identified by 'admin' role admin);\n"
-            + "open "
+            + "use "
             + testName.getMethodName()
             + " admin admin;\n"
             + "profile storage on;\n"

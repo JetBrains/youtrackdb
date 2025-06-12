@@ -88,6 +88,7 @@ public class SQLEngine {
     return StatementCache.getServerStatement(query, db);
   }
 
+
   public static List<SQLStatement> parseScript(String script, DatabaseSessionInternal db) {
     final InputStream is = new ByteArrayInputStream(script.getBytes());
     return parseScript(is, db);
