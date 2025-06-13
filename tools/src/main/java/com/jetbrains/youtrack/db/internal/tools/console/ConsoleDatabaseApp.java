@@ -72,10 +72,10 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -346,7 +346,76 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           optional = true,
           description = "Additional options, example: -encryption=aes -compression=nothing") final String options)
       throws IOException {
+    doCreateDatabase(databaseURL, userName, userPassword, storageType, () -> {
+      DatabaseType type;
+      if (storageType != null) {
+        type = DatabaseType.valueOf(storageType.toUpperCase());
+      } else {
+        type = urlConnection.getDbType().orElse(DatabaseType.DISK);
+      }
 
+      basicYouTrackDB.createIfNotExists(
+          urlConnection.getDbName(),
+          type,
+          currentDatabaseUserName,
+          currentDatabaseUserPassword,
+          "admin");
+    });
+  }
+
+  @ConsoleCommand(
+      description =
+          "Creates a new database by restoring it from the backup provided through disk path",
+      onlineHelp = "Console-Command-Create-Database")
+
+  public void restoreDatabase(
+      @ConsoleParameter(
+          name = "database-url",
+          description = "The url of the database to create in the format '<mode>:<path>'")
+      String databaseURL,
+      @ConsoleParameter(
+          name = "backup-path",
+          description = "Location of the backup on disk") final String backupLocation,
+      @ConsoleParameter(name = "user", optional = true,
+          description = "Server administrator name")
+      String userName,
+      @ConsoleParameter(
+          name = "password",
+          optional = true,
+          description = "Server administrator password")
+      String userPassword,
+      @ConsoleParameter(
+          name = "storage-type",
+          optional = true,
+          description =
+              "The type of the storage: 'disk' for disk-based databases and 'memory' for"
+                  + " in-memory database")
+      String storageType) {
+
+    if (backupLocation == null) {
+      message("\nBackup path is not specified.");
+      return;
+    }
+
+    var backupPath = Path.of(backupLocation);
+    if (!Files.exists(backupPath)) {
+      message("\nBackup path [" + backupPath + "] does not exist.");
+      return;
+    }
+
+    doCreateDatabase(databaseURL, userName, userPassword, storageType, () -> {
+      var configBuilder = YouTrackDBConfig.builder();
+      basicYouTrackDB.restore(
+          urlConnection.getDbName(),
+          currentDatabaseUserName,
+          currentDatabaseUserPassword,
+          backupPath.toAbsolutePath().toString(),
+          configBuilder.build());
+    });
+  }
+
+  private void doCreateDatabase(String databaseURL, String userName, String userPassword,
+      String storageType, Runnable dbInstanceCreator) {
     disconnect();
 
     if (userName == null) {
@@ -359,10 +428,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     currentDatabaseUserName = userName;
     currentDatabaseUserPassword = userPassword;
 
-    final var omap = parseCommandOptions(options);
-
     urlConnection = URLHelper.parseNew(databaseURL);
-    var configBuilder = YouTrackDBConfig.builder();
 
     DatabaseType type;
     if (storageType != null) {
@@ -380,33 +446,20 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       basicYouTrackDB = YourTracks.embedded(urlConnection.getPath());
     }
 
-    final var backupPath = omap.remove("-restore");
-    if (backupPath != null) {
-      basicYouTrackDB.restore(
-          urlConnection.getDbName(),
-          currentDatabaseUserName,
-          currentDatabaseUserPassword,
-          backupPath,
-          configBuilder.build());
+    dbInstanceCreator.run();
+
+    if (basicYouTrackDB instanceof YouTrackDB youTrackDB) {
+      currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) youTrackDB.open(
+          urlConnection.getDbName(), userName,
+          userPassword);
+      currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
     } else {
-      basicYouTrackDB.createIfNotExists(
-          urlConnection.getDbName(),
-          type,
-          currentDatabaseUserName,
-          currentDatabaseUserPassword,
-          "admin");
-      if (basicYouTrackDB instanceof YouTrackDB youTrackDB) {
-        currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) youTrackDB.open(
-            urlConnection.getDbName(), userName,
-            userPassword);
-        currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
-      } else {
-        basicYouTrackDB.create(urlConnection.getDbName(), type);
-        var remoteYouTrackDB = (RemoteYouTrackDB) basicYouTrackDB;
-        currentDatabaseSession = remoteYouTrackDB.open(urlConnection.getDbName(), userName,
-            userPassword);
-      }
+      basicYouTrackDB.create(urlConnection.getDbName(), type);
+      var remoteYouTrackDB = (RemoteYouTrackDB) basicYouTrackDB;
+      currentDatabaseSession = remoteYouTrackDB.open(urlConnection.getDbName(), userName,
+          userPassword);
     }
+
     currentDatabaseName = currentDatabaseSession.getDatabaseName();
 
     message("\nDatabase created successfully.");
