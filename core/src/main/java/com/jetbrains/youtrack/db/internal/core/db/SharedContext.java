@@ -189,15 +189,15 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       }
 
       // create geospatial classes
-      try {
-        var factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
-            "LUCENE");
-        if (factory instanceof DatabaseLifecycleListener) {
-          ((DatabaseLifecycleListener) factory).onCreate(session);
-        }
-      } catch (IndexException x) {
-        // the index does not exist
-      }
+//      try {
+//        var factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
+//            "LUCENE");
+//        if (factory instanceof DatabaseLifecycleListener) {
+//          ((DatabaseLifecycleListener) factory).onCreate(session);
+//        }
+//      } catch (IndexException x) {
+//        // the index does not exist
+//      }
 
       loaded = true;
     } finally {

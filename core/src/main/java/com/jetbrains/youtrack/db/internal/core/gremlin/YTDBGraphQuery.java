@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.GlobalLetQueryStep;
 import java.util.Map;
@@ -23,15 +24,13 @@ public class YTDBGraphQuery implements YTDBGraphBaseQuery {
   }
 
   @Override
-  public ResultSet execute(YTDBGraphInternal graph) {
-    var session = graph.getUnderlyingDatabaseSession();
+  public ResultSet execute(DatabaseSessionEmbedded session) {
     var transaction = session.getActiveTransaction();
     return transaction.query(this.query, this.params);
   }
 
   @Override
-  public ExecutionPlan explain(YTDBGraphInternal graph) {
-    var session = graph.getUnderlyingDatabaseSession();
+  public ExecutionPlan explain(DatabaseSessionEmbedded session) {
     var transaction = session.getActiveTransaction();
     try (var resultSet = transaction.query(String.format("EXPLAIN %s", query), params)) {
       return resultSet.getExecutionPlan();
@@ -39,8 +38,8 @@ public class YTDBGraphQuery implements YTDBGraphBaseQuery {
   }
 
   @Override
-  public int usedIndexes(YTDBGraphInternal graph) {
-    var executionPlan = this.explain(graph);
+  public int usedIndexes(DatabaseSessionEmbedded session) {
+    var executionPlan = this.explain(session);
     if (executionPlan == null) {
       return 0;
     }

@@ -108,7 +108,7 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
     var databaseName = session.getDatabaseName();
     var config = GremlinUtils.createBaseConfiguration(session);
     graphManager.openGraph(databaseName,
-        name -> new YTDBServerGraphImpl(databaseName, config, ytdbServer, graphManager));
+        name -> graphManager.newGraphProxyInstance(databaseName, config));
   }
 
   @Override

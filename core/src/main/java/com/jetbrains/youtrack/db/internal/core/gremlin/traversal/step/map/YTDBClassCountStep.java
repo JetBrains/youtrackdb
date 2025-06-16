@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.gremlin.traversal.step.map;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBTransaction;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -12,6 +13,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
 
 public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
+
   private boolean vertexStep;
   private List<String> klasses;
 
@@ -42,7 +44,9 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
 
   private DatabaseSessionEmbedded getDatabaseSession() {
     var graph = (YTDBGraphInternal) this.traversal.getGraph().orElseThrow();
-    return graph.getUnderlyingDatabaseSession();
+    var graphTx = (YTDBTransaction) graph.tx();
+    graphTx.readWrite();
+    return graphTx.getSession();
   }
 
   private boolean filterClass(String klass) {

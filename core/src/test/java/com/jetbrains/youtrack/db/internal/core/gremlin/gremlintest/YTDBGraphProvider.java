@@ -8,7 +8,8 @@ import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphFactory;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSession;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeWrapper;
@@ -82,7 +83,8 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
         YTDBElementImpl.class,
         YTDBStatefulEdgeImpl.class,
         YTDBStatefulEdgeWrapper.class,
-        YTDBGraphImpl.class,
+        YTDBGraphImplSession.class,
+        YTDBGraphImplSessionPool.class,
         YTDBPropertyImpl.class,
         YTDBVertexImpl.class,
         YTDBVertexWrapper.class,

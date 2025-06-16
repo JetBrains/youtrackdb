@@ -3,7 +3,8 @@ package com.jetbrains.youtrack.db.internal.core.gremlin.jsr223;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapper;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSession;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeWrapper;
@@ -30,7 +31,7 @@ public class YTDBGremlinPlugin extends AbstractGremlinPlugin {
                   YTDBAbstractElement.class,
                   YTDBElementImpl.class,
                   YTDBElementWrapper.class,
-                  YTDBGraphImpl.class,
+                  YTDBGraphImplSession.class,
                   YouTrackDBFeatures.YTDBVariableFeatures.class,
                   YTDBPropertyImpl.class,
                   YTDBVertexImpl.class,

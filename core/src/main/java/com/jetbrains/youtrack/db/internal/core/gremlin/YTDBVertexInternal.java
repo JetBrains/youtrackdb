@@ -96,24 +96,19 @@ public interface YTDBVertexInternal extends YTDBVertex {
     }
 
     var graph = (YTDBGraphInternal) graph();
-    var session = graph.getUnderlyingDatabaseSession();
+    var tx = graph.tx();
+    tx.readWrite();
+
+    var session = ((YTDBTransaction) tx).getSession();
 
     var edgeClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
     if (edgeClass == null) {
-      if (session.isTxActive()) {
-        try (var copy = session.copy()) {
-          var schemaCopy = copy.getSchema();
-          var edgeCls = schemaCopy.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
-          schemaCopy.getOrCreateClass(label, edgeCls);
-        }
-      } else {
-        var schema = session.getSchema();
-        var edgeCls = schema.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
-        schema.getOrCreateClass(label, edgeCls);
+      try (var copy = session.copy()) {
+        var schemaCopy = copy.getSchema();
+        var edgeCls = schemaCopy.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
+        schemaCopy.getOrCreateClass(label, edgeCls);
       }
     }
-
-    graph.tx().readWrite();
 
     var vertex = getRawEntity().asVertex();
     var ytdbEdge = vertex.addStateFulEdge(

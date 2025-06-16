@@ -60,7 +60,8 @@ public abstract class YTDBAbstractElement implements YTDBElement {
       throw Property.Exceptions.propertyKeyCanNotBeAHiddenKey(key);
     }
 
-    this.graph.tx().readWrite();
+    var graphTx = (YTDBTransaction) graph.tx();
+    graphTx.readWrite();
 
     var entity = getRawEntity();
     if (value == null) {
@@ -69,7 +70,7 @@ public abstract class YTDBAbstractElement implements YTDBElement {
     }
 
     if (value instanceof LinkBagStub linkBagStub) {
-      var linkBag = new LinkBag(graph.getUnderlyingDatabaseSession(), linkBagStub);
+      var linkBag = new LinkBag(graphTx.getSession(), linkBagStub);
       entity.setProperty(key, linkBag);
       //noinspection unchecked
       return new YTDBPropertyImpl<>(key, (V) linkBag, this);
@@ -79,7 +80,7 @@ public abstract class YTDBAbstractElement implements YTDBElement {
       if (type == null) {
         throw new IllegalArgumentException("Unsupported type: " + value.getClass().getName());
       }
-      var convertedValue = type.convert(value, graph.getUnderlyingDatabaseSession());
+      var convertedValue = type.convert(value, graphTx.getSession());
       entity.setProperty(key, convertedValue);
 
       return new YTDBPropertyImpl<>(key, value, this);

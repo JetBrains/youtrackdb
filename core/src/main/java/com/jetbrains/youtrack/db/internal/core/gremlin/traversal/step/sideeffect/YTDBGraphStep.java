@@ -2,9 +2,11 @@ package com.jetbrains.youtrack.db.internal.core.gremlin.traversal.step.sideeffec
 
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphBaseQuery;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphQueryBuilder;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBTransaction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -73,15 +75,18 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
       Function<YTDBGraph, Iterator<ElementType>> getAllElements,
       Function<Result, ElementType> getElement) {
     final var graph = getGraph();
-    graph.tx().readWrite();
+    var tx = graph.tx();
+    tx.readWrite();
+
+    var session = ((YTDBTransaction) tx).getSession();
 
     if (this.ids != null && this.ids.length > 0) {
       /* Got some element IDs, so just get the elements using those */
       return this.iteratorList(getElementsByIds.apply(graph, this.ids));
     } else {
-      var query = buildQuery();
+      var query = buildQuery(session);
       if (query != null) {
-        return new DefaultCloseableIterator<>(query.execute(getGraph()).stream()
+        return new DefaultCloseableIterator<>(query.execute(session).stream()
             .map(getElement)
             .filter(element -> HasContainer.testAll(element, this.hasContainers)).iterator());
       }
@@ -95,10 +100,10 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
   }
 
   @Nullable
-  public YTDBGraphBaseQuery buildQuery() {
+  public YTDBGraphBaseQuery buildQuery(DatabaseSessionEmbedded session) {
     var builder = new YTDBGraphQueryBuilder(isVertexStep());
     this.hasContainers.forEach(builder::addCondition);
-    return builder.build(getGraph());
+    return builder.build(session);
   }
 
   @Override

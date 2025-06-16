@@ -32,8 +32,9 @@ public class VertexEdgeSetWrapper implements Set {
 
   private Object box(Object elem) {
     var graph = parent.getGraph();
+    var graphTx = (YTDBTransaction) graph.tx();
     if (elem instanceof RID rid) {
-      var session = graph.getUnderlyingDatabaseSession();
+      var session = graphTx.getSession();
       var tx = session.getActiveTransaction();
       elem = tx.loadEntity(rid);
     }

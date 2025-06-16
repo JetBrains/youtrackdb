@@ -26,23 +26,6 @@ public class GremlinUtils {
     return builder.build();
   }
 
-  public static YTDBSingleThreadGraph wrapSession(DatabaseSession session,
-      YTDBGraphImpl parentGraph) {
-    if (!(session instanceof DatabaseSessionEmbedded embeddedSession)) {
-      throw new IllegalArgumentException(
-          "Passed in database session is not embedded. Only sessions of embedded databases are supported.");
-    }
-
-    var config = createBaseConfiguration(session);
-    if (parentGraph != null) {
-      return new YTDBSingleThreadGraph(embeddedSession, config, YTDBElementImplFactory.INSTANCE,
-          parentGraph);
-    }
-
-    return new YTDBSingleThreadGraph(embeddedSession, config, YTDBElementWrapperFactory.INSTANCE,
-        null);
-  }
-
   @Nonnull
   public static BaseConfiguration createBaseConfiguration(DatabaseSession session) {
     var config = new BaseConfiguration();

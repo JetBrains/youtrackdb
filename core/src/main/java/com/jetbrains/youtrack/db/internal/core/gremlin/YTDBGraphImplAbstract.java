@@ -8,21 +8,26 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.io.YTDBIoRegistry;
+import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
+import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
+import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
+import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Stream;
-import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
@@ -30,27 +35,34 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
-  public static final Logger logger = LoggerFactory.getLogger(YTDBSingleThreadGraph.class);
+public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
+
+  public static void registerOptimizationStrategies(Class<? extends YTDBGraphImplAbstract> cls) {
+    TraversalStrategies.GlobalCache.registerStrategies(
+        cls,
+        TraversalStrategies.GlobalCache.getStrategies(Graph.class)
+            .clone()
+            .addStrategies(
+                YTDBGraphStepStrategy.instance(),
+                YTDBGraphCountStrategy.instance(),
+                YTDBGraphMatchStepStrategy.instance(),
+                YTDBGraphIoStepStrategy.instance()));
+  }
+
+
+  public static final Logger logger = LoggerFactory.getLogger(YTDBGraphImplAbstract.class);
 
   private final Features features;
   private final Configuration configuration;
-  private final YTDBSingleThreadGraphTransaction tx;
-  private final DatabaseSessionEmbedded session;
   private final YTDBElementFactory elementFactory;
+  private final ThreadLocal<Transaction> tx = ThreadLocal.withInitial(
+      () -> new YTDBTransaction(this));
 
-  @Nullable
-  private final YTDBSingleThreadGraphContainer parentGraph;
-
-  public YTDBSingleThreadGraph(final DatabaseSessionEmbedded session,
-      final Configuration configuration, YTDBElementFactory elementFactory,
-      @Nullable YTDBSingleThreadGraphContainer parentGraph) {
+  public YTDBGraphImplAbstract(final Configuration configuration,
+      YTDBElementFactory elementFactory) {
     this.configuration = configuration;
     this.elementFactory = elementFactory;
-    this.parentGraph = parentGraph;
     this.features = YouTrackDBFeatures.YTDBFeatures.INSTANCE;
-    this.tx = new YTDBSingleThreadGraphTransaction(this);
-    this.session = session;
   }
 
   @Override
@@ -80,6 +92,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   }
 
   private YTDBVertex createVertexWithClass(String label) {
+    var session = getUnderlyingDatabaseSession();
     var vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
 
     if (vertexClass == null) {
@@ -143,6 +156,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
 
   private <A extends Element> Iterator<A> elements(
       String elementClass, Function<Entity, A> toA, Object... elementIds) {
+    var session = getUnderlyingDatabaseSession();
     var polymorphic = true;
     if (elementIds.length == 0) {
       // return all vertices as stream
@@ -150,7 +164,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
       return asStream(itty).map(toA).iterator();
     } else {
       var tx = session.getActiveTransaction();
-      var ids = Stream.of(elementIds).map(YTDBSingleThreadGraph::createRecordId);
+      var ids = Stream.of(elementIds).map(YTDBGraphImplAbstract::createRecordId);
       var entities =
           ids.filter(id -> ((RecordId) id).isValidPosition()).map(rid -> {
             try {
@@ -171,8 +185,8 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
     if (id instanceof String strRid) {
       return new RecordId(strRid);
     }
-    if (id instanceof YTDBAbstractElement gremlinElement) {
-      return gremlinElement.id();
+    if (id instanceof Element gremlinElement) {
+      return createRecordId(gremlinElement.id());
     }
     if (id instanceof Identifiable identifiable) {
       return identifiable.getIdentity();
@@ -184,29 +198,8 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
 
 
   @Override
-  public YTDBSingleThreadGraphTransaction tx() {
-    return this.tx;
-  }
-
-  /**
-   * Checks if the Graph has been closed.
-   *
-   * @return True if it is closed, otherwise false
-   */
-  public boolean isClosed() {
-    return session == null || session.isClosed();
-  }
-
-  public void begin() {
-    this.tx().doOpen();
-  }
-
-  public void commit() {
-    this.tx().commit();
-  }
-
-  public void rollback() {
-    this.tx().rollback();
+  public Transaction tx() {
+    return this.tx.get();
   }
 
   @Override
@@ -220,23 +213,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   }
 
   @Override
-  public void close() {
-    var url = session.getURL();
-    try {
-      this.tx().close();
-    } finally {
-      try {
-        if (!session.isClosed()) {
-          session.close();
-        }
-      } catch (Exception e) {
-        LogManager.instance().error(this, "Error during context close for db " + url, e);
-      }
-      if (parentGraph != null) {
-        parentGraph.removeFromGraphs(this);
-      }
-    }
-  }
+  public abstract void close();
 
   public void createVertexClass(final String label) {
     createClass(label, SchemaClass.VERTEX_CLASS_NAME);
@@ -247,6 +224,7 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   }
 
   public void createClass(final String className, final String superClassName) {
+    var session = getUnderlyingDatabaseSession();
     var schema = session.getMetadata().getSchema();
 
     var superClass = schema.getClass(superClassName);
@@ -260,18 +238,8 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   }
 
   @Override
-  public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {
-    return session;
-  }
-
-  @Override
   public YTDBElementFactory elementFactory() {
     return elementFactory;
-  }
-
-  @Override
-  public boolean isOpen() {
-    return !session.isClosed();
   }
 
   @SuppressWarnings("rawtypes")
@@ -285,8 +253,14 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
 
   @Override
   public String toString() {
-    return StringFactory.graphString(this, session.getURL());
+    return StringFactory.graphString(this,
+        configuration.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME));
   }
 
+  public abstract DatabaseSessionEmbedded getUnderlyingDatabaseSession();
 
+  public abstract DatabaseSessionEmbedded peekUnderlyingDatabaseSession();
+
+  @Override
+  public abstract boolean isOpen();
 }

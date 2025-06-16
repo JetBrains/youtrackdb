@@ -35,24 +35,27 @@ serializers:
   - { className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3, config: { ioRegistries: [ com.jetbrains.youtrack.db.internal.core.gremlin.io.YTDBIoRegistry ] } }         # application/json
 processors:
   - { className: org.apache.tinkerpop.gremlin.server.op.session.SessionOpProcessor, config: { sessionTimeout: 28800000 } }
-  - { className: org.apache.tinkerpop.gremlin.server.op.traversal.TraversalOpProcessor, config: { cacheExpirationTime: 600000, cacheMaxSize: 1000 } }
+  - { className: org.apache.tinkerpop.gremlin.server.op.standard.StandardOpProcessor, config: { } }
 metrics: {
   consoleReporter: { enabled: true, interval: 180000 },
   csvReporter: { enabled: true, interval: 180000, fileName: /tmp/gremlin-server-metrics.csv },
   jmxReporter: { enabled: true },
   slf4jReporter: { enabled: true, interval: 180000 } }
-strictTransactionManagement: false
-maxInitialLineLength: 4096
-maxHeaderSize: 8192
-maxChunkSize: 1024000
-maxContentLength: 1024000
-maxAccumulationBufferComponents: 1024
-resultIterationBatchSize: 64
-writeBufferLowWaterMark: 32768
-writeBufferHighWaterMark: 65536
 authentication: {
   authenticator: com.jetbrains.youtrack.db.internal.server.plugin.gremlin.YTDBSimpleAuthenticator
 }
 ssl: {
   enabled: false
 }
+gremlinPool: 8
+strictTransactionManagement: false
+idleConnectionTimeout: 0
+keepAliveInterval: 0
+maxInitialLineLength: 4096
+maxHeaderSize: 8192
+maxChunkSize: 8192
+maxContentLength: 10485760
+maxAccumulationBufferComponents: 1024
+resultIterationBatchSize: 64
+writeBufferLowWaterMark: 32768
+writeBufferHighWaterMark: 65536

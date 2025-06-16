@@ -33,16 +33,17 @@ public class VertexEdgeListWrapper implements List {
 
   private Object box(Object elem) {
     var graph = parent.getGraph();
+    var graphTx = (YTDBTransaction) graph.tx();
     if (elem instanceof RID rid) {
-      var session = graph.getUnderlyingDatabaseSession();
+      var session = graphTx.getSession();
       var tx = session.getActiveTransaction();
       elem = tx.loadEntity(rid);
     }
     if (elem instanceof Entity entity) {
       if (entity.isVertex()) {
-        elem = parent.getGraph().elementFactory().wrapVertex(graph, entity.asVertex());
+        elem = graph.elementFactory().wrapVertex(graph, entity.asVertex());
       } else if (entity.isEdge()) {
-        elem = parent.getGraph().elementFactory().wrapEdge(graph, entity.asStatefulEdge());
+        elem = graph.elementFactory().wrapEdge(graph, entity.asStatefulEdge());
       }
     }
     return elem;

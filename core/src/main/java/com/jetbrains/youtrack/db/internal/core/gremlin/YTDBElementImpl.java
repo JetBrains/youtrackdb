@@ -17,7 +17,8 @@ public abstract class YTDBElementImpl extends YTDBAbstractElement {
 
   @Override
   public Entity getRawEntity() {
-    var session = graph.getUnderlyingDatabaseSession();
+    var graphTx = (YTDBTransaction) graph().tx();
+    var session = graphTx.getSession();
     var tx = session.getActiveTransaction();
 
     var entity = threadLocalEntity.get();

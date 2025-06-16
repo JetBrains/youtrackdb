@@ -87,7 +87,8 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
 
     if (metadata == null) {
       var graph = element.getGraph();
-      var session = graph.getUnderlyingDatabaseSession();
+      var graphTx = (YTDBTransaction) graph.tx();
+      var session = graphTx.getSession();
       var tx = session.getActiveTransaction();
 
       metadata = tx.newEmbeddedEntity();

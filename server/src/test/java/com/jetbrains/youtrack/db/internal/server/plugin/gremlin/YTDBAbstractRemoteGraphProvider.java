@@ -2,7 +2,9 @@ package com.jetbrains.youtrack.db.internal.server.plugin.gremlin;
 
 import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREMLIN_REMOTE;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -19,13 +21,16 @@ import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.server.TestClientFactory;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.RemoteGraph;
+import org.apache.tinkerpop.gremlin.util.MessageSerializer;
 
 public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGraphProvider {
 
   public static final String ADMIN_USER_NAME = "adminuser";
   public static final String ADMIN_USER_PASSWORD = "adminpwd";
+  public static final String DEFAULT_DB_NAME = "graph";
 
   private YouTrackDBServer ytdbServer;
+  public HashMap<String, SessionPool<DatabaseSession>> graphGetterSessionPools = new HashMap<>();
 
   public YTDBAbstractRemoteGraphProvider(Cluster cluster) {
     super(cluster);
@@ -56,6 +61,11 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
   }
 
   private void reloadAllTestGraphs() throws IOException {
+    if (graphGetterSessionPools != null) {
+      graphGetterSessionPools.values().forEach(SessionPool::close);
+    }
+    graphGetterSessionPools = new HashMap<>();
+
     var serverContext = ytdbServer.getContext();
     var graphsToLoad = LoadGraphWith.GraphData.values();
     var dbType = calculateDbType();
@@ -67,6 +77,9 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
       if (serverContext.exists(graphName)) {
         if (graphToLoad == GraphData.GRATEFUL) {
           //this graph is read-only so no need to re-load it if it already exists
+
+          graphGetterSessionPools.put(graphName,
+              serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD));
           continue;
         }
 
@@ -78,7 +91,19 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
         var graph = session.asGraph();
         readIntoGraph(graph, location);
       }
+
+      graphGetterSessionPools.put(graphName,
+          serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD));
     }
+
+    if (serverContext.exists(DEFAULT_DB_NAME)) {
+      serverContext.drop(DEFAULT_DB_NAME);
+    }
+
+    serverContext.create(DEFAULT_DB_NAME, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
+    graphGetterSessionPools.put(DEFAULT_DB_NAME,
+        serverContext.cachedPool(DEFAULT_DB_NAME, ADMIN_USER_NAME,
+            ADMIN_USER_PASSWORD));
   }
 
   @Override
@@ -100,8 +125,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
       final LoadGraphWith.GraphData loadGraphWith) {
     final var serverGraphName = getServerGraphName(loadGraphWith);
 
-    final Supplier<Graph> graphGetter = () -> ytdbServer.getContext()
-        .cachedPool(serverGraphName, "root", "root").asGraph();
+    final Supplier<Graph> graphGetter = () -> graphGetterSessionPools.get(serverGraphName).asGraph();
     return new HashMap<>() {{
       put(Graph.GRAPH, RemoteGraph.class.getName());
       put(RemoteConnection.GREMLIN_REMOTE_CONNECTION_CLASS, DriverRemoteConnection.class.getName());
@@ -123,5 +147,9 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     return DatabaseType.MEMORY;
   }
 
+  public static Cluster.Builder createClusterBuilder(MessageSerializer<?> serializer) {
+    // match the content length in the server yaml
+    return TestClientFactory.build().maxContentLength(1000000).serializer(serializer);
+  }
 
 }

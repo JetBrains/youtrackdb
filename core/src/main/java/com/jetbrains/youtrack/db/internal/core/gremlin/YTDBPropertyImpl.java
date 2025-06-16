@@ -30,8 +30,9 @@ public class YTDBPropertyImpl<V> implements
   private Object wrapIntoGraphElement(V value) {
     Object result = value;
     var graph = element.getGraph();
+    var graphTx = (YTDBTransaction) graph.tx();
     if (result instanceof RID rid) {
-      var session = graph.getUnderlyingDatabaseSession();
+      var session = graphTx.getSession();
       var tx = session.getActiveTransaction();
       result = tx.loadEntity(rid);
     }

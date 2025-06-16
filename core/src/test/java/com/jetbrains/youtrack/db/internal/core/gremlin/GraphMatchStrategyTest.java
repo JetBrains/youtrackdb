@@ -32,7 +32,7 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
     var graphStep = (YTDBGraphStep<?, ?>) startStep;
     assertEquals(2, graphStep.getHasContainers().size());
 
-    Assert.assertEquals(1, usedIndexes(graph, admin));
+    Assert.assertEquals(1, usedIndexes(session, admin));
   }
 
   @Test
@@ -55,7 +55,7 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
     var graphStep = (YTDBGraphStep<?, ?>) startStep;
     assertEquals(1, graphStep.getHasContainers().size());
 
-    Assert.assertEquals(0, usedIndexes(graph, admin));
+    Assert.assertEquals(0, usedIndexes(session, admin));
 
     admin =
         traversal
@@ -72,7 +72,7 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
     graphStep = (YTDBGraphStep<?, ?>) startStep;
     assertEquals(2, graphStep.getHasContainers().size());
 
-    Assert.assertEquals(1, usedIndexes(graph, admin));
+    Assert.assertEquals(1, usedIndexes(session, admin));
   }
 
   @Test

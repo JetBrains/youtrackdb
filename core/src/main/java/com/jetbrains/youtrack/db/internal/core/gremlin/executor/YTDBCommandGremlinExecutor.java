@@ -33,6 +33,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.transformer.Script
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.executor.transformer.YTDBEntityTransformer;
 import com.jetbrains.youtrack.db.internal.core.gremlin.executor.transformer.YTDBGremlinTransformer;
@@ -239,9 +240,11 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
   }
 
   private ScriptEngine acquireGremlinEngine(final YTDBGraph graph) {
+    var graphTx = (YTDBTransaction) graph.tx();
+    graphTx.readWrite();
     final var engine =
         scriptManager.acquireDatabaseEngine(
-            (DatabaseSessionEmbedded) graph.getUnderlyingDatabaseSession(), GREMLIN_GROOVY);
+            graphTx.getSession(), GREMLIN_GROOVY);
     var bindings = engine.getBindings(ScriptContext.ENGINE_SCOPE);
     bindGraph(graph, bindings);
     return engine;

@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.AcquireTimeoutException;
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphFactory;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
 import org.apache.commons.configuration2.BaseConfiguration;
 
@@ -218,7 +218,7 @@ public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER, userName);
 
     //noinspection unchecked
-    return new YTDBGraphImpl((SessionPool<DatabaseSession>) this, config);
+    return new YTDBGraphImplSessionPool((SessionPool<DatabaseSession>) this, config);
   }
 
   /**
