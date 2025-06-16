@@ -123,7 +123,8 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
       String directoryPath,
       YouTrackDBConfig config,
       boolean serverMode) {
-    return new YouTrackDBInternalEmbedded(directoryPath, config, YouTrackDBEnginesManager.instance(), serverMode);
+    return new YouTrackDBInternalEmbedded(directoryPath, config,
+        YouTrackDBEnginesManager.instance(), serverMode);
   }
 
 
@@ -246,6 +247,9 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   DatabasePoolInternal<S> cachedPool(
       String database, String user, String password, YouTrackDBConfig config);
 
+  DatabasePoolInternal<S> cachedPoolNoAuthentication(String database, String user,
+      YouTrackDBConfig config);
+
   /**
    * Internal api for request to open a database with a pool
    */
@@ -295,7 +299,8 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
     return false;
   }
 
-   static <S extends BasicDatabaseSession<?, ?>> YouTrackDBInternal<S> extract(YouTrackDBAbstract<?, S> youTrackDB) {
+  static <S extends BasicDatabaseSession<?, ?>> YouTrackDBInternal<S> extract(
+      YouTrackDBAbstract<?, S> youTrackDB) {
     return youTrackDB.internal;
   }
 

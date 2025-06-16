@@ -1,11 +1,7 @@
 package com.jetbrains.youtrack.db.internal.server.plugin.gremlin;
 
-import com.jetbrains.youtrack.db.internal.core.gremlin.GremlinUtils;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphFactory;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBSingleThreadGraph;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -13,31 +9,22 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.script.Bindings;
 import javax.script.SimpleBindings;
-import org.apache.commons.configuration2.BaseConfiguration;
-import org.apache.commons.configuration2.Configuration;
-import org.apache.commons.lang.NotImplementedException;
-import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSource;
 import org.apache.tinkerpop.gremlin.server.GraphManager;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.auth.AuthenticatedUser;
-import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Graph;
-import org.apache.tinkerpop.gremlin.structure.Transaction;
-import org.apache.tinkerpop.gremlin.structure.Vertex;
-import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 
 public class YTDBGraphManager implements GraphManager {
+
   private static final String TRAVERSAL_SOURCE_PREFIX = "g";
 
   @Nonnull
   private final YouTrackDBServer youTrackDBServer;
+  private final ConcurrentHashMap<String, YTDBServerGraphImpl> registeredGraphs = new ConcurrentHashMap<>();
 
-  private final ConcurrentHashMap<String, UserSession> activeUserSessions = new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<String, Graph> graphs = new ConcurrentHashMap<>();
-
-  private final ThreadLocal<UserSession> currentSession = new ThreadLocal<>();
+  private final ThreadLocal<AuthenticatedUser> currentUser = new ThreadLocal<>();
 
   public YTDBGraphManager(Settings settings) {
     var ytdbSettings = (YTDBSettings) settings;
@@ -53,16 +40,12 @@ public class YTDBGraphManager implements GraphManager {
   @Override
   @Nullable
   public Graph getGraph(String graphName) {
-    return graphs.get(graphName);
+    return registeredGraphs.get(graphName);
   }
 
   @Override
   public void putGraph(String graphName, Graph g) {
     throw new UnsupportedOperationException("putGraph is not supported in YTDB");
-  }
-
-  public YTDBServerGraph newGraph(String graphName) {
-    return new YTDBServerGraph(graphName);
   }
 
   @Override
@@ -119,7 +102,12 @@ public class YTDBGraphManager implements GraphManager {
 
   @Override
   public void rollbackAll() {
-    throw new UnsupportedOperationException("rollbackAll is not supported in YTDB");
+    registeredGraphs.values().forEach(graph -> {
+      var tx = graph.tx();
+      if (tx.isOpen()) {
+        tx.rollback();
+      }
+    });
   }
 
   @Override
@@ -135,7 +123,12 @@ public class YTDBGraphManager implements GraphManager {
 
   @Override
   public void commitAll() {
-    throw new UnsupportedOperationException("commitAll is not supported in YTDB");
+    registeredGraphs.values().forEach(graph -> {
+      var tx = graph.tx();
+      if (tx.isOpen()) {
+        tx.rollback();
+      }
+    });
   }
 
   @Override
@@ -151,194 +144,38 @@ public class YTDBGraphManager implements GraphManager {
 
   @Override
   public Graph openGraph(String graphName, Function<String, Graph> supplier) {
-    return graphs.compute(graphName, (name, registeredGraph) -> {
+    return registeredGraphs.compute(graphName, (name, registeredGraph) -> {
       if (registeredGraph != null) {
         return registeredGraph;
       }
 
       var g = supplier.apply(name);
-      if (!(g instanceof YTDBServerGraph)) {
+      if (!(g instanceof YTDBServerGraphImpl ytdbServerGraphImpl)) {
         throw new IllegalArgumentException(
-            "Graph must be of type " + YTDBServerGraph.class.getName());
+            "Graph must be of type " + YTDBServerGraphImpl.class.getName());
       }
 
-      return g;
+      return ytdbServerGraphImpl;
     });
   }
 
   @Override
   @Nullable
   public Graph removeGraph(String graphName) {
-    return graphs.remove(graphName);
+    return registeredGraphs.remove(graphName);
   }
 
   @Override
-  public void beforeQueryStart(RequestMessage msg) {
-    var sessionId = (String) msg.getArgs().get(Tokens.ARGS_SESSION);
-    if (sessionId == null) {
-      sessionId = msg.getRequestId().toString();
-    }
-
-    var session = activeUserSessions.get(sessionId);
-    if (session == null) {
-      throw new IllegalStateException(
-          "Session with id " + sessionId + " not found in GraphManager");
-    }
-
-    currentSession.set(session);
+  public void beforeQueryStart(RequestMessage msg, AuthenticatedUser authenticatedUser) {
+    currentUser.set(authenticatedUser);
   }
 
   @Override
-  public void onQueryError(RequestMessage msg, Throwable error) {
-    currentSession.remove();
+  public void afterQueryEnd(RequestMessage msg) {
+    currentUser.remove();
   }
 
-  @Override
-  public void onQuerySuccess(RequestMessage msg) {
-    currentSession.remove();
-  }
-
-  @Override
-  public void onSessionStart(String sessionId, AuthenticatedUser user) {
-    if (user == null) {
-      throw new IllegalArgumentException("Anonymous users are not allowed");
-    }
-
-    activeUserSessions.compute(sessionId, (id, userSession) -> {
-      if (userSession == null) {
-        return new UserSession(new ConcurrentHashMap<>(), user.getName());
-      }
-      return userSession;
-    });
-  }
-
-
-  @Override
-  public void onSessionClose(String sessionId) {
-    var session = activeUserSessions.remove(sessionId);
-    session.clear();
-
-    if (currentSession.get() == session) {
-      currentSession.remove();
-    }
-  }
-
-  private record UserSession(ConcurrentHashMap<String, YTDBSingleThreadGraph> graphs,
-                             String userName) {
-
-    void clear() {
-      graphs.forEach((name, graph) -> {
-        graph.getUnderlyingDatabaseSession().activateOnCurrentThread();
-        graph.close();
-      });
-
-      graphs.clear();
-    }
-  }
-
-  public final class YTDBServerGraph implements Graph {
-
-    private final String name;
-
-    private YTDBServerGraph(String name) {
-      this.name = name;
-    }
-
-    @Override
-    public Vertex addVertex(Object... keyValues) {
-      var userSession = getUserSession();
-      var singleThreadGraph = getOrCreateSessionGraph(userSession);
-      return singleThreadGraph.addVertex(keyValues);
-    }
-
-    @Nonnull
-    private YTDBSingleThreadGraph getOrCreateSessionGraph(UserSession userSession) {
-      return userSession.graphs.compute(name, (graphName, graph) -> {
-        if (graph == null) {
-          var databaseSession = youTrackDBServer.getDatabases()
-              .openNoAuthenticate(name, userSession.userName);
-          graph = GremlinUtils.wrapSession(databaseSession, null);
-        }
-
-        return graph;
-      });
-    }
-
-
-    @Override
-    public <C extends GraphComputer> C compute(Class<C> graphComputerClass)
-        throws IllegalArgumentException {
-      throw new NotImplementedException();
-    }
-
-    @Override
-    public GraphComputer compute() throws IllegalArgumentException {
-      throw new NotImplementedException();
-    }
-
-    @Override
-    public Iterator<Vertex> vertices(Object... vertexIds) {
-      var session = getUserSession();
-      var singleThreadGraph = getOrCreateSessionGraph(session);
-      return singleThreadGraph.vertices(vertexIds);
-    }
-
-    @Override
-    public Iterator<Edge> edges(Object... edgeIds) {
-      var session = getUserSession();
-      var singleThreadGraph = getOrCreateSessionGraph(session);
-      return singleThreadGraph.edges(edgeIds);
-    }
-
-    @Override
-    public Transaction tx() {
-      var session = getUserSession();
-      var singleThreadGraph = getOrCreateSessionGraph(session);
-      return singleThreadGraph.tx();
-    }
-
-    @Override
-    public void close() {
-      activeUserSessions.forEach((id, session) -> {
-        var graph = session.graphs.remove(name);
-
-        if (graph != null) {
-          graph.getUnderlyingDatabaseSession().activateOnCurrentThread();
-          graph.close();
-        }
-      });
-    }
-
-    @Override
-    public Variables variables() {
-      throw new NotImplementedException();
-    }
-
-    @Override
-    public Configuration configuration() {
-      var session = currentSession.get();
-
-      if (session != null) {
-        var graph = session.graphs.get(name);
-
-        if (graph != null) {
-          return graph.configuration();
-        }
-      }
-
-      var baseConfiguration = new BaseConfiguration();
-      baseConfiguration.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME, name);
-      return baseConfiguration;
-    }
-
-    @Nonnull
-    private UserSession getUserSession() {
-      var session = currentSession.get();
-      if (session == null) {
-        throw new IllegalStateException("No active user session found");
-      }
-
-      return session;
-    }
+  public AuthenticatedUser getCurrentUser() {
+    return currentUser.get();
   }
 }

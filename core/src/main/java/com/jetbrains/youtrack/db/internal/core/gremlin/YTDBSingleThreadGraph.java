@@ -31,7 +31,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
-
   public static final Logger logger = LoggerFactory.getLogger(YTDBSingleThreadGraph.class);
 
   private final Features features;
@@ -39,12 +38,13 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   private final YTDBSingleThreadGraphTransaction tx;
   private final DatabaseSessionEmbedded session;
   private final YTDBElementFactory elementFactory;
+
   @Nullable
-  private final YTDBGraphImpl parentGraph;
+  private final YTDBSingleThreadGraphContainer parentGraph;
 
   public YTDBSingleThreadGraph(final DatabaseSessionEmbedded session,
       final Configuration configuration, YTDBElementFactory elementFactory,
-      @Nullable YTDBGraphImpl parentGraph) {
+      @Nullable YTDBSingleThreadGraphContainer parentGraph) {
     this.configuration = configuration;
     this.elementFactory = elementFactory;
     this.parentGraph = parentGraph;
@@ -61,8 +61,8 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
   @Override
   public YTDBVertex addVertex(Object... keyValues) {
     this.tx().readWrite();
-    ElementHelper.legalPropertyKeyValueArray(keyValues);
 
+    ElementHelper.legalPropertyKeyValueArray(keyValues);
     if (ElementHelper.getIdValue(keyValues).isPresent()) {
       throw Vertex.Exceptions.userSuppliedIdsNotSupported();
     }
@@ -269,6 +269,10 @@ public final class YTDBSingleThreadGraph implements YTDBGraphInternal {
     return elementFactory;
   }
 
+  @Override
+  public boolean isOpen() {
+    return !session.isClosed();
+  }
 
   @SuppressWarnings("rawtypes")
   @Override

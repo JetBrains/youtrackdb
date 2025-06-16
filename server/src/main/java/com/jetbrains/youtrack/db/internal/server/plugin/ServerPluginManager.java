@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.Service;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.NetworkProtocolHttpAbstract;
@@ -162,6 +163,9 @@ public class ServerPluginManager implements Service {
       try {
         callListenerBeforeShutdown(plugin.getInstance());
         plugin.shutdown(false);
+        if (plugin instanceof DatabaseLifecycleListener databaseLifecycleListener) {
+          YouTrackDBEnginesManager.instance().removeDbLifecycleListener(databaseLifecycleListener);
+        }
         callListenerAfterShutdown(plugin.getInstance());
       } catch (Exception t) {
         LogManager.instance().error(this, "Error during server plugin %s shutdown", t, plugin);

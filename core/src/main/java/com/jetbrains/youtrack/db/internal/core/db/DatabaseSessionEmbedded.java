@@ -2817,8 +2817,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var userName = user.getName(this);
 
-    var pool = youTrackDb.openPoolNoAuthenticate(getDatabaseName(), userName, poolConfig);
+    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
     var storage = this.storage;
+
     return storage.live(pool, query, listener, args);
   }
 
@@ -2837,7 +2838,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var userName = user.getName(this);
 
-    var pool = youTrackDb.openPoolNoAuthenticate(getDatabaseName(), userName, poolConfig);
+    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
     var storage = this.storage;
 
     return storage.live(pool, query, listener, args);

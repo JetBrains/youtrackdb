@@ -16,9 +16,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class CountRealationshipsTest {
 
   private static final String SERVER_DIRECTORY = "./target/collection";

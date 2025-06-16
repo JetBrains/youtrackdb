@@ -36,6 +36,7 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseTask;
@@ -608,6 +609,11 @@ public class YouTrackDBServer {
     return databaseDirectory;
   }
 
+  public String getServerRootDirectory() {
+    return serverRootDirectory;
+  }
+
+
   /**
    * Authenticate a server user.
    *
@@ -1018,6 +1024,9 @@ public class YouTrackDBServer {
         try {
           pluginManager.callListenerBeforeConfig(plugin, h.parameters);
           plugin.config(this, h.parameters);
+          if (plugin instanceof DatabaseLifecycleListener databaseLifecycleListener) {
+            YouTrackDBEnginesManager.instance().addDbLifecycleListener(databaseLifecycleListener);
+          }
           pluginManager.callListenerAfterConfig(plugin, h.parameters);
 
           plugins.add(plugin);
@@ -1205,6 +1214,12 @@ public class YouTrackDBServer {
     public DatabasePoolInternal<DatabaseSession> cachedPool(String database, String user,
         String password, YouTrackDBConfig config) {
       return internal.cachedPool(database, user, password, config);
+    }
+
+    @Override
+    public DatabasePoolInternal<DatabaseSession> cachedPoolNoAuthentication(String database,
+        String user, YouTrackDBConfig config) {
+      return internal.cachedPoolNoAuthentication(database, user, config);
     }
 
     @Override

@@ -7,9 +7,9 @@ import org.apache.tinkerpop.gremlin.structure.util.TransactionException;
 
 public final class YTDBMultiThreadGraphTransaction extends AbstractTransaction {
 
-  private final YTDBGraphImpl g;
+  private final YTDBSingleThreadGraphContainer g;
 
-  public YTDBMultiThreadGraphTransaction(YTDBGraphImpl graph) {
+  public YTDBMultiThreadGraphTransaction(YTDBSingleThreadGraphContainer graph) {
     super(graph);
     this.g = graph;
   }
@@ -80,6 +80,6 @@ public final class YTDBMultiThreadGraphTransaction extends AbstractTransaction {
   }
 
   private YTDBSingleThreadGraphTransaction tx() {
-    return ((YTDBSingleThreadGraph) g.graph()).tx();
+    return g.currentSingleThreadGraph().tx();
   }
 }

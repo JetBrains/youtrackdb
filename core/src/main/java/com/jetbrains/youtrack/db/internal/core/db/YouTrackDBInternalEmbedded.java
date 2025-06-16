@@ -984,7 +984,20 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     checkDatabaseName(database);
     checkOpen();
     var pool =
-        cachedPoolFactory.get(database, user, password, solveConfig((YouTrackDBConfigImpl) config));
+        cachedPoolFactory.getOrCreate(database, user, password,
+            solveConfig((YouTrackDBConfigImpl) config));
+    pools.add(pool);
+    return pool;
+  }
+
+  @Override
+  public DatabasePoolInternal<DatabaseSession> cachedPoolNoAuthentication(String database,
+      String user, YouTrackDBConfig config) {
+    checkDatabaseName(database);
+    checkOpen();
+    var pool =
+        cachedPoolFactory.getOrCreateNoAuthentication(database, user,
+            solveConfig((YouTrackDBConfigImpl) config));
     pools.add(pool);
     return pool;
   }

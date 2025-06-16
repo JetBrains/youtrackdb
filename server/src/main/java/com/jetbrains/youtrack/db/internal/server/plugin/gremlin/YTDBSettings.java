@@ -4,6 +4,8 @@ import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.InputStream;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.TypeDescription;
@@ -11,14 +13,18 @@ import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.Constructor;
 
 public class YTDBSettings extends Settings {
-
   public YouTrackDBServer server;
+  public ScheduledExecutorService scheduledExecutorService;
+
+  public long graphManagerTickerGranularity = 1_000_000_000L;
 
   protected static Constructor createDefaultYamlConstructor() {
     final var options = new LoaderOptions();
 
     final var constructor = new Constructor(YTDBSettings.class, options);
     final var settingsDescription = new TypeDescription(Settings.class);
+    settingsDescription.setExcludes("server", "scheduledExecutorService");
+
     settingsDescription.addPropertyParameters("graphs", String.class, String.class);
     settingsDescription.addPropertyParameters("scriptEngines", String.class,
         ScriptEngineSettings.class);

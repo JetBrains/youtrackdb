@@ -8,4 +8,6 @@ public interface YTDBGraphInternal extends YTDBGraph {
   DatabaseSessionEmbedded getUnderlyingDatabaseSession();
 
   YTDBElementFactory elementFactory();
+
+  boolean isOpen();
 }

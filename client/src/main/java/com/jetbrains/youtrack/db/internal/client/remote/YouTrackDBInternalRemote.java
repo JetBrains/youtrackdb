@@ -79,6 +79,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDatabaseSession> {
+
   private final Map<String, RemoteCommandsDispatcherImpl> orchestrators = new HashMap<>();
   private final Set<DatabasePoolInternal<RemoteDatabaseSession>> pools = new HashSet<>();
   private final String[] hosts;
@@ -365,9 +366,17 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
       String database, String user, String password, YouTrackDBConfig config) {
     checkOpen();
     var pool =
-        cachedPoolFactory.get(database, user, password, solveConfig((YouTrackDBConfigImpl) config));
+        cachedPoolFactory.getOrCreate(database, user, password,
+            solveConfig((YouTrackDBConfigImpl) config));
     pools.add(pool);
     return pool;
+  }
+
+  @Override
+  public DatabasePoolInternal<RemoteDatabaseSession> cachedPoolNoAuthentication(String database,
+      String user, YouTrackDBConfig config) {
+    throw new UnsupportedOperationException(
+        "Access without authentication is not supported for remote clients.");
   }
 
   @Override
