@@ -16,8 +16,8 @@ public class YTDBStatefulEdgeWrapper extends YTDBElementWrapper implements YTDBE
 
   @Override
   public <V> Iterator<Property<V>> properties(final String... propertyKeys) {
-    Iterator<? extends Property<V>> properties = (super.properties(
-        propertyKeys));
+    Iterator<? extends Property<V>> properties = super.properties(
+        propertyKeys);
     return StreamUtils.asStream(properties)
         .filter(p -> !INTERNAL_FIELDS.contains(p.key()))
         .map(p -> (Property<V>) p)

@@ -113,7 +113,12 @@ import org.apache.tinkerpop.gremlin.util.MessageSerializer;
     test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeVertexTest",
     method = "g_mergeVXlabel_person_name_stephenX",
     reason = "YTDB returns negative rids for new records that can not be re-attached.")
+@Graph.OptOut(
+    test = "org.apache.tinkerpop.gremlin.process.traversal.step.OrderabilityTest",
+    method = "g_E_properties_order_value",
+    reason = "Query and modification are performed in different pending transactions.")
 public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGraphProvider {
+
   public static final String ADMIN_USER_NAME = "adminuser";
   public static final String ADMIN_USER_PASSWORD = "adminpwd";
   public static final String DEFAULT_DB_NAME = "graph";
