@@ -3012,12 +3012,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     internalReset();
   }
 
-  @Override
-  public void markDeletedInServerTx() {
-    super.markDeletedInServerTx();
-
-    internalReset();
-  }
 
   @Nullable
   public ArrayList<BTreeBasedLinkBag> getLinkBagsToDelete() {

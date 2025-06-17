@@ -16,10 +16,12 @@ import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexWrapper;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import org.apache.commons.configuration2.Configuration;
@@ -27,6 +29,7 @@ import org.apache.tinkerpop.gremlin.AbstractGraphProvider;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Graph.Features;
 import org.apache.tinkerpop.gremlin.structure.TransactionTest;
 import org.junit.AssumptionViolatedException;
 
@@ -90,6 +93,10 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
         YTDBVertexWrapper.class,
         YTDBStatefulEdgeWrapper.class,
         YTDBVertexPropertyImpl.class);
+  }
+  @Override
+  public Optional<Features> getStaticFeatures() {
+    return Optional.of(YTDBFeatures.INSTANCE);
   }
 
   @Override

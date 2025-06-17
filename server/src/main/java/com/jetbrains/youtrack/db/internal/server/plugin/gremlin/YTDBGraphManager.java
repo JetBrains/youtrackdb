@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.server.plugin.gremlin;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapperFactory;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplAbstract;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.util.HashSet;
 import java.util.Set;
@@ -28,7 +29,7 @@ public class YTDBGraphManager implements GraphManager {
 
   @Nonnull
   private final YouTrackDBServer youTrackDBServer;
-  private final ConcurrentHashMap<String, YTDBServerGraphProxy> registeredGraphs = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, YTDBServerGraphImpl> registeredGraphs = new ConcurrentHashMap<>();
   private final ThreadLocal<AuthenticatedUser> currentUser = new ThreadLocal<>();
 
   public YTDBGraphManager(Settings settings) {
@@ -155,9 +156,9 @@ public class YTDBGraphManager implements GraphManager {
       }
 
       var g = supplier.apply(name);
-      if (!(g instanceof YTDBServerGraphProxy ytdbServerGraphImpl)) {
+      if (!(g instanceof YTDBServerGraphImpl ytdbServerGraphImpl)) {
         throw new IllegalArgumentException(
-            "Graph must be of type " + YTDBServerGraphProxy.class.getName());
+            "Graph must be of type " + YTDBServerGraphImpl.class.getName());
       }
 
       return ytdbServerGraphImpl;
@@ -180,17 +181,20 @@ public class YTDBGraphManager implements GraphManager {
     currentUser.remove();
   }
 
-  public YTDBServerGraphProxy newGraphProxyInstance(String databaseName, Configuration config) {
-    return new YTDBServerGraphProxy(databaseName, config);
+  public YTDBServerGraphImpl newGraphProxyInstance(String databaseName, Configuration config) {
+    return new YTDBServerGraphImpl(databaseName, config);
   }
 
-  public final class YTDBServerGraphProxy extends YTDBGraphImplAbstract implements
+  public final class YTDBServerGraphImpl extends YTDBGraphImplAbstract implements
       Consumer<Status> {
+    static {
+      registerOptimizationStrategies(YTDBServerGraphImpl.class);
+    }
 
     private final ThreadLocal<DatabaseSessionEmbedded> currentDatabaseSession = new ThreadLocal<>();
     private final String databaseName;
 
-    public YTDBServerGraphProxy(String databaseName, Configuration config) {
+    public YTDBServerGraphImpl(String databaseName, Configuration config) {
       super(config, YTDBElementWrapperFactory.INSTANCE);
       this.databaseName = databaseName;
     }

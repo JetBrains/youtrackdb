@@ -95,7 +95,7 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
   @Override
   public void shutdown() {
     if (gremlinServer != null) {
-      gremlinServer.stop();
+      gremlinServer.stop().join();
     }
   }
 
