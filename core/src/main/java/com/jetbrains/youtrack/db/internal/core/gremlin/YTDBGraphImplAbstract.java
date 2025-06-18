@@ -96,18 +96,12 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
     var vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
 
     if (vertexClass == null) {
-      if (session.isTxActive()) {
-        try (var copy = session.copy()) {
-          var schemaCopy = copy.getSchema();
-          var vClass = schemaCopy.getClass(SchemaClass.VERTEX_CLASS_NAME);
-          schemaCopy.getOrCreateClass(label, vClass);
-        }
-        vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
-      } else {
-        var schema = session.getSchema();
-        var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
-        vertexClass = schema.getOrCreateClass(label, vClass);
+      try (var copy = session.copy()) {
+        var schemaCopy = copy.getSchema();
+        var vClass = schemaCopy.getClass(SchemaClass.VERTEX_CLASS_NAME);
+        schemaCopy.getOrCreateClass(label, vClass);
       }
+      vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
     } else if (!vertexClass.isVertexType()) {
       throw new IllegalArgumentException("Class " + label + " is not a vertex type");
     }
@@ -214,28 +208,6 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
   @Override
   public abstract void close();
-
-  public void createVertexClass(final String label) {
-    createClass(label, SchemaClass.VERTEX_CLASS_NAME);
-  }
-
-  public void createEdgeClass(final String label) {
-    createClass(label, SchemaClass.EDGE_CLASS_NAME);
-  }
-
-  public void createClass(final String className, final String superClassName) {
-    var session = getUnderlyingDatabaseSession();
-    var schema = session.getMetadata().getSchema();
-
-    var superClass = schema.getClass(superClassName);
-    if (superClass == null) {
-      var allClasses = session.getMetadata().getSchema().getClasses();
-      throw new IllegalArgumentException(
-          "unable to find class " + superClassName + ". Available classes: " + allClasses);
-    }
-
-    schema.createClass(className, superClass);
-  }
 
   @Override
   public YTDBElementFactory elementFactory() {

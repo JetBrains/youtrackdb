@@ -6,12 +6,11 @@ import com.jetbrains.youtrack.db.api.record.Entity;
 
 public abstract class YTDBElementImpl extends YTDBAbstractElement {
   private final ThreadLocal<Entity> threadLocalEntity = new ThreadLocal<>();
+  private final Entity fastPathEntity;
 
   public YTDBElementImpl(final YTDBGraphInternal graph, final Entity rawEntity) {
     super(graph, rawEntity);
-
-    var entity = checkNotNull(rawEntity);
-    threadLocalEntity.set(entity);
+    fastPathEntity = checkNotNull(rawEntity);
   }
 
 
@@ -19,21 +18,26 @@ public abstract class YTDBElementImpl extends YTDBAbstractElement {
   public Entity getRawEntity() {
     var graphTx = (YTDBTransaction) graph().tx();
     var session = graphTx.getSession();
-    var tx = session.getActiveTransaction();
 
-    var entity = threadLocalEntity.get();
-    if (entity == null) {
-      entity = tx.loadEntity(rid);
-      threadLocalEntity.set(entity);
+    if (fastPathEntity.isNotBound(session)) {
+      var tx = session.getActiveTransaction();
+
+      var entity = threadLocalEntity.get();
+      if (entity == null) {
+        entity = tx.loadEntity(rid);
+        threadLocalEntity.set(entity);
+
+        return entity;
+      }
+
+      if (entity.isNotBound(session)) {
+        entity = tx.load(entity);
+        threadLocalEntity.set(entity);
+      }
 
       return entity;
+    } else {
+      return fastPathEntity;
     }
-
-    if (entity.isNotBound(session)) {
-      entity = tx.load(entity);
-      threadLocalEntity.set(entity);
-    }
-
-    return entity;
   }
 }

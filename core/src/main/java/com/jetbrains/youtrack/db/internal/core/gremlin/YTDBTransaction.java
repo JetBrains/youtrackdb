@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.util.AbstractTransaction;
@@ -14,7 +15,7 @@ public final class YTDBTransaction extends AbstractTransaction {
   private Consumer<Transaction> readWriteConsumerInternal = READ_WRITE_BEHAVIOR.AUTO;
   private Consumer<Transaction> closeConsumerInternal = CLOSE_BEHAVIOR.ROLLBACK;
 
-  private final List<Consumer<Status>> transactionListeners = new CopyOnWriteArrayList<>();
+  private final CopyOnWriteArraySet<Consumer<Status>> transactionListeners = new CopyOnWriteArraySet<>();
   private final YTDBGraphImplAbstract graph;
 
   public YTDBTransaction(YTDBGraphImplAbstract graph) {

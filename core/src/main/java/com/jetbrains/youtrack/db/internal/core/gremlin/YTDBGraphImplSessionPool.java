@@ -13,9 +13,11 @@ import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 @Graph.OptIn(Graph.OptIn.SUITE_PROCESS_STANDARD)
 @GraphFactoryClass(YTDBGraphFactory.class)
 public class YTDBGraphImplSessionPool extends YTDBGraphImplAbstract implements Consumer<Status> {
+
   static {
     registerOptimizationStrategies(YTDBGraphImplSessionPool.class);
   }
+
   private final ThreadLocal<DatabaseSessionEmbedded> session = new ThreadLocal<>();
   private final SessionPool<DatabaseSession> sessionPool;
 
@@ -27,6 +29,11 @@ public class YTDBGraphImplSessionPool extends YTDBGraphImplAbstract implements C
 
   @Override
   public void close() {
+    var tx = tx();
+
+    if (tx.isOpen()) {
+      tx.close();
+    }
     sessionPool.close();
   }
 
@@ -36,7 +43,7 @@ public class YTDBGraphImplSessionPool extends YTDBGraphImplAbstract implements C
 
     if (currentSession != null) {
       if (!currentSession.isTxActive()) {
-        throw new IllegalStateException("Transaction is not active");
+        tx().addTransactionListener(this);
       }
       return currentSession;
     }
