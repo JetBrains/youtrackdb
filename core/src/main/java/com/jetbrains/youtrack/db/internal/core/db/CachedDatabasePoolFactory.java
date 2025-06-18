@@ -16,8 +16,11 @@ public interface CachedDatabasePoolFactory<S extends BasicDatabaseSession<?, ?>>
    * @param password user password
    * @return {@link DatabasePoolInternal} cached database pool
    */
-  DatabasePoolInternal<S> get(
+  DatabasePoolInternal<S> getOrCreate(
       String database, String username, String password, YouTrackDBConfigImpl config);
+
+  DatabasePoolInternal<S> getOrCreateNoAuthentication(
+      String database, String username, YouTrackDBConfigImpl config);
 
   /**
    * Close all cached pools and clear cache

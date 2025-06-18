@@ -86,7 +86,7 @@ public class GraphIndexTest extends GraphBaseTest {
 
     var traversal =
         graph.traversal().V().has(T.label, P.eq(vertexLabel1)).has(key, P.eq(value));
-    Assert.assertEquals(1, usedIndexes(graph, traversal));
+    Assert.assertEquals(1, usedIndexes(session, traversal));
 
     var result = traversal.toList();
     Assert.assertEquals(1, result.size());
@@ -126,7 +126,7 @@ public class GraphIndexTest extends GraphBaseTest {
             .as("second")
             .addE(edgeLabel1);
 
-    Assert.assertEquals(2, usedIndexes(graph, traversal));
+    Assert.assertEquals(2, usedIndexes(session, traversal));
 
     var result = traversal.toList();
     Assert.assertEquals(1, result.size());
@@ -163,7 +163,7 @@ public class GraphIndexTest extends GraphBaseTest {
     var traversal =
         graph.traversal().V().hasLabel(label1, label2, label3).has(key, value1);
 
-    Assert.assertEquals(3, usedIndexes(graph, traversal));
+    Assert.assertEquals(3, usedIndexes(session, traversal));
   }
 
 
@@ -186,7 +186,7 @@ public class GraphIndexTest extends GraphBaseTest {
 
     var traversal =
         graph.traversal().V().has(T.label, P.eq(vertexLabel1)).has(key, P.within(value1, value2));
-    Assert.assertEquals(1, usedIndexes(graph, traversal));
+    Assert.assertEquals(1, usedIndexes(session, traversal));
 
     var result = traversal.toList();
     Assert.assertEquals(2, result.size());
@@ -213,14 +213,14 @@ public class GraphIndexTest extends GraphBaseTest {
       var traversal1 =
           graph.traversal().E().has(T.label, P.eq(edgeLabel1)).has(key, P.eq(value));
 
-      Assert.assertEquals(1, usedIndexes(graph, traversal1));
+      Assert.assertEquals(1, usedIndexes(session, traversal1));
 
       {
         // Verify that the traversal doesn't try to hit the index for the edges with label2
         var traversal2 =
             graph.traversal().E().has(T.label, P.eq(edgeLabel2)).has(key, P.eq(value));
 
-        Assert.assertEquals(0, usedIndexes(graph, traversal2));
+        Assert.assertEquals(0, usedIndexes(session, traversal2));
 
         var result2 = traversal2.toList();
         Assert.assertEquals(1, result2.size());
@@ -248,6 +248,6 @@ public class GraphIndexTest extends GraphBaseTest {
     // Verify that the traversal hits the index for the edges with label1
     var traversal1 =
         graph.traversal().E().has(T.label, P.eq(edgeLabel1)).has(key, P.eq(value));
-    Assert.assertEquals(1, usedIndexes(graph, traversal1));
+    Assert.assertEquals(1, usedIndexes(session, traversal1));
   }
 }

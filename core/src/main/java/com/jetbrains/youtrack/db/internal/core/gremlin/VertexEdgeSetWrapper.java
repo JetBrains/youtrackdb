@@ -16,15 +16,15 @@ import java.util.stream.Stream;
 public class VertexEdgeSetWrapper implements Set {
 
   private final Set wrapped;
-  private final YTDBAbstractElement parent;
+  private final YTDBElementImpl parent;
 
-  public VertexEdgeSetWrapper(Set wrapped, YTDBAbstractElement parentElement) {
+  public VertexEdgeSetWrapper(Set wrapped, YTDBElementImpl parentElement) {
     this.wrapped = wrapped;
     this.parent = parentElement;
   }
 
   private Object unbox(Object next) {
-    if (next instanceof YTDBAbstractElement gremlinElement) {
+    if (next instanceof YTDBElementImpl gremlinElement) {
       return gremlinElement.getRawEntity();
     }
     return next;
@@ -32,16 +32,17 @@ public class VertexEdgeSetWrapper implements Set {
 
   private Object box(Object elem) {
     var graph = parent.getGraph();
+    var graphTx = graph.tx();
     if (elem instanceof RID rid) {
-      var session = graph.getUnderlyingDatabaseSession();
+      var session = graphTx.getSession();
       var tx = session.getActiveTransaction();
       elem = tx.loadEntity(rid);
     }
     if (elem instanceof Entity entity) {
       if (entity.isVertex()) {
-        elem = graph.elementFactory().wrapVertex(graph, entity.asVertex());
+        elem = new YTDBVertexImpl(graph, entity.asVertex());
       } else if (entity.isStatefulEdge()) {
-        elem = graph.elementFactory().wrapEdge(graph, entity.asStatefulEdge());
+        elem = new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
       }
     }
     return elem;
@@ -59,7 +60,7 @@ public class VertexEdgeSetWrapper implements Set {
 
   @Override
   public boolean contains(Object o) {
-    if (o instanceof YTDBAbstractElement gremlinElement && wrapped.contains(
+    if (o instanceof YTDBElementImpl gremlinElement && wrapped.contains(
         gremlinElement.getRawEntity())) {
       return true;
     }

@@ -137,7 +137,7 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
   private ContextConfiguration configuration;
 
   public NetworkProtocolHttpAbstract(YouTrackDBServer server) {
-    super(server.getThreadGroup(), "IO-HTTP");
+    super(YouTrackDBServer.getThreadGroup(), "IO-HTTP");
   }
 
   @Override

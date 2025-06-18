@@ -54,7 +54,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Provides an implementation of OServerSecurity.
+ * Provides an implementation of ServerSecurity.
  */
 public class DefaultSecuritySystem implements SecuritySystem {
 
@@ -220,7 +220,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
     return cls;
   }
 
-  // SecuritySystem (via OServerSecurity)
+  // SecuritySystem (via ServerSecurity)
   // Some external security implementations may permit falling back to a
   // default authentication mode if external authentication fails.
   @Override

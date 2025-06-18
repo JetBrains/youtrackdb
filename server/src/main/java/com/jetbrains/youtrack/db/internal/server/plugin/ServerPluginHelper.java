@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.server.plugin;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocol;
-import java.util.Collection;
 
 public class ServerPluginHelper {
 

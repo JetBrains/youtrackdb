@@ -114,7 +114,6 @@ public class GraphTxTest extends GraphBaseTest {
     graph.tx().onClose(Transaction.CLOSE_BEHAVIOR.COMMIT);
     graph.tx().open();
     graph.addVertex(T.label, "Person", "name", "John");
-
     graph.close();
 
     graph = openGraph();

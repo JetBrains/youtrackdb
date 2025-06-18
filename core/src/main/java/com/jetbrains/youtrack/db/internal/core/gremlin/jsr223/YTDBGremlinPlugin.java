@@ -1,12 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.gremlin.jsr223;
 
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapper;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSession;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YouTrackDBFeatures;
@@ -26,15 +23,11 @@ public class YTDBGremlinPlugin extends AbstractGremlinPlugin {
           DefaultImportCustomizer.build()
               .addClassImports(
                   YTDBStatefulEdgeImpl.class,
-                  YTDBStatefulEdgeWrapper.class,
-                  YTDBAbstractElement.class,
                   YTDBElementImpl.class,
-                  YTDBElementWrapper.class,
-                  YTDBGraphImpl.class,
+                  YTDBGraphImplSession.class,
                   YouTrackDBFeatures.YTDBVariableFeatures.class,
                   YTDBPropertyImpl.class,
                   YTDBVertexImpl.class,
-                  YTDBElementWrapper.class,
                   YTDBVertexPropertyImpl.class)
               .create();
     } catch (Exception ex) {

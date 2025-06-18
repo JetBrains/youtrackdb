@@ -4,7 +4,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.result.ResultTransformer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -33,7 +33,7 @@ public class YTDBGremlinMapTransformer implements ResultTransformer<Map<Object, 
                   StreamSupport.stream(spliterator, false)
                       .map(
                           (e) -> {
-                            if (e instanceof YTDBAbstractElement gremlinElement) {
+                            if (e instanceof YTDBElementImpl gremlinElement) {
                               return gremlinElement.getRawEntity()
                                   .getIdentity();
                             }

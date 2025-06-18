@@ -43,7 +43,7 @@ public class SQLCreateDatabaseStatement extends SQLSimpleExecServerStatement {
 
   @Override
   public ExecutionStream executeSimple(ServerCommandContext ctx) {
-    var server = ctx.getServer();
+    var server = ctx.getYouTrackDB();
     var result = new ResultInternal(ctx.getDatabaseSession());
     result.setProperty("operation", "create database");
     var dbName =

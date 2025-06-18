@@ -20,11 +20,11 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     VertexProperty<V> {
 
   public YTDBVertexPropertyImpl(Property<V> property, Vertex vertex) {
-    super(property.key(), property.value(), (YTDBAbstractElement) vertex);
+    super(property.key(), property.value(), (YTDBElementImpl) vertex);
   }
 
   public YTDBVertexPropertyImpl(String key, V value, Vertex vertex) {
-    super(key, value, (YTDBAbstractElement) vertex);
+    super(key, value, (YTDBElementImpl) vertex);
   }
 
   @Override
@@ -87,7 +87,8 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
 
     if (metadata == null) {
       var graph = element.getGraph();
-      var session = graph.getUnderlyingDatabaseSession();
+      var graphTx = graph.tx();
+      var session = graphTx.getSession();
       var tx = session.getActiveTransaction();
 
       metadata = tx.newEmbeddedEntity();

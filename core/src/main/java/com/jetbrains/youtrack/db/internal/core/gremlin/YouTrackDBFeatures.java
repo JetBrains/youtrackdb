@@ -9,8 +9,7 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 public class YouTrackDBFeatures {
 
   public static class YTDBFeatures implements Features {
-
-    static final YTDBFeatures INSTANCE = new YTDBFeatures();
+    public static final YTDBFeatures INSTANCE = new YTDBFeatures();
     private final YTDBGraphFeatures graphFeatures;
 
     private YTDBFeatures() {

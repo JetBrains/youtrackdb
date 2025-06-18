@@ -241,6 +241,7 @@
       </activation>
       <properties>
         <argLine>-ea
+          -Xms${heapSize}
           -Xmx${heapSize}
           -Dyoutrackdb.storage.diskCache.bufferSize=4096
           -Dindex.flushAfterCreate=false

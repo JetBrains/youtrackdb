@@ -8,11 +8,7 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TestName;
 
-/**
- *
- */
 public class AbstractRemoteTest {
-
   protected static final String SERVER_DIRECTORY = "./target/remotetest";
 
   private YouTrackDBServer server;

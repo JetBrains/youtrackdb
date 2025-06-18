@@ -46,7 +46,11 @@
         <parameter name="config" value="${YOUTRACKDB_HOME}/config/custom-sql-functions.json"/>
       </parameters>
     </handler>
-
+    <handler class="com.jetbrains.youtrack.db.internal.server.plugin.gremlin.GremlinServerPlugin">
+      <parameters>
+        <parameter name="config" value="${YOUTRACKDB_HOME}/config/gremlin-server.yaml"/>
+      </parameters>
+    </handler>
   </handlers>
   <network>
     <sockets>
@@ -55,9 +59,9 @@
         name="ssl">
         <parameters>
           <parameter value="false" name="network.ssl.clientAuth"/>
-          <parameter value="config/cert/orientdb.ks" name="network.ssl.keyStore"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.keyStore"/>
           <parameter value="password" name="network.ssl.keyStorePassword"/>
-          <parameter value="config/cert/orientdb.ks" name="network.ssl.trustStore"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.trustStore"/>
           <parameter value="password" name="network.ssl.trustStorePassword"/>
         </parameters>
       </socket>
@@ -66,9 +70,9 @@
         name="https">
         <parameters>
           <parameter value="false" name="network.ssl.clientAuth"/>
-          <parameter value="config/cert/orientdb.ks" name="network.ssl.keyStore"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.keyStore"/>
           <parameter value="password" name="network.ssl.keyStorePassword"/>
-          <parameter value="config/cert/orientdb.ks" name="network.ssl.trustStore"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.trustStore"/>
           <parameter value="password" name="network.ssl.trustStorePassword"/>
         </parameters>
       </socket>

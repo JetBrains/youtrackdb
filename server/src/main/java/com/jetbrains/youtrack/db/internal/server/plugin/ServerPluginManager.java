@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.Service;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.NetworkProtocolHttpAbstract;
@@ -162,6 +163,9 @@ public class ServerPluginManager implements Service {
       try {
         callListenerBeforeShutdown(plugin.getInstance());
         plugin.shutdown(false);
+        if (plugin instanceof DatabaseLifecycleListener databaseLifecycleListener) {
+          YouTrackDBEnginesManager.instance().removeDbLifecycleListener(databaseLifecycleListener);
+        }
         callListenerAfterShutdown(plugin.getInstance());
       } catch (Exception t) {
         LogManager.instance().error(this, "Error during server plugin %s shutdown", t, plugin);
@@ -473,6 +477,16 @@ public class ServerPluginManager implements Service {
     }
   }
 
+  public void callListenerAfterConfigError(ServerPlugin plugin, Throwable e) {
+    for (var l : pluginListeners) {
+      try {
+        l.onAfterConfigError(plugin, e);
+      } catch (Exception ex) {
+        LogManager.instance().error(this, "callListenerAfterShutdown()", ex);
+      }
+    }
+  }
+
   public void callListenerBeforeStartup(final ServerPlugin plugin) {
     for (var l : pluginListeners) {
       try {
@@ -493,6 +507,16 @@ public class ServerPluginManager implements Service {
     }
   }
 
+  public void callListenerAfterStartupError(final ServerPlugin plugin, Throwable error) {
+    for (var l : pluginListeners) {
+      try {
+        l.onAfterStartup(plugin);
+      } catch (Exception ex) {
+        LogManager.instance().error(this, "callListenerAfterStartup()", ex);
+      }
+    }
+  }
+
   public void callListenerBeforeShutdown(final ServerPlugin plugin) {
     for (var l : pluginListeners) {
       try {
@@ -503,6 +527,7 @@ public class ServerPluginManager implements Service {
     }
   }
 
+
   public void callListenerAfterShutdown(final ServerPlugin plugin) {
     for (var l : pluginListeners) {
       try {
@@ -512,4 +537,6 @@ public class ServerPluginManager implements Service {
       }
     }
   }
+
+
 }

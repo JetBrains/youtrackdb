@@ -47,7 +47,7 @@ public class SQLAlterSystemRoleStatement extends SQLSimpleExecServerStatement {
   @Override
   public ExecutionStream executeSimple(ServerCommandContext ctx) {
 
-    var systemDb = ctx.getServer().getSystemDatabase();
+    var systemDb = ctx.getYouTrackDB().getSystemDatabase();
 
     return systemDb.executeWithDB(
         (session) -> {

@@ -12,7 +12,7 @@ import java.util.Optional;
 public class URLHelper {
 
   public static DatabaseURLConnection parse(String url) {
-    if (url.endsWith("/")) {
+    if (!url.isEmpty() && url.charAt(url.length() - 1) == '/') {
       url = url.substring(0, url.length() - 1);
     }
     url = url.replace('\\', '/');
@@ -58,12 +58,14 @@ public class URLHelper {
   }
 
   public static DatabaseURLConnection parseNew(String url) {
-    if ((url.startsWith("'") && url.endsWith("'"))
-        || (url.startsWith("\"") && url.endsWith("\""))) {
+    if ((!url.isEmpty() && url.charAt(0) == '\''
+        && url.charAt(url.length() - 1) == '\'')
+        || (!url.isEmpty() && url.charAt(0) == '\"'
+        && url.charAt(url.length() - 1) == '\"')) {
       url = url.substring(1, url.length() - 1);
     }
 
-    if (url.endsWith("/")) {
+    if (!url.isEmpty() && url.charAt(url.length() - 1) == '/') {
       url = url.substring(0, url.length() - 1);
     }
     url = url.replace('\\', '/');
@@ -81,14 +83,11 @@ public class URLHelper {
     var type = url.substring(0, typeIndex);
     Optional<DatabaseType> dbType = Optional.empty();
     if ("disk".equals(type) || "memory".equals(type)) {
-      switch (type) {
-        case "disk":
-          dbType = Optional.of(DatabaseType.DISK);
-          break;
-        case "memory":
-          dbType = Optional.of(DatabaseType.MEMORY);
-          break;
-      }
+      dbType = switch (type) {
+        case "disk" -> Optional.of(DatabaseType.DISK);
+        case "memory" -> Optional.of(DatabaseType.MEMORY);
+        default -> dbType;
+      };
       type = "embedded";
     }
 

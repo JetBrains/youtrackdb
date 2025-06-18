@@ -23,6 +23,6 @@ public class GraphLinkTest extends GraphBaseTest {
     var val = v.value("friend");
 
     Assert.assertTrue(val instanceof Vertex);
-    Assert.assertEquals("Luke", ((YTDBAbstractElement) val).value("name"));
+    Assert.assertEquals("Luke", ((YTDBElementImpl) val).value("name"));
   }
 }

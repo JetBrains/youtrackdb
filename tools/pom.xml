@@ -98,6 +98,8 @@
       </activation>
       <properties>
         <argLine>
+          -ea
+          -Xms${heapSize}
           -Xmx${heapSize}
           -Dyoutrackdb.storage.diskCache.bufferSize=4096
           -Dyoutrackdb.memory.directMemory.trackMode=true
