@@ -353,7 +353,9 @@ public class YouTrackDBServer {
     try {
       // Checks to see if the YouTrackDB System Database exists and creates it if not.
       // Make sure this happens after setSecurity() is called.
-      initSystemDatabase();
+      if (contextConfiguration.getValueAsBoolean(GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED)) {
+        initSystemDatabase();
+      }
 
       for (var l : lifecycleListeners) {
         l.onBeforeActivate();
@@ -811,9 +813,11 @@ public class YouTrackDBServer {
         rootPassword = null;
       }
     }
+    final var systemDbEnabled =
+        contextConfiguration.getValueAsBoolean(GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED);
     var existsRoot =
-        existsSystemUser(ServerConfiguration.DEFAULT_ROOT_USER)
-            || serverCfg.existsUser(ServerConfiguration.DEFAULT_ROOT_USER);
+        serverCfg.existsUser(ServerConfiguration.DEFAULT_ROOT_USER) ||
+            systemDbEnabled && existsSystemUser(ServerConfiguration.DEFAULT_ROOT_USER);
 
     if (rootPassword == null && !existsRoot) {
       try {
@@ -917,18 +921,20 @@ public class YouTrackDBServer {
               rootPassword);
     }
 
-    if (!existsRoot) {
-      context.execute(
-          "CREATE SYSTEM USER "
-              + ServerConfiguration.DEFAULT_ROOT_USER
-              + " IDENTIFIED BY ? ROLE root",
-          rootPassword);
-    }
+    if (systemDbEnabled) {
+      if (!existsRoot) {
+        context.execute(
+            "CREATE SYSTEM USER "
+                + ServerConfiguration.DEFAULT_ROOT_USER
+                + " IDENTIFIED BY ? ROLE root",
+            rootPassword);
+      }
 
-    if (!existsSystemUser(ServerConfiguration.GUEST_USER)) {
-      context.execute(
-          "CREATE SYSTEM USER " + ServerConfiguration.GUEST_USER + " IDENTIFIED BY ? ROLE guest",
-          ServerConfiguration.DEFAULT_GUEST_PASSWORD);
+      if (!existsSystemUser(ServerConfiguration.GUEST_USER)) {
+        context.execute(
+            "CREATE SYSTEM USER " + ServerConfiguration.GUEST_USER + " IDENTIFIED BY ? ROLE guest",
+            ServerConfiguration.DEFAULT_GUEST_PASSWORD);
+      }
     }
   }
 

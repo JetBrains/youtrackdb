@@ -411,6 +411,13 @@ public enum GlobalConfiguration {
       "youtrackdb.db.validation", "Enables or disables validation of records", Boolean.class, true,
       true),
 
+  DB_SYSTEM_DATABASE_ENABLED(
+      "youtrack.db.systemDatabase.enabled",
+      "Enables usage of system database. If disabled, it will turn off the initialization "
+          + "of system database and system users in server mode and will initiate an error on "
+          + "all attempts to access the system database.",
+      Boolean.class, true, true),
+
   // INDEX
   INDEX_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD(
       "youtrackdb.index.embeddedToSbtreeBonsaiThreshold",
