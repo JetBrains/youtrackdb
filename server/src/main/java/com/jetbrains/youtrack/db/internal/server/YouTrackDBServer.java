@@ -110,7 +110,6 @@ public class YouTrackDBServer {
   protected List<ServerLifecycleListener> lifecycleListeners = new ArrayList<>();
   protected ServerPluginManager pluginManager;
   protected ConfigurableHooksManager hookManager;
-  private final Map<String, Object> variables = new HashMap<>();
   private String serverRootDirectory;
   private String databaseDirectory;
   private ClientConnectionManager clientConnectionManager;
@@ -158,6 +157,7 @@ public class YouTrackDBServer {
     }
   }
 
+  @SuppressWarnings("unused")
   public static YouTrackDBServer startFromFileConfig(String config)
       throws ClassNotFoundException, InstantiationException, IOException, IllegalAccessException {
     var server = new YouTrackDBServer(false);
@@ -464,6 +464,7 @@ public class YouTrackDBServer {
     return this;
   }
 
+  @SuppressWarnings("unused")
   public void removeShutdownHook() {
     if (shutdownHook != null) {
       shutdownHook.cancel();
@@ -479,10 +480,6 @@ public class YouTrackDBServer {
       if (shutdownLatch != null) {
         shutdownLatch.countDown();
         shutdownLatch = null;
-      }
-
-      if (shutdownEngineOnExit) {
-        LogManager.instance().shutdown();
       }
     }
   }
@@ -636,20 +633,8 @@ public class YouTrackDBServer {
         .authenticateAndAuthorize(null, iUserName, iPassword, iResourceToCheck);
   }
 
-  public boolean existsStoragePath(final String iURL) {
-    return serverCfg.getConfiguration().getStoragePath(iURL) != null;
-  }
-
   public ServerConfiguration getConfiguration() {
     return serverCfg.getConfiguration();
-  }
-
-  public Map<String, Class<? extends NetworkProtocol>> getNetworkProtocols() {
-    return networkProtocols;
-  }
-
-  public List<ServerNetworkListener> getNetworkListeners() {
-    return networkListeners;
   }
 
   @SuppressWarnings("unchecked")
@@ -697,29 +682,13 @@ public class YouTrackDBServer {
     return null;
   }
 
-  public Object getVariable(final String iName) {
-    return variables.get(iName);
-  }
-
-  public YouTrackDBServer setVariable(final String iName, final Object iValue) {
-    if (iValue == null) {
-      variables.remove(iName);
-    } else {
-      variables.put(iName, iValue);
-    }
-    return this;
-  }
-
-  public void addTemporaryUser(
-      final String iName, final String iPassword, final String iPermissions) {
-    databases.getSecuritySystem().addTemporaryUser(iName, iPassword, iPermissions);
-  }
-
+  @SuppressWarnings("unused")
   public YouTrackDBServer registerLifecycleListener(final ServerLifecycleListener iListener) {
     lifecycleListeners.add(iListener);
     return this;
   }
 
+  @SuppressWarnings("unused")
   public YouTrackDBServer unregisterLifecycleListener(final ServerLifecycleListener iListener) {
     lifecycleListeners.remove(iListener);
     return this;
@@ -774,10 +743,6 @@ public class YouTrackDBServer {
     }
 
     hookManager = new ConfigurableHooksManager(cfg);
-  }
-
-  public ConfigurableHooksManager getHookManager() {
-    return hookManager;
   }
 
   protected void loadUsers() throws IOException {

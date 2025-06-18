@@ -5,6 +5,7 @@ import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREML
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -213,11 +214,22 @@ public abstract class AbstractRemoteGraphProvider extends AbstractGraphProvider 
     this.cluster = cluster;
     this.client = this.cluster.connect();
     this.useComputer = useComputer;
-    try {
-      startServer();
-    } catch (Exception ex) {
-      throw new RuntimeException(ex);
-    }
+  }
+
+  @Override
+  public Optional<TestListener> getTestListener() {
+    return Optional.of(new TestListener() {
+      @Override
+      public void onTestStart(Class<?> test, String testName) {
+        try {
+          if (server == null) {
+            startServer();
+          }
+        } catch (Exception ex) {
+          throw new RuntimeException(ex);
+        }
+      }
+    });
   }
 
   @Override

@@ -21,12 +21,9 @@
 package com.jetbrains.youtrack.db.internal.common.log;
 
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Handler;
 import java.util.logging.Logger;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.slf4j.event.Level;
 
 /**
@@ -47,8 +44,6 @@ public class LogManager extends SL4JLogManager {
   private static final String ENV_INSTALL_CUSTOM_FORMATTER = "youtrackdb.installCustomFormatter";
   private static final LogManager instance = new LogManager();
 
-  private final AtomicBoolean shutdownFlag = new AtomicBoolean();
-
   protected LogManager() {
   }
 
@@ -56,22 +51,6 @@ public class LogManager extends SL4JLogManager {
     return instance;
   }
 
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void log(
-      @Nonnull Object requester,
-      @Nonnull Level level,
-      @Nonnull String message,
-      @Nullable Throwable exception,
-      @Nullable Object... additionalArgs) {
-    if (shutdownFlag.get()) {
-      System.err.println("ERROR: LogManager is shutdown, no logging is possible !!!");
-    } else {
-      super.log(requester, level, message, exception, additionalArgs);
-    }
-  }
 
   public static void installCustomFormatter() {
     final var installCustomFormatter =
@@ -127,33 +106,6 @@ public class LogManager extends SL4JLogManager {
     for (var h : Logger.getLogger(Logger.GLOBAL_LOGGER_NAME).getHandlers()) {
       h.flush();
     }
-  }
-
-  /**
-   * Shutdowns this log manager.
-   */
-  public void shutdown() {
-    if (shutdownFlag.compareAndSet(false, true)) {
-      try {
-        if (java.util.logging.LogManager.getLogManager() instanceof ShutdownLogManager) {
-          ((ShutdownLogManager) java.util.logging.LogManager.getLogManager()).shutdown();
-        }
-      } catch (NoClassDefFoundError ignore) {
-        // Om nom nom. Some custom class loaders, like Tomcat's one, cannot load classes while in
-        // shutdown hooks, since their
-        // runtime is already shutdown. Ignoring the exception, if ShutdownLogManager is not loaded
-        // at this point there are no instances
-        // of it anyway and we have nothing to shutdown.
-      }
-    }
-  }
-
-  /**
-   * @return <code>true</code> if log manager is shutdown by {@link #shutdown()} method and no
-   * logging is possible.
-   */
-  public boolean isShutdown() {
-    return shutdownFlag.get();
   }
 
   public static Level fromJulToSLF4JLevel(java.util.logging.Level level) {
