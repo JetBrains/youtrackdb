@@ -78,6 +78,8 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
     return listeners;
   }
 
+  @Override
+  @Nonnull
   public ContextConfiguration getConfiguration() {
     return configuration;
   }
