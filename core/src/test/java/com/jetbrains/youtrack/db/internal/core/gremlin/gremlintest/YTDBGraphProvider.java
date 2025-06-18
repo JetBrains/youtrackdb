@@ -4,18 +4,14 @@ import com.google.common.collect.Sets;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSession;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.HashMap;
@@ -81,17 +77,12 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
   @Override
   public Set<Class> getImplementations() {
     return Sets.newHashSet(
-        YTDBAbstractElement.class,
-        YTDBElementWrapper.class,
         YTDBElementImpl.class,
         YTDBStatefulEdgeImpl.class,
-        YTDBStatefulEdgeWrapper.class,
         YTDBGraphImplSession.class,
         YTDBGraphImplSessionPool.class,
         YTDBPropertyImpl.class,
         YTDBVertexImpl.class,
-        YTDBVertexWrapper.class,
-        YTDBStatefulEdgeWrapper.class,
         YTDBVertexPropertyImpl.class);
   }
   @Override

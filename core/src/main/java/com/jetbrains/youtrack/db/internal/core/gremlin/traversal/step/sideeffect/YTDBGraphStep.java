@@ -6,7 +6,8 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphBaseQuery;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphQueryBuilder;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -49,14 +50,14 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     var graph = getGraph();
     return elements(
         YTDBGraph::vertices, YTDBGraph::vertices,
-        result -> graph.elementFactory().wrapVertex(graph, result.asVertex()));
+        result -> new YTDBVertexImpl(graph, result.asVertex()));
   }
 
   private Iterator<? extends Edge> edges() {
     var graph = getGraph();
     return elements(
         YTDBGraph::edges, YTDBGraph::edges,
-        result -> graph.elementFactory().wrapEdge(graph, result.asStatefulEdge()));
+        result -> new YTDBStatefulEdgeImpl(graph, result.asStatefulEdge()));
   }
 
   /**
@@ -78,7 +79,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     var tx = graph.tx();
     tx.readWrite();
 
-    var session = ((YTDBTransaction) tx).getSession();
+    var session = tx.getSession();
 
     if (this.ids != null && this.ids.length > 0) {
       /* Got some element IDs, so just get the elements using those */

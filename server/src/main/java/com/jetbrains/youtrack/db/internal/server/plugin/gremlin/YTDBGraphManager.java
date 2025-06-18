@@ -1,9 +1,7 @@
 package com.jetbrains.youtrack.db.internal.server.plugin.gremlin;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapperFactory;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplAbstract;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.util.HashSet;
 import java.util.Set;
@@ -187,6 +185,7 @@ public class YTDBGraphManager implements GraphManager {
 
   public final class YTDBServerGraphImpl extends YTDBGraphImplAbstract implements
       Consumer<Status> {
+
     static {
       registerOptimizationStrategies(YTDBServerGraphImpl.class);
     }
@@ -195,7 +194,7 @@ public class YTDBGraphManager implements GraphManager {
     private final String databaseName;
 
     public YTDBServerGraphImpl(String databaseName, Configuration config) {
-      super(config, YTDBElementWrapperFactory.INSTANCE);
+      super(config);
       this.databaseName = databaseName;
     }
 
@@ -255,6 +254,11 @@ public class YTDBGraphManager implements GraphManager {
 
       currentSession.close();
       currentDatabaseSession.remove();
+    }
+
+    @Override
+    public boolean isSingleThreaded() {
+      return false;
     }
   }
 }

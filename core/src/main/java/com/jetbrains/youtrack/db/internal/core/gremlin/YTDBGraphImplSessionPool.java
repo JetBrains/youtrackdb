@@ -23,7 +23,7 @@ public class YTDBGraphImplSessionPool extends YTDBGraphImplAbstract implements C
 
   public YTDBGraphImplSessionPool(SessionPool<DatabaseSession> sessionPool,
       Configuration configuration) {
-    super(configuration, YTDBElementImplFactory.INSTANCE);
+    super(configuration);
     this.sessionPool = sessionPool;
   }
 
@@ -79,5 +79,10 @@ public class YTDBGraphImplSessionPool extends YTDBGraphImplAbstract implements C
 
     currentSession.close();
     session.remove();
+  }
+
+  @Override
+  public boolean isSingleThreaded() {
+    return false;
   }
 }

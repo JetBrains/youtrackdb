@@ -8,9 +8,12 @@ import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 @Graph.OptIn(Graph.OptIn.SUITE_STRUCTURE_STANDARD)
 @Graph.OptIn(Graph.OptIn.SUITE_PROCESS_STANDARD)
 public interface YTDBGraph extends Graph {
+
   @Override
   YTDBVertex addVertex(Object... keyValues);
 
   @Override
   YTDBVertex addVertex(String label);
+
+  boolean isSingleThreaded();
 }

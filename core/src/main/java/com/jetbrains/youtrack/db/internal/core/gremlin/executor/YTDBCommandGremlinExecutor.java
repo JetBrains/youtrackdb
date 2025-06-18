@@ -32,7 +32,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.formatter.GroovySc
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.executor.transformer.YTDBEntityTransformer;
@@ -98,7 +98,7 @@ public final class YTDBCommandGremlinExecutor extends AbstractScriptExecutor
   private static void initCustomTransformer(ScriptTransformer transformer) {
     transformer.registerResultTransformer(
         DefaultTraversalMetrics.class, new YTDBTraversalMetricTransformer());
-    transformer.registerResultTransformer(YTDBAbstractElement.class, new YTDBEntityTransformer());
+    transformer.registerResultTransformer(YTDBElementImpl.class, new YTDBEntityTransformer());
     transformer.registerResultTransformer(
         YTDBVertexPropertyImpl.class, new YTDBPropertyTransformer(transformer));
   }

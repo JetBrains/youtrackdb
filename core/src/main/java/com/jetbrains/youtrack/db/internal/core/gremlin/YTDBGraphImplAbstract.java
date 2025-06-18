@@ -27,7 +27,6 @@ import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
-import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
@@ -54,14 +53,11 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
   private final Features features;
   private final Configuration configuration;
-  private final YTDBElementFactory elementFactory;
-  private final ThreadLocal<Transaction> tx = ThreadLocal.withInitial(
+  private final ThreadLocal<YTDBTransaction> tx = ThreadLocal.withInitial(
       () -> new YTDBTransaction(this));
 
-  public YTDBGraphImplAbstract(final Configuration configuration,
-      YTDBElementFactory elementFactory) {
+  public YTDBGraphImplAbstract(final Configuration configuration) {
     this.configuration = configuration;
-    this.elementFactory = elementFactory;
     this.features = YouTrackDBFeatures.YTDBFeatures.INSTANCE;
   }
 
@@ -81,7 +77,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
     var label = ElementHelper.getLabelValue(keyValues).orElse(Vertex.DEFAULT_LABEL);
     var vertex = createVertexWithClass(label);
-    ((YTDBAbstractElement) vertex).property(keyValues);
+    ((YTDBElementImpl) vertex).property(keyValues);
 
     return vertex;
   }
@@ -109,7 +105,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
     var transaction = session.getActiveTransaction();
     var ytdbVertex = transaction.newVertex(vertexClass);
 
-    return elementFactory.wrapVertex(this, ytdbVertex);
+    return new YTDBVertexImpl(this, ytdbVertex);
   }
 
 
@@ -130,8 +126,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
     return elements(
         SchemaClass.VERTEX_CLASS_NAME,
         entity ->
-            elementFactory()
-                .wrapVertex(this,
+            new YTDBVertexImpl(this,
                     entity.asVertex()),
         vertexIds);
   }
@@ -143,8 +138,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
     return elements(
         SchemaClass.EDGE_CLASS_NAME,
         entity ->
-            elementFactory()
-                .wrapEdge(this, entity.asStatefulEdge()),
+            new YTDBStatefulEdgeImpl(this, entity.asStatefulEdge()),
         edgeIds);
   }
 
@@ -192,7 +186,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
 
   @Override
-  public Transaction tx() {
+  public YTDBTransaction tx() {
     return this.tx.get();
   }
 
@@ -208,11 +202,6 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
   @Override
   public abstract void close();
-
-  @Override
-  public YTDBElementFactory elementFactory() {
-    return elementFactory;
-  }
 
   @SuppressWarnings("rawtypes")
   @Override

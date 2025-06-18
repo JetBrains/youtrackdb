@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import org.apache.commons.configuration2.Configuration;
 
 public class YTDBGraphImplSession extends YTDBGraphImplAbstract {
+
   static {
     registerOptimizationStrategies(YTDBGraphImplSession.class);
   }
@@ -11,7 +12,7 @@ public class YTDBGraphImplSession extends YTDBGraphImplAbstract {
   private final DatabaseSessionEmbedded session;
 
   public YTDBGraphImplSession(DatabaseSessionEmbedded session, Configuration configuration) {
-    super(configuration, YTDBElementWrapperFactory.INSTANCE);
+    super(configuration);
     this.session = session;
   }
 
@@ -33,5 +34,10 @@ public class YTDBGraphImplSession extends YTDBGraphImplAbstract {
   @Override
   public boolean isOpen() {
     return !session.isClosed();
+  }
+
+  @Override
+  public boolean isSingleThreaded() {
+    return true;
   }
 }

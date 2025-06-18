@@ -17,15 +17,15 @@ import java.util.stream.Stream;
 public class VertexEdgeListWrapper implements List {
 
   private final List wrapped;
-  private final YTDBAbstractElement parent;
+  private final YTDBElementImpl parent;
 
-  public VertexEdgeListWrapper(List wrapped, YTDBAbstractElement parentElement) {
+  public VertexEdgeListWrapper(List wrapped, YTDBElementImpl parentElement) {
     this.wrapped = wrapped;
     this.parent = parentElement;
   }
 
   private Object unbox(Object next) {
-    if (next instanceof YTDBAbstractElement graphElement) {
+    if (next instanceof YTDBElementImpl graphElement) {
       return graphElement.getRawEntity();
     }
     return next;
@@ -33,7 +33,7 @@ public class VertexEdgeListWrapper implements List {
 
   private Object box(Object elem) {
     var graph = parent.getGraph();
-    var graphTx = (YTDBTransaction) graph.tx();
+    var graphTx = graph.tx();
     if (elem instanceof RID rid) {
       var session = graphTx.getSession();
       var tx = session.getActiveTransaction();
@@ -41,9 +41,9 @@ public class VertexEdgeListWrapper implements List {
     }
     if (elem instanceof Entity entity) {
       if (entity.isVertex()) {
-        elem = graph.elementFactory().wrapVertex(graph, entity.asVertex());
+        elem = new YTDBVertexImpl(graph, entity.asVertex());
       } else if (entity.isEdge()) {
-        elem = graph.elementFactory().wrapEdge(graph, entity.asStatefulEdge());
+        elem = new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
       }
     }
     return elem;
@@ -61,7 +61,7 @@ public class VertexEdgeListWrapper implements List {
 
   @Override
   public boolean contains(Object o) {
-    if (o instanceof YTDBAbstractElement gremlinElement && wrapped.contains(
+    if (o instanceof YTDBElementImpl gremlinElement && wrapped.contains(
         gremlinElement.getRawEntity())) {
       return true;
     }
