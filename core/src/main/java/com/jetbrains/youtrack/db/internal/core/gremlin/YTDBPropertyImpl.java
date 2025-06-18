@@ -17,10 +17,10 @@ public class YTDBPropertyImpl<V> implements
   protected String key;
   protected V value;
   protected Object wrappedValue;
-  protected YTDBAbstractElement element;
+  protected YTDBElementImpl element;
   private boolean removed = false;
 
-  public YTDBPropertyImpl(String key, V value, YTDBAbstractElement element) {
+  public YTDBPropertyImpl(String key, V value, YTDBElementImpl element) {
     this.key = key;
     this.value = value;
     this.element = element;
@@ -30,17 +30,18 @@ public class YTDBPropertyImpl<V> implements
   private Object wrapIntoGraphElement(V value) {
     Object result = value;
     var graph = element.getGraph();
+    var graphTx = graph.tx();
     if (result instanceof RID rid) {
-      var session = graph.getUnderlyingDatabaseSession();
+      var session = graphTx.getSession();
       var tx = session.getActiveTransaction();
       result = tx.loadEntity(rid);
     }
     if (result instanceof Entity entity) {
       if (entity.isVertex()) {
         result =
-            graph.elementFactory().wrapVertex(graph, entity.asVertex());
+            new YTDBVertexImpl(graph, entity.asVertex());
       } else if (entity.isStatefulEdge()) {
-        result = graph.elementFactory().wrapEdge(graph, entity.asStatefulEdge());
+        result = new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
       }
     }
     if (result instanceof Collection<?> collection && containsGraphElements(collection)) {

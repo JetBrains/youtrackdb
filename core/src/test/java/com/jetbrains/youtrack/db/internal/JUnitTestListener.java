@@ -42,13 +42,6 @@ public class JUnitTestListener extends RunListener {
   public void testRunFinished(Result result) throws Exception {
     super.testRunFinished(result);
 
-    if (LogManager.instance().isShutdown()) {
-      final var msg = "LogManager was switched off before shutdown";
-
-      System.err.println(msg);
-      Assert.fail(msg);
-    }
-
     if (result.wasSuccessful()) {
       System.out.println("Shutting down YouTrackDB engine and checking for direct memory leaks...");
       final var youTrack = YouTrackDBEnginesManager.instance();

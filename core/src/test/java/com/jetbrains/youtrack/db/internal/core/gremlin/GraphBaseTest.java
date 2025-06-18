@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import javax.annotation.Nonnull;
@@ -57,20 +58,18 @@ public abstract class GraphBaseTest extends DbTestBase {
     graph.close();
   }
 
-  protected static int usedIndexes(Graph graph, GraphTraversal<?, ?> traversal) {
-    var ytdbGraph = (YTDBGraphInternal) graph;
-    var session = ytdbGraph.getUnderlyingDatabaseSession();
-
+  protected static int usedIndexes(DatabaseSessionEmbedded session,
+      GraphTraversal<?, ?> traversal) {
     YTDBGraphStepStrategy.instance().apply(traversal.asAdmin());
 
     return session.computeInTxInternal(transaction -> {
       var usedIndexes = 0;
       for (var step : traversal.asAdmin().getSteps()) {
         if (step instanceof YTDBGraphStep<?, ?> ytdbGraphStep) {
-          var query = ytdbGraphStep.buildQuery();
+          var query = ytdbGraphStep.buildQuery(session);
 
           Assert.assertNotNull(query);
-          usedIndexes += query.usedIndexes(ytdbGraph);
+          usedIndexes += query.usedIndexes(session);
         }
       }
 

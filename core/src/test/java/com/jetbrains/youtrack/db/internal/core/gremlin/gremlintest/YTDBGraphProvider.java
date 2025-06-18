@@ -4,21 +4,20 @@ import com.google.common.collect.Sets;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBAbstractElement;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBElementWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphFactory;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImpl;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSession;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBPropertyImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeWrapper;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexPropertyImpl;
-import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexWrapper;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import org.apache.commons.configuration2.Configuration;
@@ -26,6 +25,7 @@ import org.apache.tinkerpop.gremlin.AbstractGraphProvider;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Graph.Features;
 import org.apache.tinkerpop.gremlin.structure.TransactionTest;
 import org.junit.AssumptionViolatedException;
 
@@ -77,17 +77,17 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
   @Override
   public Set<Class> getImplementations() {
     return Sets.newHashSet(
-        YTDBAbstractElement.class,
-        YTDBElementWrapper.class,
         YTDBElementImpl.class,
         YTDBStatefulEdgeImpl.class,
-        YTDBStatefulEdgeWrapper.class,
-        YTDBGraphImpl.class,
+        YTDBGraphImplSession.class,
+        YTDBGraphImplSessionPool.class,
         YTDBPropertyImpl.class,
         YTDBVertexImpl.class,
-        YTDBVertexWrapper.class,
-        YTDBStatefulEdgeWrapper.class,
         YTDBVertexPropertyImpl.class);
+  }
+  @Override
+  public Optional<Features> getStaticFeatures() {
+    return Optional.of(YTDBFeatures.INSTANCE);
   }
 
   @Override

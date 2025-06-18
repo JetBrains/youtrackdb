@@ -33,7 +33,7 @@ public interface YTDBVertexInternal extends YTDBVertex {
             getRawEntity().asVertex()
                 .getVertices(YTDBGraphUtils.mapDirection(direction), labels)
                 .iterator())
-            .map(v -> graph.elementFactory().wrapVertex(graph, v));
+            .map(v -> new YTDBVertexImpl(graph, v));
 
     return vertexStream.iterator();
   }
@@ -96,31 +96,26 @@ public interface YTDBVertexInternal extends YTDBVertex {
     }
 
     var graph = (YTDBGraphInternal) graph();
-    var session = graph.getUnderlyingDatabaseSession();
+    var tx = graph.tx();
+    tx.readWrite();
+
+    var session = tx.getSession();
 
     var edgeClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
     if (edgeClass == null) {
-      if (session.isTxActive()) {
-        try (var copy = session.copy()) {
-          var schemaCopy = copy.getSchema();
-          var edgeCls = schemaCopy.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
-          schemaCopy.getOrCreateClass(label, edgeCls);
-        }
-      } else {
-        var schema = session.getSchema();
-        var edgeCls = schema.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
-        schema.getOrCreateClass(label, edgeCls);
+      try (var copy = session.copy()) {
+        var schemaCopy = copy.getSchema();
+        var edgeCls = schemaCopy.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
+        schemaCopy.getOrCreateClass(label, edgeCls);
       }
     }
 
-    graph.tx().readWrite();
-
     var vertex = getRawEntity().asVertex();
     var ytdbEdge = vertex.addStateFulEdge(
-        ((YTDBAbstractElement) inVertex).getRawEntity().asVertex(),
+        ((YTDBElementImpl) inVertex).getRawEntity().asVertex(),
         label);
-    var edge = graph.elementFactory().wrapEdge(graph, ytdbEdge);
-    ((YTDBAbstractElement) edge).property(keyValues);
+    var edge = new YTDBStatefulEdgeImpl(graph, ytdbEdge);
+    edge.property(keyValues);
 
     return edge;
   }
@@ -138,7 +133,7 @@ public interface YTDBVertexInternal extends YTDBVertex {
                 .getEdges(YTDBGraphUtils.mapDirection(direction), edgeLabels)
                 .iterator())
             .filter(e -> e != null && e.isStateful() && e.getFrom() != null && e.getTo() != null)
-            .map(e -> graph.elementFactory().wrapEdge(graph, e.asStatefulEdge()));
+            .map(e -> new YTDBStatefulEdgeImpl(graph, e.asStatefulEdge()));
 
     return edgeStream.collect(Collectors.toList()).iterator();
   }

@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.server.plugin;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.internal.common.util.Service;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
@@ -60,7 +61,7 @@ public interface ServerPlugin extends Service {
   /**
    * Configures the handler. Called at startup.
    */
-  void config(YouTrackDBServer youTrackDBServer, ServerParameterConfiguration[] iParams);
+  void config(YouTrackDBServer youTrackDBServer, ServerParameterConfiguration[] iParams) throws Exception;
 
   default void onSocketAccepted(NetworkProtocol protocol) {
   }

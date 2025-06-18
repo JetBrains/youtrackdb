@@ -22,7 +22,7 @@ public class GraphComplexIndexTest extends GraphBaseTest {
     var traversal =
         graph.traversal().V().has("Foo", "prop2", "4ab25da0-3602-4f4a-bc5e-28bfefa5ca4c");
 
-    Assert.assertEquals(0, usedIndexes(graph, traversal));
+    Assert.assertEquals(0, usedIndexes(session, traversal));
 
     var vertices = traversal.toList();
     Assert.assertEquals(1, vertices.size());
@@ -39,7 +39,7 @@ public class GraphComplexIndexTest extends GraphBaseTest {
     graph.addVertex(T.label, "Foo", "prop1", 1, "prop2", "4ab25da0-3602-4f4a-bc5e-28bfefa5ca4c");
     var traversal = graph.traversal().V().has("Foo", "prop1", 1);
 
-    Assert.assertEquals(1, usedIndexes(graph, traversal));
+    Assert.assertEquals(1, usedIndexes(session, traversal));
     var vertices = traversal.toList();
     Assert.assertEquals(1, vertices.size());
   }
@@ -61,7 +61,7 @@ public class GraphComplexIndexTest extends GraphBaseTest {
             .has("prop1", 1)
             .has("prop2", "4ab25da0-3602-4f4a-bc5e-28bfefa5ca4c");
 
-    Assert.assertEquals(1, usedIndexes(graph, traversal));
+    Assert.assertEquals(1, usedIndexes(session, traversal));
 
     var vertices = traversal.toList();
     Assert.assertEquals(1, vertices.size());

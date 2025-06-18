@@ -108,7 +108,7 @@ public class YTDBGraphFactory {
         return mappedYTDB;
       });
 
-      return new YTDBGraphImpl(ytdb.cachedPool(dbName, user, password), configuration);
+      return new YTDBGraphImplSessionPool(ytdb.cachedPool(dbName, user, password), configuration);
     } finally {
       configuration.clearProperty(CONFIG_YOUTRACK_DB_USER_PWD);
     }

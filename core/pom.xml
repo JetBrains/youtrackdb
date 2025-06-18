@@ -28,6 +28,7 @@
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>-ea
+      -Xms${heapSize}
       -Xmx${heapSize}
       -Dyoutrackdb.storage.diskCache.bufferSize=4096
       -Dindex.flushAfterCreate=false
@@ -258,7 +259,6 @@
     <dependency>
       <groupId>org.apache.tinkerpop</groupId>
       <artifactId>gremlin-core</artifactId>
-      <version>${gremlin.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.tinkerpop</groupId>
@@ -268,7 +268,6 @@
     <dependency>
       <groupId>org.apache.tinkerpop</groupId>
       <artifactId>gremlin-test</artifactId>
-      <version>${gremlin.version}</version>
       <scope>test</scope>
     </dependency>
 

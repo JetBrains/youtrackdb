@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -51,8 +52,7 @@ public class YTDBGraphQueryBuilder {
   }
 
   @Nullable
-  public YTDBGraphBaseQuery build(YTDBGraphInternal graph) {
-    var session = graph.getUnderlyingDatabaseSession();
+  public YTDBGraphBaseQuery build(DatabaseSessionEmbedded session) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     assert schema != null;
 

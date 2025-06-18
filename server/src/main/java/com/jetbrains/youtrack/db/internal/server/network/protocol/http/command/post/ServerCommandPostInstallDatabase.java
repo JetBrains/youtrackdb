@@ -57,8 +57,7 @@ public class ServerCommandPostInstallDatabase extends ServerCommandAuthenticated
                     //noinspection ReturnOfNull
                     return null;
                   });
-          try (BasicDatabaseSession session = server.getDatabases().openNoAuthorization(name)) {
-          }
+          server.getDatabases().openNoAuthorization(name).close();
 
           iResponse.send(
               HttpUtils.STATUS_OK_CODE,

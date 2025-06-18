@@ -94,6 +94,7 @@ import com.jetbrains.youtrack.db.internal.core.db.remotewrapper.RemoteDatabaseSe
 import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrack.db.internal.core.gremlin.GremlinUtils;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSession;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
@@ -2817,8 +2818,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var userName = user.getName(this);
 
-    var pool = youTrackDb.openPoolNoAuthenticate(getDatabaseName(), userName, poolConfig);
+    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
     var storage = this.storage;
+
     return storage.live(pool, query, listener, args);
   }
 
@@ -2837,7 +2839,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var userName = user.getName(this);
 
-    var pool = youTrackDb.openPoolNoAuthenticate(getDatabaseName(), userName, poolConfig);
+    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
     var storage = this.storage;
 
     return storage.live(pool, query, listener, args);
@@ -3186,7 +3188,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   @Override
   public YTDBGraph asGraph() {
     if (graphWrapper == null) {
-      graphWrapper = GremlinUtils.wrapSession(this, null);
+      var config = GremlinUtils.createBaseConfiguration(this);
+      graphWrapper = new YTDBGraphImplSession(this, config);
     }
 
     return graphWrapper;

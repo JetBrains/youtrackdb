@@ -26,7 +26,7 @@ public interface Service {
 
   String getName();
 
-  void startup();
+  void startup() throws Exception;
 
   void shutdown();
 }
