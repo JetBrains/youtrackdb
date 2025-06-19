@@ -1839,7 +1839,9 @@ public class DiskStorage extends AbstractStorage {
         }
 
         addFileToDirectory(
-            storageName + walName.substring(segmentIndex), zipInputStream, walTempDir);
+            contextConfiguration.getValueAsString(ContextConfiguration.WAL_BASE_NAME,
+                ContextConfiguration.WAL_DEFAULT_NAME) + walName.substring(segmentIndex),
+            zipInputStream, walTempDir);
         continue;
       }
 
