@@ -47,7 +47,6 @@ import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringWriterSerializable;
 import java.io.StringWriter;
 import java.util.Collection;
@@ -58,8 +57,6 @@ import javax.annotation.Nullable;
 
 @SuppressWarnings({"unchecked", "serial"})
 public abstract class RecordSerializerCSVAbstract extends RecordSerializerStringAbstract {
-
-  public static final char FIELD_VALUE_SEPARATOR = ':';
 
   /**
    * Serialize the link.
@@ -240,20 +237,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         }
 
       case EMBEDDED:
-        if (iValue.length() > 2) {
-          // REMOVE BEGIN & END EMBEDDED CHARACTERS
-          final var value = iValue.substring(1, iValue.length() - 1);
-
-          final var embeddedObject = StringSerializerEmbedded.INSTANCE.fromStream(session, value);
-          if (embeddedObject instanceof EntityImpl) {
-            ((EntityImpl) embeddedObject).setOwner(iSourceRecord);
-          }
-
-          // RECORD
-          return embeddedObject;
-        } else {
-          return null;
-        }
+        return null;
       case LINKBAG:
         throw new UnsupportedOperationException();
       default:
@@ -686,37 +670,33 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         // REMOVE EMBEDDED BEGIN/END CHARS
         item = item.substring(1, item.length() - 1);
 
-        if (!item.isEmpty()) {
-          // EMBEDDED RECORD, EXTRACT THE CLASS NAME IF DIFFERENT BY THE PASSED (SUB-CLASS OR IT WAS
-          // PASSED NULL)
-          iLinkedClass = StringSerializerHelper.getRecordClassName(session, item, iLinkedClass);
+        // EMBEDDED RECORD, EXTRACT THE CLASS NAME IF DIFFERENT BY THE PASSED (SUB-CLASS OR IT WAS
+        // PASSED NULL)
+        iLinkedClass = StringSerializerHelper.getRecordClassName(session, item, iLinkedClass);
 
-          if (iLinkedClass != null) {
-            var entity = new EntityImpl(session);
-            objectToAdd = fromString(session, item, entity, null);
-            entity.setClassNameWithoutPropertiesPostProcessing(iLinkedClass.getName());
-          } else
-          // EMBEDDED OBJECT
-          {
-            objectToAdd = fieldTypeFromStream(session, e, PropertyTypeInternal.EMBEDDED, item);
-          }
+        if (iLinkedClass != null) {
+          var entity = new EntityImpl(session);
+          objectToAdd = fromString(session, item, entity, null);
+          entity.setClassNameWithoutPropertiesPostProcessing(iLinkedClass.getName());
+        } else
+        // EMBEDDED OBJECT
+        {
+          objectToAdd = fieldTypeFromStream(session, e, PropertyTypeInternal.EMBEDDED, item);
         }
       } else {
+        final var begin = !item.isEmpty() ? item.charAt(0) : StringSerializerHelper.LINK;
+
+        // AUTO-DETERMINE LINKED TYPE
+        if (begin == StringSerializerHelper.LINK) {
+          linkedType = PropertyTypeInternal.LINK;
+        } else {
+          linkedType = getType(item);
+        }
+
         if (linkedType == null) {
-          final var begin = item.length() > 0 ? item.charAt(0) : StringSerializerHelper.LINK;
-
-          // AUTO-DETERMINE LINKED TYPE
-          if (begin == StringSerializerHelper.LINK) {
-            linkedType = PropertyTypeInternal.LINK;
-          } else {
-            linkedType = getType(item);
-          }
-
-          if (linkedType == null) {
-            throw new IllegalArgumentException(
-                "Linked type cannot be null. Probably the serialized type has not stored the type"
-                    + " along with data");
-          }
+          throw new IllegalArgumentException(
+              "Linked type cannot be null. Probably the serialized type has not stored the type"
+                  + " along with data");
         }
 
         objectToAdd = fieldTypeFromStream(session, e, linkedType, item);

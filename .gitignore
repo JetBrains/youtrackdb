@@ -132,6 +132,7 @@ buildNumber.properties
 .idea/**/dynamic.xml
 .idea/**/uiDesigner.xml
 .idea/shelf/*
+.idea/remote-targets.xml
 
 # Gradle:
 .idea/**/gradle.xml
