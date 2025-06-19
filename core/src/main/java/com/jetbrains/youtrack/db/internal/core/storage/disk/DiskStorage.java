@@ -570,6 +570,8 @@ public class DiskStorage extends AbstractStorage {
         name,
         storagePath,
         directory.toPath(),
+        contextConfiguration.getValueAsString(ContextConfiguration.WAL_BASE_NAME,
+            ContextConfiguration.WAL_DEFAULT_NAME),
         contextConfiguration.getValueAsInteger(GlobalConfiguration.WAL_CACHE_SIZE),
         contextConfiguration.getValueAsInteger(GlobalConfiguration.WAL_BUFFER_SIZE),
         aesKey,
@@ -832,6 +834,8 @@ public class DiskStorage extends AbstractStorage {
             name,
             storagePath,
             walPath,
+            contextConfiguration.getValueAsString(ContextConfiguration.WAL_BASE_NAME,
+                ContextConfiguration.WAL_DEFAULT_NAME),
             contextConfiguration.getValueAsInteger(GlobalConfiguration.WAL_CACHE_SIZE),
             contextConfiguration.getValueAsInteger(GlobalConfiguration.WAL_BUFFER_SIZE),
             aesKey,
@@ -886,6 +890,8 @@ public class DiskStorage extends AbstractStorage {
             getName(),
             files,
             getId(),
+            contextConfiguration.getValueAsString(ContextConfiguration.DOUBLE_WRITE_LOG_NAME,
+                ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME),
             contextConfiguration.getValueAsEnum(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE, ChecksumMode.class),
             iv,
@@ -1833,7 +1839,9 @@ public class DiskStorage extends AbstractStorage {
         }
 
         addFileToDirectory(
-            storageName + walName.substring(segmentIndex), zipInputStream, walTempDir);
+            contextConfiguration.getValueAsString(ContextConfiguration.WAL_BASE_NAME,
+                ContextConfiguration.WAL_DEFAULT_NAME) + walName.substring(segmentIndex),
+            zipInputStream, walTempDir);
         continue;
       }
 

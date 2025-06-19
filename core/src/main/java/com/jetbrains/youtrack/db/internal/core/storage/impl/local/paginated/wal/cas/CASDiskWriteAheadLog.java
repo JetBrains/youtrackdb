@@ -136,6 +136,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
   private final Path walLocation;
   private final String storageName;
+  private final String walBaseName;
 
   private final TimeRate diskWriteMeter;
 
@@ -216,6 +217,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       final String storageName,
       final Path storagePath,
       final Path walPath,
+      final String walBaseName,
       final int maxPagesCacheSize,
       final int bufferSize,
       byte[] aesKey,
@@ -264,6 +266,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
 
     this.storageName = storageName;
+    this.walBaseName = walBaseName;
 
     pageSize = CASWALPage.DEFAULT_PAGE_SIZE;
     maxRecordSize = CASWALPage.DEFAULT_MAX_RECORD_SIZE;
@@ -274,9 +277,9 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     LogManager.instance()
         .info(
             this,
-            "Page size for WAL located in %s is set to %d bytes.",
+            "Page size for WAL located in %s is set to %d bytes. Base file name is %s",
             walLocation.toString(),
-            pageSize);
+            pageSize, walBaseName);
 
     this.maxCacheSize =
         multiplyIntsWithOverflowDefault(maxPagesCacheSize, pageSize, DEFAULT_MAX_CACHE_SIZE);
@@ -355,7 +358,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
               walLocation,
               1,
               (Path path, BasicFileAttributes attributes) ->
-                  validateName(path.getFileName().toString(), storageName, locale));
+                  validateName(path.getFileName().toString(), walBaseName, locale));
     } else {
       walFiles =
           Files.find(
@@ -454,6 +457,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return walPath;
   }
 
+  @Override
   public List<WriteableWALRecord> read(final LogSequenceNumber lsn, final int limit)
       throws IOException {
     addCutTillLimit(lsn);
@@ -709,6 +713,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return result;
   }
 
+  @Override
   public List<WriteableWALRecord> next(final LogSequenceNumber lsn, final int limit)
       throws IOException {
     addCutTillLimit(lsn);
@@ -819,6 +824,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
   }
 
+  @Override
   public void addEventAt(final LogSequenceNumber lsn, final Runnable event) {
     // may be executed by multiple threads simultaneously
 
@@ -843,6 +849,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
   }
 
+  @Override
   public void delete() throws IOException {
     final var segmentsToDelete = new LongArrayList(this.segments.size());
     segmentsToDelete.addAll(segments);
@@ -894,6 +901,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return hash != buffer.getLong(CASWALPage.XX_OFFSET);
   }
 
+  @Override
   public void addCutTillLimit(final LogSequenceNumber lsn) {
     if (lsn == null) {
       throw new NullPointerException();
@@ -907,6 +915,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
   }
 
+  @Override
   public void removeCutTillLimit(final LogSequenceNumber lsn) {
     if (lsn == null) {
       throw new NullPointerException();
@@ -934,12 +943,14 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
   }
 
+  @Override
   public LogSequenceNumber logAtomicOperationStartRecord(
       final boolean isRollbackSupported, final long unitId) {
     final var record = new AtomicUnitStartRecord(isRollbackSupported, unitId);
     return log(record);
   }
 
+  @Override
   public LogSequenceNumber logAtomicOperationStartRecord(
       final boolean isRollbackSupported, final long unitId, byte[] metadata) {
     final var record =
@@ -947,6 +958,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return log(record);
   }
 
+  @Override
   public LogSequenceNumber logAtomicOperationEndRecord(
       final long operationUnitId,
       final boolean rollback,
@@ -957,6 +969,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return log(record);
   }
 
+  @Override
   public LogSequenceNumber log(final WriteableWALRecord writeableRecord) {
     if (recordsWriterFuture.isDone()) {
       try {
@@ -1047,11 +1060,13 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return recordLSN;
   }
 
+  @Override
   public LogSequenceNumber begin() {
     final long first = segments.first();
     return new LogSequenceNumber(first, CASWALPage.RECORDS_OFFSET);
   }
 
+  @Override
   @Nullable
   public LogSequenceNumber begin(final long segmentId) {
     if (segments.contains(segmentId)) {
@@ -1061,6 +1076,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return null;
   }
 
+  @Override
   public boolean cutAllSegmentsSmallerThan(long segmentId) throws IOException {
     cuttingLock.exclusiveLock();
     try {
@@ -1135,15 +1151,18 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
   }
 
+  @Override
   public boolean cutTill(final LogSequenceNumber lsn) throws IOException {
     final var segmentId = lsn.getSegment();
     return cutAllSegmentsSmallerThan(segmentId);
   }
 
+  @Override
   public long activeSegment() {
     return currentSegment;
   }
 
+  @Override
   public boolean appendNewSegment() {
     segmentLock.exclusiveLock();
     try {
@@ -1186,11 +1205,13 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
   }
 
+  @Override
   public void moveLsnAfter(final LogSequenceNumber lsn) {
     final var segment = lsn.getSegment() + 1;
     appendSegment(segment);
   }
 
+  @Override
   public long[] nonActiveSegments() {
     final var writtenUpTo = this.writtenUpTo.get().getLsn();
 
@@ -1212,6 +1233,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return result.toLongArray();
   }
 
+  @Override
   public File[] nonActiveSegments(final long fromSegment) {
     final var maxSegment = currentSegment;
     final List<File> result = new ArrayList<>(8);
@@ -1260,15 +1282,18 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return recordLSN;
   }
 
+  @Override
   public void flush() {
     doFlush(true);
     waitTillWriteWillBeFinished();
   }
 
+  @Override
   public void close() throws IOException {
     close(true);
   }
 
+  @Override
   public void close(final boolean flush) throws IOException {
     if (flush) {
       doFlush(true);
@@ -1349,10 +1374,12 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
   }
 
+  @Override
   public void addCheckpointListener(final CheckpointRequestListener listener) {
     checkpointRequestListeners.add(listener);
   }
 
+  @Override
   public void removeCheckpointListener(final CheckpointRequestListener listener) {
     final List<CheckpointRequestListener> itemsToRemove = new ArrayList<>();
 
@@ -1376,6 +1403,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
   }
 
+  @Override
   public LogSequenceNumber getFlushedLsn() {
     return flushedLSN;
   }
@@ -1492,6 +1520,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return milestoneRecord;
   }
 
+  @Override
   public LogSequenceNumber end() {
     return end.get();
   }
@@ -1667,7 +1696,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   }
 
   private String getSegmentName(final long segment) {
-    return storageName + "." + segment + WAL_SEGMENT_EXTENSION;
+    return walBaseName + "." + segment + WAL_SEGMENT_EXTENSION;
   }
 
   public void executeWriteRecords(boolean forceSync, boolean fullWrite) {
