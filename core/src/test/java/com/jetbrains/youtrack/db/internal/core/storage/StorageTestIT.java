@@ -225,7 +225,9 @@ public class StorageTestIT {
 
     db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
-    db.query("select from PageBreak").close();
+    db.executeInTx(transaction -> {
+      transaction.query("select from PageBreak").close();
+    });
 
     Thread.sleep(100); // lets wait till event will be propagated
 
@@ -295,7 +297,9 @@ public class StorageTestIT {
 
     db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
-    db.query("select from PageBreak").close();
+    db.executeInTx(transaction -> {
+      transaction.query("select from PageBreak").close();
+    });
 
     Thread.sleep(100); // lets wait till event will be propagated
 
