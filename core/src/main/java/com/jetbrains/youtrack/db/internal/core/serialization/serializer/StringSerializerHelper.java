@@ -34,7 +34,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerAnyStreamable;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.math.BigDecimal;
@@ -205,8 +204,7 @@ public abstract class StringSerializerHelper {
 
       case EMBEDDED:
         // EMBEDDED
-        return StringSerializerAnyStreamable.INSTANCE.fromStream(db, (String) iValue);
-
+        return null;
       case EMBEDDEDMAP:
         // RECORD
         final var value = (String) iValue;
