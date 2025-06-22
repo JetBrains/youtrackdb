@@ -47,6 +47,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
 
   private static final String[] NAMES = {"POST|studio/*"};
 
+  @Override
   public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     DatabaseSessionEmbedded db = null;
 
@@ -80,7 +81,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
           className = value;
         } else if (pairs[0].startsWith(EntityHelper.ATTRIBUTE_CLASS)) {
           className = value;
-        } else if (pairs[0].startsWith("@") || pairs[0].equals("id")) {
+        } else if (!pairs[0].isEmpty() && pairs[0].charAt(0) == '@' || pairs[0].equals("id")) {
           continue;
         } else {
           fields.put(pairs[0], value);
@@ -108,7 +109,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
     return false;
   }
 
-  private void executeClassProperties(
+  private static void executeClassProperties(
       final HttpRequest iRequest,
       final HttpResponse iResponse,
       final DatabaseSessionInternal db,
@@ -198,7 +199,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
     }
   }
 
-  private void executeClasses(
+  private static void executeClasses(
       final HttpRequest iRequest,
       final HttpResponse iResponse,
       final DatabaseSessionInternal db,
@@ -288,104 +289,112 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
     }
   }
 
-  private void executeDocument(
+  private static void executeDocument(
       DatabaseSessionEmbedded session, final HttpRequest iRequest,
       final HttpResponse iResponse,
       final String operation,
       final String rid,
       final String className,
       final Map<String, String> fields)
-      throws IOException {
-    if ("edit".equals(operation)) {
-      iRequest.getData().commandInfo = "Studio edit entity";
+       {
+    switch (operation) {
+      case "edit" -> {
+        iRequest.getData().commandInfo = "Studio edit entity";
 
-      if (rid == null) {
-        throw new IllegalArgumentException("Record ID not found in request");
-      }
-
-      var entity = (EntityImpl) session.loadEntity(new RecordId(rid));
-      if (!Objects.equals(entity.getSchemaClassName(), className)) {
-        throw new IllegalArgumentException(
-            "Record has different class name than the one provided in the request "
-                + entity.getSchemaClassName() + " != " + className);
-      }
-      // BIND ALL CHANGED FIELDS
-      for (var f : fields.entrySet()) {
-        final var oldValue = entity.getProperty(f.getKey());
-        var userValue = f.getValue();
-
-        if (userValue != null && userValue.equals("undefined")) {
-          entity.removeProperty(f.getKey());
-        } else {
-          var newValue = RecordSerializerStringAbstract.getTypeValue(session, userValue);
-
-          if (newValue != null) {
-            if (newValue instanceof Collection) {
-              final var array = new ArrayList<Object>();
-              for (var s : (Collection<String>) newValue) {
-                var v = RecordSerializerStringAbstract.getTypeValue(session, s);
-                array.add(v);
-              }
-              newValue = array;
-            }
-          }
-
-          if (oldValue != null && oldValue.equals(userValue))
-          // NO CHANGES
-          {
-            continue;
-          }
-
-          var schemaClass = entity.getImmutableSchemaClass(session);
-          var property = schemaClass != null ? schemaClass.getProperty(f.getKey()) : null;
-          entity.setProperty(f.getKey(),
-              SQLUpdateItem.cleanPropertyValue(newValue, session, property));
+        if (rid == null) {
+          throw new IllegalArgumentException("Record ID not found in request");
         }
+
+        var entity = (EntityImpl) session.loadEntity(new RecordId(rid));
+        if (!Objects.equals(entity.getSchemaClassName(), className)) {
+          throw new IllegalArgumentException(
+              "Record has different class name than the one provided in the request "
+                  + entity.getSchemaClassName() + " != " + className);
+        }
+        // BIND ALL CHANGED FIELDS
+        for (var f : fields.entrySet()) {
+          final var oldValue = entity.getProperty(f.getKey());
+          var userValue = f.getValue();
+
+          if (userValue != null && userValue.equals("undefined")) {
+            entity.removeProperty(f.getKey());
+          } else {
+            var newValue = RecordSerializerStringAbstract.getTypeValue(session, userValue);
+
+            if (newValue != null) {
+              if (newValue instanceof Collection) {
+                final var array = new ArrayList<Object>();
+                for (var s : (Collection<String>) newValue) {
+                  var v = RecordSerializerStringAbstract.getTypeValue(session, s);
+                  array.add(v);
+                }
+                newValue = array;
+              }
+            }
+
+            if (oldValue != null && oldValue.equals(userValue))
+            // NO CHANGES
+            {
+              continue;
+            }
+
+            var schemaClass = entity.getImmutableSchemaClass(session);
+            var property = schemaClass != null ? schemaClass.getProperty(f.getKey()) : null;
+            entity.setProperty(f.getKey(),
+                SQLUpdateItem.cleanPropertyValue(newValue, session, property));
+          }
+        }
+
+        iResponse.send(
+            HttpUtils.STATUS_OK_CODE,
+            HttpUtils.STATUS_OK_DESCRIPTION,
+            HttpUtils.CONTENT_TEXT_PLAIN,
+            "Record " + rid + " updated successfully.",
+            null);
       }
+      case "add" -> {
+        iRequest.getData().commandInfo = "Studio create entity";
 
-      iResponse.send(
-          HttpUtils.STATUS_OK_CODE,
-          HttpUtils.STATUS_OK_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
-          "Record " + rid + " updated successfully.",
-          null);
-    } else if ("add".equals(operation)) {
-      iRequest.getData().commandInfo = "Studio create entity";
+        var entityRid = session.computeInTx(transaction -> {
+          final var entity = session.newEntity(className);
 
-      final var entity = new EntityImpl(session, className);
+          // BIND ALL CHANGED FIELDS
+          for (var f : fields.entrySet()) {
+            entity.setProperty(f.getKey(), f.getValue());
+          }
 
-      // BIND ALL CHANGED FIELDS
-      for (var f : fields.entrySet()) {
-        entity.setProperty(f.getKey(), f.getValue());
+          return entity.getIdentity();
+        });
+
+        iResponse.send(
+            201,
+            "OK",
+            HttpUtils.CONTENT_TEXT_PLAIN,
+            "Record " + entityRid + " added successfully.",
+            null);
       }
+      case "del" -> {
+        iRequest.getData().commandInfo = "Studio delete entity";
 
-      iResponse.send(
-          201,
-          "OK",
-          HttpUtils.CONTENT_TEXT_PLAIN,
-          "Record " + entity.getIdentity() + " updated successfully.",
-          null);
+        if (rid == null) {
+          throw new IllegalArgumentException("Record ID not found in request");
+        }
 
-    } else if ("del".equals(operation)) {
-      iRequest.getData().commandInfo = "Studio delete entity";
+        var recordId = new RecordId(rid);
+        var transaction = session.getActiveTransaction();
+        final EntityImpl entity = transaction.load(recordId);
+        entity.delete();
+        iResponse.send(
+            HttpUtils.STATUS_OK_CODE,
+            HttpUtils.STATUS_OK_DESCRIPTION,
+            HttpUtils.CONTENT_TEXT_PLAIN,
+            "Record " + rid + " deleted successfully.",
+            null);
 
-      if (rid == null) {
-        throw new IllegalArgumentException("Record ID not found in request");
       }
-
-      RecordId recordId = new RecordId(rid);
-      var transaction = session.getActiveTransaction();
-      final EntityImpl entity = transaction.load(recordId);
-      entity.delete();
-      iResponse.send(
-          HttpUtils.STATUS_OK_CODE,
-          HttpUtils.STATUS_OK_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
-          "Record " + rid + " deleted successfully.",
-          null);
-
-    } else {
-      iResponse.send(500, "Error", HttpUtils.CONTENT_TEXT_PLAIN, "Operation not supported", null);
+      case null, default ->
+          iResponse.send(500, "Error", HttpUtils.CONTENT_TEXT_PLAIN, "Operation not supported",
+              null);
     }
   }
 
