@@ -8,6 +8,11 @@
 
 [Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Knowledge base](https://youtrack.jetbrains.com/articles/YTDB) | [Roadmap](https://youtrack.jetbrains.com/articles/YTDB-A-3/Short-term-roadmap)
 
+### Join our Zulip community!
+
+If you are interested in YouTrackDB, consider joining our [Zulip](https://youtrackdb.zulipchat.com/) community. 
+Tell us about exciting applications you are building, ask for help, or just chat with friends 😃
+
 ### What is YouTrackDB?
 
 YouTrackDB is an object-oriented graph database that supports full-text search, reactivity, and geospatial concepts.\
