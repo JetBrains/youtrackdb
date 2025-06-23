@@ -7,7 +7,7 @@ on:
 jobs:
   build:
     name: Unit-Tests-JDK-21-Linux-ARM-Disk
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Generate a token
         id: generate-token
