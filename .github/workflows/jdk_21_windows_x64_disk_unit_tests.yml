@@ -1,4 +1,4 @@
-name: Unit Tests JDK 21 Linux 64 (disk)
+name: Unit Tests JDK 21 Windows 64 (disk)
 on:
   push:
     branches: [ "develop" ]
