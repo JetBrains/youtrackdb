@@ -28,7 +28,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
       - name: Build with maven
-        run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
+        run: mvn `-Dyoutrackdb.test.env=ci -B package --file pom.xml
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
       - name: Update dependency graph
