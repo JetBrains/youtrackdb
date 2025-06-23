@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [ "develop" ]
 jobs:
-  JDK-21-Linux-ARM-Disk:
+  JDK-21-Linux-ARM-Memory:
     name: Unit Tests on Mac ARM (Memory)
     runs-on: macos-latest
     steps:
@@ -21,7 +21,7 @@ jobs:
         run: mvn -B package --file pom.xml
       - name: Update dependency graph
         uses: advanced-security/maven-dependency-submission-action@v5
-  JDK-21-Windows-x64-Disk:
+  JDK-21-Windows-x64-Memory:
     name: Unit Tests on JDK 21 Windows x64 (Memory)
     runs-on: windows-latest
     steps:
