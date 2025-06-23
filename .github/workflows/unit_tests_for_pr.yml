@@ -34,7 +34,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
       - name: Build with maven
-        run: mvn `-Dyoutrackdb.test.env=ci -B package --file pom.xml
+        run: mvn -B package --file pom.xml
       - name: Update dependency graph
         uses: advanced-security/maven-dependency-submission-action@v5
   JDK-21-Linux-x64-Disk:
