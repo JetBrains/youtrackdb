@@ -1,4 +1,4 @@
-name: Unit Tests for PR
+name: Branch Unit Tests and Deployment
 on:
   push:
     branches: [ "develop" ]
