@@ -1,7 +1,5 @@
 name: Unit Tests for PR
 on:
-  push:
-    branches: [ "develop" ]
   pull_request:
     branches: [ "develop" ]
 jobs:
@@ -19,8 +17,6 @@ jobs:
           cache: maven
       - name: Build with maven
         run: mvn -B package --file pom.xml
-      - name: Update dependency graph
-        uses: advanced-security/maven-dependency-submission-action@v5
   JDK-21-Windows-x64-Memory:
     name: Unit Tests on JDK 21 Windows x64 (Memory)
     runs-on: windows-latest
@@ -35,8 +31,6 @@ jobs:
           cache: maven
       - name: Build with maven
         run: mvn -B package --file pom.xml
-      - name: Update dependency graph
-        uses: advanced-security/maven-dependency-submission-action@v5
   JDK-21-Linux-x64-Disk:
     name: Unit Tests on JDK 21 Linux x64 (Disk)
     runs-on: ubuntu-latest
@@ -51,5 +45,3 @@ jobs:
           cache: maven
       - name: Build with maven
         run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
-      - name: Update dependency graph
-        uses: advanced-security/maven-dependency-submission-action@v5
