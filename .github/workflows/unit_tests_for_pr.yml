@@ -15,6 +15,8 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      - name: Build with maven
+        run: mvn -B package --file pom.xml
   JDK-21-Windows-x64-Memory:
     name: Unit Tests on JDK 21 Windows x64 (Memory)
     runs-on: windows-latest
