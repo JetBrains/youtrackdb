@@ -25,7 +25,6 @@ import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.TestClientFactory;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.RemoteGraph;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.computer.TinkerGraphComputer;
 import org.apache.tinkerpop.gremlin.util.ser.Serializers;
 
 /**
@@ -296,18 +295,6 @@ public abstract class AbstractRemoteGraphProvider extends AbstractGraphProvider 
     // moved with breaking change.
     final var g = AnonymousTraversalSource.traversal()
         .withRemote(((RemoteGraph) graph).getConnection());
-
-    if (useComputer) {
-      final var state = TestHelper.RANDOM.nextInt(3);
-      return switch (state) {
-        case 0 -> g.withComputer();
-        case 1 -> g.withComputer(Computer.compute(TinkerGraphComputer.class));
-        case 2 -> g.withComputer(Computer.compute(TinkerGraphComputer.class)
-            .workers(TestHelper.RANDOM.nextInt(AVAILABLE_PROCESSORS) + 1));
-        default -> throw new IllegalStateException("This state should not have occurred: " + state);
-      };
-    }
-
     return g;
   }
 
