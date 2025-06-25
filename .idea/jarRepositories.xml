@@ -2,6 +2,11 @@
 <project version="4">
   <component name="RemoteRepositoriesConfiguration">
     <remote-repository>
+      <option name="id" value="space-maven" />
+      <option name="name" value="space-maven" />
+      <option name="url" value="https://packages.jetbrains.team/maven/p/xodus/maven" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="space-youtrackdb-daily" />
       <option name="name" value="space-youtrackdb-daily" />
       <option name="url" value="https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily" />
