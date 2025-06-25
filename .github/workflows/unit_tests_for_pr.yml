@@ -3,8 +3,8 @@ on:
   pull_request:
     branches: [ "develop" ]
 jobs:
-  JDK-21-Linux-ARM-Memory:
-    name: Unit Tests on Mac ARM (Memory)
+  JDK-21-Mac-ARM-Memory:
+    name: Unit Tests on JDK 21 Mac ARM (Memory)
     runs-on: macos-latest
     steps:
       - name: Checkout code
