@@ -15,6 +15,15 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      - name: Generation of settings.xml
+        uses: s4u/maven-settings-action@v3.1.0
+        with:
+          servers: |
+            [ 
+               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
+               {"id": "space-maven", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_MAVEN_REPO_PASSWORD }}"}
+             ]
+          mirrors: '[{"id": "space-maven", "name": "maven-mirror", "mirrorOf": "central", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}]'
       - name: Build with maven
         run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
   JDK-21-Windows-x64-Disk:
@@ -29,6 +38,15 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      - name: Generation of settings.xml
+        uses: s4u/maven-settings-action@v3.1.0
+        with:
+          servers: |
+            [ 
+               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
+               {"id": "space-maven", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_MAVEN_REPO_PASSWORD }}"}
+             ]
+          mirrors: '[{"id": "space-maven", "name": "maven-mirror", "mirrorOf": "central", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}]'
       - name: Build with maven
         run: mvn `-Dyoutrackdb.test.env=ci -B package --file pom.xml
   JDK-21-Linux-x64-Disk:
@@ -43,10 +61,17 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      - name: Generation of settings.xml
+        uses: s4u/maven-settings-action@v3.1.0
+        with:
+          servers: |
+            [ 
+               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
+               {"id": "space-maven", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_MAVEN_REPO_PASSWORD }}"}
+             ]
+          mirrors: '[{"id": "space-maven", "name": "maven-mirror", "mirrorOf": "central", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}]'
       - name: Build with maven
         run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
-      - name: Update dependency graph
-        uses: advanced-security/maven-dependency-submission-action@v5
   deploy:
     name: Deployment to maven repository
     runs-on: ubuntu-latest
@@ -60,11 +85,14 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-          server-id: space-youtrackdb-daily
-          server-username: MAVEN_USERNAME
-          server-password: MAVEN_PASSWORD
+      - name: Generation of settings.xml
+        uses: s4u/maven-settings-action@v3.1.0
+        with:
+          servers: |
+            [ 
+               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
+               {"id": "space-maven", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_MAVEN_REPO_PASSWORD }}"}
+             ]
+          mirrors: '[{"id": "space-maven", "name": "maven-mirror", "mirrorOf": "central", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}]'
       - name: Build with maven
         run: mvn -DskipTests=true -B deploy --file pom.xml
-        env:
-          MAVEN_USERNAME: ${{ secrets.SPACE_USER_NAME }}
-          MAVEN_PASSWORD: ${{ secrets.SPACE_REPO_PASSWORD }}
