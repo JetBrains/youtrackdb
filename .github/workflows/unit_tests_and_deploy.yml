@@ -112,7 +112,7 @@ jobs:
           mirrors: |
             [
                {"id": "space-maven", "name": "maven-mirror", "mirrorOf": "central", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}
-               {"id": "space-maven-snapshots", "name": "snapshots-aven-mirror", "mirrorOf": "apache.snapshots", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}
+               {"id": "space-maven-snapshots", "name": "snapshots-maven-mirror", "mirrorOf": "apache.snapshots", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}
              ]
       - name: Build with maven
         run: mvn -DskipTests=true -B deploy --file pom.xml
