@@ -19,10 +19,10 @@ jobs:
         uses: s4u/maven-settings-action@v3.1.0
         with:
           servers: | 
-           '[ 
+           [ 
               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
               {"id": "space-maven", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_MAVEN_REPO_PASSWORD }}"}
-            ]'
+            ]
           mirrors: '[{"id": "space-maven", "name": "maven-mirror", "mirrorOf": "central", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}]'
       - name: Build with maven
         run: mvn -B package --file pom.xml
@@ -42,10 +42,10 @@ jobs:
         uses: s4u/maven-settings-action@v3.1.0
         with:
           servers: |
-            '[ 
+            [ 
                {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
                {"id": "space-maven", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_MAVEN_REPO_PASSWORD }}"}
-             ]'
+             ]
           mirrors: '[{"id": "space-maven", "name": "maven-mirror", "mirrorOf": "central", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}]'
       - name: Build with maven
         run: mvn -B package --file pom.xml
@@ -65,10 +65,10 @@ jobs:
         uses: s4u/maven-settings-action@v3.1.0
         with:
           servers: |
-            '[ 
+            [ 
                {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
                {"id": "space-maven", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_MAVEN_REPO_PASSWORD }}"}
-             ]'
+             ]
           mirrors: '[{"id": "space-maven", "name": "maven-mirror", "mirrorOf": "central", "url": "https://packages.jetbrains.team/maven/p/xodus/maven"}]'
       - name: Build with maven
         run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
