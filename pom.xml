@@ -69,6 +69,10 @@
         <enabled>true</enabled>
       </snapshots>
     </repository>
+    <repository>
+      <id>space-maven</id>
+      <url>https://packages.jetbrains.team/maven/p/xodus/maven</url>
+    </repository>
   </repositories>
 
   <properties>
