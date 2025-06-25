@@ -20,7 +20,7 @@ jobs:
         with:
           servers: |
             [ 
-               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
+               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
              ]
       - name: Build with maven
         run: mvn -B package --file pom.xml
@@ -41,7 +41,7 @@ jobs:
         with:
           servers: |
             [ 
-               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
+               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
              ]
       - name: Build with maven
         run: mvn -B package --file pom.xml
@@ -62,7 +62,7 @@ jobs:
         with:
           servers: |
             [ 
-               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"},
+               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
              ]
       - name: Build with maven
         run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
