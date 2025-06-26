@@ -63,7 +63,7 @@ public class SQLSecurityResourceSegment extends SimpleNode {
 
   @Override
   public SQLSecurityResourceSegment copy() {
-    SQLSecurityResourceSegment result = new SQLSecurityResourceSegment(-1);
+    var result = new SQLSecurityResourceSegment(-1);
     result.star = this.star;
     result.identifier = this.identifier == null ? null : this.identifier.copy();
     result.next = this.next == null ? null : this.next.copy();

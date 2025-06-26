@@ -13,15 +13,14 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
-import org.locationtech.spatial4j.shape.Point;
 import org.locationtech.spatial4j.shape.Rectangle;
 
 public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
@@ -42,44 +41,40 @@ public class RectangleShapeBuilder extends ShapeBuilder<Rectangle> {
   public void initClazz(DatabaseSessionInternal db) {
 
     Schema schema = db.getMetadata().getSchema();
-    SchemaClass rectangle = schema.createAbstractClass(NAME, superClass(db));
-    SchemaProperty coordinates = rectangle.createProperty(db, COORDINATES,
+    var rectangle = schema.createAbstractClass(NAME, superClass(db));
+    var coordinates = rectangle.createProperty(COORDINATES,
         PropertyType.EMBEDDEDLIST,
         PropertyType.DOUBLE);
-    coordinates.setMin(db, "4");
-    coordinates.setMin(db, "4");
+    coordinates.setMin("4");
+    coordinates.setMin("4");
   }
 
   @Override
-  public Rectangle fromDoc(EntityImpl document) {
-    validate(document);
-    List<Number> coordinates = document.field(COORDINATES);
+  public Rectangle fromResult(Result document) {
+    List<Number> coordinates = document.getProperty(COORDINATES);
 
-    Point topLeft =
+    var topLeft =
         SPATIAL_CONTEXT.makePoint(
             coordinates.get(0).doubleValue(), coordinates.get(1).doubleValue());
-    Point bottomRight =
+    var bottomRight =
         SPATIAL_CONTEXT.makePoint(
             coordinates.get(2).doubleValue(), coordinates.get(3).doubleValue());
-    Rectangle rectangle = SPATIAL_CONTEXT.makeRectangle(topLeft, bottomRight);
+    var rectangle = SPATIAL_CONTEXT.makeRectangle(topLeft, bottomRight);
     return rectangle;
   }
 
   @Override
-  public EntityImpl toDoc(final Rectangle shape) {
+  public EmbeddedEntity toEmbeddedEntity(final Rectangle shape, DatabaseSessionInternal session) {
+    var entity = session.newEmbeddedEntity(NAME);
+    entity.newEmbeddedList(COORDINATES, new ArrayList<Double>() {
+      {
+        add(shape.getMinX());
+        add(shape.getMinY());
+        add(shape.getMaxX());
+        add(shape.getMaxY());
+      }
+    });
 
-    EntityImpl doc = new EntityImpl(NAME);
-
-    doc.field(
-        COORDINATES,
-        new ArrayList<Double>() {
-          {
-            add(shape.getMinX());
-            add(shape.getMinY());
-            add(shape.getMaxX());
-            add(shape.getMaxY());
-          }
-        });
-    return doc;
+    return entity;
   }
 }

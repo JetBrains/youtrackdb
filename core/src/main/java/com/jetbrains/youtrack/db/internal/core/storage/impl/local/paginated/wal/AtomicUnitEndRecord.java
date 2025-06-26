@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal;
 
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
@@ -31,7 +30,6 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * @since 24.05.13
@@ -68,19 +66,19 @@ public class AtomicUnitEndRecord extends OperationUnitBodyRecord {
     buffer.put(rollback ? (byte) 1 : 0);
 
     if (atomicOperationMetadataMap.size() > 0) {
-      for (final Map.Entry<String, AtomicOperationMetadata<?>> entry :
+      for (final var entry :
           atomicOperationMetadataMap.entrySet()) {
         if (entry.getKey().equals(RecordOperationMetadata.RID_METADATA_KEY)) {
           buffer.put((byte) 1);
 
-          final RecordOperationMetadata recordOperationMetadata =
+          final var recordOperationMetadata =
               (RecordOperationMetadata) entry.getValue();
-          final Set<RID> rids = recordOperationMetadata.getValue();
+          final var rids = recordOperationMetadata.getValue();
           buffer.putInt(rids.size());
 
-          for (final RID rid : rids) {
-            buffer.putLong(rid.getClusterPosition());
-            buffer.putInt(rid.getClusterId());
+          for (final var rid : rids) {
+            buffer.putLong(rid.getCollectionPosition());
+            buffer.putInt(rid.getCollectionId());
           }
         } else {
           throw new IllegalStateException(
@@ -100,14 +98,14 @@ public class AtomicUnitEndRecord extends OperationUnitBodyRecord {
     final int metadataId = buffer.get();
 
     if (metadataId == 1) {
-      final int collectionsSize = buffer.getInt();
+      final var collectionsSize = buffer.getInt();
 
-      final RecordOperationMetadata recordOperationMetadata = new RecordOperationMetadata();
-      for (int i = 0; i < collectionsSize; i++) {
-        final long clusterPosition = buffer.getLong();
-        final int clusterId = buffer.getInt();
+      final var recordOperationMetadata = new RecordOperationMetadata();
+      for (var i = 0; i < collectionsSize; i++) {
+        final var collectionPosition = buffer.getLong();
+        final var collectionId = buffer.getInt();
 
-        recordOperationMetadata.addRid(new RecordId(clusterId, clusterPosition));
+        recordOperationMetadata.addRid(new RecordId(collectionId, collectionPosition));
       }
 
       atomicOperationMetadataMap.put(recordOperationMetadata.getKey(), recordOperationMetadata);
@@ -126,16 +124,16 @@ public class AtomicUnitEndRecord extends OperationUnitBodyRecord {
   }
 
   private int metadataSize() {
-    int size = ByteSerializer.BYTE_SIZE;
+    var size = ByteSerializer.BYTE_SIZE;
 
-    for (Map.Entry<String, AtomicOperationMetadata<?>> entry :
+    for (var entry :
         atomicOperationMetadataMap.entrySet()) {
       if (entry.getKey().equals(RecordOperationMetadata.RID_METADATA_KEY)) {
-        final RecordOperationMetadata recordOperationMetadata =
+        final var recordOperationMetadata =
             (RecordOperationMetadata) entry.getValue();
 
         size += IntegerSerializer.INT_SIZE;
-        final Set<RID> rids = recordOperationMetadata.getValue();
+        final var rids = recordOperationMetadata.getValue();
         size += rids.size() * (LongSerializer.LONG_SIZE + IntegerSerializer.INT_SIZE);
       } else {
         throw new IllegalStateException(

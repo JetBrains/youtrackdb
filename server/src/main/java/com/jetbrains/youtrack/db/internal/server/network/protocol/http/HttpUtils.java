@@ -104,13 +104,13 @@ public class HttpUtils {
   public static final String STATUS_NOTIMPL_DESCRIPTION = "Not Implemented";
 
   protected static Map<String, String> getParameters(final String iURL) {
-    int begin = iURL.indexOf('?');
+    var begin = iURL.indexOf('?');
     if (begin > -1) {
       Map<String, String> params = new HashMap<String, String>();
-      String parameters = iURL.substring(begin + 1);
-      final String[] paramPairs = parameters.split("&");
-      for (String p : paramPairs) {
-        final String[] parts = p.split("=");
+      var parameters = iURL.substring(begin + 1);
+      final var paramPairs = parameters.split("&");
+      for (var p : paramPairs) {
+        final var parts = p.split("=");
         if (parts.length == 2) {
           params.put(parts[0], URLDecoder.decode(parts[1], StandardCharsets.UTF_8));
         }

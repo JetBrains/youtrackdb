@@ -1,21 +1,16 @@
 package com.jetbrains.youtrack.db.internal.server;
 
+import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfigurationManager;
-import com.jetbrains.youtrack.db.internal.server.config.ServerHookConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfigurationManager;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerHookConfiguration;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
-import javax.management.InstanceAlreadyExistsException;
-import javax.management.MBeanRegistrationException;
-import javax.management.MalformedObjectNameException;
-import javax.management.NotCompliantMBeanException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -25,18 +20,14 @@ public class HookInstallServerTest {
 
   private static final String SERVER_DIRECTORY = "./target/dbfactory";
 
-  public static class MyHook extends DocumentHookAbstract {
+  public static class MyHook extends EntityHookAbstract {
 
     public MyHook() {
+      super();
     }
 
     @Override
-    public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-      return DISTRIBUTED_EXECUTION_MODE.TARGET_NODE;
-    }
-
-    @Override
-    public void onRecordAfterCreate(EntityImpl entity) {
+    public void onBeforeEntityCreate(Entity entity) {
       count++;
     }
   }
@@ -45,48 +36,33 @@ public class HookInstallServerTest {
   private YouTrackDBServer server;
 
   @Before
-  public void before()
-      throws MalformedObjectNameException,
-      InstanceAlreadyExistsException,
-      MBeanRegistrationException,
-      NotCompliantMBeanException,
-      ClassNotFoundException,
-      NullPointerException,
-      IOException,
-      IllegalArgumentException,
-      SecurityException,
-      InvocationTargetException,
-      NoSuchMethodException,
-      InstantiationException,
-      IllegalAccessException {
+  public void before() throws Exception {
     server = new YouTrackDBServer(false);
     server.setServerRootDirectory(SERVER_DIRECTORY);
 
-    ServerConfigurationManager ret =
+    var ret =
         new ServerConfigurationManager(
             this.getClass()
                 .getClassLoader()
                 .getResourceAsStream(
                     "com/jetbrains/youtrack/db/internal/server/network/youtrackdb-server-config.xml"));
-    ServerHookConfiguration hc = new ServerHookConfiguration();
+    var hc = new ServerHookConfiguration();
     hc.clazz = MyHook.class.getName();
     ret.getConfiguration().hooks = new ArrayList<>();
     ret.getConfiguration().hooks.add(hc);
     server.startup(ret.getConfiguration());
     server.activate();
 
-    ServerAdmin admin = new ServerAdmin("remote:localhost");
-    admin.connect("root", "root");
-    admin.createDatabase("test", "nothign", "memory");
-    admin.close();
+    try (var youTrackDB = YourTracks.remote("remote:localhost", "root", "root")) {
+      youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
+    }
   }
 
   @After
   public void after() throws IOException {
-    ServerAdmin admin = new ServerAdmin("remote:localhost");
-    admin.connect("root", "root");
-    admin.dropDatabase("test", "memory");
-    admin.close();
+    try (var youTrackDB = YourTracks.remote("remote:localhost", "root", "root")) {
+      youTrackDB.drop("test");
+    }
     server.shutdown();
 
     YouTrackDBEnginesManager.instance().shutdown();
@@ -96,20 +72,19 @@ public class HookInstallServerTest {
 
   @Test
   public void test() {
-    final int initValue = count;
+    final var initValue = count;
 
     try (var pool =
         YourTracks.remote("remote:localhost", "root", "root")) {
-      for (int i = 0; i < 10; i++) {
+      for (var i = 0; i < 10; i++) {
         var poolInstance = pool.cachedPool("test", "admin", "admin");
-        var id = i;
-        try (var some = poolInstance.acquire()) {
-          some.createClassIfNotExist("Test");
-
-          some.executeInTx(() -> {
-            some.save(new EntityImpl("Test").field("entry", id));
-            some.commit();
-          });
+        try (var db = poolInstance.acquire()) {
+          db.command("create class Test if not exists");
+          db.executeSQLScript("""
+              begin;
+              insert into Test set entry = ?;
+              commit;
+              """, i);
         }
       }
     }

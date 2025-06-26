@@ -18,8 +18,6 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.tests;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
@@ -31,24 +29,24 @@ public class LuceneSkipLimitTest extends LuceneBaseTest {
 
   @Before
   public void init() {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
 
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
-    db.command("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
   public void testContext() {
-
-    ResultSet docs =
-        db.query("select * from Song where search_fields(['title'],\"(title:man)\")=true");
+    session.begin();
+    var docs =
+        session.query("select * from Song where search_fields(['title'],\"(title:man)\")=true");
 
     Assertions.assertThat(docs).hasSize(14);
     docs.close();
     docs =
-        db.query(
+        session.query(
             "select * from Song where search_fields(['title'],\"(title:man)\")=true skip 10 limit"
                 + " 10");
 
@@ -57,11 +55,12 @@ public class LuceneSkipLimitTest extends LuceneBaseTest {
     //    Assert.assertEquals(docs.contains(doc), false);
     docs.close();
     docs =
-        db.query(
+        session.query(
             "select * from Song where search_fields(['title'],\"(title:man)\")=true skip 14 limit"
                 + " 10");
 
     Assertions.assertThat(docs).hasSize(0);
     docs.close();
+    session.commit();
   }
 }

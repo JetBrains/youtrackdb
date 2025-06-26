@@ -3,17 +3,12 @@ package com.jetbrains.youtrack.db.internal.server;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import java.io.File;
-import java.io.InputStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TestName;
 
-/**
- *
- */
 public class AbstractRemoteTest {
-
   protected static final String SERVER_DIRECTORY = "./target/remotetest";
 
   private YouTrackDBServer server;
@@ -26,13 +21,13 @@ public class AbstractRemoteTest {
 
     System.setProperty("YOUTRACKDB_HOME", SERVER_DIRECTORY);
 
-    InputStream stream =
+    var stream =
         ClassLoader.getSystemResourceAsStream("abstract-youtrackdb-server-config.xml");
     server = ServerMain.create(false);
     server.startup(stream);
     server.activate();
 
-    final String dbName = name.getMethodName();
+    final var dbName = name.getMethodName();
     if (dbName != null) {
       server
           .getContext()

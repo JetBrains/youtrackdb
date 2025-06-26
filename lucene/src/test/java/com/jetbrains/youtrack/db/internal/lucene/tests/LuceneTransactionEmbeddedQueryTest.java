@@ -21,16 +21,11 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -43,225 +38,219 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    final SchemaClass c1 = db.createVertexClass("C1");
-    c1.createProperty(db, "p1", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
-    c1.createIndex(db, "C1.p1", "FULLTEXT", null, null, "LUCENE", new String[]{"p1"});
+    final var c1 = session.createVertexClass("C1");
+    c1.createProperty("p1", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    c1.createIndex("C1.p1", "FULLTEXT", null, null, "LUCENE", new String[]{"p1"});
   }
 
   @Test
   public void testRollback() {
-    EntityImpl doc = new EntityImpl("c1");
-    doc.field("p1", new String[]{"abc"});
-    db.begin();
-    db.save(doc);
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.newEmbeddedList("p1", new String[]{"abc"});
 
-    String query = "select from C1 where search_class( \"abc\")=true ";
+    var query = "select from C1 where search_class( \"abc\")=true ";
 
-    try (ResultSet vertices = db.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
     }
-    db.rollback();
+    session.rollback();
 
     query = "select from C1 where search_class( \"abc\")=true  ";
-    try (ResultSet vertices = db.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(0);
     }
   }
 
   @Test
   public void txRemoveTest() {
-    db.begin();
+    session.begin();
 
-    EntityImpl doc = new EntityImpl("c1");
-    doc.field("p1", new String[]{"abc"});
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.newEmbeddedList("p1", new String[]{"abc"});
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex("C1.p1");
 
-    db.save(doc);
-
-    String query = "select from C1 where search_class( \"abc\")=true";
-    try (ResultSet vertices = db.command(query)) {
+    var query = "select from C1 where search_class( \"abc\")=true";
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
-      Assert.assertEquals(index.getInternal().size(db), 1);
+      Assert.assertEquals(1, index.size(session));
     }
-    db.commit();
+    session.commit();
 
-    db.begin();
-    try (ResultSet vertices = db.command(query)) {
+    session.begin();
+    try (var vertices = session.execute(query)) {
 
       assertThat(vertices).hasSize(1);
-      Assert.assertEquals(index.getInternal().size(db), 1);
+      Assert.assertEquals(1, index.size(session));
     }
 
-    doc = db.bindToSession(doc);
-    db.delete(doc);
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    session.delete(doc);
 
-    try (ResultSet vertices = db.command(query)) {
+    try (var vertices = session.execute(query)) {
 
-      Collection coll;
-      try (Stream<RID> stream = index.getInternal().getRids(db, "abc")) {
-        coll = stream.collect(Collectors.toList());
+      Collection<RID> coll;
+      try (var stream = index.getRids(session, "abc")) {
+        coll = stream.toList();
       }
 
       assertThat(vertices).hasSize(0);
-      Assert.assertEquals(coll.size(), 0);
+      Assert.assertEquals(0, coll.size());
 
-      Iterator iterator = coll.iterator();
-      int i = 0;
+      var iterator = coll.iterator();
+      var i = 0;
       while (iterator.hasNext()) {
         iterator.next();
         i++;
       }
-      Assert.assertEquals(i, 0);
-      Assert.assertEquals(index.getInternal().size(db), 0);
+      Assert.assertEquals(0, i);
+      Assert.assertEquals(0, index.size(session));
     }
 
-    db.rollback();
+    session.rollback();
 
-    try (ResultSet vertices = db.command(query)) {
+    session.begin();
+    try (var vertices = session.execute(query)) {
 
       assertThat(vertices).hasSize(1);
 
-      Assert.assertEquals(index.getInternal().size(db), 1);
+      Assert.assertEquals(1, index.size(session));
     }
+    session.commit();
   }
 
   @Test
   @Ignore
   public void txUpdateTest() {
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex("C1.p1");
 
-    Assert.assertEquals(index.getInternal().size(db), 0);
+    Assert.assertEquals(0, index.size(session));
 
-    db.begin();
+    session.begin();
 
-    EntityImpl doc = new EntityImpl("c1");
-    doc.field("p1", new String[]{"update removed", "update fixed"});
+    var doc = ((EntityImpl) session.newEntity("c1"));
+    doc.setProperty("p1", new String[]{"update removed", "update fixed"});
 
-    db.save(doc);
-
-    String query = "select from C1 where search_class(\"update\")=true ";
-    try (ResultSet vertices = db.command(query)) {
+    var query = "select from C1 where search_class(\"update\")=true ";
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
-      Assert.assertEquals(index.getInternal().size(db), 2);
+      Assert.assertEquals(2, index.size(session));
     }
-    db.commit();
+    session.commit();
 
     Collection coll;
-    try (ResultSet vertices = db.command(query)) {
-      try (Stream<RID> stream = index.getInternal().getRids(db, "update")) {
+    try (var vertices = session.execute(query)) {
+      try (var stream = index.getRids(session, "update")) {
         coll = stream.collect(Collectors.toList());
       }
 
       assertThat(vertices).hasSize(1);
-      Assert.assertEquals(coll.size(), 2);
-      Assert.assertEquals(index.getInternal().size(db), 2);
+      Assert.assertEquals(2, coll.size());
+      Assert.assertEquals(2, index.size(session));
     }
-    db.begin();
+    session.begin();
 
     // select in transaction while updating
-    Collection p1 = doc.field("p1");
+    Collection p1 = doc.getProperty("p1");
     p1.remove("update removed");
-    db.save(doc);
 
-    try (ResultSet vertices = db.command(query)) {
-      try (Stream<RID> stream = index.getInternal().getRids(db, "update")) {
+    try (var vertices = session.execute(query)) {
+      try (var stream = index.getRids(session, "update")) {
         coll = stream.collect(Collectors.toList());
       }
 
       assertThat(vertices).hasSize(1);
-      Assert.assertEquals(coll.size(), 1);
-      Assert.assertEquals(index.getInternal().size(db), 1);
+      Assert.assertEquals(1, coll.size());
+      Assert.assertEquals(1, index.size(session));
     }
 
-    try (ResultSet vertices = db.command(query)) {
-      try (Stream<RID> stream = index.getInternal().getRids(db, "update")) {
+    try (var vertices = session.execute(query)) {
+      try (var stream = index.getRids(session, "update")) {
         coll = stream.collect(Collectors.toList());
       }
-      Assert.assertEquals(coll.size(), 1);
+      Assert.assertEquals(1, coll.size());
       assertThat(vertices).hasSize(1);
     }
 
-    db.rollback();
+    session.rollback();
 
-    try (ResultSet vertices = db.command(query)) {
+    try (var vertices = session.execute(query)) {
       assertThat(vertices).hasSize(1);
     }
 
-    Assert.assertEquals(index.getInternal().size(db), 2);
+    Assert.assertEquals(2, index.size(session));
   }
 
   @Test
   public void txUpdateTestComplex() {
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "C1.p1");
+    var index = session.getSharedContext().getIndexManager().getIndex("C1.p1");
 
-    db.begin();
-    Assert.assertEquals(index.getInternal().size(db), 0);
+    session.begin();
+    Assert.assertEquals(0, index.size(session));
 
-    EntityImpl doc = new EntityImpl("c1");
-    doc.field("p1", new String[]{"abc"});
+    var doc = ((EntityImpl) session.newVertex("c1"));
+    doc.newEmbeddedList("p1", new String[]{"abc"});
 
-    EntityImpl doc1 = new EntityImpl("c1");
-    doc1.field("p1", new String[]{"abc"});
+    var doc1 = ((EntityImpl) session.newVertex("c1"));
+    doc1.newEmbeddedList("p1", new String[]{"abc"});
 
-    db.save(doc1);
-    db.save(doc);
+    session.commit();
 
-    db.commit();
+    session.begin();
 
-    db.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    doc.newEmbeddedList("p1", new String[]{"removed"});
 
-    doc = db.bindToSession(doc);
-    doc.field("p1", new String[]{"removed"});
-    db.save(doc);
+    var query = "select from C1 where p1 lucene \"abc\"";
 
-    String query = "select from C1 where p1 lucene \"abc\"";
-
-    try (ResultSet vertices = db.query(query)) {
+    try (var vertices = session.query(query)) {
       Collection coll;
-      try (Stream<RID> stream = index.getInternal().getRids(db, "abc")) {
+      try (var stream = index.getRids(session, "abc")) {
         coll = stream.collect(Collectors.toList());
       }
 
-      Assert.assertEquals(vertices.stream().count(), 1);
-      Assert.assertEquals(coll.size(), 1);
+      Assert.assertEquals(1, vertices.stream().count());
+      Assert.assertEquals(1, coll.size());
 
-      Iterator iterator = coll.iterator();
-      int i = 0;
+      var iterator = coll.iterator();
+      var i = 0;
       RecordId rid = null;
       while (iterator.hasNext()) {
         rid = (RecordId) iterator.next();
         i++;
       }
 
-      Assert.assertEquals(i, 1);
+      Assert.assertEquals(1, i);
       Assert.assertNotNull(rid);
       Assert.assertEquals(doc1.getIdentity().toString(), rid.getIdentity().toString());
-      Assert.assertEquals(index.getInternal().size(db), 2);
+      Assert.assertEquals(2, index.size(session));
     }
 
     query = "select from C1 where p1 lucene \"removed\" ";
-    try (ResultSet vertices = db.query(query)) {
+    try (var vertices = session.query(query)) {
       Collection coll;
-      try (Stream<RID> stream = index.getInternal().getRids(db, "removed")) {
+      try (var stream = index.getRids(session, "removed")) {
         coll = stream.collect(Collectors.toList());
       }
 
-      Assert.assertEquals(vertices.stream().count(), 1);
-      Assert.assertEquals(coll.size(), 1);
+      Assert.assertEquals(1, vertices.stream().count());
+      Assert.assertEquals(1, coll.size());
 
-      db.rollback();
+      session.rollback();
     }
 
     query = "select from C1 where p1 lucene \"abc\" ";
 
-    try (ResultSet vertices = db.query(query)) {
+    try (var vertices = session.query(query)) {
 
-      Assert.assertEquals(vertices.stream().count(), 2);
+      Assert.assertEquals(2, vertices.stream().count());
 
-      Assert.assertEquals(index.getInternal().size(db), 2);
+      Assert.assertEquals(2, index.size(session));
     }
   }
 }

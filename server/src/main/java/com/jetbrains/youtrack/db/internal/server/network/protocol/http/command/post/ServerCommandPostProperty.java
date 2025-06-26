@@ -21,12 +21,11 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import java.io.IOException;
 import java.util.Map;
@@ -39,8 +38,8 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
   private static final String[] NAMES = {"POST|property/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    try (DatabaseSessionInternal db = getProfiledDatabaseInstance(iRequest)) {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
       if (iRequest.getContent() == null || iRequest.getContent().length() <= 0) {
         return addSingleProperty(iRequest, iResponse, db);
       } else {
@@ -50,11 +49,11 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
   }
 
   @SuppressWarnings("unused")
-  protected boolean addSingleProperty(
-      final OHttpRequest iRequest, final HttpResponse iResponse,
+  protected static boolean addSingleProperty(
+      final HttpRequest iRequest, final HttpResponse iResponse,
       final DatabaseSessionInternal db)
       throws InterruptedException, IOException {
-    String[] urlParts =
+    var urlParts =
         checkSyntax(
             iRequest.getUrl(),
             4,
@@ -68,11 +67,11 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
       throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
     }
 
-    final SchemaClass cls = db.getMetadata().getSchema().getClass(urlParts[2]);
+    final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
 
-    final String propertyName = urlParts[3];
+    final var propertyName = urlParts[3];
 
-    final PropertyType propertyType =
+    final var propertyType =
         urlParts.length > 4 ? PropertyType.valueOf(urlParts[4]) : PropertyType.STRING;
 
     switch (propertyType) {
@@ -101,17 +100,17 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         }
 
         if (linkType != null) {
-          final SchemaProperty prop = cls.createProperty(db, propertyName, propertyType, linkType);
+          final var prop = cls.createProperty(propertyName, propertyType, linkType);
         } else if (linkClass != null) {
-          final SchemaProperty prop = cls.createProperty(db, propertyName, propertyType, linkClass);
+          final var prop = cls.createProperty(propertyName, propertyType, linkClass);
         } else {
-          final SchemaProperty prop = cls.createProperty(db, propertyName, propertyType);
+          final var prop = cls.createProperty(propertyName, propertyType);
         }
         break;
       }
 
       default:
-        final SchemaProperty prop = cls.createProperty(db, propertyName, propertyType);
+        final var prop = cls.createProperty(propertyName, propertyType);
         break;
     }
 
@@ -119,18 +118,18 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         HttpUtils.STATUS_CREATED_CODE,
         HttpUtils.STATUS_CREATED_DESCRIPTION,
         HttpUtils.CONTENT_TEXT_PLAIN,
-        cls.properties(db).size(),
+        cls.getProperties().size(),
         null);
 
     return false;
   }
 
   @SuppressWarnings({"unchecked", "unused"})
-  protected boolean addMultipreProperties(
-      final OHttpRequest iRequest, final HttpResponse iResponse,
+  protected static boolean addMultipreProperties(
+      final HttpRequest iRequest, final HttpResponse iResponse,
       final DatabaseSessionInternal db)
-      throws InterruptedException, IOException {
-    String[] urlParts =
+      throws IOException {
+    var urlParts =
         checkSyntax(iRequest.getUrl(), 3, "Syntax error: property/<database>/<class-name>");
 
     iRequest.getData().commandInfo = "Create property";
@@ -140,26 +139,26 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
       throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
     }
 
-    final SchemaClass cls = db.getMetadata().getSchema().getClass(urlParts[2]);
+    final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
 
-    final EntityImpl propertiesDoc = new EntityImpl();
-    propertiesDoc.fromJSON(iRequest.getContent());
+    final var properties = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
 
-    for (String propertyName : propertiesDoc.fieldNames()) {
-      final Map<String, String> entity = propertiesDoc.field(propertyName);
-      final PropertyType propertyType = PropertyType.valueOf(entity.get(PROPERTY_TYPE_JSON_FIELD));
+    for (var entry : properties.entrySet()) {
+      var propertyName = entry.getKey();
+      final var map = (Map<String, String>) entry.getValue();
+      final var propertyType = PropertyType.valueOf(map.get(PROPERTY_TYPE_JSON_FIELD));
       switch (propertyType) {
         case LINKLIST:
         case LINKMAP:
         case LINKSET: {
-          final String linkType = entity.get(LINKED_TYPE_JSON_FIELD);
-          final String linkClass = entity.get(LINKED_CLASS_JSON_FIELD);
+          final var linkType = map.get(LINKED_TYPE_JSON_FIELD);
+          final var linkClass = map.get(LINKED_CLASS_JSON_FIELD);
           if (linkType != null) {
-            final SchemaProperty prop =
-                cls.createProperty(db, propertyName, propertyType, PropertyType.valueOf(linkType));
+            final var prop =
+                cls.createProperty(propertyName, propertyType, PropertyType.valueOf(linkType));
           } else if (linkClass != null) {
-            final SchemaProperty prop =
-                cls.createProperty(db,
+            final var prop =
+                cls.createProperty(
                     propertyName, propertyType, db.getMetadata().getSchema().getClass(linkClass));
           } else {
             throw new IllegalArgumentException(
@@ -172,10 +171,10 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
           break;
         }
         case LINK: {
-          final String linkClass = entity.get(LINKED_CLASS_JSON_FIELD);
+          final var linkClass = map.get(LINKED_CLASS_JSON_FIELD);
           if (linkClass != null) {
-            final SchemaProperty prop =
-                cls.createProperty(db,
+            final var prop =
+                cls.createProperty(
                     propertyName, propertyType, db.getMetadata().getSchema().getClass(linkClass));
           } else {
             throw new IllegalArgumentException(
@@ -189,7 +188,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         }
 
         default:
-          final SchemaProperty prop = cls.createProperty(db, propertyName, propertyType);
+          final var prop = cls.createProperty(propertyName, propertyType);
           break;
       }
     }
@@ -198,7 +197,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
         HttpUtils.STATUS_CREATED_CODE,
         HttpUtils.STATUS_CREATED_DESCRIPTION,
         HttpUtils.CONTENT_TEXT_PLAIN,
-        cls.properties(db).size(),
+        cls.getProperties().size(),
         null);
 
     return false;

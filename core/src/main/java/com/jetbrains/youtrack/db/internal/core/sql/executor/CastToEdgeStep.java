@@ -1,11 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
 /**
@@ -20,30 +20,30 @@ public class CastToEdgeStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
-    ExecutionStream upstream = prev.start(ctx);
-    return upstream.map(this::mapResult);
+    var upstream = prev.start(ctx);
+    return upstream.map(CastToEdgeStep::mapResult);
   }
 
-  private Result mapResult(Result result, CommandContext ctx) {
-    if (result.getEntity().orElse(null) instanceof Edge) {
-      return result;
-    }
-    var db = ctx.getDatabase();
-    if (result.isEdge()) {
-      if (result instanceof ResultInternal) {
-        ((ResultInternal) result).setIdentifiable(result.toEntity().toEdge());
+  private static Result mapResult(Result result, CommandContext ctx) {
+
+    var db = ctx.getDatabaseSession();
+    if (result.isStatefulEdge()) {
+      if (result.isStatefulEdge()) {
+        ((ResultInternal) result).setIdentifiable(result.asStatefulEdge());
       } else {
-        result = new ResultInternal(db, result.toEntity().toEdge());
+        result = new ResultInternal(db, (EdgeInternal) result.asEdge());
       }
     } else {
-      throw new CommandExecutionException("Current entity is not a vertex: " + result);
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Current entity is not a stateful edge : " + result);
     }
+
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String result = ExecutionStepInternal.getIndent(depth, indent) + "+ CAST TO EDGE";
+    var result = ExecutionStepInternal.getIndent(depth, indent) + "+ CAST TO EDGE";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

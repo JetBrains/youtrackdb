@@ -19,7 +19,7 @@ public class PushEventType {
   public synchronized void send(
       DatabaseSessionInternal session, String database, BinaryPushRequest<?> request,
       PushManager pushManager) {
-    BinaryPushRequest<?> prev = databases.put(database, request);
+    var prev = databases.put(database, request);
     if (prev == null) {
       pushManager.genericNotify(session, listeners, database, this);
     }
@@ -30,7 +30,7 @@ public class PushEventType {
   }
 
   public synchronized void subscribe(String database, NetworkProtocolBinary protocol) {
-    Set<WeakReference<NetworkProtocolBinary>> pushSockets = listeners.get(database);
+    var pushSockets = listeners.get(database);
     if (pushSockets == null) {
       pushSockets = new HashSet<>();
       listeners.put(database, pushSockets);
@@ -39,8 +39,8 @@ public class PushEventType {
   }
 
   public synchronized void cleanListeners() {
-    for (Set<WeakReference<NetworkProtocolBinary>> value : listeners.values()) {
-      Iterator<WeakReference<NetworkProtocolBinary>> iter = value.iterator();
+    for (var value : listeners.values()) {
+      var iter = value.iterator();
       while (iter.hasNext()) {
         if (iter.next().get() == null) {
           iter.remove();

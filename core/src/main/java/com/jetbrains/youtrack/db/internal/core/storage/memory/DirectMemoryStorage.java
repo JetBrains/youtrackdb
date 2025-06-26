@@ -20,16 +20,21 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.memory;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -38,16 +43,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.zip.ZipOutputStream;
+import javax.annotation.Nullable;
 
 /**
  * @since 7/9/14
  */
-public class DirectMemoryStorage extends AbstractPaginatedStorage {
+public class DirectMemoryStorage extends AbstractStorage {
 
   private static final int ONE_KB = 1024;
 
   public DirectMemoryStorage(
-      final String name, final String filePath, final int id, YouTrackDBInternal context) {
+      final String name, final String filePath, final int id, YouTrackDBInternalEmbedded context) {
     super(name, filePath, id, context);
   }
 
@@ -57,11 +63,11 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
       writeAheadLog = new MemoryWriteAheadLog();
     }
 
-    final DirectMemoryOnlyDiskCache diskCache =
+    final var diskCache =
         new DirectMemoryOnlyDiskCache(
             contextConfiguration.getValueAsInteger(GlobalConfiguration.DISK_CACHE_PAGE_SIZE)
                 * ONE_KB,
-            1);
+            1, getName());
 
     if (readCache == null) {
       readCache = diskCache;
@@ -80,7 +86,7 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
   @Override
   public boolean exists() {
     try {
-      return readCache != null && writeCache.exists("default" + PaginatedCluster.DEF_EXTENSION);
+      return readCache != null && !writeCache.files().isEmpty();
     } catch (final RuntimeException e) {
       throw logAndPrepareForRethrow(e);
     } catch (final Error e) {
@@ -88,6 +94,17 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  @Override
+  public int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+      String fieldName, RID rid) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -119,7 +136,7 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
 
   @Override
   public List<String> backup(
-      final OutputStream out,
+      DatabaseSessionInternal db, final OutputStream out,
       final Map<String, Object> options,
       final Callable<Object> callable,
       final CommandOutputListener iListener,
@@ -153,6 +170,7 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
     }
   }
 
+  @Nullable
   @Override
   protected LogSequenceNumber copyWALToIncrementalBackup(
       final ZipOutputStream zipOutputStream, final long startSegment) {
@@ -164,11 +182,13 @@ public class DirectMemoryStorage extends AbstractPaginatedStorage {
     return false;
   }
 
+  @Nullable
   @Override
   protected File createWalTempDirectory() {
     return null;
   }
 
+  @Nullable
   @Override
   protected WriteAheadLog createWalFromIBUFiles(
       final File directory,

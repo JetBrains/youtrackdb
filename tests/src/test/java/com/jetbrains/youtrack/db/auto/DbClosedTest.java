@@ -17,16 +17,11 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(groups = "db")
 public class DbClosedTest extends BaseDBTest {
-
-  @Parameters(value = {"remote"})
-  public DbClosedTest(boolean remote) {
-    super(remote, "db-closed-test");
-  }
 
   public void testDoubleDb() {
     DatabaseSession db = acquireSession();
@@ -35,7 +30,6 @@ public class DbClosedTest extends BaseDBTest {
     DatabaseSession dbAnother = acquireSession();
     dbAnother.close();
 
-    db.activateOnCurrentThread();
     db.close();
   }
 
@@ -46,18 +40,13 @@ public class DbClosedTest extends BaseDBTest {
     DatabaseSession dbAnother = acquireSession();
     dbAnother.close();
 
-    db.activateOnCurrentThread();
     db.close();
   }
 
   @Test
   public void testRemoteConns() {
-    if (remoteDB) {
-      return;
-    }
-
-    final int max = GlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger();
-    for (int i = 0; i < max * 2; ++i) {
+        final var max = GlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger();
+    for (var i = 0; i < max * 2; ++i) {
       final DatabaseSession db = acquireSession();
       db.close();
     }

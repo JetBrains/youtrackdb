@@ -1,43 +1,47 @@
 package com.jetbrains.youtrack.db.internal.server.network;
 
-import static org.junit.Assert.assertNotEquals;
-
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
+import java.util.HashSet;
+import org.junit.Assert;
 import org.junit.Test;
 
 /**
  *
  */
 public class RemoteDBSequenceTest extends BaseServerMemoryDatabase {
-
   @Test
   public void testSequences() {
-    DatabaseSessionInternal database = db;
-    database.command("CREATE CLASS SV extends V").close();
-    database.command("CREATE SEQUENCE seqCounter TYPE ORDERED").close();
-    database.command("CREATE PROPERTY SV.uniqueID Long").close();
-    database.command("CREATE PROPERTY SV.testID Long").close();
-    database.command("ALTER PROPERTY SV.uniqueID NOTNULL true").close();
-    database.command("ALTER PROPERTY SV.uniqueID MANDATORY true").close();
-    database.command("ALTER PROPERTY SV.uniqueID READONLY true").close();
+    var database = session;
+    database.execute("CREATE CLASS SV extends V").close();
+    database.execute("CREATE SEQUENCE seqCounter TYPE ORDERED").close();
+    database.execute("CREATE PROPERTY SV.uniqueID Long").close();
+    database.execute("CREATE PROPERTY SV.testID Long").close();
+    database.execute("ALTER PROPERTY SV.uniqueID NOTNULL true").close();
+    database.execute("ALTER PROPERTY SV.uniqueID MANDATORY true").close();
+    database.execute("ALTER PROPERTY SV.uniqueID READONLY true").close();
     database
-        .command("ALTER PROPERTY SV.uniqueID DEFAULT 'sequence(\"seqCounter\").next()'")
+        .execute("ALTER PROPERTY SV.uniqueID DEFAULT 'sequence(\"seqCounter\").next()'")
         .close();
-    database.command("CREATE CLASS CV1 extends SV").close();
-    database.command("CREATE CLASS CV2 extends SV").close();
-    database.command("CREATE INDEX uniqueID ON SV (uniqueID) UNIQUE").close();
-    database.command("CREATE INDEX testid ON SV (testID) UNIQUE").close();
-    database.reload();
+    database.execute("CREATE CLASS CV1 extends SV").close();
+    database.execute("CREATE CLASS CV2 extends SV").close();
 
-    database.begin();
-    EntityImpl doc = new EntityImpl("CV1");
-    doc.field("testID", 1);
-    database.save(doc);
-    EntityImpl doc1 = new EntityImpl("CV1");
-    doc1.field("testID", 1);
-    database.save(doc1);
-    assertNotEquals(doc1.field("uniqueID"), doc.field("uniqueID"));
+    database.execute("CREATE INDEX uniqueID ON SV (uniqueID) UNIQUE").close();
+
+    database.execute("CREATE INDEX testID1 ON CV1 (testID) UNIQUE").close();
+    database.execute("CREATE INDEX testID2 ON CV2 (testID) UNIQUE").close();
+
+    database.executeSQLScript("""
+        begin;
+        let $v1 = create vertex CV1 set testID = 1;
+        let $v2 = create vertex CV2 set testID = 1;
+        commit;
+        """);
+
+    var result =
+        database.query("select unionAll(uniqueID) as ids from SV")
+            .findFirst(
+                remoteResult -> remoteResult.getEmbeddedList("ids"));
+
+    Assert.assertEquals(2, new HashSet<>(result).size());
   }
 }

@@ -2,8 +2,8 @@ package com.jetbrains.youtrack.db.api.exception;
 
 public class SchemaNotCreatedException extends SchemaException implements HighLevelException {
 
-  public SchemaNotCreatedException(String message) {
-    super(message);
+  public SchemaNotCreatedException(String dbName, String message) {
+    super(dbName, message);
   }
 
   /**

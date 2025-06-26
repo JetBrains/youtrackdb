@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -25,28 +25,29 @@ public class SerializableWrapper implements SerializableStream {
 
   @Override
   public byte[] toStream() throws SerializationException {
-    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    var output = new ByteArrayOutputStream();
     try {
-      ObjectOutputStream writer = new ObjectOutputStream(output);
+      var writer = new ObjectOutputStream(output);
       writer.writeObject(serializable);
       writer.close();
     } catch (IOException e) {
       throw BaseException.wrapException(
-          new DatabaseException("Error on serialization of Serializable"), e);
+          new DatabaseException("Error on serialization of Serializable"),
+          e, (String) null);
     }
     return output.toByteArray();
   }
 
   @Override
   public SerializableStream fromStream(byte[] iStream) throws SerializationException {
-    ByteArrayInputStream stream = new ByteArrayInputStream(iStream);
+    var stream = new ByteArrayInputStream(iStream);
     try {
-      ObjectInputStream reader = new ObjectInputStream(stream);
+      var reader = new ObjectInputStream(stream);
       serializable = (Serializable) reader.readObject();
       reader.close();
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new DatabaseException("Error on deserialization of Serializable"), e);
+          new DatabaseException("Error on deserialization of Serializable"), e, (String) null);
     }
     return this;
   }

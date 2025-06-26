@@ -1,10 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.security;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
@@ -13,113 +10,121 @@ public class SecurityPolicyTest extends DbTestBase {
 
   @Test
   public void testSecurityPolicyCreate() {
-    ResultSet rs =
-        db.query(
+    session.begin();
+    var rs =
+        session.query(
             "select from " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", "test");
     Assert.assertFalse(rs.hasNext());
     rs.close();
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    session.rollback();
+    var security = session.getSharedContext().getSecurity();
 
-    db.begin();
-    security.createSecurityPolicy(db, "test");
-    db.commit();
+    session.begin();
+    security.createSecurityPolicy(session, "test");
+    session.commit();
 
+    session.begin();
     rs =
-        db.query(
+        session.query(
             "select from " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", "test");
     Assert.assertTrue(rs.hasNext());
-    Result item = rs.next();
+    var item = rs.next();
     Assert.assertEquals("test", item.getProperty("name"));
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.commit();
   }
 
   @Test
   public void testSecurityPolicyGet() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
-    Assert.assertNull(security.getSecurityPolicy(db, "test"));
+    var security = session.getSharedContext().getSecurity();
+    Assert.assertNull(security.getSecurityPolicy(session, "test"));
 
-    db.begin();
-    security.createSecurityPolicy(db, "test");
-    db.commit();
+    session.begin();
+    security.createSecurityPolicy(session, "test");
+    session.commit();
 
-    Assert.assertNotNull(security.getSecurityPolicy(db, "test"));
+    session.begin();
+    Assert.assertNotNull(security.getSecurityPolicy(session, "test"));
+    session.commit();
   }
 
   @Test
   public void testValidPredicates() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
-    Assert.assertNull(security.getSecurityPolicy(db, "test"));
+    var security = session.getSharedContext().getSecurity();
+    Assert.assertNull(security.getSecurityPolicy(session, "test"));
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "test");
-    policy.setCreateRule(db, "name = 'create'");
-    policy.setReadRule(db, "name = 'read'");
-    policy.setBeforeUpdateRule(db, "name = 'beforeUpdate'");
-    policy.setAfterUpdateRule(db, "name = 'afterUpdate'");
-    policy.setDeleteRule(db, "name = 'delete'");
-    policy.setExecuteRule(db, "name = 'execute'");
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "test");
+    policy.setCreateRule("name = 'create'");
+    policy.setReadRule("name = 'read'");
+    policy.setBeforeUpdateRule("name = 'beforeUpdate'");
+    policy.setAfterUpdateRule("name = 'afterUpdate'");
+    policy.setDeleteRule("name = 'delete'");
+    policy.setExecuteRule("name = 'execute'");
 
-    security.saveSecurityPolicy(db, policy);
-    db.commit();
+    security.saveSecurityPolicy(session, policy);
+    session.commit();
 
-    SecurityPolicy readPolicy = security.getSecurityPolicy(db, "test");
+    session.begin();
+    SecurityPolicy readPolicy = security.getSecurityPolicy(session, "test");
     Assert.assertNotNull(policy);
-    Assert.assertEquals("name = 'create'", readPolicy.getCreateRule(db));
-    Assert.assertEquals("name = 'read'", readPolicy.getReadRule(db));
-    Assert.assertEquals("name = 'beforeUpdate'", readPolicy.getBeforeUpdateRule(db));
-    Assert.assertEquals("name = 'afterUpdate'", readPolicy.getAfterUpdateRule(db));
-    Assert.assertEquals("name = 'delete'", readPolicy.getDeleteRule(db));
-    Assert.assertEquals("name = 'execute'", readPolicy.getExecuteRule(db));
+    Assert.assertEquals("name = 'create'", readPolicy.getCreateRule());
+    Assert.assertEquals("name = 'read'", readPolicy.getReadRule());
+    Assert.assertEquals("name = 'beforeUpdate'", readPolicy.getBeforeUpdateRule());
+    Assert.assertEquals("name = 'afterUpdate'", readPolicy.getAfterUpdateRule());
+    Assert.assertEquals("name = 'delete'", readPolicy.getDeleteRule());
+    Assert.assertEquals("name = 'execute'", readPolicy.getExecuteRule());
+    session.commit();
   }
 
   @Test
   public void testInvalidPredicates() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
-    Assert.assertNull(security.getSecurityPolicy(db, "test"));
+    var security = session.getSharedContext().getSecurity();
+    Assert.assertNull(security.getSecurityPolicy(session, "test"));
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "test");
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "test");
+    session.commit();
     try {
-      db.begin();
-      policy.setCreateRule(db, "foo bar");
-      db.commit();
+      session.begin();
+      policy.setCreateRule("foo bar");
+      session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
-      db.begin();
-      policy.setReadRule(db, "foo bar");
-      db.commit();
+      session.begin();
+      policy.setReadRule("foo bar");
+      session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
-      db.begin();
-      policy.setBeforeUpdateRule(db, "foo bar");
-      db.commit();
+      session.begin();
+      policy.setBeforeUpdateRule("foo bar");
+      session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
-      db.begin();
-      policy.setAfterUpdateRule(db, "foo bar");
-      db.commit();
+      session.begin();
+      policy.setAfterUpdateRule("foo bar");
+      session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
-      db.begin();
-      policy.setDeleteRule(db, "foo bar");
-      db.commit();
+      session.begin();
+      policy.setDeleteRule("foo bar");
+      session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
     try {
-      db.begin();
-      policy.setExecuteRule(db, "foo bar");
-      db.commit();
+      session.begin();
+      policy.setExecuteRule("foo bar");
+      session.commit();
       Assert.fail();
     } catch (IllegalArgumentException ex) {
     }
@@ -127,56 +132,57 @@ public class SecurityPolicyTest extends DbTestBase {
 
   @Test
   public void testAddPolicyToRole() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
-    Assert.assertNull(security.getSecurityPolicy(db, "test"));
+    var security = session.getSharedContext().getSecurity();
+    Assert.assertNull(security.getSecurityPolicy(session, "test"));
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "test");
-    policy.setCreateRule(db, "1 = 1");
-    policy.setBeforeUpdateRule(db, "1 = 2");
-    policy.setActive(db, true);
-    security.saveSecurityPolicy(db, policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "test");
+    policy.setCreateRule("1 = 1");
+    policy.setBeforeUpdateRule("1 = 2");
+    policy.setActive(true);
+    security.saveSecurityPolicy(session, policy);
+    session.commit();
 
-    db.begin();
-    Role reader = security.getRole(db, "reader");
-    String resource = "database.class.Person";
-    security.setSecurityPolicy(db, reader, resource, policy);
-    db.commit();
+    session.begin();
+    var reader = security.getRole(session, "reader");
+    var resource = "database.class.Person";
+    security.setSecurityPolicy(session, reader, resource, policy);
+    session.commit();
 
-    RID policyRid = policy.getElement(db).getIdentity();
-    try (ResultSet rs = db.query("select from ORole where name = 'reader'")) {
+    session.begin();
+    var policyRid = policy.getIdentity();
+    try (var rs = session.query("select from " + Role.CLASS_NAME + " where name = 'reader'")) {
       Map<String, Identifiable> rolePolicies = rs.next().getProperty("policies");
-      Identifiable id = rolePolicies.get(resource);
+      var id = rolePolicies.get(resource);
       Assert.assertEquals(id.getIdentity(), policyRid);
     }
 
-    SecurityPolicy policy2 = security.getSecurityPolicy(db, reader, resource);
+    var policy2 = security.getSecurityPolicy(session, reader, resource);
     Assert.assertNotNull(policy2);
     Assert.assertEquals(policy2.getIdentity(), policyRid);
+    session.commit();
   }
 
   @Test
   public void testRemovePolicyToRole() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
-    Assert.assertNull(security.getSecurityPolicy(db, "test"));
+    var security = session.getSharedContext().getSecurity();
+    Assert.assertNull(security.getSecurityPolicy(session, "test"));
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "test");
-    policy.setCreateRule(db, "1 = 1");
-    policy.setBeforeUpdateRule(db, "1 = 2");
-    policy.setActive(db, true);
-    security.saveSecurityPolicy(db, policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "test");
+    policy.setCreateRule("1 = 1");
+    policy.setBeforeUpdateRule("1 = 2");
+    policy.setActive(true);
+    security.saveSecurityPolicy(session, policy);
+    session.commit();
 
-    db.begin();
-    Role reader = security.getRole(db, "reader");
-    String resource = "database.class.Person";
-    security.setSecurityPolicy(db, reader, resource, policy);
+    session.begin();
+    var reader = security.getRole(session, "reader");
+    var resource = "database.class.Person";
+    security.setSecurityPolicy(session, reader, resource, policy);
+    security.removeSecurityPolicy(session, reader, resource);
+    session.commit();
 
-    security.removeSecurityPolicy(db, reader, resource);
-    db.commit();
-
-    Assert.assertNull(security.getSecurityPolicy(db, reader, resource));
+    Assert.assertNull(security.getSecurityPolicy(session, reader, resource));
   }
 }

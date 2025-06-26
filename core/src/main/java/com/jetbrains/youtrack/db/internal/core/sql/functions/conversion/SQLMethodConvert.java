@@ -16,12 +16,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.conversion;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
 import java.util.Locale;
+import javax.annotation.Nullable;
 
 /**
  * Converts a value to another type in Java or YouTrackDB's supported types.
@@ -39,10 +40,11 @@ public class SQLMethodConvert extends AbstractSQLMethod {
     return "convert(<type>)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -50,19 +52,19 @@ public class SQLMethodConvert extends AbstractSQLMethod {
       return null;
     }
 
-    final String destType = iParams[0].toString();
+    final var destType = iParams[0].toString();
 
-    var db = iContext.getDatabase();
+    var db = iContext.getDatabaseSession();
     if (destType.contains(".")) {
       try {
-        return PropertyType.convert(db, iThis, Class.forName(destType));
+        return PropertyTypeInternal.convert(db, iThis, Class.forName(destType));
       } catch (ClassNotFoundException e) {
         LogManager.instance().error(this, "Class for destination type was not found", e);
       }
     } else {
-      final PropertyType youTrackDbType = PropertyType.valueOf(
+      final var youTrackDbType = PropertyTypeInternal.valueOf(
           destType.toUpperCase(Locale.ENGLISH));
-      return PropertyType.convert(db, iThis, youTrackDbType.getDefaultJavaType());
+      return PropertyTypeInternal.convert(db, iThis, youTrackDbType.getDefaultJavaType());
     }
 
     return null;

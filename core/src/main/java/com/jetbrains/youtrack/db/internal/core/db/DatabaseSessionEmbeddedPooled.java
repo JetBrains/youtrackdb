@@ -19,17 +19,20 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 
 /**
  *
  */
-public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded {
+public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded implements
+    PooledSession {
 
-  private final DatabasePoolInternal pool;
+  private final DatabasePoolInternal<DatabaseSession> pool;
 
-  public DatabaseSessionEmbeddedPooled(DatabasePoolInternal pool, Storage storage) {
-    super(storage);
+  public DatabaseSessionEmbeddedPooled(DatabasePoolInternal<DatabaseSession> pool,
+      Storage storage, boolean serverMode) {
+    super(storage, serverMode);
     this.pool = pool;
   }
 
@@ -38,31 +41,31 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded {
     if (isClosed()) {
       return;
     }
+
     internalClose(true);
     pool.release(this);
   }
 
+  @Override
   public void reuse() {
     activateOnCurrentThread();
     setStatus(STATUS.OPEN);
   }
 
   @Override
-  public DatabaseSessionInternal copy() {
-    return (DatabaseSessionInternal) pool.acquire();
+  public DatabaseSessionEmbedded copy() {
+    assertIfNotActive();
+    return (DatabaseSessionEmbedded) pool.acquire();
   }
 
+  @Override
   public void realClose() {
-    DatabaseSessionInternal old = DatabaseRecordThreadLocal.instance().getIfDefined();
-    try {
-      activateOnCurrentThread();
-      super.close();
-    } finally {
-      if (old == null) {
-        DatabaseRecordThreadLocal.instance().remove();
-      } else {
-        DatabaseRecordThreadLocal.instance().set(old);
-      }
-    }
+    activateOnCurrentThread();
+    super.close();
+  }
+
+  @Override
+  public boolean isBackendClosed() {
+    return getStorage().isClosed(this);
   }
 }

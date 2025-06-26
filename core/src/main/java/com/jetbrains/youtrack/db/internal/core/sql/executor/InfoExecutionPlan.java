@@ -4,9 +4,10 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -21,17 +22,18 @@ public class InfoExecutionPlan implements ExecutionPlan {
   private String stmText;
 
   @Override
-  public List<ExecutionStep> getSteps() {
+  public @Nonnull List<ExecutionStep> getSteps() {
     return steps;
   }
 
   @Override
-  public String prettyPrint(int depth, int indent) {
+  public @Nonnull String prettyPrint(int depth, int indent) {
     return prettyPrint;
   }
 
+  @Nonnull
   @Override
-  public Result toResult(DatabaseSession db) {
+  public Result toResult(@Nullable DatabaseSession session) {
     return null;
   }
 

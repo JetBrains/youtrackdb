@@ -16,21 +16,15 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import org.testng.Assert;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(groups = "query")
 public class WrongQueryTest extends BaseDBTest {
 
-  @Parameters(value = "remote")
-  public WrongQueryTest(boolean remote) {
-    super(remote);
-  }
-
   public void queryFieldOperatorNotSupported() {
-    try (ResultSet result = database.command(
+    try (var result = session.execute(
         "select * from Account where name.not() like 'G%'")) {
 
       Assert.fail();

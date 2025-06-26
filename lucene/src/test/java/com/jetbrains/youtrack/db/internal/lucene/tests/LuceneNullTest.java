@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.lucene.tests;
 
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Before;
@@ -13,55 +12,50 @@ public class LuceneNullTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    db.command("create class Test extends V");
+    session.execute("create class Test extends V");
 
-    db.command("create property Test.names EMBEDDEDLIST STRING");
+    session.execute("create property Test.names EMBEDDEDLIST STRING");
 
-    db.command("create index Test.names on Test(names) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Test.names on Test(names) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
   public void testNullChangeToNotNullWithLists() {
 
-    db.begin();
-    EntityImpl doc = new EntityImpl("Test");
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Test"));
+    session.commit();
 
-    db.begin();
-    doc = db.bindToSession(doc);
-    doc.field("names", new String[]{"foo"});
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    doc.newEmbeddedList("names", new String[]{"foo"});
+    session.commit();
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Test.names");
+    var index = session.getSharedContext().getIndexManager().getIndex("Test.names");
 
-    db.begin();
-    Assert.assertEquals(1, index.getInternal().size(db));
-    db.commit();
+    session.begin();
+    Assert.assertEquals(1, index.size(session));
+    session.commit();
   }
 
   @Test
   public void testNotNullChangeToNullWithLists() {
 
-    EntityImpl doc = new EntityImpl("Test");
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Test"));
+    doc.newEmbeddedList("names", new String[]{"foo"});
+    session.commit();
 
-    db.begin();
-    doc.field("names", new String[]{"foo"});
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    doc.removeProperty("names");
+    session.commit();
 
-    db.begin();
-
-    doc = db.bindToSession(doc);
-    doc.removeField("names");
-
-    db.save(doc);
-    db.commit();
-
-    db.begin();
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Test.names");
-    Assert.assertEquals(0, index.getInternal().size(db));
-    db.commit();
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex("Test.names");
+    Assert.assertEquals(0, index.size(session));
+    session.commit();
   }
 }

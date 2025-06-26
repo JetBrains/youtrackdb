@@ -15,9 +15,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 
 /**
  * Methods can be used on various objects with different number of arguments. SQL syntax :
@@ -56,9 +56,6 @@ public interface SQLMethod extends Comparable<SQLMethod> {
   int getMaxParams(DatabaseSession session);
 
   /**
-   * Process a record.
-   *
-   * @param iThis
    * @param iCurrentRecord : current record
    * @param iContext       execution context
    * @param ioResult       : field value
@@ -68,7 +65,7 @@ public interface SQLMethod extends Comparable<SQLMethod> {
    */
   Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams);

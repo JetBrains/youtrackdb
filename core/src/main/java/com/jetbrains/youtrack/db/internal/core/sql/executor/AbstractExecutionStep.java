@@ -2,7 +2,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.StepStats;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.text.DecimalFormat;
 import javax.annotation.Nullable;
@@ -63,6 +62,7 @@ public abstract class AbstractExecutionStep implements ExecutionStepInternal {
     this.profilingEnabled = profilingEnabled;
   }
 
+  @Override
   public ExecutionStream start(CommandContext ctx) throws TimeoutException {
     if (profilingEnabled) {
       ctx.startProfiling(this);
@@ -80,7 +80,7 @@ public abstract class AbstractExecutionStep implements ExecutionStepInternal {
 
   @Override
   public long getCost() {
-    StepStats stats = this.ctx.getStats(this);
+    var stats = this.ctx.getStats(this);
     if (stats != null) {
       return stats.getCost();
     } else {

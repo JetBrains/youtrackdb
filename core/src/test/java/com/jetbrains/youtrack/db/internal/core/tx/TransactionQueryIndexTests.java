@@ -2,11 +2,9 @@ package com.jetbrains.youtrack.db.internal.core.tx;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -20,7 +18,7 @@ import org.junit.Test;
  */
 public class TransactionQueryIndexTests {
 
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
   private DatabaseSessionInternal database;
 
   @Before
@@ -35,15 +33,14 @@ public class TransactionQueryIndexTests {
 
   @Test
   public void test() {
-    SchemaClass clazz = database.createClass("test");
-    SchemaProperty prop = clazz.createProperty(database, "test", PropertyType.STRING);
-    prop.createIndex(database, SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var clazz = database.createClass("test");
+    var prop = clazz.createProperty("test", PropertyType.STRING);
+    prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     database.begin();
     EntityImpl doc = database.newInstance("test");
     doc.setProperty("test", "abcdefg");
-    database.save(doc);
-    ResultSet res = database.query("select from Test where test='abcdefg' ");
+    var res = database.query("select from Test where test='abcdefg' ");
 
     assertEquals(1L, res.stream().count());
     res.close();
@@ -55,17 +52,16 @@ public class TransactionQueryIndexTests {
 
   @Test
   public void test2() {
-    SchemaClass clazz = database.createClass("Test2");
-    clazz.createProperty(database, "foo", PropertyType.STRING);
-    clazz.createProperty(database, "bar", PropertyType.STRING);
-    clazz.createIndex(database, "Test2.foo_bar", SchemaClass.INDEX_TYPE.NOTUNIQUE, "foo", "bar");
+    var clazz = database.createClass("Test2");
+    clazz.createProperty("foo", PropertyType.STRING);
+    clazz.createProperty("bar", PropertyType.STRING);
+    clazz.createIndex("Test2.foo_bar", SchemaClass.INDEX_TYPE.NOTUNIQUE, "foo", "bar");
 
     database.begin();
     EntityImpl doc = database.newInstance("Test2");
     doc.setProperty("foo", "abcdefg");
     doc.setProperty("bar", "abcdefg");
-    database.save(doc);
-    ResultSet res = database.query("select from Test2 where foo='abcdefg' and bar = 'abcdefg' ");
+    var res = database.query("select from Test2 where foo='abcdefg' and bar = 'abcdefg' ");
 
     assertEquals(1L, res.stream().count());
     res.close();

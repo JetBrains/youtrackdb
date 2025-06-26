@@ -1,14 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -47,7 +49,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
 
         @Override
         protected List<Object> getExternalCalculationConditions() {
-          return Collections.EMPTY_LIST;
+          return Collections.emptyList();
         }
 
         @Override
@@ -60,17 +62,14 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return TRUE;
         }
 
+        @Nullable
         @Override
         public List<String> getMatchPatternInvolvedAliases() {
           return null;
         }
 
         @Override
-        public void translateLuceneOperator() {
-        }
-
-        @Override
-        public boolean isCacheable(DatabaseSessionInternal session) {
+        public boolean isCacheable(DatabaseSessionEmbedded session) {
           return true;
         }
 
@@ -79,6 +78,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return "true";
         }
 
+        @Override
         public void toString(Map<Object, Object> params, StringBuilder builder) {
           builder.append("true");
         }
@@ -86,11 +86,6 @@ public abstract class SQLBooleanExpression extends SimpleNode {
         @Override
         public void toGenericStatement(StringBuilder builder) {
           builder.append(PARAMETER_PLACEHOLDER);
-        }
-
-        @Override
-        public boolean isEmpty() {
-          return false;
         }
 
         @Override
@@ -103,8 +98,30 @@ public abstract class SQLBooleanExpression extends SimpleNode {
         }
 
         @Override
-        public boolean isAlwaysTrue() {
+        public boolean isConstantExpression() {
           return true;
+        }
+
+        @Override
+        public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+          return false;
+        }
+
+        @Override
+        public boolean isRangeExpression() {
+          return false;
+        }
+
+        @Nullable
+        @Override
+        public String getRelatedIndexPropertyName() {
+          return null;
+        }
+
+        @Override
+        public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+            @Nonnull CommandContext ctx) {
+          return other;
         }
       };
 
@@ -132,7 +149,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
 
         @Override
         protected List<Object> getExternalCalculationConditions() {
-          return Collections.EMPTY_LIST;
+          return Collections.emptyList();
         }
 
         @Override
@@ -145,18 +162,37 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return FALSE;
         }
 
+        @Nullable
         @Override
         public List<String> getMatchPatternInvolvedAliases() {
           return null;
         }
 
         @Override
-        public void translateLuceneOperator() {
+        public boolean isCacheable(DatabaseSessionEmbedded session) {
+          return true;
         }
 
         @Override
-        public boolean isCacheable(DatabaseSessionInternal session) {
-          return true;
+        public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+          return false;
+        }
+
+        @Override
+        public boolean isRangeExpression() {
+          return false;
+        }
+
+        @Nullable
+        @Override
+        public String getRelatedIndexPropertyName() {
+          return null;
+        }
+
+        @Override
+        public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+            @Nonnull CommandContext ctx) {
+          return FALSE;
         }
 
         @Override
@@ -164,6 +200,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
           return "false";
         }
 
+        @Override
         public void toString(Map<Object, Object> params, StringBuilder builder) {
           builder.append("false");
         }
@@ -171,11 +208,6 @@ public abstract class SQLBooleanExpression extends SimpleNode {
         @Override
         public void toGenericStatement(StringBuilder builder) {
           builder.append(PARAMETER_PLACEHOLDER);
-        }
-
-        @Override
-        public boolean isEmpty() {
-          return false;
         }
 
         @Override
@@ -217,27 +249,28 @@ public abstract class SQLBooleanExpression extends SimpleNode {
    */
   protected abstract List<Object> getExternalCalculationConditions();
 
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
-      SchemaClass iSchemaClass, DatabaseSessionInternal database) {
+      SchemaClass iSchemaClass, DatabaseSessionEmbedded session) {
     return null;
   }
 
-  public List<SQLAndBlock> flatten() {
-
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
     return Collections.singletonList(encapsulateInAndBlock(this));
   }
 
-  protected SQLAndBlock encapsulateInAndBlock(SQLBooleanExpression item) {
+  protected static SQLAndBlock encapsulateInAndBlock(SQLBooleanExpression item) {
     if (item instanceof SQLAndBlock) {
       return (SQLAndBlock) item;
     }
-    SQLAndBlock result = new SQLAndBlock(-1);
+    var result = new SQLAndBlock(-1);
     result.subBlocks.add(item);
     return result;
   }
 
   public abstract boolean needsAliases(Set<String> aliases);
 
+  @Override
   public abstract SQLBooleanExpression copy();
 
   public boolean isEmpty() {
@@ -267,22 +300,23 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   public void translateLuceneOperator() {
   }
 
+  @Nullable
   public static SQLBooleanExpression deserializeFromOResult(Result res) {
     try {
-      SQLBooleanExpression result =
+      var result =
           (SQLBooleanExpression)
               Class.forName(res.getProperty("__class"))
                   .getConstructor(Integer.class)
                   .newInstance(-1);
       result.deserialize(res);
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
     }
     return null;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("__class", getClass().getName());
     return result;
   }
@@ -291,7 +325,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
     throw new UnsupportedOperationException();
   }
 
-  public abstract boolean isCacheable(DatabaseSessionInternal session);
+  public abstract boolean isCacheable(DatabaseSessionEmbedded session);
 
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
       SchemaClassInternal clazz) {
@@ -299,22 +333,45 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   }
 
   /**
-   * returns true only if the expression does not need any further evaluation (eg. "true") and
+   * Returns true only if the expression does not need any further evaluation (eg. "true") and
    * always evaluates to true. It is supposed to be used as and optimization, and is allowed to
    * return false negatives
-   *
-   * @return
    */
-  public boolean isAlwaysTrue() {
+  public boolean isConstantExpression() {
     return false;
   }
 
-  public boolean isIndexAware(IndexSearchInfo info) {
-    return false;
-  }
+  /// Returns 'true' if the expression can be evaluated using passed in index. Only elementary
+  /// expressions (eg. `=`, `>`, `<`, `in`) can be evaluated using an index.
+  public abstract boolean isIndexAware(IndexSearchInfo info, CommandContext ctx);
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    return Optional.empty();
+
+  /// Returns true if the expression tests an interval of values instead of a single value. Range
+  /// expressions are expressions like: `>`, `<` or `between`, but a non-range expression is
+  /// expressions like `=` or `contains`.
+  public abstract boolean isRangeExpression();
+
+  /// Returns property name that can be used to fetch index that can be used to filter records using
+  /// the same condition as this expression.
+  ///
+  /// If there is more than a single property used in the expression, `null` will be returned.
+  /// Always call [#flatten(CommandContext, SchemaClassInternal)] to avoid such a situation.
+  @Nullable
+  public abstract String getRelatedIndexPropertyName();
+
+  /// Returns an equal elementary boolean expression, so the expression of the form `firstOperand
+  /// operation secondOperand` as the result of execution of the combination of the current
+  /// expression and the `other` expression using `and` operation if this is possible.
+  ///
+  /// For example, if the current expression is `a >= 6` and the passed in expression is `a > 10`,
+  /// then the resulting expression will be `a > 10`.
+  @Nullable
+  public abstract SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx);
+
+  @Nullable
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    return null;
   }
 
   public boolean createRangeWith(SQLBooleanExpression match) {

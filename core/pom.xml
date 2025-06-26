@@ -28,28 +28,29 @@
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>-ea
+      -Xms${heapSize}
       -Xmx${heapSize}
-      -Dstorage.diskCache.bufferSize=4096
+      -Dyoutrackdb.storage.diskCache.bufferSize=4096
       -Dindex.flushAfterCreate=false
-      -Dstorage.makeFullCheckpointAfterCreate=false
+      -Dyoutrackdb.storage.makeFullCheckpointAfterCreate=false
       -Dstorage.makeFullCheckpointAfterOpen=false
-      -Dstorage.makeFullCheckpointAfterClusterCreate=false
+      -Dstorage.makeFullCheckpointAfterCollectionCreate=false
       -Dstorage.wal.syncOnPageFlush=false
       -Dstorage.configuration.syncOnUpdate=false
       -Ddb.makeFullCheckpointOnIndexChange=false
       -Ddb.makeFullCheckpointOnSchemaChange=false
-      -Dsecurity.userPasswordSaltIterations=10
-      -Dmemory.directMemory.trackMode=true
+      -Dyoutrackdb.security.userPasswordSaltIterations=10
+      -Dyoutrackdb.memory.directMemory.trackMode=true
       -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-      -Dstorage.diskCache.checksumMode=storeAndThrow
-      -Dsecurity.warningDefaultUsers=false
+      -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
+      -Dyoutrackdb.security.warningDefaultUsers=false
       <!-- new security feature -->
-      -Dsecurity.createDefaultUsers=false
-      -Dtx.nonTxReadsWarningMode=SILENT
+      -Dyoutrackdb.security.createDefaultUsers=false
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
       --add-opens java.base/sun.security.x509=ALL-UNNAMED
-      -Dmemory.directMemory.preallocate=false
-      -Dfile.log.deletion=false
+      --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
+      -Dyoutrackdb.memory.directMemory.preallocate=false
+      -Dyoutrackdb.file.log.deletion=false
     </argLine>
   </properties>
 
@@ -88,7 +89,7 @@
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>javacc-maven-plugin</artifactId>
-        <version>2.6</version>
+        <version>3.1.1</version>
         <executions>
           <execution>
             <id>jjtree-javacc</id>
@@ -117,6 +118,7 @@
         <configuration>
           <systemPropertyVariables>
             <buildDirectory>${project.build.directory}</buildDirectory>
+            <build.dir>${project.build.directory}</build.dir>
           </systemPropertyVariables>
           <properties>
             <property>
@@ -159,6 +161,36 @@
           <execution>
             <goals>
               <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <executions>
+          <!-- Replacing default-compile as it is treated specially by Maven -->
+          <execution>
+            <id>default-compile</id>
+            <phase>none</phase>
+          </execution>
+          <!-- Replacing default-testCompile as it is treated specially by Maven -->
+          <execution>
+            <id>default-testCompile</id>
+            <phase>none</phase>
+          </execution>
+          <execution>
+            <id>java-compile</id>
+            <phase>compile</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>java-test-compile</id>
+            <phase>test-compile</phase>
+            <goals>
+              <goal>testCompile</goal>
             </goals>
           </execution>
         </executions>
@@ -224,11 +256,30 @@
       <artifactId>javax.activation-api</artifactId>
       <version>1.2.0</version>
     </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-groovy</artifactId>
+      <version>${gremlin.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
 
     <!-- json parser -->
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
     </dependency>
 
     <!-- test -->
@@ -275,7 +326,6 @@
       <groupId>org.graalvm.js</groupId>
       <artifactId>js</artifactId>
       <version>${graalvm.version}</version>
-      <type>pom</type>
       <scope>runtime</scope>
     </dependency>
     <dependency>

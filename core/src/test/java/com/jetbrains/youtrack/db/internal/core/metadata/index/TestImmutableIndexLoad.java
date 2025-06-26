@@ -2,16 +2,15 @@ package com.jetbrains.youtrack.db.internal.core.metadata.index;
 
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
@@ -20,44 +19,42 @@ public class TestImmutableIndexLoad {
 
   @Test
   public void testLoadAndUseIndexOnOpen() {
-    YouTrackDB youTrackDB =
-        CreateDatabaseUtil.createDatabase(
+    var youTrackDB =
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
             TestImmutableIndexLoad.class.getSimpleName(),
             DbTestBase.embeddedDBUrl(getClass()),
-            CreateDatabaseUtil.TYPE_PLOCAL);
-    DatabaseSession db =
-        youTrackDB.open(
+            CreateDatabaseUtil.TYPE_DISK);
+    var db =
+        (DatabaseSessionEmbedded) youTrackDB.open(
             TestImmutableIndexLoad.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    SchemaClass one = db.createClass("One");
-    SchemaProperty property = one.createProperty(db, "one", PropertyType.STRING);
-    property.createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE);
+    var one = db.getSchema().createClass("One");
+    var property = one.createProperty("one", PropertyType.STRING);
+    property.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
     db.close();
     youTrackDB.close();
 
     youTrackDB =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+        (YouTrackDBImpl) YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
     db =
-        youTrackDB.open(
+        (DatabaseSessionEmbedded) youTrackDB.open(
             TestImmutableIndexLoad.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    db.begin();
-    EntityImpl doc = new EntityImpl("One");
+    var tx = db.begin();
+    var doc = (EntityImpl) tx.newEntity("One");
     doc.setProperty("one", "a");
-    db.save(doc);
-    db.commit();
+    tx.commit();
     try {
-      db.begin();
-      EntityImpl doc1 = new EntityImpl("One");
+      tx = db.begin();
+      var doc1 = (EntityImpl) tx.newEntity("One");
       doc1.setProperty("one", "a");
-      db.save(doc1);
-      db.commit();
+      tx.commit();
       fail("It should fail the unique index");
     } catch (RecordDuplicatedException e) {
       // EXPEXTED

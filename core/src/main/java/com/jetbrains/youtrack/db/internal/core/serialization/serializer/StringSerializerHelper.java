@@ -23,18 +23,17 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.StringParser;
 import com.jetbrains.youtrack.db.internal.common.types.Binary;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerSchemaAware2CSV;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerAnyStreamable;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.math.BigDecimal;
@@ -47,6 +46,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public abstract class StringSerializerHelper {
 
@@ -66,7 +66,6 @@ public abstract class StringSerializerHelper {
   public static final char BAG_BEGIN = '%';
   public static final char BAG_END = ';';
   public static final char BINARY_BEGINEND = '_';
-  public static final char CUSTOM_TYPE = '^';
   public static final char ENTRY_SEPARATOR = ':';
   public static final char PARAMETER_NAMED = ':';
   public static final char PARAMETER_POSITIONAL = '?';
@@ -77,15 +76,16 @@ public abstract class StringSerializerHelper {
   public static final char COLLECTION_SEPARATOR = ',';
   public static final String SKIPPED_VALUE = "[SKIPPED VALUE]";
 
+  @Nullable
   public static Object fieldTypeFromStream(
-      DatabaseSessionInternal db, final EntityImpl entity, PropertyType iType,
+      DatabaseSessionEmbedded db, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return null;
     }
 
     if (iType == null) {
-      iType = PropertyType.EMBEDDED;
+      iType = PropertyTypeInternal.EMBEDDED;
     }
 
     switch (iType) {
@@ -99,7 +99,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Integer) {
           return iValue;
         }
-        final String valueString = IOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -110,7 +110,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Boolean) {
           return iValue;
         }
-        final String valueString = IOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -121,7 +121,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof BigDecimal) {
           return iValue;
         }
-        final String valueString = IOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -132,7 +132,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Float) {
           return iValue;
         }
-        final String valueString = IOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -143,7 +143,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Long) {
           return iValue;
         }
-        final String valueString = IOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -154,7 +154,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Double) {
           return iValue;
         }
-        final String valueString = IOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -165,7 +165,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Short) {
           return iValue;
         }
-        final String valueString = IOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -176,7 +176,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Byte) {
           return iValue;
         }
-        final String valueString = IOUtils.getStringContent(iValue);
+        final var valueString = IOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -204,19 +204,12 @@ public abstract class StringSerializerHelper {
 
       case EMBEDDED:
         // EMBEDDED
-        return StringSerializerAnyStreamable.INSTANCE.fromStream(db, (String) iValue);
-
+        return null;
       case EMBEDDEDMAP:
         // RECORD
-        final String value = (String) iValue;
-        return RecordSerializerSchemaAware2CSV.INSTANCE.embeddedMapFromStream(db,
+        final var value = (String) iValue;
+        return RecordSerializerCSVAbstract.embeddedMapFromStream(db,
             entity, null, value, null);
-
-      case ANY:
-        if (iValue instanceof String s) {
-          return decode(IOUtils.getStringContent(s));
-        }
-        return iValue;
     }
 
     throw new IllegalArgumentException(
@@ -225,8 +218,8 @@ public abstract class StringSerializerHelper {
 
   public static String smartTrim(
       String source, final boolean removeLeadingSpaces, final boolean removeTailingSpaces) {
-    int startIndex = 0;
-    int length = source.length();
+    var startIndex = 0;
+    var length = source.length();
 
     while (startIndex < length && source.charAt(startIndex) == ' ') {
       startIndex++;
@@ -438,11 +431,11 @@ public abstract class StringSerializerHelper {
       IntSet skippedPartsIndexes,
       final char... iJumpChars) {
 
-    final StringBuilder buffer = new StringBuilder(128);
-    final ArrayList<String> parts = new ArrayList<String>();
+    final var buffer = new StringBuilder(128);
+    final var parts = new ArrayList<String>();
 
-    int previousBegin1 = beginIndex;
-    int previousBegin2 = beginIndex;
+    var previousBegin1 = beginIndex;
+    var previousBegin2 = beginIndex;
     if (iSource != null && !iSource.isEmpty()) {
       while ((beginIndex =
           parse(
@@ -495,10 +488,10 @@ public abstract class StringSerializerHelper {
       boolean iConsiderSets,
       boolean considerBags,
       final char... iJumpChars) {
-    final StringBuilder buffer = new StringBuilder(128);
-    final ArrayList<String> parts = new ArrayList<String>();
+    final var buffer = new StringBuilder(128);
+    final var parts = new ArrayList<String>();
 
-    int startSeparatorAt = -1;
+    var startSeparatorAt = -1;
     if (iSource != null && !iSource.isEmpty()) {
 
       while ((beginIndex =
@@ -518,8 +511,8 @@ public abstract class StringSerializerHelper {
           > -1) {
 
         if (beginIndex > -1) {
-          final char lastSeparator = iSource.charAt(beginIndex - 1);
-          for (int i = 0; i < iRecordSeparator.length; ++i) {
+          final var lastSeparator = iSource.charAt(beginIndex - 1);
+          for (var i = 0; i < iRecordSeparator.length; ++i) {
             if (iRecordSeparator[i] == lastSeparator) {
               if (iRecordSeparatorIncludeAsPrefix[i]) {
                 buffer.append(lastSeparator);
@@ -537,8 +530,8 @@ public abstract class StringSerializerHelper {
         startSeparatorAt = beginIndex;
 
         if (beginIndex > -1) {
-          final char lastSeparator = iSource.charAt(beginIndex - 1);
-          for (int i = 0; i < iRecordSeparator.length; ++i) {
+          final var lastSeparator = iSource.charAt(beginIndex - 1);
+          for (var i = 0; i < iRecordSeparator.length; ++i) {
             if (iRecordSeparator[i] == lastSeparator) {
               if (iRecordSeparatorIncludeAsPostfix[i]) {
                 beginIndex--;
@@ -648,32 +641,32 @@ public abstract class StringSerializerHelper {
       return beginIndex;
     }
 
-    char stringBeginChar = ' ';
-    boolean encodeMode = false;
-    int insideParenthesis = 0;
-    int insideList = 0;
-    int insideSet = 0;
-    int insideMap = 0;
-    int insideLinkPart = 0;
-    int insideBag = 0;
+    var stringBeginChar = ' ';
+    var encodeMode = false;
+    var insideParenthesis = 0;
+    var insideList = 0;
+    var insideSet = 0;
+    var insideMap = 0;
+    var insideLinkPart = 0;
+    var insideBag = 0;
 
-    boolean tooBigValue = false;
+    var tooBigValue = false;
 
-    final int max = endIndex > -1 ? endIndex + 1 : iSource.length();
+    final var max = endIndex > -1 ? endIndex + 1 : iSource.length();
 
     //    iBuffer.ensureCapacity(max);
 
     // JUMP FIRST CHARS
-    int i = beginIndex;
+    var i = beginIndex;
     for (; i < max; ++i) {
-      final char c = iSource.charAt(i);
+      final var c = iSource.charAt(i);
       if (!isCharPresent(c, iJumpChars)) {
         break;
       }
     }
 
     for (; i < max; ++i) {
-      final char c = iSource.charAt(i);
+      final var c = iSource.charAt(i);
 
       if (stringBeginChar == ' ') {
         // OUTSIDE A STRING
@@ -826,7 +819,7 @@ public abstract class StringSerializerHelper {
 
       if (c == '\\' && !encodeMode && !iPreserveQuotes) {
         // ESCAPE CHARS
-        final char nextChar = iSource.charAt(i + 1);
+        final var nextChar = iSource.charAt(i + 1);
         if (nextChar == 'u' && iUnicode) {
           i =
               StringParser.readUnicode(
@@ -879,8 +872,8 @@ public abstract class StringSerializerHelper {
   }
 
   public static boolean isCharPresent(final char iCharacter, final char[] iCharacters) {
-    final int len = iCharacters.length;
-    for (int i = 0; i < len; ++i) {
+    final var len = iCharacters.length;
+    for (var i = 0; i < len; ++i) {
       if (iCharacter == iCharacters[i]) {
         return true;
       }
@@ -945,10 +938,10 @@ public abstract class StringSerializerHelper {
       iEndPosition = iSource.length();
     }
 
-    final StringBuilder buffer = new StringBuilder(128);
+    final var buffer = new StringBuilder(128);
 
-    for (int i = iStartPosition; i < iEndPosition; ++i) {
-      char c = iSource.charAt(i);
+    for (var i = iStartPosition; i < iEndPosition; ++i) {
+      var c = iSource.charAt(i);
 
       if (iRecordSeparators.indexOf(c) > -1) {
         iParts.add(buffer.toString());
@@ -968,12 +961,12 @@ public abstract class StringSerializerHelper {
     if (iJumpCharacters.length > 0 && buffer.length() > 0) {
       // CHECK THE END OF LAST ITEM IF NEED TO CUT THE CHARS TO JUMP
       char b;
-      int newSize = 0;
+      var newSize = 0;
       boolean found;
-      for (int i = buffer.length() - 1; i >= 0; --i) {
+      for (var i = buffer.length() - 1; i >= 0; --i) {
         b = buffer.charAt(i);
         found = false;
-        for (char j : iJumpCharacters) {
+        for (var j : iJumpCharacters) {
           if (j == b) {
             found = true;
             ++newSize;
@@ -995,8 +988,8 @@ public abstract class StringSerializerHelper {
   }
 
   public static String joinIntArray(int[] iArray) {
-    final StringBuilder ids = new StringBuilder(iArray.length * 3);
-    for (int id : iArray) {
+    final var ids = new StringBuilder(iArray.length * 3);
+    for (var id : iArray) {
       if (ids.length() > 0) {
         ids.append(RECORD_SEPARATOR);
       }
@@ -1006,9 +999,9 @@ public abstract class StringSerializerHelper {
   }
 
   public static int[] splitIntArray(final String iInput) {
-    final List<String> items = split(iInput, RECORD_SEPARATOR);
-    final int[] values = new int[items.size()];
-    for (int i = 0; i < items.size(); ++i) {
+    final var items = split(iInput, RECORD_SEPARATOR);
+    final var values = new int[items.size()];
+    for (var i = 0; i < items.size(); ++i) {
       values[i] = Integer.parseInt(items.get(i).trim());
     }
     return values;
@@ -1035,24 +1028,24 @@ public abstract class StringSerializerHelper {
       final char iCollectionBegin,
       final char iCollectionEnd,
       final char iCollectionSeparator) {
-    int openPos = iText.indexOf(iCollectionBegin, iStartPosition);
+    var openPos = iText.indexOf(iCollectionBegin, iStartPosition);
     if (openPos == -1) {
       return -1;
     }
 
-    final StringBuilder buffer = new StringBuilder(128);
+    final var buffer = new StringBuilder(128);
 
-    boolean escape = false;
-    char insideQuote = ' ';
+    var escape = false;
+    var insideQuote = ' ';
     int currentPos;
     int deep;
-    int maxPos = iText.length() - 1;
+    var maxPos = iText.length() - 1;
     for (currentPos = openPos + 1, deep = 1; deep > 0; currentPos++) {
       if (currentPos > maxPos) {
         return -1;
       }
 
-      char c = iText.charAt(currentPos);
+      var c = iText.charAt(currentPos);
 
       if (buffer.length() == 0 && c == ' ') {
         continue;
@@ -1084,7 +1077,7 @@ public abstract class StringSerializerHelper {
         // COLLECT
         if (!escape && c == '\\' && (currentPos + 1 <= maxPos)) {
           // ESCAPE CHARS
-          final char nextChar = iText.charAt(currentPos + 1);
+          final var nextChar = iText.charAt(currentPos + 1);
 
           if (nextChar == 'u') {
             currentPos = StringParser.readUnicode(iText, currentPos + 2, buffer);
@@ -1125,12 +1118,12 @@ public abstract class StringSerializerHelper {
       final List<String> iParameters) {
     iParameters.clear();
 
-    final int openPos = iText.indexOf(EMBEDDED_BEGIN, iBeginPosition);
+    final var openPos = iText.indexOf(EMBEDDED_BEGIN, iBeginPosition);
     if (openPos == -1 || (iEndPosition > -1 && openPos > iEndPosition)) {
       return iBeginPosition;
     }
 
-    final StringBuilder buffer = new StringBuilder(128);
+    final var buffer = new StringBuilder(128);
     parse(
         iText,
         buffer,
@@ -1146,10 +1139,10 @@ public abstract class StringSerializerHelper {
       return iBeginPosition;
     }
 
-    final String t = buffer.substring(1, buffer.length() - 1).trim();
-    final List<String> pars = smartSplit(t, PARAMETER_SEPARATOR, 0, -1, true, true, false, false);
+    final var t = buffer.substring(1, buffer.length() - 1).trim();
+    final var pars = smartSplit(t, PARAMETER_SEPARATOR, 0, -1, true, true, false, false);
 
-    for (int i = 0; i < pars.size(); ++i) {
+    for (var i = 0; i < pars.size(); ++i) {
       iParameters.add(pars.get(i).trim());
     }
 
@@ -1161,12 +1154,12 @@ public abstract class StringSerializerHelper {
       final int iBeginPosition,
       int iEndPosition,
       final StringBuilder iEmbedded) {
-    final int openPos = iText.indexOf(EMBEDDED_BEGIN, iBeginPosition);
+    final var openPos = iText.indexOf(EMBEDDED_BEGIN, iBeginPosition);
     if (openPos == -1 || (iEndPosition > -1 && openPos > iEndPosition)) {
       return iBeginPosition;
     }
 
-    final StringBuilder buffer = new StringBuilder(128);
+    final var buffer = new StringBuilder(128);
     parse(
         iText,
         buffer,
@@ -1182,7 +1175,7 @@ public abstract class StringSerializerHelper {
       return iBeginPosition;
     }
 
-    final String t = buffer.substring(1, buffer.length() - 1).trim();
+    final var t = buffer.substring(1, buffer.length() - 1).trim();
     iEmbedded.append(t);
     return iBeginPosition + buffer.length();
   }
@@ -1193,23 +1186,24 @@ public abstract class StringSerializerHelper {
       getParameters(iText, 0, -1, params);
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new CommandSQLParsingException("Error on reading parameters in: " + iText), e);
+          new CommandSQLParsingException("Error on reading parameters in: " + iText), e,
+          (String) null);
     }
     return params;
   }
 
-  public static Map<String, String> getMap(DatabaseSessionInternal db, final String iText) {
-    int openPos = iText.indexOf(MAP_BEGIN);
+  public static Map<String, String> getMap(DatabaseSessionEmbedded db, final String iText) {
+    var openPos = iText.indexOf(MAP_BEGIN);
     if (openPos == -1) {
       return Collections.emptyMap();
     }
 
-    int closePos = iText.indexOf(MAP_END, openPos + 1);
+    var closePos = iText.indexOf(MAP_END, openPos + 1);
     if (closePos == -1) {
       return Collections.emptyMap();
     }
 
-    final List<String> entries =
+    final var entries =
         smartSplit(iText.substring(openPos + 1, closePos), COLLECTION_SEPARATOR);
     if (entries.size() == 0) {
       return Collections.emptyMap();
@@ -1218,14 +1212,14 @@ public abstract class StringSerializerHelper {
     Map<String, String> map = new HashMap<String, String>();
 
     List<String> entry;
-    for (String item : entries) {
+    for (var item : entries) {
       if (item != null && !item.isEmpty()) {
         entry = StringSerializerHelper.split(item, StringSerializerHelper.ENTRY_SEPARATOR);
 
-        final String key = entry.get(0).trim();
-        final String value = entry.get(1).trim();
+        final var key = entry.get(0).trim();
+        final var value = entry.get(1).trim();
 
-        map.put((String) fieldTypeFromStream(db, null, PropertyType.STRING, key), value);
+        map.put((String) fieldTypeFromStream(db, null, PropertyTypeInternal.STRING, key), value);
       }
     }
 
@@ -1240,11 +1234,11 @@ public abstract class StringSerializerHelper {
    * @see StringSerializerHelper#decode(String)
    */
   public static String encode(final String iText) {
-    int pos = -1;
+    var pos = -1;
 
-    final int newSize = iText.length();
-    for (int i = 0; i < newSize; ++i) {
-      final char c = iText.charAt(i);
+    final var newSize = iText.length();
+    for (var i = 0; i < newSize; ++i) {
+      final var c = iText.charAt(i);
 
       if (c == '"' || c == '\\') {
         pos = i;
@@ -1254,10 +1248,10 @@ public abstract class StringSerializerHelper {
 
     if (pos > -1) {
       // CHANGE THE INPUT STRING
-      final StringBuilder iOutput = new StringBuilder((int) ((float) newSize * 1.5f));
+      final var iOutput = new StringBuilder((int) ((float) newSize * 1.5f));
 
       char c;
-      for (int i = 0; i < newSize; ++i) {
+      for (var i = 0; i < newSize; ++i) {
         c = iText.charAt(i);
 
         if (c == '"' || c == '\\') {
@@ -1280,10 +1274,10 @@ public abstract class StringSerializerHelper {
    * @see StringSerializerHelper#encode(String)
    */
   public static String decode(final String iText) {
-    int pos = -1;
+    var pos = -1;
 
-    final int textSize = iText.length();
-    for (int i = 0; i < textSize; ++i) {
+    final var textSize = iText.length();
+    for (var i = 0; i < textSize; ++i) {
       if (iText.charAt(i) == '"' || iText.charAt(i) == '\\') {
         pos = i;
         break;
@@ -1297,12 +1291,12 @@ public abstract class StringSerializerHelper {
     }
 
     // CHANGE THE INPUT STRING
-    final StringBuilder buffer = new StringBuilder(textSize);
+    final var buffer = new StringBuilder(textSize);
     buffer.append(iText, 0, pos);
 
-    boolean escaped = false;
-    for (int i = pos; i < textSize; ++i) {
-      final char c = iText.charAt(i);
+    var escaped = false;
+    for (var i = pos; i < textSize; ++i) {
+      final var c = iText.charAt(i);
 
       if (escaped) {
         escaped = false;
@@ -1327,17 +1321,15 @@ public abstract class StringSerializerHelper {
     return buffer.toString();
   }
 
-  public static SchemaClass getRecordClassName(final String iValue, SchemaClass iLinkedClass) {
+  public static SchemaClass getRecordClassName(DatabaseSessionInternal session, final String iValue,
+      SchemaClass iLinkedClass) {
     // EXTRACT THE CLASS NAME
-    final int classSeparatorPos =
+    final var classSeparatorPos =
         StringParser.indexOfOutsideStrings(
             iValue, StringSerializerHelper.CLASS_SEPARATOR.charAt(0), 0, -1);
     if (classSeparatorPos > -1) {
-      final String className = iValue.substring(0, classSeparatorPos);
-      var database = DatabaseRecordThreadLocal.instance().get();
-      if (className != null && database != null) {
-        iLinkedClass = database.getMetadata().getImmutableSchemaSnapshot().getClass(className);
-      }
+      final var className = iValue.substring(0, classSeparatorPos);
+      iLinkedClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
     }
     return iLinkedClass;
   }
@@ -1357,6 +1349,7 @@ public abstract class StringSerializerHelper {
   /**
    * Returns the binary representation of a content. If it's a String a Base64 decoding is applied.
    */
+  @Nullable
   public static byte[] getBinaryContent(final Object iValue) {
     if (iValue == null) {
       return null;
@@ -1393,8 +1386,8 @@ public abstract class StringSerializerHelper {
    * @return true is all the content is alphanumeric, otherwise false
    */
   public static boolean isAlphanumeric(final String iContent) {
-    final int tot = iContent.length();
-    for (int i = 0; i < tot; ++i) {
+    final var tot = iContent.length();
+    for (var i = 0; i < tot; ++i) {
       if (!Character.isLetterOrDigit(iContent.charAt(i))) {
         return false;
       }
@@ -1421,13 +1414,13 @@ public abstract class StringSerializerHelper {
       throw new IllegalArgumentException("String to match is null");
     }
 
-    final int iSecondLength = iSecond.length();
+    final var iSecondLength = iSecond.length();
 
     if (iSecondLength > iFirst.length()) {
       return false;
     }
 
-    for (int i = 0; i < iSecondLength; ++i) {
+    for (var i = 0; i < iSecondLength; ++i) {
       if (Character.toUpperCase(iFirst.charAt(i)) != Character.toUpperCase(iSecond.charAt(i))) {
         return false;
       }
@@ -1442,10 +1435,10 @@ public abstract class StringSerializerHelper {
       return iSource.indexOf(iChars[0], iBegin);
     }
 
-    final int len = iSource.length();
-    for (int i = iBegin; i < len; ++i) {
-      for (int k = 0; k < iChars.length; ++k) {
-        final char c = iSource.charAt(i);
+    final var len = iSource.length();
+    for (var i = iBegin; i < len; ++i) {
+      for (var k = 0; k < iChars.length; ++k) {
+        final var c = iSource.charAt(i);
         if (c == iChars[k]) {
           return i;
         }
@@ -1454,60 +1447,14 @@ public abstract class StringSerializerHelper {
     return -1;
   }
 
-  /**
-   * Finds the end of a block delimited by 2 chars.
-   */
-  public static final int findEndBlock(
-      final String iOrigin, final char iBeginChar, final char iEndChar, final int iBeginOffset) {
-    int inc = 0;
-
-    for (int i = iBeginOffset; i < iOrigin.length(); i++) {
-      char c = iOrigin.charAt(i);
-      if (c == '\'') {
-        // skip to text end
-        int tend = i;
-        while (true) {
-          tend = iOrigin.indexOf('\'', tend + 1);
-          if (tend < 0) {
-            throw new CommandSQLParsingException("Could not find end of text area", iOrigin, i);
-          }
-
-          if (iOrigin.charAt(tend - 1) == '\\') {
-            // inner quote, skip it
-            continue;
-          } else {
-            break;
-          }
-        }
-        i = tend;
-        continue;
-      }
-
-      if (c != iBeginChar && c != iEndChar) {
-        continue;
-      }
-
-      if (c == iBeginChar) {
-        inc++;
-      } else if (c == iEndChar) {
-        inc--;
-        if (inc == 0) {
-          return i;
-        }
-      }
-    }
-
-    return -1;
-  }
-
   public static int getLowerIndexOf(
       final String iText, final int iBeginOffset, final String... iToSearch) {
-    int lowest = -1;
-    for (String toSearch : iToSearch) {
-      boolean singleQuote = false;
-      boolean doubleQuote = false;
-      boolean backslash = false;
-      for (int i = iBeginOffset; i < iText.length(); i++) {
+    var lowest = -1;
+    for (var toSearch : iToSearch) {
+      var singleQuote = false;
+      var doubleQuote = false;
+      var backslash = false;
+      for (var i = iBeginOffset; i < iText.length(); i++) {
         if (lowest == -1 || i < lowest) {
           if (backslash && (iText.charAt(i) == '\'' || iText.charAt(i) == '"')) {
             backslash = false;
@@ -1546,10 +1493,10 @@ public abstract class StringSerializerHelper {
     Character lastQuote = null;
     List<Character> nestedStack = new LinkedList<Character>();
 
-    for (int i = iBeginOffset; i < iText.length(); i++) {
+    for (var i = iBeginOffset; i < iText.length(); i++) {
 
-      char prevChar = i < 1 ? '\n' : iText.charAt(i - 1);
-      char lastChar = iText.charAt(i);
+      var prevChar = i < 1 ? '\n' : iText.charAt(i - 1);
+      var lastChar = iText.charAt(i);
       if (lastQuote != null) {
         if (lastQuote.equals(lastChar)) {
           lastQuote = null;
@@ -1567,7 +1514,7 @@ public abstract class StringSerializerHelper {
       }
 
       if (nestedStack.size() > 0) {
-        Character stackTop = nestedStack.get(0);
+        var stackTop = nestedStack.get(0);
 
         if (lastChar == ')' && stackTop == '(') {
           nestedStack.remove(0);
@@ -1582,7 +1529,7 @@ public abstract class StringSerializerHelper {
       }
 
       if (prevChar == ' ' || prevChar == '\n' || prevChar == '\t') {
-        for (String s : iToSearch) {
+        for (var s : iToSearch) {
           if (iText.length() < i + s.length()) {
             continue;
           }
@@ -1591,7 +1538,7 @@ public abstract class StringSerializerHelper {
             if (iText.length() == (i + s.length())) {
               return i;
             }
-            char nextChar = iText.charAt(i + s.length());
+            var nextChar = iText.charAt(i + s.length());
             if (nextChar == ' ' || nextChar == '\n' || nextChar == '\t') {
               return i;
             }
@@ -1605,9 +1552,9 @@ public abstract class StringSerializerHelper {
 
   public static int getHigherIndexOf(
       final String iText, final int iBeginOffset, final String... iToSearch) {
-    int lowest = -1;
-    for (String toSearch : iToSearch) {
-      int index = iText.indexOf(toSearch, iBeginOffset);
+    var lowest = -1;
+    for (var toSearch : iToSearch) {
+      var index = iText.indexOf(toSearch, iBeginOffset);
       if (index > -1 && (lowest == -1 || index > lowest)) {
         lowest = index;
       }

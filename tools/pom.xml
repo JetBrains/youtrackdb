@@ -24,7 +24,7 @@
   <name>YouTrackDB Tools</name>
 
   <properties>
-    <jar.manifest.mainclass>com.jetbrains.youtrack.db.internal.console.ConsoleDatabaseApp
+    <jar.manifest.mainclass>com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp
     </jar.manifest.mainclass>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!--This property is updated automatically and is needed to make build reproducible-->
@@ -50,11 +50,18 @@
     <dependency>
       <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-core</artifactId>
-      <version>${project.version}</version>
+      <version>1.0.0-SNAPSHOT</version>
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
-
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
     <dependency>
       <groupId>jakarta.xml.bind</groupId>
       <artifactId>jakarta.xml.bind-api</artifactId>
@@ -91,14 +98,15 @@
       </activation>
       <properties>
         <argLine>
+          -ea
+          -Xms${heapSize}
           -Xmx${heapSize}
-          -Dstorage.diskCache.bufferSize=4096
-          -Dmemory.directMemory.trackMode=true
+          -Dyoutrackdb.storage.diskCache.bufferSize=4096
+          -Dyoutrackdb.memory.directMemory.trackMode=true
           -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-          -Dstorage.diskCache.checksumMode=storeAndThrow
-          -Dsecurity.warningDefaultUsers=false
-          -Dfile.log.deletion=false
-          -Dtx.nonTxReadsWarningMode=SILENT
+          -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
+          -Dyoutrackdb.security.warningDefaultUsers=false
+          -Dyoutrackdb.file.log.deletion=false
           --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
           --add-opens java.base/sun.security.x509=ALL-UNNAMED
         </argLine>

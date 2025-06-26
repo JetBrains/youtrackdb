@@ -19,12 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import java.util.List;
 
 /**
  * Computes the sum of field. Uses the context to save the last sum number. When different Number
@@ -42,7 +41,7 @@ public class SQLFunctionSum extends SQLFunctionMathAbstract {
 
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -50,13 +49,13 @@ public class SQLFunctionSum extends SQLFunctionMathAbstract {
       if (iParams[0] instanceof Number) {
         sum((Number) iParams[0]);
       } else if (MultiValue.isMultiValue(iParams[0])) {
-        for (Object n : MultiValue.getMultiValueIterable(iParams[0])) {
+        for (var n : MultiValue.getMultiValueIterable(iParams[0])) {
           sum((Number) n);
         }
       }
     } else {
       sum = null;
-      for (int i = 0; i < iParams.length; ++i) {
+      for (var i = 0; i < iParams.length; ++i) {
         sum((Number) iParams[i]);
       }
     }
@@ -70,7 +69,7 @@ public class SQLFunctionSum extends SQLFunctionMathAbstract {
       {
         sum = value;
       } else {
-        sum = PropertyType.increment(sum, value);
+        sum = PropertyTypeInternal.increment(sum, value);
       }
     }
   }
@@ -87,24 +86,5 @@ public class SQLFunctionSum extends SQLFunctionMathAbstract {
   @Override
   public Object getResult() {
     return sum == null ? 0 : sum;
-  }
-
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    Number sum = null;
-    for (Object iParameter : resultsToMerge) {
-      final Number value = (Number) iParameter;
-
-      if (value != null) {
-        if (sum == null)
-        // FIRST TIME
-        {
-          sum = value;
-        } else {
-          sum = PropertyType.increment(sum, value);
-        }
-      }
-    }
-    return sum;
   }
 }

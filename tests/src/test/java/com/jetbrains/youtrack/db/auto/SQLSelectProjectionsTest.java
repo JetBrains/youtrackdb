@@ -15,13 +15,14 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.List;
@@ -35,12 +36,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLSelectProjectionsTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLSelectProjectionsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
@@ -52,293 +47,268 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
 
   @Test
   public void queryProjectionOk() {
-    List<EntityImpl> result =
-        database
-            .command(
+    session.begin();
+    var result =
+        session
+            .execute(
                 "select nick, followings, followers from Profile where nick is defined and"
                     + " followings is defined and followers is defined")
-            .stream()
-            .map(r -> (EntityImpl) r.toEntity())
             .toList();
 
     Assert.assertFalse(result.isEmpty());
-
-    for (EntityImpl d : result) {
-      String[] colNames = d.fieldNames();
-      Assert.assertEquals(colNames.length, 3, "document: " + d);
-      Assert.assertEquals(colNames[0], "nick", "document: " + d);
-      Assert.assertEquals(colNames[1], "followings", "document: " + d);
-      Assert.assertEquals(colNames[2], "followers", "document: " + d);
-
-      Assert.assertNull(d.getClassName());
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
+    for (var r : result) {
+      var colNames = r.getPropertyNames();
+      Assert.assertEquals(colNames.size(), 3, "result: " + r);
+      Assert.assertTrue(colNames.contains("nick"), "result: " + r);
+      Assert.assertTrue(colNames.contains("followings"), "result: " + r);
+      Assert.assertTrue(colNames.contains("followers"), "result: " + r);
     }
+    session.commit();
   }
 
   @Test
   public void queryProjectionObjectLevel() {
     var result =
-        database.query("select nick, followings, followers from Profile").stream()
-            .map(r -> (EntityImpl) r.toEntity())
+        session.query("select nick, followings, followers from Profile")
             .toList();
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.fieldNames().length <= 3);
-      Assert.assertNull(d.getClassName());
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
+    for (var r : result) {
+      Assert.assertTrue(r.getPropertyNames().size() <= 3);
     }
   }
 
   @Test
   public void queryProjectionLinkedAndFunction() {
-    List<EntityImpl> result =
-        database
-            .query(
-                "select name.toUpperCase(Locale.ENGLISH), address.city.country.name from"
-                    + " Profile")
-            .stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var result =
+        session.query(
+            "select name.toUpperCase(Locale.ENGLISH), address.city.country.name from"
+                + " Profile").toList();
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.fieldNames().length <= 2);
-      if (d.field("name") != null) {
+    for (var r : result) {
+      Assert.assertTrue(r.getPropertyNames().size() <= 2);
+      if (r.getProperty("name") != null) {
         Assert.assertEquals(
-            ((String) d.field("name")).toUpperCase(Locale.ENGLISH), d.field("name"));
+            ((String) r.getProperty("name")).toUpperCase(Locale.ENGLISH), r.getProperty("name"));
       }
-
-      Assert.assertNull(d.getClassName());
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
     }
   }
 
   @Test
   public void queryProjectionSameFieldTwice() {
-    List<EntityImpl> result =
-        database
+    var result =
+        session
             .query(
                 "select name, name.toUpperCase(Locale.ENGLISH) as name2 from Profile where name is"
-                    + " not null")
-            .stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+                    + " not null").toList();
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.fieldNames().length <= 2);
-      Assert.assertNotNull(d.field("name"));
-      Assert.assertNotNull(d.field("name2"));
-
-      Assert.assertNull(d.getClassName());
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
+    for (var r : result) {
+      Assert.assertTrue(r.getPropertyNames().size() <= 2);
+      Assert.assertNotNull(r.getProperty("name"));
+      Assert.assertNotNull(r.getProperty("name2"));
     }
   }
 
   @Test
   public void queryProjectionStaticValues() {
-    List<EntityImpl> result =
-        database
+    var result =
+        session
             .query(
                 "select location.city.country.name as location, address.city.country.name as"
                     + " address from Profile where location.city.country.name is not null")
-            .stream()
-            .map(r -> (EntityImpl) r.toEntity())
             .toList();
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-
-      Assert.assertNotNull(d.field("location"));
-      Assert.assertNull(d.field("address"));
-
-      Assert.assertNull(d.getClassName());
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
+    for (var r : result) {
+      Assert.assertNotNull(r.getProperty("location"));
+      Assert.assertNull(r.getProperty("address"));
     }
   }
 
   @Test
   public void queryProjectionPrefixAndAppend() {
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             "select *, name.prefix('Mr. ').append(' ').append(surname).append('!') as test"
                 + " from Profile where name is not null");
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
+    for (var r : result) {
       Assert.assertEquals(
-          d.field("test").toString(), "Mr. " + d.field("name") + " " + d.field("surname") + "!");
-
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
+          r.getProperty("test").toString(),
+          "Mr. " + r.getProperty("name") + " " + r.getProperty("surname") + "!");
     }
   }
 
   @Test
   public void queryProjectionFunctionsAndFieldOperators() {
-    List<EntityImpl> result =
+    var result =
         executeQuery(
             "select name.append('.').prefix('Mr. ') as name from Profile where name is not"
                 + " null");
 
     Assert.assertFalse(result.isEmpty());
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.fieldNames().length <= 1);
-      Assert.assertTrue(d.field("name").toString().startsWith("Mr. "));
-      Assert.assertTrue(d.field("name").toString().endsWith("."));
-
-      Assert.assertNull(d.getClassName());
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
+    for (var r : result) {
+      Assert.assertTrue(r.getPropertyNames().size() <= 1);
+      Assert.assertTrue(r.getProperty("name").toString().startsWith("Mr. "));
+      //noinspection SingleCharacterStartsWith
+      Assert.assertTrue(r.getProperty("name").toString().endsWith("."));
     }
   }
 
   @Test
   public void queryProjectionSimpleValues() {
-    List<EntityImpl> result = executeQuery("select 10, 'ciao' from Profile LIMIT 1");
+    session.begin();
+    var result = executeQuery("select 10, 'ciao' from Profile LIMIT 1");
 
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.fieldNames().length <= 2);
-      Assert.assertEquals(((Integer) d.field("10")).intValue(), 10);
-      Assert.assertEquals(d.field("'ciao'"), "ciao");
-
-      Assert.assertNull(d.getClassName());
-      Assert.assertEquals(RecordInternal.getRecordType(d), EntityImpl.RECORD_TYPE);
+    for (var r : result) {
+      Assert.assertTrue(r.getPropertyNames().size() <= 2);
+      Assert.assertEquals(((Integer) r.getProperty("10")).intValue(), 10);
+      Assert.assertEquals(r.getProperty("\"ciao\""), "ciao");
     }
+    session.commit();
   }
 
   @Test
-  public void queryProjectionJSON() {
-    List<EntityImpl> result = executeQuery("select @this.toJson() as json from Profile");
-
+  public void queryProjectionJSON() throws JsonProcessingException {
+    final var tx = session.begin();
+    var result = executeQuery("select @rid, @this.toJson() as json from Profile");
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.fieldNames().length <= 1);
-      Assert.assertNotNull(d.field("json"));
+    for (var r : result) {
+      Assert.assertTrue(r.getPropertyNames().size() <= 2);
+      final var jsonStr = r.getString("json");
+      Assert.assertNotNull(jsonStr);
 
-      new EntityImpl().fromJSON((String) d.field("json"));
+      tx.loadEntity(r.getProperty("@rid")).updateFromJSON(jsonStr);
     }
+    session.commit();
   }
 
   public void queryProjectionRid() {
-    List<EntityImpl> result = executeQuery("select @rid as rid FROM V");
+    var result = executeQuery("select @rid as rid FROM V");
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.fieldNames().length <= 1);
-      Assert.assertNotNull(d.field("rid"));
+    for (var r : result) {
+      Assert.assertTrue(r.getPropertyNames().size() <= 1);
+      Assert.assertNotNull(r.getProperty("rid"));
 
-      final RecordId rid = d.field("rid", RID.class);
-      Assert.assertTrue(rid.isValid());
+      final RecordId rid = r.getProperty("rid");
+      Assert.assertTrue(rid.isValidPosition());
     }
   }
 
   public void queryProjectionOrigin() {
-    List<EntityImpl> result = executeQuery("select @raw as raw FROM V");
+    var result = executeQuery("select @raw as raw FROM V");
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.fieldNames().length <= 1);
-      Assert.assertNotNull(d.field("raw"));
+    for (var d : result) {
+      Assert.assertTrue(d.getPropertyNames().size() <= 1);
+      Assert.assertNotNull(d.getProperty("raw"));
     }
   }
 
   public void queryProjectionEval() {
-    List<EntityImpl> result = executeQuery("select eval('1 + 4') as result");
+    var result = executeQuery("select eval('1 + 4') as result");
     Assert.assertEquals(result.size(), 1);
 
-    for (EntityImpl d : result) {
-      Assert.assertEquals(d.<Object>field("result"), 5);
+    for (var r : result) {
+      Assert.assertEquals(r.<Object>getProperty("result"), 5);
     }
   }
 
   public void queryProjectionContextArray() {
-    List<EntityImpl> result =
-        executeQuery("select $a[0] as a0, $a as a from V let $a = outE() where outE().size() > 0");
+    session.begin();
+    var result =
+        executeQuery("select $a[0] as a0, $a as a, @class from GraphCar let $a = outE() where outE().size() > 0");
     Assert.assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Assert.assertTrue(d.containsField("a"));
-      Assert.assertTrue(d.containsField("a0"));
+    for (var r : result) {
+      Assert.assertTrue(r.hasProperty("a"));
+      Assert.assertTrue(r.hasProperty("a0"));
 
-      final EntityImpl a0doc = d.field("a0");
-      final EntityImpl firstADoc =
-          d.<Iterable<Identifiable>>field("a").iterator().next().getRecord();
+      final var a0doc = (EntityImpl) session.loadEntity(r.getProperty("a0"));
+      final var identifiable = r.<Iterable<Identifiable>>getProperty("a").iterator().next();
+      final var transaction = session.getActiveTransaction();
+      final EntityImpl firstADoc = transaction.load(identifiable);
 
       Assert.assertTrue(
-          DocumentHelper.hasSameContentOf(a0doc, database, firstADoc, database, null));
+          EntityHelper.hasSameContentOf(a0doc, session, firstADoc, session, null));
     }
+    session.commit();
   }
 
   public void ifNullFunction() {
-    List<EntityImpl> result = executeQuery("SELECT ifnull('a', 'b') as ifnull");
+    var result = executeQuery("SELECT ifnull('a', 'b') as ifnull");
     Assert.assertFalse(result.isEmpty());
-    Assert.assertEquals(result.get(0).field("ifnull"), "a");
+    Assert.assertEquals(result.getFirst().getProperty("ifnull"), "a");
 
     result = executeQuery("SELECT ifnull('a', 'b', 'c') as ifnull");
     Assert.assertFalse(result.isEmpty());
-    Assert.assertEquals(result.get(0).field("ifnull"), "c");
+    Assert.assertEquals(result.getFirst().getProperty("ifnull"), "c");
 
     result = executeQuery("SELECT ifnull(null, 'b') as ifnull");
     Assert.assertFalse(result.isEmpty());
-    Assert.assertEquals(result.get(0).field("ifnull"), "b");
+    Assert.assertEquals(result.getFirst().getProperty("ifnull"), "b");
   }
 
   public void setAggregation() {
     var result = executeQuery("SELECT set(name) as set from OUser");
     Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertTrue(MultiValue.isMultiValue(d.<Object>field("set")));
-      Assert.assertTrue(MultiValue.getSize(d.field("set")) <= 3);
+    for (var r : result) {
+      Assert.assertTrue(MultiValue.isMultiValue(r.<Object>getProperty("set")));
+      Assert.assertTrue(MultiValue.getSize(r.getProperty("set")) <= 3);
     }
   }
 
   public void projectionWithNoTarget() {
-    List<EntityImpl> result = executeQuery("select 'Ay' as a , 'bEE'");
+    var result = executeQuery("select 'Ay' as a , 'bEE'");
     Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertEquals(d.field("a"), "Ay");
-      Assert.assertEquals(d.field("'bEE'"), "bEE");
+    for (var r : result) {
+      Assert.assertEquals(r.getProperty("a"), "Ay");
+      Assert.assertEquals(r.getProperty("\"bEE\""), "bEE");
     }
 
     result = executeQuery("select 'Ay' as a , 'bEE' as b");
     Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertEquals(d.field("a"), "Ay");
-      Assert.assertEquals(d.field("b"), "bEE");
+    for (var d : result) {
+      Assert.assertEquals(d.getProperty("a"), "Ay");
+      Assert.assertEquals(d.getProperty("b"), "bEE");
     }
 
     result = executeQuery("select 'Ay' as a , 'bEE' as b fetchplan *:1");
     Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertEquals(d.field("a"), "Ay");
-      Assert.assertEquals(d.field("b"), "bEE");
+    for (var d : result) {
+      Assert.assertEquals(d.getProperty("a"), "Ay");
+      Assert.assertEquals(d.getProperty("b"), "bEE");
     }
 
     result = executeQuery("select 'Ay' as a , 'bEE' fetchplan *:1");
     Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertEquals(d.field("a"), "Ay");
-      Assert.assertEquals(d.field("'bEE'"), "bEE");
+    for (var d : result) {
+      Assert.assertEquals(d.getProperty("a"), "Ay");
+      Assert.assertEquals(d.getProperty("\"bEE\""), "bEE");
     }
   }
 
   @Test
   public void testSelectExcludeFunction() {
     try {
-      database.createClass("A");
-      database.createClass("B");
+      session.createClass("A");
+      session.createClass("B");
 
-      database.begin();
-      var rootElement = database.newInstance("A");
-      var childElement = database.newInstance("B");
+      session.begin();
+      var rootElement = session.newInstance("A");
+      var childElement = session.newInstance("B");
 
       rootElement.setProperty("a", "a");
       rootElement.setProperty("b", "b");
@@ -349,91 +319,69 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
 
       rootElement.setProperty("child", childElement, PropertyType.LINK);
 
-      rootElement.save();
-      database.commit();
+      session.commit();
 
-      List<EntityImpl> res =
+      session.begin();
+      var res =
           executeQuery("select a,b, child.exclude('d') as child from " + rootElement.getIdentity());
 
-      Assert.assertNotNull(res.get(0).field("a"));
-      Assert.assertNotNull(res.get(0).field("b"));
-      Assert.assertNotNull(res.get(0).<EntityImpl>field("child").field("c"));
-      Assert.assertNull(res.get(0).<EntityImpl>field("child").field("d"));
-      Assert.assertNotNull(res.get(0).<EntityImpl>field("child").field("e"));
+      Assert.assertNotNull(res.getFirst().getProperty("a"));
+      Assert.assertNotNull(res.getFirst().getProperty("b"));
+
+      final var child = res.getFirst().getResult("child");
+
+      Assert.assertNotNull(child.getProperty("c"));
+      Assert.assertNull(child.getProperty("d"));
+      Assert.assertNotNull(child.getProperty("e"));
+      session.commit();
+
     } finally {
-      database.command("drop class A").close();
-      database.command("drop class B").close();
+      session.execute("drop class A").close();
+      session.execute("drop class B").close();
     }
   }
 
   @Test
   public void testSimpleExpandExclude() {
     try {
-      database.createClass("A");
-      database.createClass("B");
+      session.createClass("A");
+      session.createClass("B");
 
-      database.begin();
-      var rootElement = database.newInstance("A");
+      session.begin();
+      var rootElement = session.newInstance("A");
       rootElement.setProperty("a", "a");
       rootElement.setProperty("b", "b");
 
-      var childElement = database.newInstance("B");
+      var childElement = session.newInstance("B");
       childElement.setProperty("c", "c");
       childElement.setProperty("d", "d");
       childElement.setProperty("e", "e");
 
       rootElement.setProperty("child", childElement, PropertyType.LINK);
-      childElement.setProperty("root", List.of(rootElement), PropertyType.LINKLIST);
+      childElement.setProperty("root", session.newLinkList(List.of(rootElement)),
+          PropertyType.LINKLIST);
 
-      rootElement.save();
-      database.commit();
+      session.commit();
 
-      List<EntityImpl> res =
+      session.begin();
+      var res =
           executeQuery(
               "select child.exclude('d') as link from (select expand(root) from "
                   + childElement.getIdentity()
                   + " )");
       Assert.assertEquals(res.size(), 1);
 
-      EntityImpl root = res.get(0);
-      Assert.assertNotNull(root.field("link"));
+      var root = res.getFirst();
+      Assert.assertNotNull(root.getProperty("link"));
 
-      Assert.assertNull(root.<EntityImpl>field("link").field("d"));
-      Assert.assertNotNull(root.<EntityImpl>field("link").field("c"));
-      Assert.assertNotNull(root.<EntityImpl>field("link").field("e"));
+      Assert.assertNull(root.<Result>getProperty("link").getProperty("d"));
+      Assert.assertNotNull(root.<Result>getProperty("link").getProperty("c"));
+      Assert.assertNotNull(root.<Result>getProperty("link").getProperty("e"));
 
     } finally {
-      database.command("drop class A").close();
-      database.command("drop class B").close();
-    }
-  }
-
-  @Test
-  public void testTempRIDsAreNotRecycledInResultSet() {
-    final List<EntityImpl> resultset =
-        executeQuery("select name, $l as l from OUser let $l = (select name from OuSer)");
-
-    Assert.assertNotNull(resultset);
-
-    Set<RID> rids = new HashSet<>();
-    for (Identifiable d : resultset) {
-      final RID rid = d.getIdentity();
-      Assert.assertFalse(rids.contains(rid));
-
-      rids.add(rid);
-
-      final List<Identifiable> embeddedList = ((EntityImpl) d.getRecord()).field("l");
-      Assert.assertNotNull(embeddedList);
-      Assert.assertFalse(embeddedList.isEmpty());
-
-      for (Identifiable embedded : embeddedList) {
-        if (embedded != null) {
-          final RID embeddedRid = embedded.getIdentity();
-
-          Assert.assertFalse(rids.contains(embeddedRid));
-          rids.add(rid);
-        }
-      }
+      session.commit();
+      session.execute("drop class A").close();
+      session.execute("drop class B").close();
     }
   }
 }

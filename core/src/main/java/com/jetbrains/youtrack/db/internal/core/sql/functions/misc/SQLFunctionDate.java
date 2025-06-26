@@ -19,11 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
-import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
@@ -32,6 +31,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 /**
  * Builds a date object from the format passed. If no arguments are passed, than the system date is
@@ -54,9 +54,10 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
     date = new Date();
   }
 
+  @Nullable
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -72,12 +73,13 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
       return new Date(((Number) iParams[0]).longValue());
     }
 
+    var session = iContext.getDatabaseSession();
     if (format == null) {
       if (iParams.length > 1) {
         format = new SimpleDateFormat((String) iParams[1]);
-        format.setTimeZone(DateHelper.getDatabaseTimeZone());
+        format.setTimeZone(DateHelper.getDatabaseTimeZone(session));
       } else {
-        format = DateHelper.getDateTimeFormatInstance(DatabaseRecordThreadLocal.instance().get());
+        format = DateHelper.getDateTimeFormatInstance(session);
       }
 
       if (iParams.length == 3) {
@@ -89,16 +91,16 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
       return format.parse((String) iParams[0]);
     } catch (ParseException e) {
       throw BaseException.wrapException(
-          new QueryParsingException(
+          new QueryParsingException(session.getDatabaseName(),
               "Error on formatting date '"
                   + iParams[0]
                   + "' using the format: "
                   + ((SimpleDateFormat) format).toPattern()),
-          e);
+          e, session);
     }
   }
 
-  public boolean aggregateResults(final Object[] configuredParameters) {
+  public static boolean aggregateResults(final Object[] configuredParameters) {
     return false;
   }
 
@@ -106,6 +108,7 @@ public class SQLFunctionDate extends SQLFunctionAbstract {
     return "date([<date-as-string>] [,<format>] [,<timezone>])";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     format = null;

@@ -1,18 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCluster;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLWhereClause;
-import java.util.List;
 
 /**
  *
@@ -34,7 +30,7 @@ public class UpsertStep extends AbstractExecutionStep {
     var prev = this.prev;
     assert prev != null;
 
-    ExecutionStream upstream = prev.start(ctx);
+    var upstream = prev.start(ctx);
     if (upstream.hasNext(ctx)) {
       return upstream;
     }
@@ -42,52 +38,44 @@ public class UpsertStep extends AbstractExecutionStep {
     return ExecutionStream.singleton(createNewRecord(ctx, commandTarget, initialFilter));
   }
 
-  private Result createNewRecord(
+  private static Result createNewRecord(
       CommandContext ctx, SQLFromClause commandTarget, SQLWhereClause initialFilter) {
+    var session = ctx.getDatabaseSession();
     EntityImpl entity;
-    if (commandTarget.getItem().getIdentifier() != null) {
-      entity = new EntityImpl(commandTarget.getItem().getIdentifier().getStringValue());
-    } else if (commandTarget.getItem().getCluster() != null) {
-      SQLCluster cluster = commandTarget.getItem().getCluster();
-      Integer clusterId = cluster.getClusterNumber();
-      if (clusterId == null) {
-        clusterId = ctx.getDatabase().getClusterIdByName(cluster.getClusterName());
-      }
-      SchemaClass clazz =
-          ctx.getDatabase()
-              .getMetadata()
-              .getImmutableSchemaSnapshot()
-              .getClassByClusterId(clusterId);
-      entity = new EntityImpl(clazz);
+    var cls = commandTarget.getSchemaClass(session);
+    if (cls != null) {
+      entity = (EntityImpl) session.newEntity(cls);
     } else {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(session,
           "Cannot execute UPSERT on target '" + commandTarget + "'");
     }
 
-    UpdatableResult result = new UpdatableResult(ctx.getDatabase(), entity);
+    var result = new UpdatableResult(ctx.getDatabaseSession(), entity);
     if (initialFilter != null) {
-      setContent(result, initialFilter);
+      setContent(result, initialFilter, cls, ctx);
     }
     return result;
   }
 
-  private void setContent(ResultInternal res, SQLWhereClause initialFilter) {
-    List<SQLAndBlock> flattened = initialFilter.flatten();
+  private static void setContent(ResultInternal res, SQLWhereClause initialFilter,
+      SchemaClassInternal schemaClass, CommandContext ctx) {
+    var flattened = initialFilter.flatten(ctx, schemaClass);
     if (flattened.isEmpty()) {
       return;
     }
     if (flattened.size() > 1) {
-      throw new CommandExecutionException("Cannot UPSERT on OR conditions");
+      throw new CommandExecutionException(res.getBoundedToSession(),
+          "Cannot UPSERT on OR conditions");
     }
-    SQLAndBlock andCond = flattened.get(0);
-    for (SQLBooleanExpression condition : andCond.getSubBlocks()) {
+    var andCond = flattened.getFirst();
+    for (var condition : andCond.getSubBlocks()) {
       condition.transformToUpdateItem().ifPresent(x -> x.applyUpdate(res, ctx));
     }
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces
         + "+ INSERT (upsert, if needed)\n"
         + spaces

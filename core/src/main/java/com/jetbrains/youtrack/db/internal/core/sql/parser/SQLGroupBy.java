@@ -2,8 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,9 +23,10 @@ public class SQLGroupBy extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("GROUP BY ");
-    for (int i = 0; i < items.size(); i++) {
+    for (var i = 0; i < items.size(); i++) {
       if (i > 0) {
         builder.append(", ");
       }
@@ -33,9 +34,10 @@ public class SQLGroupBy extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("GROUP BY ");
-    for (int i = 0; i < items.size(); i++) {
+    for (var i = 0; i < items.size(); i++) {
       if (i > 0) {
         builder.append(", ");
       }
@@ -51,9 +53,10 @@ public class SQLGroupBy extends SimpleNode {
     this.items.add(item);
   }
 
+  @Override
   public SQLGroupBy copy() {
-    SQLGroupBy result = new SQLGroupBy(-1);
-    result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
+    var result = new SQLGroupBy(-1);
+    result.items = items.stream().map(SQLExpression::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -66,7 +69,7 @@ public class SQLGroupBy extends SimpleNode {
       return false;
     }
 
-    SQLGroupBy oGroupBy = (SQLGroupBy) o;
+    var oGroupBy = (SQLGroupBy) o;
 
     return Objects.equals(items, oGroupBy.items);
   }
@@ -77,13 +80,13 @@ public class SQLGroupBy extends SimpleNode {
   }
 
   public void extractSubQueries(SubQueryCollector collector) {
-    for (SQLExpression item : items) {
+    for (var item : items) {
       item.extractSubQueries(collector);
     }
   }
 
   public boolean refersToParent() {
-    for (SQLExpression item : items) {
+    for (var item : items) {
       if (item.refersToParent()) {
         return true;
       }
@@ -91,11 +94,11 @@ public class SQLGroupBy extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (items != null) {
       result.setProperty(
-          "items", items.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          "items", items.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     return result;
   }
@@ -105,8 +108,8 @@ public class SQLGroupBy extends SimpleNode {
     if (fromResult.getProperty("items") != null) {
       List<Result> ser = fromResult.getProperty("items");
       items = new ArrayList<>();
-      for (Result r : ser) {
-        SQLExpression exp = new SQLExpression(-1);
+      for (var r : ser) {
+        var exp = new SQLExpression(-1);
         exp.deserialize(r);
         items.add(exp);
       }

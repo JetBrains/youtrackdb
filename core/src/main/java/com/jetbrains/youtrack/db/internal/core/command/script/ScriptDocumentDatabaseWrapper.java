@@ -20,63 +20,47 @@
 package com.jetbrains.youtrack.db.internal.core.command.script;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
-import com.jetbrains.youtrack.db.api.DatabaseSession.STATUS;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.STATUS;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
-import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.dictionary.Dictionary;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLQuery;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
 /**
  * Document Database wrapper class to use from scripts.
  */
-@SuppressWarnings("unchecked")
 @Deprecated
 public class ScriptDocumentDatabaseWrapper {
 
-  protected DatabaseSessionInternal database;
+  protected DatabaseSessionInternal session;
 
-  public ScriptDocumentDatabaseWrapper(final DatabaseSessionInternal database) {
-    this.database = database;
+  public ScriptDocumentDatabaseWrapper(final DatabaseSessionInternal session) {
+    this.session = session;
   }
 
-  public Identifiable[] query(final String iText) {
+  public Map<?, ?>[] query(final String iText) {
     return query(iText, (Object[]) null);
   }
 
-  public Identifiable[] query(final String iText, final Object... iParameters) {
-    try (ResultSet rs = database.query(iText, iParameters)) {
-      return rs.stream().map(Result::toEntity).toArray(Identifiable[]::new);
+  public Map<?, ?>[] query(final String iText, final Object... iParameters) {
+    try (var rs = session.query(iText, iParameters)) {
+      return (Map<?, ?>[]) rs.stream().map(Result::toMap).toArray();
     }
-  }
-
-  public Identifiable[] query(final SQLQuery iQuery, final Object... iParameters) {
-    final List<Identifiable> res = database.query(iQuery, Arrays.asList(iParameters));
-    if (res == null) {
-      return CommonConst.EMPTY_IDENTIFIABLE_ARRAY;
-    }
-    return res.toArray(new Identifiable[0]);
   }
 
   /**
@@ -98,230 +82,180 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public Object command(final String iText, final Object... iParameters) {
-    try (ResultSet rs = database.command(iText, iParameters)) {
-      return rs.stream().map(x -> x.toEntity()).toArray(size -> new Identifiable[size]);
+    try (var rs = session.execute(iText, iParameters)) {
+      return rs.stream().map(Result::toMap).toArray();
     }
   }
 
   public Index getIndex(final String name) {
-    return database.getMetadata().getIndexManagerInternal().getIndex(database, name);
-  }
-
-  public boolean exists() {
-    return database.exists();
+    return session.getSharedContext().getIndexManager().getIndex(name);
   }
 
   public EntityImpl newInstance() {
-    return database.newInstance();
+    return session.newInstance();
   }
 
   public void reload() {
-    database.reload();
+    session.reload();
   }
 
   public Entity newInstance(String iClassName) {
-    return database.newInstance(iClassName);
+    return session.newInstance(iClassName);
   }
 
-  public RecordIteratorClass<EntityImpl> browseClass(String iClassName) {
-    return database.browseClass(iClassName);
+  public RecordIteratorClass browseClass(String iClassName) {
+    return session.browseClass(iClassName);
   }
 
   public STATUS getStatus() {
-    return database.getStatus();
+    return session.getStatus();
   }
 
-  public RecordIteratorClass<EntityImpl> browseClass(String iClassName, boolean iPolymorphic) {
-    return database.browseClass(iClassName, iPolymorphic);
+  public RecordIteratorClass browseClass(String iClassName, boolean iPolymorphic) {
+    return session.browseClass(iClassName, iPolymorphic);
   }
 
-  public DatabaseSession setStatus(STATUS iStatus) {
-    return database.setStatus(iStatus);
-  }
-
-  public void drop() {
-    database.drop();
-  }
 
   public String getName() {
-    return database.getName();
+    return session.getDatabaseName();
   }
 
   public String getURL() {
-    return database.getURL();
+    return session.getURL();
   }
 
-  public RecordIteratorCluster<EntityImpl> browseCluster(String iClusterName) {
-    return database.browseCluster(iClusterName);
+  public RecordIteratorCollection<EntityImpl> browseCollection(String iCollectionName) {
+    return session.browseCollection(iCollectionName);
   }
 
   public boolean isClosed() {
-    return database.isClosed();
+    return session.isClosed();
   }
 
-  public DatabaseSession open(String iUserName, String iUserPassword) {
-    return database.open(iUserName, iUserPassword);
-  }
 
   public EntityImpl save(final Map<String, Object> iObject) {
-    return database.save(new EntityImpl().fields(iObject));
+    var entity = session.newInstance();
+    entity.updateFromMap(iObject);
+    return entity;
   }
 
-  public EntityImpl save(final String iString) {
-    // return database.save((Record) new EntityImpl().fromJSON(iString));
-    return database.save(new EntityImpl().fromJSON(iString, true));
-  }
-
-  public EntityImpl save(DBRecord iRecord) {
-    return database.save(iRecord);
-  }
-
-  public boolean dropCluster(String iClusterName) {
-    return database.dropCluster(iClusterName);
-  }
-
-  public DatabaseSession create() {
-    return database.create();
-  }
-
-  public boolean dropCluster(int iClusterId, final boolean iTruncate) {
-    return database.dropCluster(iClusterId);
+  public Entity save(final String iString) {
+    return session.createOrLoadEntityFromJson(iString);
   }
 
   public void close() {
-    database.close();
+    session.close();
   }
 
-  public int getClusters() {
-    return database.getClusters();
+  public int getCollections() {
+    return session.getCollections();
   }
 
-  public Collection<String> getClusterNames() {
-    return database.getClusterNames();
+  public Collection<String> getCollectionNames() {
+    return session.getCollectionNames();
   }
 
   public FrontendTransaction getTransaction() {
-    return database.getTransaction();
+    return session.getTransactionInternal();
   }
 
   public void begin() {
-    database.begin();
+    session.begin();
   }
 
-  public int getClusterIdByName(String iClusterName) {
-    return database.getClusterIdByName(iClusterName);
+  public int getCollectionIdByName(String iCollectionName) {
+    return session.getCollectionIdByName(iCollectionName);
   }
 
   public boolean isMVCC() {
-    return database.isMVCC();
+    return session.isMVCC();
   }
 
-  public String getClusterNameById(int iClusterId) {
-    return database.getClusterNameById(iClusterId);
+  public String getCollectionNameById(int iCollectionId) {
+    return session.getCollectionNameById(iCollectionId);
   }
 
   public DatabaseSession setMVCC(boolean iValue) {
-    return database.setMVCC(iValue);
+    return session.setMVCC(iValue);
   }
 
   public boolean isValidationEnabled() {
-    return database.isValidationEnabled();
+    return session.isValidationEnabled();
   }
 
   public SecurityUser getUser() {
-    return database.geCurrentUser();
+    return session.getCurrentUser();
   }
 
-  public void setUser(SecurityUserIml user) {
-    database.setUser(user);
+  public void setUser(SecurityUserImpl user) {
+    session.setUser(user);
   }
 
   public Metadata getMetadata() {
-    return database.getMetadata();
-  }
-
-  public Dictionary<DBRecord> getDictionary() {
-    return database.getDictionary();
+    return session.getMetadata();
   }
 
   public byte getRecordType() {
-    return database.getRecordType();
-  }
-
-  public void delete(RID iRid) {
-    database.delete(iRid);
+    return session.getRecordType();
   }
 
   public <RET extends DBRecord> RET load(RID iRecordId) {
-    return database.load(iRecordId);
-  }
-
-
-  public int getDefaultClusterId() {
-    return database.getDefaultClusterId();
+    return session.load(iRecordId);
   }
 
   public <RET extends DBRecord> RET load(final String iRidAsString) {
-    return database.load(new RecordId(iRidAsString));
-  }
-
-  public DatabaseSession setDatabaseOwner(DatabaseSessionInternal iOwner) {
-    return database.setDatabaseOwner(iOwner);
+    return session.load(new RecordId(iRidAsString));
   }
 
   public Object setProperty(String iName, Object iValue) {
-    return database.setProperty(iName, iValue);
-  }
-
-  public EntityImpl save(DBRecord iRecord, String iClusterName) {
-    return database.save(iRecord, iClusterName);
+    return session.setProperty(iName, iValue);
   }
 
   public Object getProperty(String iName) {
-    return database.getProperty(iName);
+    return session.getProperty(iName);
   }
 
   public Iterator<Entry<String, Object>> getProperties() {
-    return database.getProperties();
+    return session.getProperties();
   }
 
   public Object get(ATTRIBUTES iAttribute) {
-    return database.get(iAttribute);
+    return session.get(iAttribute);
   }
 
   public void set(ATTRIBUTES attribute, Object iValue) {
-    database.set(attribute, iValue);
+    session.set(attribute, iValue);
   }
 
   public void setInternal(ATTRIBUTES attribute, Object iValue) {
-    database.setInternal(attribute, iValue);
+    session.setInternal(attribute, iValue);
   }
 
   public boolean isRetainRecords() {
-    return database.isRetainRecords();
+    return session.isRetainRecords();
   }
 
   public DatabaseSession setRetainRecords(boolean iValue) {
-    return database.setRetainRecords(iValue);
+    return session.setRetainRecords(iValue);
   }
 
   public long getSize() {
-    return database.getSize();
+    return session.getSize();
   }
 
   public void delete(EntityImpl iRecord) {
-    database.delete(iRecord);
+    session.delete(iRecord);
   }
 
   public long countClass(String iClassName) {
-    return database.countClass(iClassName);
+    return session.countClass(iClassName);
   }
 
   public void commit() {
-    database.commit();
+    session.commit();
   }
 
   public void rollback() {
-    database.rollback();
+    session.rollback();
   }
 }

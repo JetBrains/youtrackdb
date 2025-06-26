@@ -30,15 +30,12 @@ import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
  */
 public class ModificationOperationProhibitedException extends CoreException
     implements HighLevelException {
-
-  private static final long serialVersionUID = 1L;
-
   public ModificationOperationProhibitedException(
       ModificationOperationProhibitedException exception) {
     super(exception);
   }
 
-  public ModificationOperationProhibitedException(String message) {
-    super(message);
+  public ModificationOperationProhibitedException(String dbName, String message) {
+    super(dbName, message);
   }
 }

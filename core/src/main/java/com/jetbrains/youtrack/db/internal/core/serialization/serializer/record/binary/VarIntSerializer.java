@@ -33,7 +33,7 @@ public class VarIntSerializer {
 
   public static int write(BytesContainer bytes, long value) {
     value = signedToUnsigned(value);
-    int pos = bytes.offset;
+    var pos = bytes.offset;
     writeUnsignedVarLong(value, bytes);
     return pos;
   }
@@ -120,9 +120,9 @@ public class VarIntSerializer {
    *                                  been read
    */
   public static long readSignedVarLong(final BytesContainer bytes) {
-    final long raw = readUnsignedVarLong(bytes);
+    final var raw = readUnsignedVarLong(bytes);
     // This undoes the trick in writeSignedVarLong()
-    final long temp = (((raw << 63) >> 63) ^ raw) >> 1;
+    final var temp = (((raw << 63) >> 63) ^ raw) >> 1;
     // This extra step lets us deal with the largest signed values by
     // treating
     // negative results from read unsigned methods as like unsigned values
@@ -137,9 +137,9 @@ public class VarIntSerializer {
    *                                  been read
    */
   public static long readSignedVarLong(final DataInput bytes) throws IOException {
-    final long raw = readUnsignedVarLong(bytes);
+    final var raw = readUnsignedVarLong(bytes);
     // This undoes the trick in writeSignedVarLong()
-    final long temp = (((raw << 63) >> 63) ^ raw) >> 1;
+    final var temp = (((raw << 63) >> 63) ^ raw) >> 1;
     // This extra step lets us deal with the largest signed values by
     // treating
     // negative results from read unsigned methods as like unsigned values
@@ -154,8 +154,8 @@ public class VarIntSerializer {
    *                                  been read
    */
   public static long readUnsignedVarLong(final BytesContainer bytes) {
-    long value = 0L;
-    int i = 0;
+    var value = 0L;
+    var i = 0;
     long b;
     while (((b = bytes.bytes[bytes.offset++]) & 0x80L) != 0) {
       value |= (b & 0x7F) << i;
@@ -174,8 +174,8 @@ public class VarIntSerializer {
    *                                  been read
    */
   public static long readUnsignedVarLong(final DataInput bytes) throws IOException {
-    long value = 0L;
-    int i = 0;
+    var value = 0L;
+    var i = 0;
     long b;
     while (((b = bytes.readByte()) & 0x80L) != 0) {
       value |= (b & 0x7F) << i;

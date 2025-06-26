@@ -1,13 +1,16 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Relation;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import java.util.Collection;
+import java.util.List;
+import javax.annotation.Nullable;
 
-/**
- *
- */
-public class SQLFunctionInV extends SQLFunctionMove {
+public class SQLFunctionInV extends SQLFunctionMove implements SQLGraphNavigationFunction {
 
   public static final String NAME = "inV";
 
@@ -17,7 +20,20 @@ public class SQLFunctionInV extends SQLFunctionMove {
 
   @Override
   protected Object move(
-      final DatabaseSession graph, final Identifiable iRecord, final String[] iLabels) {
-    return e2v(graph, iRecord, Direction.IN, iLabels);
+      final DatabaseSessionEmbedded graph, final Identifiable record, final String[] labels) {
+    return e2v(graph, record, Direction.IN);
+  }
+
+  @Override
+  protected Object move(DatabaseSessionEmbedded db,
+      Relation<?> bidirectionalLink, String[] labels) {
+    return e2v(bidirectionalLink, Direction.IN);
+  }
+
+  @Nullable
+  @Override
+  public Collection<String> propertyNamesForIndexCandidates(String[] labels,
+      SchemaClass schemaClass, boolean polymorphic, DatabaseSessionEmbedded session) {
+    return List.of(Edge.DIRECTION_IN);
   }
 }

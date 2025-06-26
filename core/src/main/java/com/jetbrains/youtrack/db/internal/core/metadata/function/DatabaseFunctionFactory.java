@@ -19,9 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.function;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionFactory;
 import java.util.Set;
@@ -37,21 +36,19 @@ public class DatabaseFunctionFactory implements SQLFunctionFactory {
   }
 
   @Override
-  public boolean hasFunction(final String iName) {
-    var db = DatabaseRecordThreadLocal.instance().get();
-    return db.getMetadata().getFunctionLibrary().getFunction(iName) != null;
+  public boolean hasFunction(final String name, DatabaseSessionInternal session) {
+    return session.getMetadata().getFunctionLibrary().getFunction(session, name) != null;
   }
 
   @Override
-  public Set<String> getFunctionNames() {
-    var db = DatabaseRecordThreadLocal.instance().get();
-    return db.getMetadata().getFunctionLibrary().getFunctionNames();
+  public Set<String> getFunctionNames(DatabaseSessionInternal session) {
+    return session.getMetadata().getFunctionLibrary().getFunctionNames();
   }
 
   @Override
-  public SQLFunction createFunction(final String name) throws CommandExecutionException {
-    var db = DatabaseRecordThreadLocal.instance().get();
-    final Function f = db.getMetadata().getFunctionLibrary().getFunction(name);
+  public SQLFunction createFunction(final String name, DatabaseSessionInternal session)
+      throws CommandExecutionException {
+    final var f = session.getMetadata().getFunctionLibrary().getFunction(session, name);
     return new DatabaseFunction(f);
   }
 }

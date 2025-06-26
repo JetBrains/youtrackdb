@@ -1,17 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchFilter;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItemFirst;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMultiMatchPathItem;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -26,10 +24,11 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
     super(lastUpstreamRecord, edge);
   }
 
+  @Override
   protected ExecutionStream traversePatternEdge(
-      Identifiable startingPoint, CommandContext iCommandContext) {
+      Result startingPoint, CommandContext iCommandContext) {
 
-    Iterable possibleResults = null;
+    Iterable<Identifiable> possibleResults = null;
     //    if (this.edge.edge.item.getFilter() != null) {
     //      String alias = this.edge.edge.item.getFilter().getAlias();
     //      Object matchedNodes =
@@ -43,41 +42,37 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
     //      }
     //    }
 
-    SQLMultiMatchPathItem item = (SQLMultiMatchPathItem) this.item;
-    List<Result> result = new ArrayList<>();
+    var item = (SQLMultiMatchPathItem) this.item;
+    List<ResultInternal> result = new ArrayList<>();
 
-    List<Object> nextStep = new ArrayList<>();
+    List<Result> nextStep = new ArrayList<>();
     nextStep.add(startingPoint);
 
-    var db = iCommandContext.getDatabase();
-    Object oldCurrent = iCommandContext.getVariable("$current");
-    for (SQLMatchPathItem sub : item.getItems()) {
-      List<Result> rightSide = new ArrayList<>();
-      for (Object o : nextStep) {
-        SQLWhereClause whileCond =
+    var db = iCommandContext.getDatabaseSession();
+    var oldCurrent = iCommandContext.getVariable("$current");
+    for (var sub : item.getItems()) {
+      List<ResultInternal> rightSide = new ArrayList<>();
+      for (var o : nextStep) {
+        var whileCond =
             sub.getFilter() == null ? null : sub.getFilter().getWhileCondition();
 
-        SQLMethodCall method = sub.getMethod();
+        var method = sub.getMethod();
         if (sub instanceof SQLMatchPathItemFirst) {
           method = ((SQLMatchPathItemFirst) sub).getFunction().toMethod();
         }
 
         if (whileCond != null) {
-          Object current = o;
-          if (current instanceof Result) {
-            current = ((Result) current).getEntity().orElse(null);
-          }
-          MatchEdgeTraverser subtraverser = new MatchEdgeTraverser(null, sub);
-          ExecutionStream rightStream =
-              subtraverser.executeTraversal(iCommandContext, sub, (Identifiable) current, 0,
+          var subtraverser = new MatchEdgeTraverser(null, sub);
+          var rightStream =
+              subtraverser.executeTraversal(iCommandContext, sub, o, 0,
                   null);
           while (rightStream.hasNext(iCommandContext)) {
-            rightSide.add(rightStream.next(iCommandContext));
+            rightSide.add((ResultInternal) rightStream.next(iCommandContext));
           }
 
         } else {
           iCommandContext.setVariable("$current", o);
-          Object nextSteps = method.execute(o, possibleResults, iCommandContext);
+          var nextSteps = method.execute(o, possibleResults, iCommandContext);
           if (nextSteps instanceof Collection) {
             ((Collection<?>) nextSteps)
                 .stream()
@@ -85,9 +80,14 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
                 .filter(
                     x ->
                         matchesCondition(x, sub.getFilter(), iCommandContext))
-                .forEach(i -> rightSide.add(i));
+                .forEach(rightSide::add);
           } else if (nextSteps instanceof Identifiable) {
-            ResultInternal res = new ResultInternal(db, (Identifiable) nextSteps);
+            var res = new ResultInternal(db, (Identifiable) nextSteps);
+            if (matchesCondition(res, sub.getFilter(), iCommandContext)) {
+              rightSide.add(res);
+            }
+          } else if (nextSteps instanceof Relation<?> bidirectionalLink) {
+            var res = new ResultInternal(db, bidirectionalLink);
             if (matchesCondition(res, sub.getFilter(), iCommandContext)) {
               rightSide.add(res);
             }
@@ -96,15 +96,15 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
               rightSide.add((ResultInternal) nextSteps);
             }
           } else if (nextSteps instanceof Iterable) {
-            for (Object step : (Iterable) nextSteps) {
-              ResultInternal converted = toOResultInternal(db, step);
+            for (var step : (Iterable<?>) nextSteps) {
+              var converted = toOResultInternal(db, step);
               if (matchesCondition(converted, sub.getFilter(), iCommandContext)) {
                 rightSide.add(converted);
               }
             }
-          } else if (nextSteps instanceof Iterator iterator) {
+          } else if (nextSteps instanceof Iterator<?> iterator) {
             while (iterator.hasNext()) {
-              ResultInternal converted = toOResultInternal(db, iterator.next());
+              var converted = toOResultInternal(db, iterator.next());
               if (matchesCondition(converted, sub.getFilter(), iCommandContext)) {
                 rightSide.add(converted);
               }
@@ -112,6 +112,7 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
           }
         }
       }
+      //noinspection unchecked,rawtypes
       nextStep = (List) rightSide;
       result = rightSide;
     }
@@ -122,24 +123,26 @@ public class MatchMultiEdgeTraverser extends MatchEdgeTraverser {
     return ExecutionStream.resultIterator(result.iterator());
   }
 
-  private boolean matchesCondition(ResultInternal x, SQLMatchFilter filter, CommandContext ctx) {
+  private static boolean matchesCondition(ResultInternal x, SQLMatchFilter filter,
+      CommandContext ctx) {
     if (filter == null) {
       return true;
     }
-    SQLWhereClause where = filter.getFilter();
+    var where = filter.getFilter();
     if (where == null) {
       return true;
     }
     return where.matchesFilters(x, ctx);
   }
 
-  private static ResultInternal toOResultInternal(DatabaseSessionInternal db, Object x) {
-    if (x instanceof ResultInternal) {
-      return (ResultInternal) x;
+  private static ResultInternal toOResultInternal(DatabaseSessionInternal session, Object x) {
+    if (x instanceof ResultInternal resultInternal) {
+      return resultInternal;
+    } else if (x instanceof Identifiable identifiable) {
+      return new ResultInternal(session, identifiable);
+    } else if (x instanceof Relation<?> bidirectionalLink) {
+      return new ResultInternal(session, bidirectionalLink);
     }
-    if (x instanceof Identifiable) {
-      return new ResultInternal(db, (Identifiable) x);
-    }
-    throw new CommandExecutionException("Cannot execute traversal on " + x);
+    throw new CommandExecutionException(session, "Cannot execute traversal on " + x);
   }
 }

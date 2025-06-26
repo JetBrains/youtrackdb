@@ -20,20 +20,19 @@
 
 package com.jetbrains.youtrack.db.internal.server.handler;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerHookConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerHookConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 /**
  * User: kasper fock Date: 09/11/12 Time: 22:35 Registers hooks defined the in xml configuration.
@@ -70,69 +69,63 @@ public class ConfigurableHooksManager implements DatabaseLifecycleListener {
   }
 
   @Override
-  public void onCreate(final DatabaseSessionInternal iDatabase) {
-    onOpen(iDatabase);
+  public void onCreate(final @Nonnull DatabaseSessionInternal session) {
+    onOpen(session);
   }
 
-  public void onOpen(DatabaseSessionInternal iDatabase) {
-    if (!iDatabase.isRemote()) {
-      var db = iDatabase;
-      for (ServerHookConfiguration hook : configuredHooks) {
+  @Override
+  public void onOpen(@Nonnull DatabaseSessionInternal session) {
+    var db = session;
+    for (var hook : configuredHooks) {
+      try {
+        var klass = Class.forName(hook.clazz);
+        final RecordHook h;
+        Constructor constructor = null;
         try {
-          final RecordHook.HOOK_POSITION pos = RecordHook.HOOK_POSITION.valueOf(hook.position);
-          Class<?> klass = Class.forName(hook.clazz);
-          final RecordHook h;
-          Constructor constructor = null;
-          try {
-            constructor = klass.getConstructor(DatabaseSession.class);
-          } catch (NoSuchMethodException ex) {
-            // Ignore
-          }
-
-          if (constructor != null) {
-            h = (RecordHook) constructor.newInstance(iDatabase);
-          } else {
-            h = (RecordHook) klass.newInstance();
-          }
-          if (hook.parameters != null && hook.parameters.length > 0) {
-            try {
-              final Method m =
-                  h.getClass().getDeclaredMethod("config", ServerParameterConfiguration[].class);
-              m.invoke(h, new Object[]{hook.parameters});
-            } catch (Exception e) {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "[configure] Failed to configure hook '%s'. Parameters specified but hook don"
-                          + " support parameters. Should have a method config with parameters"
-                          + " ServerParameterConfiguration[] ",
-                      hook.clazz);
-            }
-          }
-          db.registerHook(h, pos);
-        } catch (Exception e) {
-          LogManager.instance()
-              .error(
-                  this,
-                  "[configure] Failed to configure hook '%s' due to the an error : ",
-                  e,
-                  hook.clazz,
-                  e.getMessage());
+          constructor = klass.getConstructor(BasicDatabaseSession.class);
+        } catch (NoSuchMethodException ex) {
+          // Ignore
         }
+
+        if (constructor != null) {
+          h = (RecordHook) constructor.newInstance(session);
+        } else {
+          h = (RecordHook) klass.newInstance();
+        }
+        if (hook.parameters != null && hook.parameters.length > 0) {
+          try {
+            final var m =
+                h.getClass().getDeclaredMethod("config", ServerParameterConfiguration[].class);
+            m.invoke(h, new Object[]{hook.parameters});
+          } catch (Exception e) {
+            LogManager.instance()
+                .warn(
+                    this,
+                    "[configure] Failed to configure hook '%s'. Parameters specified but hook don"
+                        + " support parameters. Should have a method config with parameters"
+                        + " ServerParameterConfiguration[] ",
+                    hook.clazz);
+          }
+        }
+        db.registerHook(h);
+      } catch (Exception e) {
+        LogManager.instance()
+            .error(
+                this,
+                "[configure] Failed to configure hook '%s' due to the an error : ",
+                e,
+                hook.clazz,
+                e.getMessage());
       }
     }
   }
 
   @Override
-  public void onClose(DatabaseSessionInternal iDatabase) {
+  public void onClose(@Nonnull DatabaseSessionInternal session) {
   }
 
   @Override
-  public void onDrop(DatabaseSessionInternal iDatabase) {
-  }
-
-  @Override
-  public void onLocalNodeConfigurationRequest(EntityImpl iConfiguration) {
+  public void onDrop(@Nonnull DatabaseSessionInternal session) {
   }
 
   public String getName() {

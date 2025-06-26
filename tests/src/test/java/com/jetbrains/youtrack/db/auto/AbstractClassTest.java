@@ -15,52 +15,34 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import static org.assertj.core.api.Java6Assertions.assertThat;
+
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class AbstractClassTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public AbstractClassTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
-  }
-
   @BeforeClass
   public void createSchema() throws IOException {
-    SchemaClass abstractPerson =
-        database.getMetadata().getSchema().createAbstractClass("AbstractPerson");
-    abstractPerson.createProperty(database, "name", PropertyType.STRING);
+    var abstractPerson =
+        session.getMetadata().getSchema().createAbstractClass("AbstractPerson");
+    abstractPerson.createProperty("name", PropertyType.STRING);
 
     Assert.assertTrue(abstractPerson.isAbstract());
-    Assert.assertEquals(abstractPerson.getClusterIds().length, 1);
+    Assert.assertEquals(abstractPerson.getCollectionIds().length, 1);
   }
 
   @Test
   public void testCannotCreateInstances() {
     try {
-      database.begin();
-      new EntityImpl("AbstractPerson").save();
-      database.begin();
+      session.begin();
+      session.newEntity("AbstractPerson");
+      session.begin();
     } catch (BaseException e) {
       Throwable cause = e;
 
@@ -68,7 +50,7 @@ public class AbstractClassTest extends BaseDBTest {
         cause = cause.getCause();
       }
 
-      Assert.assertTrue(cause instanceof SchemaException);
+      assertThat(cause).isInstanceOf(SchemaException.class);
     }
   }
 }

@@ -19,11 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.misc;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
+import javax.annotation.Nullable;
 
 /**
  * Returns different values based on the condition. If it's true the first value is returned,
@@ -71,10 +72,11 @@ public class SQLFunctionIf extends SQLFunctionAbstract {
     super(NAME, 2, 3);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       final Object[] iParams,
       final CommandContext iContext) {
@@ -82,7 +84,7 @@ public class SQLFunctionIf extends SQLFunctionAbstract {
     boolean result;
 
     try {
-      Object condition = iParams[0];
+      var condition = iParams[0];
       if (condition instanceof Boolean) {
         result = (Boolean) condition;
       } else if (condition instanceof String) {

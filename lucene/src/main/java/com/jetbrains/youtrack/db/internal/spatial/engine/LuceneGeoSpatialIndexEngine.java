@@ -17,8 +17,10 @@ package com.jetbrains.youtrack.db.internal.spatial.engine;
 import static com.jetbrains.youtrack.db.internal.lucene.builder.LuceneQueryBuilder.EMPTY_METADATA;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
@@ -52,43 +54,45 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
 
   @Override
   protected SpatialStrategy createSpatialStrategy(
-      IndexDefinition indexDefinition, Map<String, ?> metadata) {
+      DatabaseSessionInternal db, IndexDefinition indexDefinition, Map<String, ?> metadata) {
 
-    return SpatialStrategyFactory.createStrategy(ctx, getDatabase(), indexDefinition);
+    return SpatialStrategyFactory.createStrategy(ctx, db, indexDefinition);
   }
 
   @Override
-  public Object get(DatabaseSessionInternal session, Object key) {
-    return getInTx(session, key, null);
+  public Object get(DatabaseSessionEmbedded db, Object key) {
+    return getInTx(db, key, null);
   }
 
   @Override
-  public Set<Identifiable> getInTx(DatabaseSessionInternal session, Object key,
+  public Set<Identifiable> getInTx(DatabaseSessionEmbedded session, Object key,
       LuceneTxChanges changes) {
     updateLastAccess();
-    openIfClosed();
+    openIfClosed(session.getStorage());
     try {
       if (key instanceof Map) {
         //noinspection unchecked
-        return newGeoSearch((Map<String, Object>) key, changes);
+        return newGeoSearch(session, (Map<String, Object>) key, changes);
       }
     } catch (Exception e) {
       if (e instanceof BaseException forward) {
         throw forward;
       } else {
-        throw BaseException.wrapException(new IndexEngineException("Error parsing lucene query"),
-            e);
+        throw BaseException.wrapException(
+            new IndexEngineException(session.getDatabaseName(), "Error parsing lucene query"),
+            e, session);
       }
     }
 
     return new LuceneResultSetEmpty();
   }
 
-  private Set<Identifiable> newGeoSearch(Map<String, Object> key, LuceneTxChanges changes)
+  private Set<Identifiable> newGeoSearch(DatabaseSessionEmbedded db, Map<String, Object> key,
+      LuceneTxChanges changes)
       throws Exception {
 
-    LuceneQueryContext queryContext = queryStrategy.build(key).withChanges(changes);
-    return new LuceneResultSet(this, queryContext, EMPTY_METADATA);
+    var queryContext = queryStrategy.build(db, key).withChanges(changes);
+    return new LuceneResultSet(db, this, queryContext, EMPTY_METADATA);
   }
 
   @Override
@@ -98,15 +102,15 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
       Document doc,
       ScoreDoc score) {
 
-    SpatialQueryContext spatialContext = (SpatialQueryContext) queryContext;
+    var spatialContext = (SpatialQueryContext) queryContext;
     if (spatialContext.spatialArgs != null) {
       updateLastAccess();
-      openIfClosed();
+      openIfClosed(queryContext.getContext().getDatabaseSession().getStorage());
       @SuppressWarnings("deprecation")
-      Point docPoint = (Point) ctx.readShape(doc.get(strategy.getFieldName()));
-      double docDistDEG =
+      var docPoint = (Point) ctx.readShape(doc.get(strategy.getFieldName()));
+      var docDistDEG =
           ctx.getDistCalc().distance(spatialContext.spatialArgs.getShape().getCenter(), docPoint);
-      final double docDistInKM =
+      final var docDistInKM =
           DistanceUtils.degrees2Dist(docDistDEG, DistanceUtils.EARTH_EQUATORIAL_RADIUS_KM);
       Map<String, Object> data = new HashMap<String, Object>();
       data.put("distance", docDistInKM);
@@ -115,20 +119,18 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
   }
 
   @Override
-  public void put(DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+  public void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       Object value) {
-
-    if (key instanceof Identifiable) {
-      openIfClosed();
-      EntityImpl location = ((Identifiable) key).getRecord();
+    if (key instanceof Result location) {
+      openIfClosed(db.getStorage());
       updateLastAccess();
-      addDocument(newGeoDocument((Identifiable) value, factory.fromDoc(location), location));
+      addDocument(newGeoDocument((Identifiable) value, factory.fromResult(location), location));
     }
   }
 
   @Override
   public void update(
-      DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+      DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater) {
     throw new UnsupportedOperationException();
   }
@@ -146,8 +148,9 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
   @Override
   public Document buildDocument(DatabaseSessionInternal session, Object key,
       Identifiable value) {
-    EntityImpl location = ((Identifiable) key).getRecord();
-    return newGeoDocument(value, factory.fromDoc(location), location);
+    var transaction = session.getActiveTransaction();
+    EntityImpl location = transaction.load(((Identifiable) key));
+    return newGeoDocument(value, factory.fromResult(location), location);
   }
 
   @Override
@@ -155,13 +158,4 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
     return false;
   }
 
-  @Override
-  public void updateUniqueIndexVersion(Object key) {
-    // not implemented
-  }
-
-  @Override
-  public int getUniqueIndexVersion(Object key) {
-    return 0; // not implemented
-  }
 }

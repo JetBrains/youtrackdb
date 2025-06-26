@@ -19,13 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.binary;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
@@ -34,28 +31,19 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushReques
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Error37Response;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ErrorResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.QueryResponse;
 import com.jetbrains.youtrack.db.internal.common.concur.OfflineNodeException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
-import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.common.exception.InvalidBinaryChunkException;
 import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
-import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.SerializationThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerSchemaAware2CSV;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
@@ -63,13 +51,8 @@ import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChanne
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import com.jetbrains.youtrack.db.internal.server.ConnectionBinaryExecutor;
-import com.jetbrains.youtrack.db.internal.server.OServerAware;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.distributed.DistributedException;
-import com.jetbrains.youtrack.db.internal.server.distributed.DistributedRequest;
-import com.jetbrains.youtrack.db.internal.server.distributed.DistributedResponse;
-import com.jetbrains.youtrack.db.internal.server.distributed.ODistributedDatabase;
-import com.jetbrains.youtrack.db.internal.server.distributed.ODistributedServerManager;
+import com.jetbrains.youtrack.db.internal.server.monitoring.BinaryProtocolRequestEvent;
 import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginHelper;
@@ -86,10 +69,13 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 import java.util.function.Function;
 import java.util.logging.Level;
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class NetworkProtocolBinary extends NetworkProtocol {
 
+  private static final Logger logger = LoggerFactory.getLogger(NetworkProtocolBinary.class);
   protected final Level logClientExceptions;
   protected final boolean logClientFullStackTrace;
   protected SocketChannelBinary channel;
@@ -111,7 +97,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
   }
 
   public NetworkProtocolBinary(YouTrackDBServer server, final String iThreadName) {
-    super(server.getThreadGroup(), iThreadName);
+    super(YouTrackDBServer.getThreadGroup(), iThreadName);
     logClientExceptions =
         Level.parse(
             server
@@ -140,7 +126,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       final ContextConfiguration iConfig)
       throws IOException {
 
-    SocketChannelBinaryServer channel = new SocketChannelBinaryServer(iSocket, iConfig);
+    var channel = new SocketChannelBinaryServer(iSocket, iConfig);
     initVariables(iServer, channel);
 
     // SEND PROTOCOL VERSION
@@ -177,18 +163,9 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     return requestType == ChannelBinaryProtocol.REQUEST_CONNECT
         || requestType == ChannelBinaryProtocol.REQUEST_DB_OPEN
         || requestType == ChannelBinaryProtocol.REQUEST_SHUTDOWN
-        || requestType == ChannelBinaryProtocol.REQUEST_DB_REOPEN
-        || requestType == ChannelBinaryProtocol.DISTRIBUTED_CONNECT;
+        || requestType == ChannelBinaryProtocol.REQUEST_DB_REOPEN;
   }
 
-  private static boolean isDistributed(int requestType) {
-    return requestType == ChannelBinaryProtocol.DISTRIBUTED_REQUEST
-        || requestType == ChannelBinaryProtocol.DISTRIBUTED_RESPONSE;
-  }
-
-  private static boolean isCoordinated(int requestType) {
-    return requestType == ChannelBinaryProtocol.COORDINATED_DISTRIBUTED_MESSAGE;
-  }
 
   @Override
   protected void execute() throws Exception {
@@ -215,7 +192,6 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         // ANY OPERATIONS
         this.softShutdown();
         if (requestType != ChannelBinaryProtocol.REQUEST_HANDSHAKE
-            && isDistributed(requestType)
             && requestType != ChannelBinaryProtocol.REQUEST_OK_PUSH) {
           clientTxId = channel.readInt();
           channel.clearInput();
@@ -235,19 +211,13 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
       clientTxId = channel.readInt();
       // GET THE CONNECTION IF EXIST
-      ClientConnection connection =
+      var connection =
           server.getClientConnectionManager().getConnection(clientTxId, this);
       if (connection != null) {
         connection.activateDatabaseOnCurrentThread();
       }
 
-      if (isCoordinated(requestType)) {
-        coordinatedRequest(connection, requestType, clientTxId);
-      } else if (isDistributed(requestType)) {
-        distributedRequest(connection, requestType, clientTxId);
-      } else {
-        sessionRequest(connection, requestType, clientTxId);
-      }
+      sessionRequest(connection, requestType, clientTxId);
     } catch (IOException e) {
       // if an exception arrive to this point we need to kill the current socket.
       sendShutdown();
@@ -255,20 +225,12 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     }
   }
 
-  private void coordinatedRequest(ClientConnection connection, int requestType, int clientTxId)
-      throws IOException {
-    byte[] tokenBytes = channel.readBytes();
-    connection = onBeforeOperationalRequest(connection, tokenBytes);
-    ((OServerAware) server.getDatabases())
-        .coordinatedRequest(connection, requestType, clientTxId, channel);
-  }
-
   private void handleHandshake() throws IOException {
-    short protocolVersion = channel.readShort();
-    String driverName = channel.readString();
-    String driverVersion = channel.readString();
-    byte encoding = channel.readByte();
-    byte errorEncoding = channel.readByte();
+    var protocolVersion = channel.readShort();
+    var driverName = channel.readString();
+    var driverVersion = channel.readString();
+    var encoding = channel.readByte();
+    var errorEncoding = channel.readByte();
     BinaryProtocolHelper.checkProtocolVersion(this, protocolVersion);
     this.handshakeInfo =
         new HandshakeInfo(protocolVersion, driverName, driverVersion, encoding, errorEncoding);
@@ -280,7 +242,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
   }
 
   public boolean shouldReadToken(ClientConnection connection, int requestType) {
-    if (handshakeInfo != null || requestType == ChannelBinaryProtocol.DISTRIBUTED_CONNECT) {
+    if (handshakeInfo != null) {
       return true;
     } else {
       if (connection == null) {
@@ -292,15 +254,15 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     }
   }
 
-  private void sessionRequest(@Nonnull ClientConnection connection, int requestType,
+  private void sessionRequest(@Nullable ClientConnection connection, int requestType,
       int clientTxId) {
-    long timer;
 
-    timer = YouTrackDBEnginesManager.instance().getProfiler().startChrono();
-    LogManager.instance().debug(this, "Request id:" + clientTxId + " type:" + requestType);
+    LogManager.instance().debug(this, "Request id:" + clientTxId + " type:" + requestType, logger);
 
+    final var event = new BinaryProtocolRequestEvent();
+    event.begin();
     try {
-      BinaryRequest<? extends BinaryResponse> request = factory.apply(requestType);
+      var request = factory.apply(requestType);
       if (request != null) {
         Exception exception = null;
 
@@ -323,23 +285,20 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         }
         // Also in case of session validation error i read the message from the socket.
         try {
-          int protocolVersion = ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION;
-          RecordSerializer serializer =
-              RecordSerializerNetworkFactory.INSTANCE.forProtocol(protocolVersion);
+          var protocolVersion = ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION;
           if (connection != null) {
             protocolVersion = connection.getData().protocolVersion;
-            serializer = connection.getData().getSerializer();
-
-            request.read(connection.getDatabase(), channel, protocolVersion, serializer);
+            request.read(connection.getDatabaseSession(), channel, protocolVersion);
           } else {
-            request.read(null, channel, protocolVersion, serializer);
+            request.read(null, channel, protocolVersion);
           }
 
         } catch (IOException e) {
           connection.endOperation();
           LogManager.instance()
               .debug(
-                  this, "I/O Error on client clientId=%d reqType=%d", clientTxId, requestType, e);
+                  this, "I/O Error on client clientId=%d reqType=%d", logger, clientTxId,
+                  requestType, e);
           sendShutdown();
           return;
         } catch (Throwable e) {
@@ -354,26 +313,18 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         BinaryResponse response = null;
         if (exception == null) {
           try {
-
+            var session = connection.getDatabaseSession();
             if (request.requireServerUser()) {
-              checkServerAccess(connection.getDatabase(), request.requiredServerRole(), connection);
+              checkServerAccess(session, request.requiredServerRole(), connection);
             }
 
             if (request.requireDatabaseSession()) {
-              if (connection.getDatabase() == null) {
+              if (session == null) {
                 throw new DatabaseException("Required database session");
               }
             }
             response = request.execute(connection.getExecutor());
           } catch (RuntimeException t) {
-            // This should be moved in the execution of the command that manipulate data
-            if (connection.getDatabase() != null) {
-              final SBTreeCollectionManager collectionManager =
-                  connection.getDatabase().getSbTreeCollectionManager();
-              if (collectionManager != null) {
-                collectionManager.clearChangedIds();
-              }
-            }
             exception = t;
           } catch (Throwable err) {
             sendShutdown();
@@ -389,7 +340,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
           } catch (IOException e) {
             LogManager.instance()
                 .debug(
-                    this, "I/O Error on client clientId=%d reqType=%d", clientTxId, requestType, e);
+                    this, "I/O Error on client clientId=%d reqType=%d", logger, clientTxId,
+                    requestType, e);
             sendShutdown();
           } finally {
             afterOperationRequest(connection);
@@ -397,14 +349,28 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         } else {
           try {
             if (response != null) {
+              var session = connection.getDatabaseSession();
               beginResponse();
               try {
+
                 sendOk(connection, clientTxId);
-                response.write(connection.getDatabase(),
+                response.write(session,
                     channel,
-                    connection.getData().protocolVersion, connection.getData().getSerializer());
+                    connection.getData().protocolVersion);
               } finally {
                 endResponse();
+              }
+
+              //close query after the writing last page of response to avoid
+              //unnecessary memory consumption and an additonal client-server round-trip
+              if (response instanceof QueryResponse queryResponse
+                  && !queryResponse.isHasNextPage()) {
+                var rs =
+                    (LocalResultSetLifecycleDecorator) session.getActiveQuery(
+                        queryResponse.getQueryId());
+                if (rs != null) {
+                  rs.close();
+                }
               }
             }
           } catch (InvalidBinaryChunkException e) {
@@ -415,7 +381,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
           } catch (IOException e) {
             LogManager.instance()
                 .debug(
-                    this, "I/O Error on client clientId=%d reqType=%d", clientTxId, requestType, e);
+                    this, "I/O Error on client clientId=%d reqType=%d", logger, clientTxId,
+                    requestType, e);
             sendShutdown();
           } catch (Exception | Error e) {
             LogManager.instance().error(this, "Error while binary response serialization", e);
@@ -425,7 +392,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
             afterOperationRequest(connection);
           }
         }
-        tokenConnection = Boolean.TRUE.equals(connection.getTokenBased());
+        tokenConnection = connection != null && Boolean.TRUE.equals(connection.getTokenBased());
       } else {
         LogManager.instance().error(this, "Request not supported. Code: " + requestType, null);
         handleConnectionError(
@@ -435,14 +402,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       }
 
     } finally {
-
-      YouTrackDBEnginesManager.instance()
-          .getProfiler()
-          .stopChrono(
-              "server.network.requests",
-              "Total received requests",
-              timer,
-              "server.network.requests");
+      event.commit();
 
       SerializationThreadLocal.INSTANCE.get().clear();
     }
@@ -455,8 +415,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         if (clientTxId >= 0
             && connection == null
             && (requestType == ChannelBinaryProtocol.REQUEST_DB_OPEN
-            || requestType == ChannelBinaryProtocol.REQUEST_CONNECT
-            || requestType == ChannelBinaryProtocol.DISTRIBUTED_CONNECT)) {
+            || requestType == ChannelBinaryProtocol.REQUEST_CONNECT)) {
           // THIS EXCEPTION SHULD HAPPEN IN ANY CASE OF OPEN/CONNECT WITH SESSIONID >= 0, BUT FOR
           // COMPATIBILITY IT'S ONLY IF THERE
           // IS NO CONNECTION
@@ -473,20 +432,18 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         connection =
             server.getClientConnectionManager().reConnect(this, connection.getTokenBytes());
         connection.acquire();
-        waitDistribuedIsOnline(connection);
         connection.init(server);
 
         if (connection.getData().serverUser) {
           connection.setServerUser(
               server.getSecurity()
-                  .getUser(connection.getData().serverUsername, connection.getDatabase()));
+                  .getUser(connection.getData().serverUsername, connection.getDatabaseSession()));
         }
       }
     } catch (RuntimeException e) {
       if (connection != null) {
         server.getClientConnectionManager().disconnect(connection);
       }
-      DatabaseRecordThreadLocal.instance().remove();
       throw e;
     }
 
@@ -497,51 +454,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     return connection;
   }
 
-  private void distributedRequest(ClientConnection connection, int requestType, int clientTxId) {
-    long timer = 0;
-    try {
-
-      timer = YouTrackDBEnginesManager.instance().getProfiler().startChrono();
-      byte[] tokenBytes = channel.readBytes();
-      connection = onBeforeOperationalRequest(connection, tokenBytes);
-      LogManager.instance().debug(this, "Request id:" + clientTxId + " type:" + requestType);
-
-      try {
-        switch (requestType) {
-          case ChannelBinaryProtocol.DISTRIBUTED_REQUEST:
-            executeDistributedRequest(connection);
-            break;
-
-          case ChannelBinaryProtocol.DISTRIBUTED_RESPONSE:
-            executeDistributedResponse(connection);
-            break;
-        }
-      } finally {
-        requests++;
-        afterOperationRequest(connection);
-      }
-
-    } catch (Exception t) {
-      // IN CASE OF DISTRIBUTED ANY EXCEPTION AT THIS POINT CAUSE THIS CONNECTION TO CLOSE
-      LogManager.instance()
-          .warn(
-              this,
-              "I/O Error on distributed channel  clientId=%d reqType=%d",
-              t,
-              clientTxId,
-              requestType);
-      sendShutdown();
-    } finally {
-      YouTrackDBEnginesManager.instance()
-          .getProfiler()
-          .stopChrono(
-              "server.network.requests",
-              "Total received requests",
-              timer,
-              "server.network.requests");
-    }
-  }
-
+  @Nullable
   private ClientConnection onBeforeOperationalRequest(
       ClientConnection connection, byte[] tokenBytes) {
     try {
@@ -551,16 +464,16 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
       if (handshakeInfo != null) {
         if (connection == null) {
-          throw new TokenSecurityException("missing session and token");
+          throw new TokenSecurityException("Missing session and token. Client id : "
+              + clientTxId + ", request type :" + requestType);
         }
         connection.acquire();
         connection.validateSession(tokenBytes, server.getTokenHandler(), this);
-        waitDistribuedIsOnline(connection);
         connection.init(server);
         if (connection.getData().serverUser) {
           connection.setServerUser(
               server.getSecurity()
-                  .getUser(connection.getData().serverUsername, connection.getDatabase()));
+                  .getUser(connection.getData().serverUsername, connection.getDatabaseSession()));
         }
       } else {
         if (connection != null && !Boolean.TRUE.equals(connection.getTokenBased())) {
@@ -579,16 +492,16 @@ public class NetworkProtocolBinary extends NetworkProtocol {
             connection.setDisconnectOnAfter(true);
           }
           if (connection == null) {
-            throw new TokenSecurityException("missing session and token");
+            throw new TokenSecurityException(connection.getDatabaseSession(),
+                "missing session and token");
           }
           connection.acquire();
           connection.validateSession(tokenBytes, server.getTokenHandler(), this);
-          waitDistribuedIsOnline(connection);
           connection.init(server);
           if (connection.getData().serverUser) {
             connection.setServerUser(
                 server.getSecurity()
-                    .getUser(connection.getData().serverUsername, connection.getDatabase()));
+                    .getUser(connection.getData().serverUsername, connection.getDatabaseSession()));
           }
         }
       }
@@ -601,33 +514,9 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         connection.endOperation();
         server.getClientConnectionManager().disconnect(connection);
       }
-      DatabaseRecordThreadLocal.instance().remove();
       throw e;
     }
     return connection;
-  }
-
-  private void waitDistribuedIsOnline(ClientConnection connection) {
-    if (requests == 0) {
-      final ODistributedServerManager manager = server.getDistributedManager();
-      if (manager != null && connection.hasDatabase()) {
-        try {
-          if (manager.getMessageService() != null) {
-            String databaseName = connection.getDatabaseName();
-            final ODistributedDatabase dDatabase = manager.getDatabase(databaseName);
-            if (dDatabase != null) {
-              dDatabase.waitForOnline();
-            } else {
-              manager.waitUntilNodeOnline(manager.getLocalNodeName(), databaseName);
-            }
-          }
-        } catch (java.lang.InterruptedException e) {
-          Thread.currentThread().interrupt();
-          throw BaseException.wrapException(new ThreadInterruptedException("Request interrupted"),
-              e);
-        }
-      }
-    }
   }
 
   protected void afterOperationRequest(ClientConnection connection) {
@@ -646,90 +535,20 @@ public class NetworkProtocolBinary extends NetworkProtocol {
 
   protected void checkServerAccess(DatabaseSessionInternal session, final String iResource,
       ClientConnection connection) {
-    if (connection.getData().protocolVersion <= ChannelBinaryProtocol.PROTOCOL_VERSION_26) {
-      if (connection.getServerUser() == null) {
-        throw new SecurityAccessException("Server user not authenticated");
-      }
-
-      if (!server.getSecurity()
-          .isAuthorized(session, connection.getServerUser().getName(session), iResource)) {
-        throw new SecurityAccessException(
-            "User '"
-                + connection.getServerUser().getName(session)
-                + "' cannot access to the resource ["
-                + iResource
-                + "]. Use another server user or change permission in the file"
-                + " config/youtrackdb-server-config.xml");
-      }
-    } else {
-      if (!connection.getData().serverUser) {
-        throw new SecurityAccessException("Server user not authenticated");
-      }
-
-      if (!server.getSecurity()
-          .isAuthorized(session, connection.getData().serverUsername, iResource)) {
-        throw new SecurityAccessException(
-            "User '"
-                + connection.getData().serverUsername
-                + "' cannot access to the resource ["
-                + iResource
-                + "]. Use another server user or change permission in the file"
-                + " config/youtrackdb-server-config.xml");
-      }
-    }
-  }
-
-  private void executeDistributedRequest(ClientConnection connection) throws IOException {
-    setDataCommandInfo(connection, "Distributed request");
-
-    checkServerAccess(connection.getDatabase(), "server.replication", connection);
-
-    final ODistributedServerManager manager = server.getDistributedManager();
-    final DistributedRequest req = new DistributedRequest(manager);
-
-    req.fromStream(channel.getDataInput());
-
-    final String dbName = req.getDatabaseName();
-    ODistributedDatabase ddb = null;
-    if (dbName != null) {
-      ddb = manager.getDatabase(dbName);
-      if (ddb == null && req.getTask().isNodeOnlineRequired()) {
-        throw new DistributedException(
-            "Database configuration not found for database '" + req.getDatabaseName() + "'");
-      }
+    if (!connection.getData().serverUser) {
+      throw new SecurityAccessException("Server user not authenticated");
     }
 
-    // SET THE SENDER IN THE TASK
-    String senderNodeName = manager.getNodeNameById(req.getId().getNodeId());
-    req.getTask().setNodeSource(senderNodeName);
-
-    if (ddb != null) {
-      ddb.processRequest(req, true);
-    } else {
-      manager.executeOnLocalNodeFromRemote(req);
+    if (!server.getSecurity()
+        .isAuthorized(session, connection.getData().serverUsername, iResource)) {
+      throw new SecurityAccessException(
+          "User '"
+              + connection.getData().serverUsername
+              + "' cannot access to the resource ["
+              + iResource
+              + "]. Use another server user or change permission in the file"
+              + " config/youtrackdb-server-config.xml");
     }
-  }
-
-  private void executeDistributedResponse(ClientConnection connection) throws IOException {
-    setDataCommandInfo(connection, "Distributed response");
-
-    checkServerAccess(connection.getDatabase(), "server.replication", connection);
-
-    final ODistributedServerManager manager = server.getDistributedManager();
-    final DistributedResponse response = new DistributedResponse();
-
-    response.fromStream(channel.getDataInput());
-
-    // WHILE MSG SERVICE IS UP & RUNNING
-    while (manager.getMessageService() == null) {
-      try {
-        Thread.sleep(100);
-      } catch (java.lang.InterruptedException e) {
-        return;
-      }
-    }
-
-    manager.getMessageService().dispatchResponseToThread(response);
   }
 
   protected void sendError(
@@ -737,7 +556,6 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       throws IOException {
     channel.acquireWriteLock();
     try {
-
       channel.writeByte(ChannelBinaryProtocol.RESPONSE_STATUS_ERROR);
       channel.writeInt(iClientTxId);
       if (handshakeInfo != null) {
@@ -750,27 +568,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
         }
         channel.writeBytes(renewedToken);
         channel.writeByte((byte) requestType);
-      } else {
-        if (tokenConnection
-            && requestType != ChannelBinaryProtocol.REQUEST_CONNECT
-            && (requestType != ChannelBinaryProtocol.REQUEST_DB_OPEN
-            && requestType != ChannelBinaryProtocol.DISTRIBUTED_CONNECT
-            && requestType != ChannelBinaryProtocol.REQUEST_SHUTDOWN
-            || (connection != null
-            && connection.getData() != null
-            && connection.getData().protocolVersion
-            <= ChannelBinaryProtocol.PROTOCOL_VERSION_32))
-            || requestType == ChannelBinaryProtocol.REQUEST_DB_REOPEN) {
-          // TODO: Check if the token is expiring and if it is send a new token
-
-          if (connection != null && connection.getToken() != null) {
-            byte[] renewedToken = server.getTokenHandler().renewIfNeeded(connection.getToken());
-            channel.writeBytes(renewedToken);
-          } else {
-            channel.writeBytes(new byte[]{});
-          }
-        }
       }
+
       final Throwable current;
       if (t instanceof BaseException
           && t.getCause() instanceof java.lang.InterruptedException
@@ -785,7 +584,7 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       }
 
       Map<String, String> messages = new HashMap<>();
-      Throwable it = current;
+      var it = current;
       while (it != null) {
         messages.put(current.getClass().getName(), current.getMessage());
         it = it.getCause();
@@ -793,14 +592,14 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       final byte[] result;
       if (handshakeInfo == null
           || handshakeInfo.getErrorEncoding() == ChannelBinaryProtocol.ERROR_MESSAGE_JAVA) {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        final ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
+        var outputStream = new ByteArrayOutputStream();
+        final var objectOutputStream = new ObjectOutputStream(outputStream);
         objectOutputStream.writeObject(current);
         objectOutputStream.flush();
         objectOutputStream.close();
         result = outputStream.toByteArray();
       } else if (handshakeInfo.getErrorEncoding() == ChannelBinaryProtocol.ERROR_MESSAGE_STRING) {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        var outputStream = new ByteArrayOutputStream();
         current.printStackTrace(new PrintStream(outputStream));
         result = outputStream.toByteArray();
       } else {
@@ -821,19 +620,17 @@ public class NetworkProtocolBinary extends NetworkProtocol {
       } else {
         error = new ErrorResponse(messages, result);
       }
-      int protocolVersion = ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION;
-      RecordSerializer serializationImpl = RecordSerializerNetworkFactory.INSTANCE.current();
+      var protocolVersion = ChannelBinaryProtocol.CURRENT_PROTOCOL_VERSION;
       if (connection != null) {
         protocolVersion = connection.getData().protocolVersion;
-        serializationImpl = connection.getData().getSerializer();
-        error.write(connection.getDatabase(), channel, protocolVersion, serializationImpl);
+        error.write(connection.getDatabaseSession(), channel, protocolVersion);
       } else {
-        error.write(null, channel, protocolVersion, serializationImpl);
+        error.write(null, channel, protocolVersion);
       }
 
       channel.flush();
 
-      if (LogManager.instance().isLevelEnabled(logClientExceptions)) {
+      if (LogManager.isLevelEnabled(logClientExceptions, logger)) {
         if (logClientFullStackTrace) {
           assert t != null;
           LogManager.instance()
@@ -905,10 +702,9 @@ public class NetworkProtocolBinary extends NetworkProtocol {
           && Boolean.TRUE.equals(connection.getTokenBased())
           && connection.getToken() != null
           && requestType != ChannelBinaryProtocol.REQUEST_CONNECT
-          && requestType != ChannelBinaryProtocol.DISTRIBUTED_CONNECT
           && requestType != ChannelBinaryProtocol.REQUEST_DB_OPEN) {
         // TODO: Check if the token is expiring and if it is send a new token
-        byte[] renewedToken = server.getTokenHandler().renewIfNeeded(connection.getToken());
+        var renewedToken = server.getTokenHandler().renewIfNeeded(connection.getToken());
         channel.writeBytes(renewedToken);
       }
     }
@@ -918,15 +714,12 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     try {
       channel.flush();
     } catch (IOException e1) {
-      LogManager.instance().debug(this, "Error during channel flush", e1);
+      LogManager.instance().debug(this, "Error during channel flush", logger, e1);
     }
     LogManager.instance().error(this, "Error executing request", e);
     ServerPluginHelper.invokeHandlerCallbackOnClientError(server, connection, e);
   }
 
-  public static String getRecordSerializerName(ClientConnection connection) {
-    return connection.getData().getSerializationImpl();
-  }
 
   @Override
   public int getVersion() {
@@ -938,27 +731,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     return channel;
   }
 
-  /**
-   * Write a Identifiable instance using this format:<br> - 2 bytes: class id [-2=no record, -3=rid,
-   * -1=no class id, > -1 = valid] <br> - 1 byte: record type [d,b,f] <br> - 2 bytes: cluster id
-   * <br> - 8 bytes: position in cluster <br> - 4 bytes: record version <br> - x bytes: record
-   * content <br>
-   *
-   * @param channel TODO
-   */
-  public static void writeIdentifiable(
-      SocketChannelBinary channel, ClientConnection connection, final Identifiable o)
-      throws IOException {
-    if (o == null) {
-      channel.writeShort(ChannelBinaryProtocol.RECORD_NULL);
-    } else if (o instanceof RecordId) {
-      channel.writeShort(ChannelBinaryProtocol.RECORD_RID);
-      channel.writeRID((RID) o);
-    } else {
-      writeRecord(channel, connection, o.getRecord());
-    }
-  }
 
+  @Override
   public String getType() {
     return "binary";
   }
@@ -974,77 +748,15 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     }
   }
 
-  public static byte[] getRecordBytes(ClientConnection connection,
-      final RecordAbstract iRecord) {
-    final byte[] stream;
-    String dbSerializerName = null;
-    if (DatabaseRecordThreadLocal.instance().getIfDefined() != null) {
-      dbSerializerName = (iRecord.getSession()).getSerializer().toString();
-    }
-    String name = connection.getData().getSerializationImpl();
-    if (RecordInternal.getRecordType(iRecord) == EntityImpl.RECORD_TYPE
-        && (dbSerializerName == null || !dbSerializerName.equals(name))) {
-      ((EntityImpl) iRecord).deserializeFields();
-      RecordSerializer ser = RecordSerializerFactory.instance().getFormat(name);
-      stream = ser.toStream(connection.getDatabase(), iRecord);
-    } else {
-      stream = iRecord.toStream();
-    }
-
-    return stream;
-  }
-
-  private static void writeRecord(
-      SocketChannelBinary channel, ClientConnection connection, final RecordAbstract iRecord)
-      throws IOException {
-    channel.writeShort((short) 0);
-    channel.writeByte(RecordInternal.getRecordType(iRecord));
-    channel.writeRID(iRecord.getIdentity());
-    channel.writeVersion(iRecord.getVersion());
-    try {
-      final byte[] stream = getRecordBytes(connection, iRecord);
-
-      // TODO: This Logic should not be here provide an api in the Serializer if asked for trimmed
-      // content.
-      int realLength = trimCsvSerializedContent(connection, stream);
-
-      channel.writeBytes(stream, realLength);
-    } catch (Exception e) {
-      channel.writeBytes(null);
-      final String message =
-          "Error on unmarshalling record " + iRecord.getIdentity().toString() + " (" + e + ")";
-
-      throw BaseException.wrapException(new SerializationException(message), e);
-    }
-  }
-
-  protected static int trimCsvSerializedContent(ClientConnection connection, final byte[] stream) {
-    int realLength = stream.length;
-    final DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().getIfDefined();
-    if (db != null) {
-      if (RecordSerializerSchemaAware2CSV.NAME.equals(
-          connection.getData().getSerializationImpl())) {
-        // TRIM TAILING SPACES (DUE TO OVERSIZE)
-        for (int i = stream.length - 1; i > -1; --i) {
-          if (stream[i] == 32) {
-            --realLength;
-          } else {
-            break;
-          }
-        }
-      }
-    }
-    return realLength;
-  }
-
   public int getRequestType() {
     return requestType;
   }
 
+  @Nullable
   public String getRemoteAddress() {
-    final Socket socket = channel.socket;
+    final var socket = channel.socket;
     if (socket != null) {
-      final InetSocketAddress remoteAddress = (InetSocketAddress) socket.getRemoteSocketAddress();
+      final var remoteAddress = (InetSocketAddress) socket.getRemoteSocketAddress();
       return remoteAddress.getAddress().getHostAddress() + ":" + remoteAddress.getPort();
     }
     return null;
@@ -1055,7 +767,8 @@ public class NetworkProtocolBinary extends NetworkProtocol {
     return new ConnectionBinaryExecutor(connection, server, handshakeInfo);
   }
 
-  public BinaryPushResponse push(DatabaseSessionInternal session, BinaryPushRequest request)
+  @Nullable
+  public BinaryPushResponse push(DatabaseSessionEmbedded session, BinaryPushRequest request)
       throws IOException {
     expectedPushResponse = request.createResponse();
     channel.acquireWriteLock();

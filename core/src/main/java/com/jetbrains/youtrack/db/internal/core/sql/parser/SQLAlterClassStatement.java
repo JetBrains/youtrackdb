@@ -8,7 +8,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -17,7 +16,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 public class SQLAlterClassStatement extends DDLStatement {
@@ -41,7 +39,7 @@ public class SQLAlterClassStatement extends DDLStatement {
   public SQLIdentifier customKey;
   public SQLExpression customValue;
 
-  // only to manage 'round-robin' as a cluster selection strategy (not a valid identifier)
+  // only to manage 'round-robin' as a collection selection strategy (not a valid identifier)
   protected String customString;
 
   protected boolean unsafe;
@@ -66,14 +64,10 @@ public class SQLAlterClassStatement extends DDLStatement {
     builder.append("ALTER CLASS ");
     name.toString(params, builder);
     if (property != null) {
-      builder.append(" " + property.name() + " ");
+      builder.append(" ").append(property.name()).append(" ");
       switch (property) {
         case NAME:
-        case SHORTNAME:
-        case ADD_CLUSTER:
-        case REMOVE_CLUSTER:
         case DESCRIPTION:
-        case CLUSTER_SELECTION:
           if (identifierValue != null) {
             identifierValue.toString(params, builder);
           } else if (customString != null) {
@@ -82,24 +76,12 @@ public class SQLAlterClassStatement extends DDLStatement {
             builder.append("null");
           }
           break;
-        case SUPERCLASS:
-          if (Boolean.TRUE.equals(add)) {
-            builder.append("+");
-          } else if (Boolean.TRUE.equals(remove)) {
-            builder.append("-");
-          }
-          if (identifierValue == null) {
-            builder.append("null");
-          } else {
-            identifierValue.toString(params, builder);
-          }
-          break;
         case SUPERCLASSES:
           if (identifierListValue == null) {
             builder.append("null");
           } else {
-            boolean first = true;
-            for (SQLIdentifier ident : identifierListValue) {
+            var first = true;
+            for (var ident : identifierListValue) {
               if (!first) {
                 builder.append(", ");
               }
@@ -133,38 +115,16 @@ public class SQLAlterClassStatement extends DDLStatement {
     builder.append("ALTER CLASS ");
     name.toGenericStatement(builder);
     if (property != null) {
-      builder.append(" " + property.name() + " ");
+      builder.append(" ").append(property.name()).append(" ");
       switch (property) {
         case NAME:
-        case SHORTNAME:
-        case ADD_CLUSTER:
-        case REMOVE_CLUSTER:
         case DESCRIPTION:
-        case CLUSTER_SELECTION:
-          if (identifierValue != null) {
-            identifierValue.toGenericStatement(builder);
-          } else {
-            builder.append(PARAMETER_PLACEHOLDER);
-          }
-          break;
-        case SUPERCLASS:
-          if (Boolean.TRUE.equals(add)) {
-            builder.append("+");
-          } else if (Boolean.TRUE.equals(remove)) {
-            builder.append("-");
-          }
-          if (identifierValue == null) {
-            builder.append(PARAMETER_PLACEHOLDER);
-          } else {
-            identifierValue.toGenericStatement(builder);
-          }
-          break;
         case SUPERCLASSES:
           if (identifierListValue == null) {
             builder.append(PARAMETER_PLACEHOLDER);
           } else {
-            boolean first = true;
-            for (SQLIdentifier ident : identifierListValue) {
+            var first = true;
+            for (var ident : identifierListValue) {
               if (!first) {
                 builder.append(", ");
               }
@@ -194,14 +154,14 @@ public class SQLAlterClassStatement extends DDLStatement {
   }
 
   public SQLStatement copy() {
-    SQLAlterClassStatement result = new SQLAlterClassStatement(-1);
+    var result = new SQLAlterClassStatement(-1);
     result.name = name == null ? null : name.copy();
     result.property = property;
     result.identifierValue = identifierValue == null ? null : identifierValue.copy();
     result.identifierListValue =
         identifierListValue == null
             ? null
-            : identifierListValue.stream().map(x -> x.copy()).collect(Collectors.toList());
+            : identifierListValue.stream().map(SQLIdentifier::copy).collect(Collectors.toList());
     result.add = add;
     result.remove = remove;
     result.numberValue = numberValue == null ? null : numberValue.copy();
@@ -222,7 +182,7 @@ public class SQLAlterClassStatement extends DDLStatement {
       return false;
     }
 
-    SQLAlterClassStatement that = (SQLAlterClassStatement) o;
+    var that = (SQLAlterClassStatement) o;
 
     if (unsafe != that.unsafe) {
       return false;
@@ -262,7 +222,7 @@ public class SQLAlterClassStatement extends DDLStatement {
 
   @Override
   public int hashCode() {
-    int result = name != null ? name.hashCode() : 0;
+    var result = name != null ? name.hashCode() : 0;
     result = 31 * result + (property != null ? property.hashCode() : 0);
     result = 31 * result + (identifierValue != null ? identifierValue.hashCode() : 0);
     result = 31 * result + (identifierListValue != null ? identifierListValue.hashCode() : 0);
@@ -279,96 +239,47 @@ public class SQLAlterClassStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-    var database = ctx.getDatabase();
-    SchemaClassInternal oClass = database.getMetadata().getSchemaInternal()
+    var database = ctx.getDatabaseSession();
+    var oClass = database.getMetadata().getSchemaInternal()
         .getClassInternal(name.getStringValue());
     if (oClass == null) {
-      throw new CommandExecutionException("Class not found: " + name);
+      throw new CommandExecutionException(ctx.getDatabaseSession(), "Class not found: " + name);
     }
     if (property != null) {
       switch (property) {
         case NAME:
           if (!unsafe) {
-            checkNotEdge(oClass);
+            checkNotEdge(database, oClass);
             checkNotIndexed(database, oClass);
           }
           try {
-            oClass.setName(database, identifierValue.getStringValue());
+            oClass.setName(identifierValue.getStringValue());
           } catch (Exception e) {
-            BaseException x =
-                BaseException.wrapException(
-                    new CommandExecutionException("Invalid class name: " + this), e);
-            throw x;
+            throw BaseException.wrapException(
+                new CommandExecutionException(ctx.getDatabaseSession(),
+                    "Invalid class name: " + this), e, ctx.getDatabaseSession());
           }
-          break;
-        case SHORTNAME:
-          if (identifierValue != null) {
-            try {
-              oClass.setShortName(database, identifierValue.getStringValue());
-            } catch (Exception e) {
-              BaseException x =
-                  BaseException.wrapException(
-                      new CommandExecutionException("Invalid class name: " + this), e);
-              throw x;
-            }
-          } else {
-            throw new CommandExecutionException("Invalid class name: " + this);
-          }
-          break;
-        case ADD_CLUSTER:
-          if (identifierValue != null) {
-            oClass.addCluster(database, identifierValue.getStringValue());
-          } else if (numberValue != null) {
-            oClass.addClusterId(database, numberValue.getValue().intValue());
-          } else {
-            throw new CommandExecutionException("Invalid cluster value: " + this);
-          }
-          break;
-        case REMOVE_CLUSTER:
-          int clusterId = -1;
-          if (identifierValue != null) {
-            clusterId = ctx.getDatabase().getClusterIdByName(identifierValue.getStringValue());
-            if (clusterId < 0) {
-              throw new CommandExecutionException("Cluster not found: " + this);
-            }
-          } else if (numberValue != null) {
-            clusterId = numberValue.getValue().intValue();
-          } else {
-            throw new CommandExecutionException("Invalid cluster value: " + this);
-          }
-          oClass.removeClusterId(database, clusterId);
           break;
         case DESCRIPTION:
           if (identifierValue != null) {
-            oClass.setDescription(database, identifierValue.getStringValue());
+            oClass.setDescription(identifierValue.getStringValue());
           } else {
-            throw new CommandExecutionException("Invalid class name: " + this);
+            throw new CommandExecutionException(ctx.getDatabaseSession(),
+                "Invalid class name: " + this);
           }
-          break;
-        case CLUSTER_SELECTION:
-          if (identifierValue != null) {
-            oClass.setClusterSelection(database, identifierValue.getStringValue());
-          } else if (customString != null) {
-            oClass.setClusterSelection(database, customString);
-          } else {
-            oClass.setClusterSelection(database, "null");
-          }
-          break;
-        case SUPERCLASS:
-          doSetSuperclass(ctx, oClass, identifierValue);
           break;
         case SUPERCLASSES:
           if (identifierListValue == null) {
-            oClass.setSuperClasses(database, Collections.EMPTY_LIST);
+            oClass.setSuperClasses(Collections.emptyList());
           } else {
             doSetSuperclasses(ctx, oClass, identifierListValue);
           }
           break;
         case STRICT_MODE:
-          oClass.setStrictMode(database, booleanValue.booleanValue());
+          oClass.setStrictMode(booleanValue);
           break;
         case ABSTRACT:
-          oClass.setAbstract(database, booleanValue.booleanValue());
+          oClass.setAbstract(booleanValue);
           break;
         case CUSTOM:
           Object value = null;
@@ -378,22 +289,22 @@ public class SQLAlterClassStatement extends DDLStatement {
           if (value != null) {
             value = "" + value;
           }
-          oClass.setCustom(database, customKey.getStringValue(), (String) value);
+          oClass.setCustom(customKey.getStringValue(), (String) value);
           break;
       }
     }
 
-    ResultInternal result = new ResultInternal(database);
+    var result = new ResultInternal(database);
     result.setProperty("operation", "ALTER CLASS");
     result.setProperty("className", name.getStringValue());
     result.setProperty("result", "OK");
     return ExecutionStream.singleton(result);
   }
 
-  private void checkNotIndexed(DatabaseSessionInternal session, SchemaClassInternal oClass) {
-    Set<Index> indexes = oClass.getIndexesInternal(session);
-    if (indexes != null && indexes.size() > 0) {
-      throw new CommandExecutionException(
+  private static void checkNotIndexed(DatabaseSessionInternal session, SchemaClassInternal oClass) {
+    var indexes = oClass.getIndexesInternal();
+    if (indexes != null && !indexes.isEmpty()) {
+      throw new CommandExecutionException(session,
           "Cannot rename class '"
               + oClass.getName()
               + "' because it has indexes defined on it. Drop indexes before or use UNSAFE (at your"
@@ -401,9 +312,9 @@ public class SQLAlterClassStatement extends DDLStatement {
     }
   }
 
-  private void checkNotEdge(SchemaClass oClass) {
+  private static void checkNotEdge(DatabaseSessionInternal session, SchemaClass oClass) {
     if (oClass.isSubClassOf("E")) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(session,
           "Cannot alter class '"
               + oClass
               + "' because is an Edge class and could break vertices. Use UNSAFE if you want to"
@@ -414,48 +325,53 @@ public class SQLAlterClassStatement extends DDLStatement {
   private void doSetSuperclass(CommandContext ctx, SchemaClass oClass,
       SQLIdentifier superclassName) {
     if (superclassName == null) {
-      throw new CommandExecutionException("Invalid superclass name: " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Invalid superclass name: " + this);
     }
-    var database = ctx.getDatabase();
-    SchemaClass superclass =
+    var database = ctx.getDatabaseSession();
+    var superclass =
         database.getMetadata().getSchema().getClass(superclassName.getStringValue());
     if (superclass == null) {
-      throw new CommandExecutionException("superclass not found: " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "superclass not found: " + this);
     }
     if (Boolean.TRUE.equals(add)) {
-      oClass.addSuperClass(database, superclass);
+      oClass.addSuperClass(superclass);
     } else if (Boolean.TRUE.equals(remove)) {
-      oClass.removeSuperClass(database, superclass);
+      oClass.removeSuperClass(superclass);
     } else {
-      oClass.setSuperClasses(database, Collections.singletonList(superclass));
+      oClass.setSuperClasses(Collections.singletonList(superclass));
     }
   }
 
   private void doSetSuperclasses(
       CommandContext ctx, SchemaClass oClass, List<SQLIdentifier> superclassNames) {
-    var database = ctx.getDatabase();
+    var database = ctx.getDatabaseSession();
     if (superclassNames == null) {
-      throw new CommandExecutionException("Invalid superclass name: " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Invalid superclass name: " + this);
     }
     List<SchemaClass> superclasses = new ArrayList<>();
-    for (SQLIdentifier superclassName : superclassNames) {
-      SchemaClass superclass =
-          ctx.getDatabase().getMetadata().getSchema().getClass(superclassName.getStringValue());
+    for (var superclassName : superclassNames) {
+      var superclass =
+          ctx.getDatabaseSession().getMetadata().getSchema()
+              .getClass(superclassName.getStringValue());
       if (superclass == null) {
-        throw new CommandExecutionException("superclass not found: " + this);
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "superclass not found: " + this);
       }
       superclasses.add(superclass);
     }
     if (Boolean.TRUE.equals(add)) {
-      for (SchemaClass superclass : superclasses) {
-        oClass.addSuperClass(database, superclass);
+      for (var superclass : superclasses) {
+        oClass.addSuperClass(superclass);
       }
     } else if (Boolean.TRUE.equals(remove)) {
-      for (SchemaClass superclass : superclasses) {
-        oClass.removeSuperClass(database, superclass);
+      for (var superclass : superclasses) {
+        oClass.removeSuperClass(superclass);
       }
     } else {
-      oClass.setSuperClasses(database, superclasses);
+      oClass.setSuperClasses(superclasses);
     }
   }
 }

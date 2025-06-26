@@ -1,25 +1,23 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeResponse;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
+import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeResponse;
 import com.jetbrains.youtrack.db.internal.common.io.YTIOException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
-import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeRequest;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
+import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
 
-/**
- *
- */
 public class StorageRemotePushThread extends Thread {
-
   private final RemotePushHandler pushHandler;
   private final String host;
   private final int retryDelay;
@@ -52,27 +50,27 @@ public class StorageRemotePushThread extends Thread {
     while (!Thread.interrupted() && !shutDown) {
       try {
         network.setWaitResponseTimeout();
-        byte res = network.readByte();
+        var res = network.readByte();
         if (res == ChannelBinaryProtocol.RESPONSE_STATUS_OK) {
-          int currentSessionId = network.readInt();
-          byte[] token = network.readBytes();
-          byte messageId = network.readByte();
-          BinaryResponse response = currentRequest.createResponse();
+          var currentSessionId = network.readInt();
+          var token = network.readBytes();
+          var messageId = network.readByte();
+          var response = currentRequest.createResponse();
           response.read(null, network, null);
           blockingQueue.put(response);
         } else if (res == ChannelBinaryProtocol.RESPONSE_STATUS_ERROR) {
-          int currentSessionId = network.readInt();
-          byte[] token = network.readBytes();
-          byte messageId = network.readByte();
+          var currentSessionId = network.readInt();
+          var token = network.readBytes();
+          var messageId = network.readByte();
           // TODO move handle status somewhere else
           ((SocketChannelBinaryAsynchClient) network)
               .handleStatus(null, res, currentSessionId, this::handleException);
         } else {
-          byte push = network.readByte();
-          BinaryPushRequest request = pushHandler.createPush(push);
-          request.read(null, network);
+          var push = network.readByte();
+          var request = pushHandler.createPush(push);
           try {
-            BinaryPushResponse response = request.execute(null, pushHandler);
+            var response = request.execute(pushHandler, network);
+
             if (response != null) {
               synchronized (this) {
                 network.writeByte(ChannelBinaryProtocol.REQUEST_OK_PUSH);
@@ -112,18 +110,23 @@ public class StorageRemotePushThread extends Thread {
     }
   }
 
+  @Nullable
   public <T extends BinaryResponse> T subscribe(
-      BinaryRequest<T> request, StorageRemoteSession session) {
+      BinaryRequest<T> request, BinaryProtocolSession session,
+      DatabasePoolInternal<RemoteDatabaseSession> sessionPool) {
     try {
-      long timeout;
       synchronized (this) {
         this.currentRequest = new SubscribeRequest(request);
         ((SocketChannelBinaryAsynchClient) network)
             .beginRequest(ChannelBinaryProtocol.SUBSCRIBE_PUSH, session);
-        this.currentRequest.write(null, network, null);
+
+        try (var databaseSession = (RemoteDatabaseSessionInternal) sessionPool.acquire()) {
+          this.currentRequest.write(databaseSession, network, null);
+        }
+
         network.flush();
       }
-      Object poll = blockingQueue.poll(requestTimeout, TimeUnit.MILLISECONDS);
+      var poll = blockingQueue.poll(requestTimeout, TimeUnit.MILLISECONDS);
       if (poll == null) {
         return null;
       }

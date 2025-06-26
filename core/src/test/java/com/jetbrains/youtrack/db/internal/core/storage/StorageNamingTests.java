@@ -19,24 +19,20 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.InvalidDatabaseNameException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersOne() {
-    try (YouTrackDB youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       try {
         youTrackDB.create("name%", DatabaseType.MEMORY);
@@ -49,7 +45,7 @@ public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersTwo() {
-    try (YouTrackDB youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       try {
         youTrackDB.create("na.me", DatabaseType.MEMORY);
@@ -62,7 +58,7 @@ public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersThree() {
-    try (YouTrackDB youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       youTrackDB.create("na_me$", DatabaseType.MEMORY);
       youTrackDB.drop("na_me$");
@@ -71,17 +67,17 @@ public class StorageNamingTests {
 
   @Test
   public void commaInPathShouldBeAllowed() {
-    AbstractPaginatedStorage.checkName("/path/with/,/but/not/in/the/name");
-    AbstractPaginatedStorage.checkName("/,,,/,/,/name");
+    AbstractStorage.checkName("/path/with/,/but/not/in/the/name");
+    AbstractStorage.checkName("/,,,/,/,/name");
   }
 
   @Test(expected = InvalidDatabaseNameException.class)
   public void commaInNameShouldThrow() {
-    AbstractPaginatedStorage.checkName("/path/with/,/name/with,");
+    AbstractStorage.checkName("/path/with/,/name/with,");
   }
 
   @Test(expected = InvalidDatabaseNameException.class)
   public void name() throws Exception {
-    AbstractPaginatedStorage.checkName("/name/with,");
+    AbstractStorage.checkName("/name/with,");
   }
 }

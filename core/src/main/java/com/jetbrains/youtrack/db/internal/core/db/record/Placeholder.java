@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
@@ -56,16 +55,12 @@ public class Placeholder implements Identifiable, Streamable {
     recordVersion = iRecord.getVersion();
   }
 
+  @Nonnull
   @Override
   public RID getIdentity() {
     return rid;
   }
 
-  @Nonnull
-  @Override
-  public <T extends DBRecord> T getRecord() {
-    return rid.getRecord();
-  }
 
   @Override
   public boolean equals(final Object obj) {
@@ -84,11 +79,6 @@ public class Placeholder implements Identifiable, Streamable {
   @Override
   public int compareTo(Identifiable o) {
     return rid.compareTo(o);
-  }
-
-  @Override
-  public int compare(Identifiable o1, Identifiable o2) {
-    return rid.compare(o1, o2);
   }
 
   public int getVersion() {

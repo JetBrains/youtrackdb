@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command;
 
-import com.jetbrains.youtrack.db.internal.core.db.ExecutionThreadLocal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
@@ -28,12 +28,11 @@ import com.jetbrains.youtrack.db.internal.core.serialization.MemoryStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerStringAbstract;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import javax.annotation.Nonnull;
 
 /**
  * Text based Command Request abstract class.
@@ -55,45 +54,32 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     text = iText.trim();
   }
 
-  /**
-   * Delegates the execution to the configured command executor.
-   */
-  @SuppressWarnings("unchecked")
-  public <RET> RET execute(@Nonnull DatabaseSessionInternal querySession, final Object... iArgs) {
-    setParameters(iArgs);
 
-    ExecutionThreadLocal.INSTANCE.get().onAsyncReplicationOk = onAsyncReplicationOk;
-    ExecutionThreadLocal.INSTANCE.get().onAsyncReplicationError = onAsyncReplicationError;
-
-    if (context == null) {
-      context = new BasicCommandContext();
-    }
-
-    context.setDatabase(querySession);
-    return (RET) querySession.getStorage()
-        .command(querySession, this);
-  }
-
+  @Override
   public String getText() {
     return text;
   }
 
+  @Override
   public CommandRequestText setText(final String iText) {
     this.text = iText;
     return this;
   }
 
-  public CommandRequestText fromStream(DatabaseSessionInternal db, final byte[] iStream,
-      RecordSerializer serializer)
+  @Override
+  public CommandRequestText fromStream(DatabaseSessionEmbedded session, final byte[] iStream,
+      RecordSerializerNetwork serializer)
       throws SerializationException {
-    final MemoryStream buffer = new MemoryStream(iStream);
-    fromStream(db, buffer, serializer);
+    final var buffer = new MemoryStream(iStream);
+    fromStream(session, buffer, serializer);
     return this;
   }
 
-  public byte[] toStream() throws SerializationException {
-    final MemoryStream buffer = new MemoryStream();
-    return toStream(buffer);
+  @Override
+  public byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer)
+      throws SerializationException {
+    final var buffer = new MemoryStream();
+    return toStream(buffer, session);
   }
 
   @Override
@@ -101,10 +87,10 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     return "?." + text;
   }
 
-  protected byte[] toStream(final MemoryStream buffer) {
+  protected byte[] toStream(final MemoryStream buffer, DatabaseSessionInternal session) {
     buffer.setUtf8(text);
 
-    if (parameters == null || parameters.size() == 0) {
+    if (parameters == null || parameters.isEmpty()) {
       // simple params are absent
       buffer.set(false);
       // composite keys are absent
@@ -113,7 +99,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
       final Map<Object, Object> params = new HashMap<Object, Object>();
       final Map<Object, List<Object>> compositeKeyParams = new HashMap<Object, List<Object>>();
 
-      for (final Entry<Object, Object> paramEntry : parameters.entrySet()) {
+      for (final var paramEntry : parameters.entrySet()) {
         if (paramEntry.getValue() instanceof CompositeKey compositeKey) {
           compositeKeyParams.put(paramEntry.getKey(), compositeKey.getKeys());
         } else {
@@ -123,15 +109,15 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
 
       buffer.set(!params.isEmpty());
       if (!params.isEmpty()) {
-        final EntityImpl param = new EntityImpl();
-        param.field("parameters", params);
+        final var param = (EntityImpl) session.newEmbeddedEntity();
+        param.setProperty("parameters", params);
         buffer.set(param.toStream());
       }
 
       buffer.set(!compositeKeyParams.isEmpty());
       if (!compositeKeyParams.isEmpty()) {
-        final EntityImpl compositeKey = new EntityImpl();
-        compositeKey.field("compositeKeyParams", compositeKeyParams);
+        final var compositeKey = (EntityImpl) session.newEmbeddedEntity();
+        compositeKey.setProperty("compositeKeyParams", compositeKeyParams);
         buffer.set(compositeKey.toStream());
       }
     }
@@ -139,29 +125,29 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
     return buffer.toByteArray();
   }
 
-  protected void fromStream(DatabaseSessionInternal db, final MemoryStream buffer,
+  protected void fromStream(DatabaseSessionEmbedded session, final MemoryStream buffer,
       RecordSerializer serializer) {
     text = buffer.getAsString();
 
     parameters = null;
 
-    final boolean simpleParams = buffer.getAsBoolean();
+    final var simpleParams = buffer.getAsBoolean();
     if (simpleParams) {
-      final byte[] paramBuffer = buffer.getAsByteArray();
-      final EntityImpl param = new EntityImpl();
+      final var paramBuffer = buffer.getAsByteArray();
+      final var param = (EntityImpl) session.newEmbeddedEntity();
       if (serializer != null) {
-        serializer.fromStream(db, paramBuffer, param, null);
+        serializer.fromStream(session, paramBuffer, param, null);
       } else {
         param.fromStream(paramBuffer);
       }
 
-      Map<Object, Object> params = param.field("params");
+      Map<Object, Object> params = param.getProperty("params");
       parameters = new HashMap<Object, Object>();
       if (params != null) {
-        for (Entry<Object, Object> p : params.entrySet()) {
+        for (var p : params.entrySet()) {
           final Object value;
           if (p.getValue() instanceof String) {
-            value = RecordSerializerStringAbstract.getTypeValue(db, (String) p.getValue());
+            value = RecordSerializerStringAbstract.getTypeValue(session, (String) p.getValue());
           } else {
             value = p.getValue();
           }
@@ -173,8 +159,8 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
           }
         }
       } else {
-        params = param.field("parameters");
-        for (Entry<Object, Object> p : params.entrySet()) {
+        params = param.getProperty("parameters");
+        for (var p : params.entrySet()) {
           if (p.getKey() instanceof String && Character.isDigit(((String) p.getKey()).charAt(0))) {
             parameters.put(Integer.parseInt((String) p.getKey()), p.getValue());
           } else {
@@ -184,25 +170,25 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
       }
     }
 
-    final boolean compositeKeyParamsPresent = buffer.getAsBoolean();
+    final var compositeKeyParamsPresent = buffer.getAsBoolean();
     if (compositeKeyParamsPresent) {
-      final byte[] paramBuffer = buffer.getAsByteArray();
-      final EntityImpl param = new EntityImpl();
+      final var paramBuffer = buffer.getAsByteArray();
+      final var param = (EntityImpl) session.newEmbeddedEntity();
       if (serializer != null) {
-        serializer.fromStream(db, paramBuffer, param, null);
+        serializer.fromStream(session, paramBuffer, param, null);
       } else {
         param.fromStream(paramBuffer);
       }
 
-      final Map<Object, Object> compositeKeyParams = param.field("compositeKeyParams");
+      final Map<Object, Object> compositeKeyParams = param.getProperty("compositeKeyParams");
 
       if (parameters == null) {
         parameters = new HashMap<Object, Object>();
       }
 
-      for (final Entry<Object, Object> p : compositeKeyParams.entrySet()) {
+      for (final var p : compositeKeyParams.entrySet()) {
         if (p.getValue() instanceof List) {
-          final CompositeKey compositeKey = new CompositeKey((List<?>) p.getValue());
+          final var compositeKey = new CompositeKey((List<?>) p.getValue());
           if (p.getKey() instanceof String && Character.isDigit(((String) p.getKey()).charAt(0))) {
             parameters.put(Integer.parseInt((String) p.getKey()), compositeKey);
           } else {
@@ -211,7 +197,7 @@ public abstract class CommandRequestTextAbstract extends CommandRequestAbstract
 
         } else {
           final Object value =
-              CompositeKeySerializer.INSTANCE.deserialize(
+              CompositeKeySerializer.INSTANCE.deserialize(session.getSerializerFactory(),
                   StringSerializerHelper.getBinaryContent(p.getValue()), 0);
 
           if (p.getKey() instanceof String && Character.isDigit(((String) p.getKey()).charAt(0))) {

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.lucene.builder;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -21,7 +22,7 @@ public class LuceneDateTools {
 
   static {
     RESOLUTIONS = new Resolution[Resolution.MILLISECOND.formatLen + 1];
-    for (Resolution resolution : Resolution.values()) {
+    for (var resolution : Resolution.values()) {
       RESOLUTIONS[resolution.formatLen] = resolution;
     }
   }
@@ -35,11 +36,13 @@ public class LuceneDateTools {
    * time, represented as the number of milliseconds since January 1, 1970, 00:00:00 GMT.
    *
    * @param dateString the date string to be converted
+   * @param session
    * @return the number of milliseconds since January 1, 1970, 00:00:00 GMT
    * @throws ParseException if <code>dateString</code> is not in the expected format
    */
-  public static long stringToTime(String dateString) throws ParseException {
-    return stringToDate(dateString).getTime();
+  public static long stringToTime(String dateString, DatabaseSessionInternal session)
+      throws ParseException {
+    return stringToDate(dateString, session).getTime();
   }
 
   /**
@@ -47,12 +50,14 @@ public class LuceneDateTools {
    * time, represented as a Date object.
    *
    * @param dateString the date string to be converted
+   * @param session
    * @return the parsed time as a Date object
    * @throws ParseException if <code>dateString</code> is not in the expected format
    */
-  public static Date stringToDate(String dateString) throws ParseException {
+  public static Date stringToDate(String dateString, DatabaseSessionInternal session)
+      throws ParseException {
     try {
-      SimpleDateFormat format = RESOLUTIONS[dateString.length()].format();
+      var format = RESOLUTIONS[dateString.length()].format(session);
       return format.parse(dateString);
     } catch (Exception e) {
       LogManager.instance()
@@ -101,13 +106,13 @@ public class LuceneDateTools {
       this.formatLen = formatLen;
     }
 
-    public SimpleDateFormat format() {
+    public SimpleDateFormat format(DatabaseSessionInternal session) {
       // formatLen 10's place:                     11111111
       // formatLen  1's place:            12345678901234567
 
-      SimpleDateFormat format =
+      var format =
           new SimpleDateFormat("yyyyMMddHHmmssSSS".substring(0, formatLen), Locale.ROOT);
-      format.setTimeZone(DateHelper.getDatabaseTimeZone());
+      format.setTimeZone(DateHelper.getDatabaseTimeZone(session));
 
       return format;
     }

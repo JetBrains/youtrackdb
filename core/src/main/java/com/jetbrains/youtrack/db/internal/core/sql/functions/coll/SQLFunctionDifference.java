@@ -21,10 +21,12 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -39,25 +41,26 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
     super(NAME, 1, -1);
   }
 
-  @SuppressWarnings("unchecked")
+  @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
 
     if (Boolean.TRUE.equals(iContext.getVariable("aggregation"))) {
-      throw new CommandExecutionException("difference function cannot be used in aggregation mode");
+      throw new CommandExecutionException(iContext.getDatabaseSession(),
+          "difference function cannot be used in aggregation mode");
     }
 
     // if the first parameter is null, then the overall result is empty
     if (iParams[0] == null) {
-      return Set.of();
+      return List.of();
     }
 
     // IN-LINE MODE (STATELESS)
-    final Set<Object> result = new HashSet<Object>();
+    final Set<Object> result = new LinkedHashSet<>();
 
     final var firstIt = MultiValue.getMultiValueIterator(iParams[0]);
     while (firstIt.hasNext()) {
@@ -65,10 +68,10 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
     }
 
     if (result.isEmpty()) { // no need to iterate further
-      return Set.of();
+      return List.of();
     }
 
-    for (int i = 1; i < iParams.length; i++) {
+    for (var i = 1; i < iParams.length; i++) {
       // if the parameter is null, ignoring it, it will not affect the difference result
       if (iParams[i] == null) {
         continue;
@@ -80,9 +83,13 @@ public class SQLFunctionDifference extends SQLFunctionMultiValueAbstract<Set<Obj
       }
     }
 
-    return result;
+    // still need to return a list here, because returning a Set can
+    // break the order, as some of our code performs collection copying based on
+    // "instanceof Set" check.
+    return new ArrayList<>(result);
   }
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "difference(<field> [, <field]*)";
   }

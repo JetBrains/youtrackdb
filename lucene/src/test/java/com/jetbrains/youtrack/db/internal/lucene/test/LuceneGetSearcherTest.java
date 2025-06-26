@@ -18,10 +18,8 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.lucene.index.LuceneIndexNotUnique;
 import org.junit.Assert;
 import org.junit.Before;
@@ -34,24 +32,23 @@ public class LuceneGetSearcherTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass song = schema.createClass("Person");
-    song.setSuperClass(db, v);
-    song.createProperty(db, "isDeleted", PropertyType.BOOLEAN);
+    Schema schema = session.getMetadata().getSchema();
+    var song = schema.createVertexClass("Person");
+    song.createProperty("isDeleted", PropertyType.BOOLEAN);
 
-    db.command("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE")
+    session.execute("create index Person.isDeleted on Person (isDeleted) FULLTEXT ENGINE LUCENE")
         .close();
   }
 
   @Test
   public void testSearcherInstance() {
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Person.isDeleted");
+    var index = session.getSharedContext().getIndexManager()
+        .getIndex("Person.isDeleted");
 
-    Assert.assertTrue(index.getInternal() instanceof LuceneIndexNotUnique);
+    Assert.assertTrue(index instanceof LuceneIndexNotUnique);
 
-    LuceneIndexNotUnique idx = (LuceneIndexNotUnique) index.getInternal();
+    var idx = (LuceneIndexNotUnique) index;
 
     Assert.assertNotNull(idx.searcher());
   }

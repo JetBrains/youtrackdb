@@ -2,13 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.UpdateExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.UpdateExecutionPlanner;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,13 +42,14 @@ public class SQLUpdateStatement extends SQLStatement {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(getStatementType());
     if (target != null) {
       target.toString(params, builder);
     }
 
-    for (SQLUpdateOperations ops : this.operations) {
+    for (var ops : this.operations) {
       builder.append(" ");
       ops.toString(params, builder);
     }
@@ -84,13 +85,14 @@ public class SQLUpdateStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append(getStatementType());
     if (target != null) {
       target.toGenericStatement(builder);
     }
 
-    for (SQLUpdateOperations ops : this.operations) {
+    for (var ops : this.operations) {
       builder.append(" ");
       ops.toGenericStatement(builder);
     }
@@ -143,7 +145,7 @@ public class SQLUpdateStatement extends SQLStatement {
     result.operations =
         operations == null
             ? null
-            : operations.stream().map(x -> x.copy()).collect(Collectors.toList());
+            : operations.stream().map(SQLUpdateOperations::copy).collect(Collectors.toList());
     result.upsert = upsert;
     result.returnBefore = returnBefore;
     result.returnAfter = returnAfter;
@@ -156,16 +158,16 @@ public class SQLUpdateStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -177,17 +179,18 @@ public class SQLUpdateStatement extends SQLStatement {
       executionPlan = (UpdateExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
     UpdateExecutionPlan executionPlan;
     if (usePlanCache) {
@@ -196,12 +199,13 @@ public class SQLUpdateStatement extends SQLStatement {
       executionPlan = (UpdateExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public UpdateExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    UpdateExecutionPlanner planner = new UpdateExecutionPlanner(this);
-    UpdateExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling);
+    var planner = new UpdateExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
@@ -216,7 +220,7 @@ public class SQLUpdateStatement extends SQLStatement {
       return false;
     }
 
-    SQLUpdateStatement that = (SQLUpdateStatement) o;
+    var that = (SQLUpdateStatement) o;
 
     if (upsert != that.upsert) {
       return false;
@@ -247,7 +251,7 @@ public class SQLUpdateStatement extends SQLStatement {
 
   @Override
   public int hashCode() {
-    int result = target != null ? target.hashCode() : 0;
+    var result = target != null ? target.hashCode() : 0;
     result = 31 * result + (operations != null ? operations.hashCode() : 0);
     result = 31 * result + (upsert ? 1 : 0);
     result = 31 * result + (returnBefore ? 1 : 0);

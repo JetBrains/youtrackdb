@@ -20,11 +20,9 @@
 
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -32,79 +30,65 @@ public class DocumentTest extends DbTestBase {
 
   @Test
   public void testFromMapNotSaved() {
-    final EntityImpl doc = new EntityImpl();
-    doc.field("name", "Jay");
-    doc.field("surname", "Miner");
-    Map<String, Object> map = doc.toMap();
+    session.begin();
+    final var doc = session.newEntity();
+    doc.setString("name", "Jay");
+    doc.setString("surname", "Miner");
+    var map = doc.toMap(false);
 
-    Assert.assertEquals(map.size(), 2);
-    Assert.assertEquals(map.get("name"), "Jay");
-    Assert.assertEquals(map.get("surname"), "Miner");
+    Assert.assertEquals(2, map.size());
+    Assert.assertEquals("Jay", map.get("name"));
+    Assert.assertEquals("Miner", map.get("surname"));
+    session.rollback();
   }
 
   @Test
   public void testFromMapWithClass() {
-    final EntityImpl doc = new EntityImpl("OUser");
-    doc.field("name", "Jay");
-    doc.field("surname", "Miner");
-    Map<String, Object> map = doc.toMap();
+    session.begin();
+    final var doc = (EntityImpl) session.newEntity("OUser");
+    doc.setProperty("name", "Jay");
+    doc.setProperty("surname", "Miner");
+    var map = doc.toMap();
 
-    Assert.assertEquals(map.size(), 3);
-    Assert.assertEquals(map.get("name"), "Jay");
-    Assert.assertEquals(map.get("surname"), "Miner");
-    Assert.assertEquals(map.get("@class"), "OUser");
+    Assert.assertEquals(5, map.size());
+    Assert.assertEquals("Jay", map.get("name"));
+    Assert.assertEquals("Miner", map.get("surname"));
+    Assert.assertEquals("OUser", map.get("@class"));
+    Assert.assertEquals(doc.getVersion() + 1, map.get("@version"));
+    Assert.assertTrue(map.containsKey("@rid"));
+    session.rollback();
   }
 
   @Test
   public void testFromMapWithClassAndRid() {
-    db.begin();
-    final EntityImpl doc = new EntityImpl("V");
-    doc.field("name", "Jay");
-    doc.field("surname", "Miner");
-    doc.save();
-    db.commit();
+    session.begin();
+    final var doc = (EntityImpl) session.newVertex();
+    doc.setProperty("name", "Jay");
+    doc.setProperty("surname", "Miner");
 
-    Map<String, Object> map = db.bindToSession(doc).toMap();
+    session.commit();
 
-    Assert.assertEquals(map.size(), 4);
-    Assert.assertEquals(map.get("name"), "Jay");
-    Assert.assertEquals(map.get("surname"), "Miner");
-    Assert.assertEquals(map.get("@class"), "V");
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    var map = activeTx.<EntityImpl>load(doc).toMap();
+
+    Assert.assertEquals(5, map.size());
+    Assert.assertEquals("Jay", map.get("name"));
+    Assert.assertEquals("Miner", map.get("surname"));
+    Assert.assertEquals("V", map.get("@class"));
+    Assert.assertEquals(doc.getVersion(), map.get("@version"));
     Assert.assertTrue(map.containsKey("@rid"));
+    session.commit();
   }
 
   @Test
   public void testConversionOnTypeSet() {
-    EntityImpl doc = new EntityImpl();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity();
 
-    doc.field("some", 3);
-    doc.setFieldType("some", PropertyType.STRING);
-    Assert.assertEquals(doc.fieldType("some"), PropertyType.STRING);
-    Assert.assertEquals(doc.field("some"), "3");
-  }
-
-  @Test
-  public void testEval() {
-    EntityImpl doc = new EntityImpl();
-
-    doc.field("amount", 300);
-
-    Number amountPlusVat = (Number) doc.eval("amount * 120 / 100");
-
-    Assert.assertEquals(amountPlusVat.longValue(), 360L);
-  }
-
-  @Test
-  public void testEvalInContext() {
-    EntityImpl doc = new EntityImpl();
-
-    doc.field("amount", 300);
-
-    BasicCommandContext context = new BasicCommandContext();
-    context.setVariable("vat", 20);
-    context.setDatabase(db);
-    Number amountPlusVat = (Number) doc.eval("amount * (100 + $vat) / 100", context);
-
-    Assert.assertEquals(amountPlusVat.longValue(), 360L);
+    doc.setProperty("some", 3, PropertyType.STRING);
+    Assert.assertEquals(PropertyType.STRING, doc.getPropertyType("some"));
+    Assert.assertEquals("3", doc.getProperty("some"));
+    session.rollback();
   }
 }

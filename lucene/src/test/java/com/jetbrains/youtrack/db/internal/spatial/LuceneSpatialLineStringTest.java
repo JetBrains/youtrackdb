@@ -13,13 +13,9 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,101 +35,96 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
 
   @Before
   public void initMore() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass oClass = schema.createClass("Place");
-    oClass.setSuperClass(db, v);
-    oClass.createProperty(db, "location", PropertyType.EMBEDDED, schema.getClass("OLineString"));
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var v = schema.getClass("V");
+    var oClass = schema.createClass("Place");
+    oClass.addSuperClass(v);
+    oClass.createProperty("location", PropertyType.EMBEDDED,
+        schema.getClass("OLineString"));
+    oClass.createProperty("name", PropertyType.STRING);
 
-    db.command("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX Place.location ON Place(location) SPATIAL ENGINE LUCENE").close();
 
-    EntityImpl linestring1 = new EntityImpl("Place");
-    linestring1.field("name", "LineString1");
-    linestring1.field(
-        "location",
-        createLineString(
-            new ArrayList<List<Double>>() {
-              {
-                add(Arrays.asList(0d, 0d));
-                add(Arrays.asList(3d, 3d));
-              }
-            }));
+    var linestring1 = ((EntityImpl) session.newEntity("Place"));
+    linestring1.setProperty("name", "LineString1");
+    linestring1.setProperty("location", createLineString(
+        new ArrayList<>() {
+          {
+            add(Arrays.asList(0d, 0d));
+            add(Arrays.asList(3d, 3d));
+          }
+        }));
 
-    EntityImpl linestring2 = new EntityImpl("Place");
-    linestring2.field("name", "LineString2");
-    linestring2.field(
-        "location",
-        createLineString(
-            new ArrayList<List<Double>>() {
-              {
-                add(Arrays.asList(0d, 1d));
-                add(Arrays.asList(0d, 5d));
-              }
-            }));
+    var linestring2 = ((EntityImpl) session.newEntity("Place"));
+    linestring2.setProperty("name", "LineString2");
+    linestring2.setProperty("location", createLineString(
+        new ArrayList<>() {
+          {
+            add(Arrays.asList(0d, 1d));
+            add(Arrays.asList(0d, 5d));
+          }
+        }));
 
-    db.begin();
-    db.save(linestring1);
-    db.save(linestring2);
-    db.commit();
+    session.begin();
+    session.commit();
 
-    db.begin();
-    db.command(
+    session.begin();
+    session.execute(
             "insert into Place set name = 'LineString3' , location = ST_GeomFromText('"
                 + LINEWKT
                 + "')")
         .close();
-    db.commit();
+    session.commit();
   }
 
   public EntityImpl createLineString(List<List<Double>> coordinates) {
-    EntityImpl location = new EntityImpl("OLineString");
-    location.field("coordinates", coordinates);
+    var location = ((EntityImpl) session.newEntity("OLineString"));
+    location.setProperty("coordinates", coordinates);
     return location;
   }
 
   @Ignore
   public void testLineStringWithoutIndex() throws IOException {
-    db.command("drop index Place.location").close();
+    session.execute("drop index Place.location").close();
     queryLineString();
   }
 
   protected void queryLineString() {
-    String query =
+    var query =
         "select * from Place where location && { 'shape' : { 'type' : 'OLineString' , 'coordinates'"
             + " : [[1,2],[4,6]]} } ";
-    var docs = db.query(query).toEntityList();
+    var entities = session.query(query).entityStream().toList();
 
-    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, entities.size());
 
     query = "select * from Place where location && 'LINESTRING(1 2, 4 6)' ";
-    docs = db.query(new SQLSynchQuery<EntityImpl>(query));
+    entities = session.query(query).entityStream().toList();
 
-    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, entities.size());
 
     query = "select * from Place where location && ST_GeomFromText('LINESTRING(1 2, 4 6)') ";
-    docs = db.query(query).toEntityList();
+    entities = session.query(query).entityStream().toList();
 
-    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, entities.size());
 
     query =
         "select * from Place where location && 'POLYGON((-150.205078125"
             + " 61.40723633876356,-149.2657470703125 61.40723633876356,-149.2657470703125"
             + " 61.05562700886678,-150.205078125 61.05562700886678,-150.205078125"
             + " 61.40723633876356))' ";
-    docs = db.query(query).toEntityList();
+    entities = session.query(query).entityStream().toList();
 
-    Assert.assertEquals(1, docs.size());
+    Assert.assertEquals(1, entities.size());
   }
 
   @Ignore
   public void testIndexingLineString() throws IOException {
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Place.location");
+    var index = session.getSharedContext().getIndexManager().getIndex("Place.location");
 
-    db.begin();
-    Assert.assertEquals(3, index.getInternal().size(db));
-    db.commit();
+    session.begin();
+    Assert.assertEquals(3, index.size(session));
+    session.commit();
     queryLineString();
   }
 }

@@ -20,19 +20,24 @@
 package com.jetbrains.youtrack.db.internal.core.tx;
 
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import java.util.IdentityHashMap;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import javax.annotation.Nonnull;
 
 /**
  * Collects the changes to an index for a certain key
  */
 public class FrontendTransactionIndexChanges implements IdentityChangeListener {
+
+  @Nonnull
+  private final Index index;
+
+  public FrontendTransactionIndexChanges(@Nonnull Index index) {
+    this.index = index;
+  }
 
   public enum OPERATION {
     PUT,
@@ -40,7 +45,7 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
     CLEAR
   }
 
-  public NavigableMap<Object, FrontendTransactionIndexChangesPerKey> changesPerKey =
+  public TreeMap<Object, FrontendTransactionIndexChangesPerKey> changesPerKey =
       new TreeMap<>(DefaultComparator.INSTANCE);
 
   private final IdentityHashMap<Object, FrontendTransactionIndexChangesPerKey> identityChangeQueue =
@@ -50,8 +55,6 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
       null);
 
   public boolean cleared = false;
-
-  private IndexInternal resolvedIndex = null;
 
   public FrontendTransactionIndexChangesPerKey getChangesPerKey(final Object key) {
     if (key == null) {
@@ -66,6 +69,11 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
     nullKeyChanges.clear();
 
     cleared = true;
+  }
+
+  @Nonnull
+  public Index getIndex() {
+    return index;
   }
 
   public Object getFirstKey() {
@@ -102,22 +110,6 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
     } else {
       return new Object[]{interval.firstKey(), interval.lastKey()};
     }
-  }
-
-  public IndexInternal resolveAssociatedIndex(
-      String indexName, IndexManagerAbstract indexManager, DatabaseSessionInternal db) {
-    if (resolvedIndex == null) {
-      final Index index = indexManager.getIndex(db, indexName);
-      if (index != null) {
-        resolvedIndex = index.getInternal();
-      }
-    }
-
-    return resolvedIndex;
-  }
-
-  public IndexInternal getAssociatedIndex() {
-    return resolvedIndex;
   }
 
   @Override

@@ -21,11 +21,11 @@ public class Pattern {
   public int numOfEdges = 0;
 
   public void addExpression(SQLMatchExpression expression) {
-    PatternNode originNode = getOrCreateNode(expression.origin);
+    var originNode = getOrCreateNode(expression.origin);
 
-    for (SQLMatchPathItem item : expression.items) {
-      String nextAlias = item.filter.getAlias();
-      PatternNode nextNode = getOrCreateNode(item.filter);
+    for (var item : expression.items) {
+      var nextAlias = item.filter.getAlias();
+      var nextNode = getOrCreateNode(item.filter);
 
       numOfEdges += originNode.addEdge(item, nextNode);
       originNode = nextNode;
@@ -33,7 +33,7 @@ public class Pattern {
   }
 
   private PatternNode getOrCreateNode(SQLMatchFilter origin) {
-    PatternNode originNode = get(origin.getAlias());
+    var originNode = get(origin.getAlias());
     if (originNode == null) {
       originNode = new PatternNode();
       originNode.alias = origin.getAlias();
@@ -54,7 +54,7 @@ public class Pattern {
   }
 
   public void validate() {
-    for (PatternNode node : this.aliasToNode.values()) {
+    for (var node : this.aliasToNode.values()) {
       if (node.isOptionalNode()) {
         if (node.out.size() > 0) {
           throw new CommandSQLParsingException(
@@ -87,21 +87,21 @@ public class Pattern {
 
     List<Pattern> result = new ArrayList<>();
     while (!reverseMap.isEmpty()) {
-      Pattern pattern = new Pattern();
+      var pattern = new Pattern();
       result.add(pattern);
-      Map.Entry<PatternNode, String> nextNode = reverseMap.entrySet().iterator().next();
+      var nextNode = reverseMap.entrySet().iterator().next();
       Set<PatternNode> toVisit = new HashSet<>();
       toVisit.add(nextNode.getKey());
       while (toVisit.size() > 0) {
-        PatternNode currentNode = toVisit.iterator().next();
+        var currentNode = toVisit.iterator().next();
         toVisit.remove(currentNode);
         if (reverseMap.containsKey(currentNode)) {
           pattern.aliasToNode.put(reverseMap.get(currentNode), currentNode);
           reverseMap.remove(currentNode);
-          for (PatternEdge x : currentNode.out) {
+          for (var x : currentNode.out) {
             toVisit.add(x.in);
           }
-          for (PatternEdge x : currentNode.in) {
+          for (var x : currentNode.in) {
             toVisit.add(x.out);
           }
         }
@@ -113,11 +113,11 @@ public class Pattern {
 
   private void recalculateNumOfEdges() {
     Map<PatternEdge, PatternEdge> edges = new IdentityHashMap<>();
-    for (PatternNode node : this.aliasToNode.values()) {
-      for (PatternEdge edge : node.out) {
+    for (var node : this.aliasToNode.values()) {
+      for (var edge : node.out) {
         edges.put(edge, edge);
       }
-      for (PatternEdge edge : node.in) {
+      for (var edge : node.in) {
         edges.put(edge, edge);
       }
     }

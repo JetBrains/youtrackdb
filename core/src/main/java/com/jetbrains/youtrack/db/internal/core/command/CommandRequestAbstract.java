@@ -23,11 +23,9 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext.TIMEOUT_STRATEGY;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.replication.AsyncReplicationError;
 import com.jetbrains.youtrack.db.internal.core.replication.AsyncReplicationOk;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -37,7 +35,7 @@ import java.util.Set;
  * Text based Command Request abstract class.
  */
 public abstract class CommandRequestAbstract
-    implements CommandRequestInternal, DistributedCommand {
+    implements CommandRequestInternal {
 
   protected CommandResultListener resultListener;
   protected ProgressListener progressListener;
@@ -58,14 +56,17 @@ public abstract class CommandRequestAbstract
   protected CommandRequestAbstract() {
   }
 
+  @Override
   public CommandResultListener getResultListener() {
     return resultListener;
   }
 
+  @Override
   public void setResultListener(CommandResultListener iListener) {
     resultListener = iListener;
   }
 
+  @Override
   public Map<Object, Object> getParameters() {
     return parameters;
   }
@@ -91,11 +92,11 @@ public abstract class CommandRequestAbstract
       }
 
       params = new HashMap<>(iArgs.length);
-      for (int i = 0; i < iArgs.length; ++i) {
-        Object par = iArgs[i];
+      for (var i = 0; i < iArgs.length; ++i) {
+        var par = iArgs[i];
 
         if (par instanceof Identifiable
-            && ((RecordId) ((Identifiable) par).getIdentity()).isValid())
+            && ((RecordId) ((Identifiable) par).getIdentity()).isValidPosition())
         // USE THE RID ONLY
         {
           par = ((Identifiable) par).getIdentity();
@@ -107,69 +108,38 @@ public abstract class CommandRequestAbstract
     return params;
   }
 
-  /**
-   * Defines a callback to call in case of the asynchronous replication succeed.
-   */
   @Override
-  public CommandRequestAbstract onAsyncReplicationOk(final AsyncReplicationOk iCallback) {
-    onAsyncReplicationOk = iCallback;
-    return this;
-  }
-
-  /**
-   * Defines a callback to call in case of error during the asynchronous replication.
-   */
-  @Override
-  public CommandRequestAbstract onAsyncReplicationError(final AsyncReplicationError iCallback) {
-    if (iCallback != null) {
-      onAsyncReplicationError =
-          new AsyncReplicationError() {
-            private int retry = 0;
-
-            @Override
-            public ACTION onAsyncReplicationError(Throwable iException, final int iRetry) {
-              switch (iCallback.onAsyncReplicationError(iException, ++retry)) {
-                case RETRY:
-                  execute(DatabaseRecordThreadLocal.instance().getIfDefined());
-                  break;
-
-                case IGNORE:
-              }
-
-              return ACTION.IGNORE;
-            }
-          };
-    } else {
-      onAsyncReplicationError = null;
-    }
-    return this;
-  }
-
   public ProgressListener getProgressListener() {
     return progressListener;
   }
 
+  @Override
   public CommandRequestAbstract setProgressListener(ProgressListener progressListener) {
     this.progressListener = progressListener;
     return this;
   }
 
+  @Override
   public void reset() {
   }
 
+  @Override
   public int getLimit() {
     return limit;
   }
 
+  @Override
   public CommandRequestAbstract setLimit(final int limit) {
     this.limit = limit;
     return this;
   }
 
+  @Override
   public String getFetchPlan() {
     return fetchPlan;
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   public <RET extends CommandRequest> RET setFetchPlan(String fetchPlan) {
     this.fetchPlan = fetchPlan;
@@ -180,6 +150,7 @@ public abstract class CommandRequestAbstract
     return useCache;
   }
 
+  @Override
   public void setUseCache(boolean useCache) {
     this.useCache = useCache;
   }
@@ -202,43 +173,26 @@ public abstract class CommandRequestAbstract
     return context;
   }
 
+  @Override
   public CommandRequestAbstract setContext(final CommandContext iContext) {
     context = iContext;
     return this;
   }
 
+  @Override
   public long getTimeoutTime() {
     return timeoutMs;
   }
 
+  @Override
   public void setTimeout(final long timeout, final TIMEOUT_STRATEGY strategy) {
     this.timeoutMs = timeout;
     this.timeoutStrategy = strategy;
   }
 
+  @Override
   public TIMEOUT_STRATEGY getTimeoutStrategy() {
     return timeoutStrategy;
-  }
-
-  @Override
-  public Set<String> nodesToExclude() {
-    return Collections.unmodifiableSet(nodesToExclude);
-  }
-
-  public void addExcludedNode(String node) {
-    nodesToExclude.add(node);
-  }
-
-  public void removeExcludedNode(String node) {
-    nodesToExclude.remove(node);
-  }
-
-  public AsyncReplicationOk getOnAsyncReplicationOk() {
-    return onAsyncReplicationOk;
-  }
-
-  public AsyncReplicationError getOnAsyncReplicationError() {
-    return onAsyncReplicationError;
   }
 
   @Override
@@ -246,6 +200,7 @@ public abstract class CommandRequestAbstract
     this.recordResultSet = recordResultSet;
   }
 
+  @Override
   public boolean isRecordResultSet() {
     return recordResultSet;
   }

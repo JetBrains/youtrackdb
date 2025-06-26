@@ -16,9 +16,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.text;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
+import javax.annotation.Nullable;
 
 /**
  * Returns the first characters from the end of the string.
@@ -36,10 +37,11 @@ public class SQLMethodRight extends AbstractSQLMethod {
     return "right( <characters>)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -47,9 +49,9 @@ public class SQLMethodRight extends AbstractSQLMethod {
       return null;
     }
 
-    final String valueAsString = iThis.toString();
+    final var valueAsString = iThis.toString();
 
-    final int offset = Integer.parseInt(iParams[0].toString());
+    final var offset = Integer.parseInt(iParams[0].toString());
     return valueAsString.substring(
         offset < valueAsString.length() ? valueAsString.length() - offset : 0);
   }

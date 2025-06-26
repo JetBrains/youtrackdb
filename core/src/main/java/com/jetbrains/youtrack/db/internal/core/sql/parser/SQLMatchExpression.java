@@ -23,21 +23,21 @@ public class SQLMatchExpression extends SimpleNode {
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     origin.toString(params, builder);
-    for (SQLMatchPathItem item : items) {
+    for (var item : items) {
       item.toString(params, builder);
     }
   }
 
   public void toGenericStatement(StringBuilder builder) {
     origin.toGenericStatement(builder);
-    for (SQLMatchPathItem item : items) {
+    for (var item : items) {
       item.toGenericStatement(builder);
     }
   }
 
   @Override
   public SQLMatchExpression copy() {
-    SQLMatchExpression result = new SQLMatchExpression(-1);
+    var result = new SQLMatchExpression(-1);
     result.origin = origin == null ? null : origin.copy();
     result.items =
         items == null ? null : items.stream().map(x -> x.copy()).collect(Collectors.toList());
@@ -53,7 +53,7 @@ public class SQLMatchExpression extends SimpleNode {
       return false;
     }
 
-    SQLMatchExpression that = (SQLMatchExpression) o;
+    var that = (SQLMatchExpression) o;
 
     if (!Objects.equals(origin, that.origin)) {
       return false;
@@ -63,7 +63,7 @@ public class SQLMatchExpression extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = origin != null ? origin.hashCode() : 0;
+    var result = origin != null ? origin.hashCode() : 0;
     result = 31 * result + (items != null ? items.hashCode() : 0);
     return result;
   }

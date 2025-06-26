@@ -20,17 +20,11 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,57 +37,56 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
   @Before
   public void init() {
 
-    final SchemaClass c1 = db.createVertexClass("Foo");
-    c1.createProperty(db, "name", PropertyType.STRING);
-    c1.createProperty(db, "bar", PropertyType.STRING);
-    c1.createIndex(db, "Foo.bar", "FULLTEXT", null, null, "LUCENE", new String[]{"bar"});
-    c1.createIndex(db, "Foo.name", "NOTUNIQUE", null, null, "SBTREE", new String[]{"name"});
+    final var c1 = session.createVertexClass("Foo");
+    c1.createProperty("name", PropertyType.STRING);
+    c1.createProperty("bar", PropertyType.STRING);
+    c1.createIndex("Foo.bar", "FULLTEXT", null, null, "LUCENE", new String[]{"bar"});
+    c1.createIndex("Foo.name", "NOTUNIQUE", null, null, "BTREE", new String[]{"name"});
   }
 
   @Test
   public void testRollback() {
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Foo"));
+    doc.setProperty("name", "Test");
+    doc.setProperty("bar", "abc");
 
-    EntityImpl doc = new EntityImpl("Foo");
-    doc.field("name", "Test");
-    doc.field("bar", "abc");
-    db.begin();
-    db.save(doc);
-
-    String query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    ResultSet vertices = db.query(query);
+    var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
+    var vertices = session.query(query);
 
     assertThat(vertices).hasSize(1);
-    db.rollback();
+    session.rollback();
 
+    session.begin();
     query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    vertices = db.query(query);
+    vertices = session.query(query);
     assertThat(vertices).hasSize(0);
+    session.commit();
   }
 
   @Test
   public void txRemoveTest() {
-    db.begin();
+    session.begin();
 
-    EntityImpl doc = new EntityImpl("Foo");
-    doc.field("name", "Test");
-    doc.field("bar", "abc");
+    var doc = ((EntityImpl) session.newVertex("Foo"));
+    doc.setProperty("name", "Test");
+    doc.setProperty("bar", "abc");
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Foo.bar");
+    var index = session.getSharedContext().getIndexManager().getIndex("Foo.bar");
 
-    db.save(doc);
+    session.commit();
 
-    db.commit();
+    session.begin();
 
-    db.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    session.delete(doc);
 
-    doc = db.bindToSession(doc);
-    db.delete(doc);
-
-    String query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    ResultSet vertices = db.query(query);
+    var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
+    var vertices = session.query(query);
 
     Collection coll;
-    try (Stream<RID> stream = index.getInternal().getRids(db, "abc")) {
+    try (var stream = index.getRids(session, "abc")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -101,123 +94,118 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     Assert.assertEquals(0, coll.size());
 
-    Assert.assertEquals(0, index.getInternal().size(db));
+    Assert.assertEquals(0, index.size(session));
 
-    db.rollback();
+    session.rollback();
 
+    session.begin();
     query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    vertices = db.query(query);
+    vertices = session.query(query);
 
-    db.begin();
     assertThat(vertices).hasSize(1);
-    Assert.assertEquals(1, index.getInternal().size(db));
-    db.commit();
+    Assert.assertEquals(1, index.size(session));
+    session.commit();
   }
 
   @Test
   public void txUpdateTest() {
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Foo.bar");
-    var c1 = db.getMetadata().getSchema().getClassInternal("Foo");
-    c1.truncate(db);
+    var index = session.getSharedContext().getIndexManager().getIndex("Foo.bar");
+    var c1 = session.getMetadata().getSchema().getClassInternal("Foo");
+    c1.truncate();
 
-    db.begin();
-    Assert.assertEquals(0, index.getInternal().size(db));
+    session.begin();
+    Assert.assertEquals(0, index.size(session));
 
-    EntityImpl doc = new EntityImpl("Foo");
-    doc.field("name", "Test");
-    doc.field("bar", "abc");
+    var doc = ((EntityImpl) session.newVertex("Foo"));
+    doc.setProperty("name", "Test");
+    doc.setProperty("bar", "abc");
 
-    db.save(doc);
+    session.commit();
 
-    db.commit();
+    session.begin();
 
-    db.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    doc.setProperty("bar", "removed");
 
-    doc = db.bindToSession(doc);
-    doc.field("bar", "removed");
-    db.save(doc);
-
-    String query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    ResultSet vertices = db.query(query);
+    var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
+    var vertices = session.query(query);
     Collection coll;
-    try (Stream<RID> stream = index.getInternal().getRids(db, "abc")) {
+    try (var stream = index.getRids(session, "abc")) {
       coll = stream.collect(Collectors.toList());
     }
 
     assertThat(vertices).hasSize(0);
     Assert.assertEquals(0, coll.size());
 
-    Iterator iterator = coll.iterator();
-    int i = 0;
+    var iterator = coll.iterator();
+    var i = 0;
     while (iterator.hasNext()) {
       iterator.next();
       i++;
     }
     Assert.assertEquals(0, i);
 
-    Assert.assertEquals(1, index.getInternal().size(db));
+    Assert.assertEquals(1, index.size(session));
 
     query = "select from Foo where name = 'Test' and bar lucene \"removed\" ";
-    vertices = db.query(query);
-    try (Stream<RID> stream = index.getInternal().getRids(db, "removed")) {
+    vertices = session.query(query);
+    try (var stream = index.getRids(session, "removed")) {
       coll = stream.collect(Collectors.toList());
     }
 
     assertThat(vertices).hasSize(1);
     Assert.assertEquals(1, coll.size());
 
-    db.rollback();
+    session.rollback();
 
     query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    vertices = db.query(query);
+    vertices = session.query(query);
 
     assertThat(vertices).hasSize(1);
 
-    Assert.assertEquals(1, index.getInternal().size(db));
+    Assert.assertEquals(1, index.size(session));
   }
 
   @Test
   public void txUpdateTestComplex() {
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Foo.bar");
-    var c1 = db.getMetadata().getSchema().getClassInternal("Foo");
-    c1.truncate(db);
+    var index = session.getSharedContext().getIndexManager().getIndex("Foo.bar");
+    var c1 = session.getMetadata().getSchema().getClassInternal("Foo");
+    c1.truncate();
 
-    db.begin();
-    Assert.assertEquals(0, index.getInternal().size(db));
+    session.begin();
+    Assert.assertEquals(0, index.size(session));
 
-    EntityImpl doc = new EntityImpl("Foo");
-    doc.field("name", "Test");
-    doc.field("bar", "abc");
+    var doc = ((EntityImpl) session.newVertex("Foo"));
+    doc.setProperty("name", "Test");
+    doc.setProperty("bar", "abc");
 
-    EntityImpl doc1 = new EntityImpl("Foo");
-    doc1.field("name", "Test");
-    doc1.field("bar", "abc");
+    var doc1 = ((EntityImpl) session.newVertex("Foo"));
+    doc1.setProperty("name", "Test");
+    doc1.setProperty("bar", "abc");
 
-    db.save(doc1);
-    db.save(doc);
+    session.commit();
 
-    db.commit();
+    session.begin();
 
-    db.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    doc.setProperty("bar", "removed");
 
-    doc = db.bindToSession(doc);
-    doc.field("bar", "removed");
-    db.save(doc);
-
-    String query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    ResultSet vertices = db.command(query);
+    var query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
+    var vertices = session.execute(query);
     Collection coll;
-    try (Stream<RID> stream = index.getInternal().getRids(db, "abc")) {
+    try (var stream = index.getRids(session, "abc")) {
       coll = stream.collect(Collectors.toList());
     }
 
     assertThat(vertices).hasSize(1);
     Assert.assertEquals(1, coll.size());
 
-    Iterator iterator = coll.iterator();
-    int i = 0;
+    var iterator = coll.iterator();
+    var i = 0;
     RecordId rid = null;
     while (iterator.hasNext()) {
       rid = (RecordId) iterator.next();
@@ -228,11 +216,11 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
     Assert.assertNotNull(rid);
     Assert.assertNotNull(doc1);
     Assert.assertEquals(rid.getIdentity().toString(), doc1.getIdentity().toString());
-    Assert.assertEquals(2, index.getInternal().size(db));
+    Assert.assertEquals(2, index.size(session));
 
     query = "select from Foo where name = 'Test' and bar lucene \"removed\" ";
-    vertices = db.query(query);
-    try (Stream<RID> stream = index.getInternal().getRids(db, "removed")) {
+    vertices = session.query(query);
+    try (var stream = index.getRids(session, "removed")) {
       coll = stream.collect(Collectors.toList());
     }
 
@@ -240,13 +228,13 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
 
     Assert.assertEquals(1, coll.size());
 
-    db.rollback();
+    session.rollback();
 
     query = "select from Foo where name = 'Test' and bar lucene \"abc\" ";
-    vertices = db.query(query);
+    vertices = session.query(query);
 
     assertThat(vertices).hasSize(2);
 
-    Assert.assertEquals(2, index.getInternal().size(db));
+    Assert.assertEquals(2, index.size(session));
   }
 }

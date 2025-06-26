@@ -19,23 +19,21 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.parser.operators;
 
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLikeOperator;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
-public class LikeOperatorTest {
+public class LikeOperatorTest extends DbTestBase {
 
   @Test
   public void test() {
-    SQLLikeOperator op = new SQLLikeOperator(-1);
-    Assert.assertTrue(op.execute("foobar", "%ooba%"));
-    Assert.assertTrue(op.execute("foobar", "%oo%"));
-    Assert.assertFalse(op.execute("foobar", "oo%"));
-    Assert.assertFalse(op.execute("foobar", "%oo"));
-    Assert.assertFalse(op.execute("foobar", "%fff%"));
-    Assert.assertTrue(op.execute("foobar", "foobar"));
+    var op = new SQLLikeOperator(-1);
+    Assert.assertTrue(op.execute(session, "foobar", "%ooba%"));
+    Assert.assertTrue(op.execute(session, "foobar", "%oo%"));
+    Assert.assertFalse(op.execute(session, "foobar", "oo%"));
+    Assert.assertFalse(op.execute(session, "foobar", "%oo"));
+    Assert.assertFalse(op.execute(session, "foobar", "%fff%"));
+    Assert.assertTrue(op.execute(session, "foobar", "foobar"));
   }
 }

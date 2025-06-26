@@ -3,8 +3,6 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import static com.jetbrains.youtrack.db.internal.lucene.functions.LuceneFunctionsUtils.doubleEscape;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -15,40 +13,20 @@ public class LuceneMetadataFieldsTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
 
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
-  }
-
-  @Test
-  public void shouldFetchOnlyFromACluster() throws Exception {
-
-    assertThat(
-        db.getMetadata()
-            .getIndexManagerInternal()
-            .getIndex(db, "Song.title")
-            .getInternal()
-            .size(db))
-        .isEqualTo(585);
-
-    int cluster = db.getMetadata().getSchema().getClass("Song").getClusterIds()[1];
-
-    ResultSet results =
-        db.query("SELECT FROM Song WHERE search_class('+_CLUSTER:" + cluster + "')=true ");
-
-    assertThat(results).hasSize(73);
-    results.close();
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
   }
 
   @Test
   public void shouldFetchByRid() throws Exception {
-    var songs = db.query("SELECT FROM Song limit 2").toList();
+    var songs = session.query("SELECT FROM Song limit 2").toList();
 
-    String ridQuery = doubleEscape(songs.get(0).getRecordId() + " " + songs.get(1).getRecordId());
-    ResultSet results =
-        db.query("SELECT FROM Song WHERE search_class('RID:(" + ridQuery + ") ')=true ");
+    var ridQuery = doubleEscape(songs.get(0).getIdentity() + " " + songs.get(1).getIdentity());
+    var results =
+        session.query("SELECT FROM Song WHERE search_class('RID:(" + ridQuery + ") ')=true ");
 
     assertThat(results).hasSize(2);
     results.close();

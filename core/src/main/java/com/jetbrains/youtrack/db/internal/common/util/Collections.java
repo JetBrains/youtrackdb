@@ -21,7 +21,6 @@
 package com.jetbrains.youtrack.db.internal.common.util;
 
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -41,8 +40,8 @@ public class Collections {
    */
   public static <T> int indexOf(
       final List<T> list, final T object, final Comparator<T> comparator) {
-    int i = 0;
-    for (final T item : list) {
+    var i = 0;
+    for (final var item : list) {
       if (comparator.compare(item, object) == 0) {
         return i;
       }
@@ -59,7 +58,7 @@ public class Collections {
    * @return Index of found item or <code>-1</code> otherwise.
    */
   public static int indexOf(final Object[] array, final Comparable object) {
-    for (int i = 0; i < array.length; ++i) {
+    for (var i = 0; i < array.length; ++i) {
       if (object.compareTo(array[i]) == 0)
       // FOUND
       {
@@ -77,7 +76,7 @@ public class Collections {
    * @return Index of found item or <code>-1</code> otherwise.
    */
   public static int indexOf(final int[] array, final int object) {
-    for (int i = 0; i < array.length; ++i) {
+    for (var i = 0; i < array.length; ++i) {
       if (array[i] == object)
       // FOUND
       {
@@ -95,16 +94,16 @@ public class Collections {
    * @return String
    */
   public static String toString(Iterable<?> iterable) {
-    final StringBuilder builder = new StringBuilder(512);
+    final var builder = new StringBuilder(512);
     builder.append('[');
-    int cnt = 0;
-    final Iterator<?> ite = iterable.iterator();
+    var cnt = 0;
+    final var ite = iterable.iterator();
     while (ite.hasNext()) {
       if (cnt != 0) {
         builder.append(',');
       }
       cnt++;
-      final Object obj = ite.next();
+      final var obj = ite.next();
       builder.append(obj);
     }
     builder.append(']');

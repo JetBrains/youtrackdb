@@ -2,17 +2,15 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -20,8 +18,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLContainsAnyCondition extends SQLBooleanExpression {
 
@@ -39,20 +38,20 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
     super(p, id);
   }
 
-  public boolean execute(Object left, Object right) {
+  public static boolean execute(Object left, Object right) {
     if (left instanceof Collection) {
       if (right instanceof Iterable) {
         right = ((Iterable) right).iterator();
       }
       if (right instanceof Iterator iterator) {
         while (iterator.hasNext()) {
-          Object next = iterator.next();
+          var next = iterator.next();
           if (((Collection) left).contains(next)) {
             return true;
           }
           if (next instanceof Result
               && ((Result) next).isEntity()
-              && ((Collection) left).contains(((Result) next).toEntity())) {
+              && ((Collection) left).contains(((Result) next).asEntityOrNull())) {
             return true;
           }
         }
@@ -68,21 +67,21 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
       }
       right = ((Iterable) right).iterator();
 
-      Iterator rightIterator = (Iterator) right;
+      var rightIterator = (Iterator) right;
       while (rightIterator.hasNext()) {
-        Object leftItem = rightIterator.next();
+        var leftItem = rightIterator.next();
         while (leftIterator.hasNext()) {
-          Object rightItem = leftIterator.next();
+          var rightItem = leftIterator.next();
           if (leftItem != null && leftItem.equals(rightItem)) {
             return true;
           }
-          Object leftElem =
+          var leftElem =
               leftItem instanceof Result && ((Result) leftItem).isEntity()
-                  ? ((Result) leftItem).getEntity().get()
+                  ? ((Result) leftItem).asEntity()
                   : rightItem;
-          Object rightElem =
+          var rightElem =
               rightItem instanceof Result && ((Result) rightItem).isEntity()
-                  ? ((Result) rightItem).getEntity().get()
+                  ? ((Result) rightItem).asEntity()
                   : rightItem;
           if (leftElem != null && leftElem.equals(rightElem)) {
             return true;
@@ -95,17 +94,17 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    Object leftValue = left.execute(currentRecord, ctx);
+    var leftValue = left.execute(currentRecord, ctx);
     if (right != null) {
-      Object rightValue = right.execute(currentRecord, ctx);
+      var rightValue = right.execute(currentRecord, ctx);
       return execute(leftValue, rightValue);
     } else {
       if (!MultiValue.isMultiValue(leftValue)) {
         return false;
       }
-      Iterator<?> iter = MultiValue.getMultiValueIterator(leftValue);
+      var iter = MultiValue.getMultiValueIterator(leftValue);
       while (iter.hasNext()) {
-        Object item = iter.next();
+        var item = iter.next();
         if (item instanceof Identifiable) {
           if (!rightBlock.evaluate((Identifiable) item, ctx)) {
             return false;
@@ -124,17 +123,17 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Result currentRecord, CommandContext ctx) {
-    Object leftValue = left.execute(currentRecord, ctx);
+    var leftValue = left.execute(currentRecord, ctx);
     if (right != null) {
-      Object rightValue = right.execute(currentRecord, ctx);
+      var rightValue = right.execute(currentRecord, ctx);
       return execute(leftValue, rightValue);
     } else {
       if (!MultiValue.isMultiValue(leftValue)) {
         return false;
       }
-      Iterator<?> iter = MultiValue.getMultiValueIterator(leftValue);
+      var iter = MultiValue.getMultiValueIterator(leftValue);
       while (iter.hasNext()) {
-        Object item = iter.next();
+        var item = iter.next();
         if (item instanceof Identifiable) {
           if (!rightBlock.evaluate((Identifiable) item, ctx)) {
             return false;
@@ -151,6 +150,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" CONTAINSANY ");
@@ -163,6 +163,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" CONTAINSANY ");
@@ -204,7 +205,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
 
   @Override
   protected int getNumberOfExternalCalculations() {
-    int total = 0;
+    var total = 0;
     if (left != null && !left.supportsBasicCalculation()) {
       total++;
     }
@@ -246,7 +247,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
 
   @Override
   public SQLContainsAnyCondition copy() {
-    SQLContainsAnyCondition result = new SQLContainsAnyCondition(-1);
+    var result = new SQLContainsAnyCondition(-1);
     result.left = left.copy();
     result.right = right == null ? null : right.copy();
     result.rightBlock = rightBlock == null ? null : rightBlock.copy();
@@ -279,22 +280,23 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
       SchemaClassInternal clazz) {
     if (right.isEarlyCalculated(ctx) && left.isIndexChain(ctx, clazz)) {
-      SQLContainsAnyCondition result = new SQLContainsAnyCondition(-1);
+      var result = new SQLContainsAnyCondition(-1);
 
       result.left = new SQLExpression(-1);
-      SQLBaseExpression base = new SQLBaseExpression(-1);
-      SQLBaseIdentifier identifier = new SQLBaseIdentifier(-1);
+      var base = new SQLBaseExpression(-1);
+      var identifier = new SQLBaseIdentifier(-1);
       identifier.suffix = new SQLSuffixIdentifier(-1);
       identifier.suffix.setIdentifier(
           ((SQLBaseExpression) left.mathExpression).getIdentifier().suffix.getIdentifier());
       base.setIdentifier(identifier);
       result.left.mathExpression = base;
 
-      SchemaClass nextClazz =
+      var nextClazz =
           clazz
-              .getProperty(base.getIdentifier().suffix.getIdentifier().getStringValue())
+              .getProperty(
+                  base.getIdentifier().suffix.getIdentifier().getStringValue())
               .getLinkedClass();
-      SQLParenthesisExpression newRight = new SQLParenthesisExpression(-1);
+      var newRight = new SQLParenthesisExpression(-1);
       newRight.statement =
           SQLBinaryCondition.indexChainToStatement(
               ((SQLBaseExpression) left.mathExpression).modifier, nextClazz, right, ctx);
@@ -314,7 +316,7 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLContainsAnyCondition that = (SQLContainsAnyCondition) o;
+    var that = (SQLContainsAnyCondition) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -327,17 +329,18 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (right != null ? right.hashCode() : 0);
     result = 31 * result + (rightBlock != null ? rightBlock.hashCode() : 0);
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
-    List<String> leftX = left == null ? null : left.getMatchPatternInvolvedAliases();
-    List<String> rightX = right == null ? null : right.getMatchPatternInvolvedAliases();
-    List<String> rightBlockX =
+    var leftX = left == null ? null : left.getMatchPatternInvolvedAliases();
+    var rightX = right == null ? null : right.getMatchPatternInvolvedAliases();
+    var rightBlockX =
         rightBlock == null ? null : rightBlock.getMatchPatternInvolvedAliases();
 
     List<String> result = new ArrayList<String>();
@@ -351,11 +354,11 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
       result.addAll(rightBlockX);
     }
 
-    return result.size() == 0 ? null : result;
+    return result.isEmpty() ? null : result;
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (left != null && !left.isCacheable(session)) {
       return false;
     }
@@ -368,25 +371,49 @@ public class SQLContainsAnyCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isIndexAware(IndexSearchInfo info) {
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
-      if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
-        return right.isEarlyCalculated(info.getCtx());
+      if (info.fieldName().equals(left.getDefaultAlias().getStringValue())) {
+        return right.isEarlyCalculated(info.ctx());
       }
     }
     return false;
   }
 
+
+  @Nullable
   @Override
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    Optional<MetadataPath> path = left.getPath();
-    if (path.isPresent()) {
+  public String getRelatedIndexPropertyName() {
+    if (left.isBaseIdentifier()) {
+      return left.getDefaultAlias().getStringValue();
+    }
+
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Override
+  @Nullable
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
+    if (path != null) {
       if (right.isEarlyCalculated(ctx)) {
-        Object value = right.execute((Result) null, ctx);
-        return info.findExactIndex(path.get(), value, ctx);
+        var value = right.execute((Result) null, ctx);
+        return info.findExactIndex(path, value, ctx);
       }
     }
-    return Optional.empty();
+    return null;
   }
 
   @Override

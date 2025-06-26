@@ -2,17 +2,20 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
 
@@ -29,9 +32,11 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
     try {
-      Object elem = currentRecord.getRecord();
+      var db = ctx.getDatabaseSession();
+      var transaction = db.getActiveTransaction();
+      Object elem = transaction.load(currentRecord);
       if (elem instanceof Entity) {
-        return !expression.isDefinedFor((Entity) elem);
+        return !expression.isDefinedFor(db, (Entity) elem);
       }
     } catch (RecordNotFoundException rnf) {
       return true;
@@ -59,7 +64,7 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
 
   @Override
   protected List<Object> getExternalCalculationConditions() {
-    return Collections.EMPTY_LIST;
+    return Collections.emptyList();
   }
 
   @Override
@@ -69,7 +74,7 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
 
   @Override
   public SQLIsNotDefinedCondition copy() {
-    SQLIsNotDefinedCondition result = new SQLIsNotDefinedCondition(-1);
+    var result = new SQLIsNotDefinedCondition(-1);
     result.expression = expression.copy();
     return result;
   }
@@ -84,11 +89,13 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
     return expression != null && expression.refersToParent();
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     expression.toString(params, builder);
     builder.append(" is not defined");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     expression.toGenericStatement(builder);
     builder.append(" is not defined");
@@ -103,7 +110,7 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLIsNotDefinedCondition that = (SQLIsNotDefinedCondition) o;
+    var that = (SQLIsNotDefinedCondition) o;
 
     return Objects.equals(expression, that.expression);
   }
@@ -114,8 +121,31 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return expression.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 
   @Override

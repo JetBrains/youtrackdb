@@ -22,13 +22,11 @@ package com.jetbrains.youtrack.db.internal.server;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.profiler.AbstractProfiler.ProfilerHookValue;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler.METRIC_TYPE;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
+import com.jetbrains.youtrack.db.internal.server.monitoring.NetworkConnectionsStatsEvent;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginHelper;
@@ -36,62 +34,60 @@ import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.annotation.Nullable;
 import javax.net.ssl.SSLSocket;
+import jdk.jfr.FlightRecorder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ClientConnectionManager {
+
+  private static final Logger logger = LoggerFactory.getLogger(ClientConnectionManager.class);
 
   private static final long TIMEOUT_PUSH = 3000;
 
   protected final ConcurrentMap<Integer, ClientConnection> connections =
       new ConcurrentHashMap<Integer, ClientConnection>();
-  protected AtomicInteger connectionSerial = new AtomicInteger(0);
+  protected final static AtomicInteger connectionSerial = new AtomicInteger(0);
   protected final ConcurrentMap<HashToken, ClientSessions> sessions =
       new ConcurrentHashMap<HashToken, ClientSessions>();
   protected final TimerTask timerTask;
   private final YouTrackDBServer server;
 
   public ClientConnectionManager(YouTrackDBServer server) {
-    final int delay = GlobalConfiguration.SERVER_CHANNEL_CLEAN_DELAY.getValueAsInteger();
+    final var delay = GlobalConfiguration.SERVER_CHANNEL_CLEAN_DELAY.getValueAsInteger();
 
     timerTask =
         YouTrackDBEnginesManager.instance()
+            .getScheduler()
             .scheduleTask(
                 () -> {
                   try {
                     cleanExpiredConnections();
                   } catch (Exception e) {
-                    LogManager.instance().debug(this, "Error on client connection purge task", e);
+                    LogManager.instance().debug(this, "Error on client connection purge task",
+                        logger, e);
                   }
                 },
                 delay,
                 delay);
 
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .registerHookValue(
-            "server.connections.actives",
-            "Number of active network connections",
-            METRIC_TYPE.COUNTER,
-            new ProfilerHookValue() {
-              public Object getValue() {
-                return (long) connections.size();
-              }
-            });
+    FlightRecorder.addPeriodicEvent(NetworkConnectionsStatsEvent.class, () -> {
+      new NetworkConnectionsStatsEvent(connections.size()).commit();
+    });
+
     this.server = server;
   }
 
   public void cleanExpiredConnections() {
-    final Iterator<Entry<Integer, ClientConnection>> iterator = connections.entrySet().iterator();
+    final var iterator = connections.entrySet().iterator();
     while (iterator.hasNext()) {
-      final Entry<Integer, ClientConnection> entry = iterator.next();
+      final var entry = iterator.next();
 
       if (entry.getValue().tryAcquireForExpire()) {
         try {
@@ -109,10 +105,10 @@ public class ClientConnectionManager {
                 .debug(
                     this,
                     "[ClientConnectionManager] found and removed pending closed channel %d (%s)",
-                    entry.getKey(),
+                    logger, entry.getKey(),
                     socket);
             try {
-              CommandRequestText command = entry.getValue().getData().command;
+              var command = entry.getValue().getData().command;
               if (command != null && command.isIdempotent()) {
                 entry.getValue().getProtocol().sendShutdown();
                 entry.getValue().getProtocol().interrupt();
@@ -140,7 +136,10 @@ public class ClientConnectionManager {
         }
       }
     }
-    server.getPushManager().cleanPushSockets();
+    var pushManager = server.getPushManager();
+    if (pushManager != null) {
+      pushManager.cleanPushSockets();
+    }
   }
 
   /**
@@ -156,7 +155,7 @@ public class ClientConnectionManager {
     connection = new ClientConnection(connectionSerial.incrementAndGet(), iProtocol);
 
     connections.put(connection.getId(), connection);
-    LogManager.instance().debug(this, "Remote client connected from: " + connection);
+    LogManager.instance().debug(this, "Remote client connected from: " + connection, logger);
     ServerPluginHelper.invokeHandlerCallbackOnClientConnection(iProtocol.getServer(), connection);
     return connection;
   }
@@ -176,10 +175,13 @@ public class ClientConnectionManager {
     try {
       parsedToken = server.getTokenHandler().parseOnlyBinary(tokenBytes);
     } catch (Exception e) {
-      throw BaseException.wrapException(new TokenSecurityException("Error on token parsing"), e);
+      throw BaseException.wrapException(
+          new TokenSecurityException(connection.getDatabaseSession(), "Error on token parsing"), e,
+          connection.getDatabaseSession());
     }
     if (!server.getTokenHandler().validateBinaryToken(parsedToken)) {
-      throw new TokenSecurityException("The token provided is expired");
+      throw new TokenSecurityException(connection.getDatabaseSession(),
+          "The token provided is expired");
     }
     ClientSessions session;
     synchronized (sessions) {
@@ -188,7 +190,7 @@ public class ClientConnectionManager {
     }
     connection.setToken(parsedToken, tokenBytes);
     session.addConnection(connection);
-    LogManager.instance().debug(this, "Remote client connected from: " + connection);
+    LogManager.instance().debug(this, "Remote client connected from: " + connection, logger);
     ServerPluginHelper.invokeHandlerCallbackOnClientConnection(iProtocol.getServer(), connection);
     return connection;
   }
@@ -201,13 +203,16 @@ public class ClientConnectionManager {
     try {
       parsedToken = server.getTokenHandler().parseOnlyBinary(tokenBytes);
     } catch (Exception e) {
-      throw BaseException.wrapException(new TokenSecurityException("Error on token parsing"), e);
+      throw BaseException.wrapException(
+          new TokenSecurityException(connection.getDatabaseSession(), "Error on token parsing"),
+          e, connection.getDatabaseSession());
     }
     if (!server.getTokenHandler().validateBinaryToken(parsedToken)) {
-      throw new TokenSecurityException("The token provided is expired");
+      throw new TokenSecurityException(connection.getDatabaseSession(),
+          "The token provided is expired");
     }
 
-    HashToken key = new HashToken(tokenBytes);
+    var key = new HashToken(tokenBytes);
     ClientSessions sess;
     synchronized (sessions) {
       sess = sessions.get(key);
@@ -231,7 +236,7 @@ public class ClientConnectionManager {
    */
   public ClientConnection getConnection(final int iChannelId, NetworkProtocol protocol) {
     // SEARCH THE CONNECTION BY ID
-    ClientConnection connection = connections.get(iChannelId);
+    var connection = connections.get(iChannelId);
     if (connection != null) {
       connection.setProtocol(protocol);
     }
@@ -245,8 +250,9 @@ public class ClientConnectionManager {
    * @param iAddress The address as string in the format address as format <ip>:<port>
    * @return The connection if any, otherwise null
    */
+  @Nullable
   public ClientConnection getConnection(final String iAddress) {
-    for (ClientConnection conn : connections.values()) {
+    for (var conn : connections.values()) {
       if (iAddress.equals(conn.getRemoteAddress())) {
         return conn;
       }
@@ -270,7 +276,7 @@ public class ClientConnectionManager {
    */
   public void kill(final ClientConnection connection) {
     if (connection != null) {
-      final NetworkProtocol protocol = connection.getProtocol();
+      final var protocol = connection.getProtocol();
 
       try {
         // INTERRUPT THE NEWTORK MANAGER TOO
@@ -296,9 +302,9 @@ public class ClientConnectionManager {
    * @param iChannelId id of connection
    */
   public void interrupt(final int iChannelId) {
-    final ClientConnection connection = connections.get(iChannelId);
+    final var connection = connections.get(iChannelId);
     if (connection != null) {
-      final NetworkProtocol protocol = connection.getProtocol();
+      final var protocol = connection.getProtocol();
       if (protocol != null)
       // INTERRUPT THE NEWTORK MANAGER
       {
@@ -313,9 +319,9 @@ public class ClientConnectionManager {
    * @param iChannelId id of connection
    */
   public void disconnect(final int iChannelId) {
-    LogManager.instance().debug(this, "Disconnecting connection with id=%d", iChannelId);
+    LogManager.instance().debug(this, "Disconnecting connection with id=%d", logger, iChannelId);
 
-    final ClientConnection connection = connections.remove(iChannelId);
+    final var connection = connections.remove(iChannelId);
 
     if (connection != null) {
       ServerPluginHelper.invokeHandlerCallbackOnClientDisconnection(server, connection);
@@ -323,13 +329,13 @@ public class ClientConnectionManager {
       removeConnectionFromSession(connection);
 
       // CHECK IF THERE ARE OTHER CONNECTIONS
-      for (Entry<Integer, ClientConnection> entry : connections.entrySet()) {
+      for (var entry : connections.entrySet()) {
         if (entry.getValue().getProtocol().equals(connection.getProtocol())) {
           LogManager.instance()
               .debug(
                   this,
                   "Disconnected connection with id=%d but are present other active channels",
-                  iChannelId);
+                  logger, iChannelId);
           return;
         }
       }
@@ -338,19 +344,19 @@ public class ClientConnectionManager {
           .debug(
               this,
               "Disconnected connection with id=%d, no other active channels found",
-              iChannelId);
+              logger, iChannelId);
       return;
     }
 
-    LogManager.instance().debug(this, "Cannot find connection with id=%d", iChannelId);
+    LogManager.instance().debug(this, "Cannot find connection with id=%d", logger, iChannelId);
   }
 
   private void removeConnectionFromSession(ClientConnection connection) {
     if (connection.getProtocol() instanceof NetworkProtocolBinary) {
-      byte[] tokenBytes = connection.getTokenBytes();
-      HashToken hashToken = new HashToken(tokenBytes);
+      var tokenBytes = connection.getTokenBytes();
+      var hashToken = new HashToken(tokenBytes);
       synchronized (sessions) {
-        ClientSessions sess = sessions.get(hashToken);
+        var sess = sessions.get(hashToken);
         if (sess != null) {
           sess.removeConnection(connection);
           if (!sess.isActive()) {
@@ -362,15 +368,15 @@ public class ClientConnectionManager {
   }
 
   public void disconnect(final ClientConnection iConnection) {
-    LogManager.instance().debug(this, "Disconnecting connection %s...", iConnection);
+    LogManager.instance().debug(this, "Disconnecting connection %s...", logger, iConnection);
     ServerPluginHelper.invokeHandlerCallbackOnClientDisconnection(server, iConnection);
     removeConnectionFromSession(iConnection);
     iConnection.close();
 
-    int totalRemoved = 0;
-    for (Entry<Integer, ClientConnection> entry :
+    var totalRemoved = 0;
+    for (var entry :
         new HashMap<Integer, ClientConnection>(connections).entrySet()) {
-      final ClientConnection conn = entry.getValue();
+      final var conn = entry.getValue();
       if (conn != null && conn.equals(iConnection)) {
         connections.remove(entry.getKey());
         totalRemoved++;
@@ -378,7 +384,8 @@ public class ClientConnectionManager {
     }
 
     LogManager.instance()
-        .debug(this, "Disconnected connection %s found %d channels", iConnection, totalRemoved);
+        .debug(this, "Disconnected connection %s found %d channels", logger, iConnection,
+            totalRemoved);
   }
 
   public List<ClientConnection> getConnections() {
@@ -394,16 +401,16 @@ public class ClientConnectionManager {
 
     List<NetworkProtocol> toWait = new ArrayList<NetworkProtocol>();
 
-    for (Entry<Integer, ClientConnection> entry : connections.entrySet()) {
-      final NetworkProtocol protocol = entry.getValue().getProtocol();
+    for (var entry : connections.entrySet()) {
+      final var protocol = entry.getValue().getProtocol();
 
       if (protocol != null) {
         protocol.sendShutdown();
       }
 
-      LogManager.instance().debug(this, "Sending shutdown to thread %s", protocol);
+      LogManager.instance().debug(this, "Sending shutdown to thread %s", logger, protocol);
 
-      CommandRequestText command = entry.getValue().getData().command;
+      var command = entry.getValue().getData().command;
       if (command != null && command.isIdempotent()) {
         protocol.interrupt();
       } else {
@@ -422,7 +429,8 @@ public class ClientConnectionManager {
 
         if (socket != null && !socket.isClosed() && !socket.isInputShutdown()) {
           try {
-            LogManager.instance().debug(this, "Closing input socket of thread %s", protocol);
+            LogManager.instance()
+                .debug(this, "Closing input socket of thread %s", logger, protocol);
             if (!(socket
                 instanceof SSLSocket)) // An SSLSocket will throw an UnsupportedOperationException.
             {
@@ -433,7 +441,7 @@ public class ClientConnectionManager {
                 .debug(
                     this,
                     "Error on closing connection of %s client during shutdown",
-                    e,
+                    logger, e,
                     entry.getValue().getRemoteAddress());
           }
         }
@@ -441,12 +449,13 @@ public class ClientConnectionManager {
           if (protocol instanceof NetworkProtocolBinary
               && ((NetworkProtocolBinary) protocol).getRequestType() == -1) {
             try {
-              LogManager.instance().debug(this, "Closing socket of thread %s", protocol);
+              LogManager.instance().debug(this, "Closing socket of thread %s", logger, protocol);
               protocol.getChannel().close();
             } catch (Exception e) {
-              LogManager.instance().debug(this, "Error during chanel close at shutdown", e);
+              LogManager.instance().debug(this, "Error during chanel close at shutdown", logger, e);
             }
-            LogManager.instance().debug(this, "Sending interrupt signal to thread %s", protocol);
+            LogManager.instance().debug(this, "Sending interrupt signal to thread %s", logger,
+                protocol);
             protocol.interrupt();
           }
           toWait.add(protocol);
@@ -454,7 +463,7 @@ public class ClientConnectionManager {
       }
     }
 
-    for (NetworkProtocol protocol : toWait) {
+    for (var protocol : toWait) {
       try {
         protocol.join(
             server
@@ -470,41 +479,8 @@ public class ClientConnectionManager {
     }
   }
 
-  public void killAllChannels() {
-    for (Map.Entry<Integer, ClientConnection> entry : connections.entrySet()) {
-      try {
-        NetworkProtocol protocol = entry.getValue().getProtocol();
-
-        protocol.getChannel().close();
-
-        final Socket socket;
-        if (protocol == null || protocol.getChannel() == null) {
-          socket = null;
-        } else {
-          socket = protocol.getChannel().socket;
-        }
-
-        if (socket != null && !socket.isClosed() && !socket.isInputShutdown()) {
-          if (!(socket
-              instanceof SSLSocket)) // An SSLSocket will throw an UnsupportedOperationException.
-          {
-            socket.shutdownInput();
-          }
-        }
-
-      } catch (Exception e) {
-        LogManager.instance()
-            .debug(
-                this,
-                "Error on killing connection to %s client",
-                e,
-                entry.getValue().getRemoteAddress());
-      }
-    }
-  }
-
   public ClientSessions getSession(ClientConnection connection) {
-    HashToken key = new HashToken(connection.getTokenBytes());
+    var key = new HashToken(connection.getTokenBytes());
     synchronized (sessions) {
       return sessions.get(key);
     }

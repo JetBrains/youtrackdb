@@ -2,9 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -31,7 +31,7 @@ public class SQLNestedProjectionItem extends SimpleNode {
 
   @Override
   public SQLNestedProjectionItem copy() {
-    SQLNestedProjectionItem result = new SQLNestedProjectionItem(-1);
+    var result = new SQLNestedProjectionItem(-1);
     result.exclude = exclude;
     result.star = star;
     result.expression = expression == null ? null : expression.copy();
@@ -50,16 +50,13 @@ public class SQLNestedProjectionItem extends SimpleNode {
    *   <li>the field name for this projection item is the same as the input property name
    *   <li>this item has a wildcard and the partial field is a prefix of the input property name
    * </ul>
-   *
-   * @param propertyName
-   * @return
    */
   public boolean matches(String propertyName) {
     if (star) {
       return true;
     }
     if (expression != null) {
-      String fieldString = expression.getDefaultAlias().getStringValue();
+      var fieldString = expression.getDefaultAlias().getStringValue();
       if (fieldString.equals(propertyName)) {
         return true;
       }
@@ -123,7 +120,7 @@ public class SQLNestedProjectionItem extends SimpleNode {
       return false;
     }
 
-    SQLNestedProjectionItem that = (SQLNestedProjectionItem) o;
+    var that = (SQLNestedProjectionItem) o;
 
     if (exclude != that.exclude) {
       return false;
@@ -145,7 +142,7 @@ public class SQLNestedProjectionItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = (exclude ? 1 : 0);
+    var result = (exclude ? 1 : 0);
     result = 31 * result + (star ? 1 : 0);
     result = 31 * result + (expression != null ? expression.hashCode() : 0);
     result = 31 * result + (rightWildcard ? 1 : 0);
@@ -159,19 +156,19 @@ public class SQLNestedProjectionItem extends SimpleNode {
     return expansion.apply(expression, value, ctx);
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("exclude", exclude);
     result.setProperty("star", star);
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     result.setProperty("rightWildcard", rightWildcard);
     if (expansion != null) {
-      result.setProperty("expansion", expansion.serialize(db));
+      result.setProperty("expansion", expansion.serialize(session));
     }
     if (alias != null) {
-      result.setProperty("alias", alias.serialize(db));
+      result.setProperty("alias", alias.serialize(session));
     }
     return result;
   }

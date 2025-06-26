@@ -36,7 +36,6 @@ public class MultiValueChangeEvent<K, V> {
     ADD,
     UPDATE,
     REMOVE,
-    NESTED
   }
 
   /**
@@ -96,7 +95,7 @@ public class MultiValueChangeEvent<K, V> {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    MultiValueChangeEvent<?, ?> that = (MultiValueChangeEvent<?, ?>) o;
+    var that = (MultiValueChangeEvent<?, ?>) o;
     return changeType == that.changeType
         && Objects.equals(key, that.key)
         && Objects.equals(value, that.value)
@@ -105,7 +104,7 @@ public class MultiValueChangeEvent<K, V> {
 
   @Override
   public int hashCode() {
-    int result = changeType != null ? changeType.hashCode() : 0;
+    var result = changeType != null ? changeType.hashCode() : 0;
     result = 31 * result + (key != null ? key.hashCode() : 0);
     result = 31 * result + (value != null ? value.hashCode() : 0);
     result = 31 * result + (oldValue != null ? oldValue.hashCode() : 0);

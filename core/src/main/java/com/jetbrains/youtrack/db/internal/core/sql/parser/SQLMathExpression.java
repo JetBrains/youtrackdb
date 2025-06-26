@@ -3,29 +3,32 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.Collate;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexMetadataPath;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLMathExpression extends SimpleNode {
 
@@ -39,13 +42,14 @@ public class SQLMathExpression extends SimpleNode {
     return true;
   }
 
-  public boolean isDefinedFor(Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     return true;
   }
 
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
     return false;
   }
+
 
   public enum Operator {
     STAR(10) {
@@ -74,6 +78,7 @@ public class SQLMathExpression extends SimpleNode {
         return left.multiply(right);
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -114,6 +119,7 @@ public class SQLMathExpression extends SimpleNode {
         return left.divide(right, RoundingMode.HALF_UP);
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -148,6 +154,7 @@ public class SQLMathExpression extends SimpleNode {
         return left.remainder(right);
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -159,8 +166,8 @@ public class SQLMathExpression extends SimpleNode {
     PLUS(20) {
       @Override
       public Number apply(Integer left, Integer right) {
-        final Integer sum = left + right;
-        if (sum < 0 && left.intValue() > 0 && right.intValue() > 0)
+        final var sum = left + right;
+        if (sum < 0 && left > 0 && right > 0)
         // SPECIAL CASE: UPGRADE TO LONG
         {
           return left.longValue() + right;
@@ -188,6 +195,7 @@ public class SQLMathExpression extends SimpleNode {
         return left.add(right);
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null && right == null) {
@@ -203,7 +211,7 @@ public class SQLMathExpression extends SimpleNode {
           return super.apply(left, right);
         }
         if (left instanceof Date || right instanceof Date) {
-          Number result = apply(toLong(left), toLong(right));
+          var result = apply(toLong(left), toLong(right));
           return new Date(result.longValue());
         }
         return String.valueOf(left) + right;
@@ -212,7 +220,7 @@ public class SQLMathExpression extends SimpleNode {
     MINUS(20) {
       @Override
       public Number apply(Integer left, Integer right) {
-        int result = left - right;
+        var result = left - right;
         if (result > 0 && left.intValue() < 0 && right.intValue() > 0)
         // SPECIAL CASE: UPGRADE TO LONG
         {
@@ -254,7 +262,7 @@ public class SQLMathExpression extends SimpleNode {
         } else if (left instanceof Number && right instanceof Number) {
           result = apply((Number) left, this, (Number) right);
         } else if (left instanceof Date || right instanceof Date) {
-          Number r = apply(toLong(left), toLong(right));
+          var r = apply(toLong(left), toLong(right));
           result = new Date(r.longValue());
         }
 
@@ -272,21 +280,25 @@ public class SQLMathExpression extends SimpleNode {
         return left << right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -306,21 +318,25 @@ public class SQLMathExpression extends SimpleNode {
         return left >> right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -340,21 +356,25 @@ public class SQLMathExpression extends SimpleNode {
         return left >>> right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
@@ -384,11 +404,14 @@ public class SQLMathExpression extends SimpleNode {
         return apply(left.longValue(), right.longValue());
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Override
+      @Nullable
       public Object apply(Object left, Object right) {
         if (left == null || right == null) {
           return null;
@@ -407,21 +430,25 @@ public class SQLMathExpression extends SimpleNode {
         return left ^ right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Object apply(Object left, Object right) {
         if (left == null && right == null) {
@@ -452,21 +479,26 @@ public class SQLMathExpression extends SimpleNode {
         return left | right;
       }
 
+      @Nullable
       @Override
       public Number apply(Float left, Float right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(Double left, Double right) {
         return null;
       }
 
+      @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
         return null;
       }
 
+      @Override
+      @Nullable
       public Object apply(Object left, Object right) {
         if (left == null && right == null) {
           return null;
@@ -500,11 +532,13 @@ public class SQLMathExpression extends SimpleNode {
         return left != null ? left : right;
       }
 
+      @Override
       public Object apply(Object left, Object right) {
         return left != null ? left : right;
       }
     };
 
+    @Nullable
     private static Long toLong(Object left) {
       if (left instanceof Number) {
         return ((Number) left).longValue();
@@ -531,6 +565,7 @@ public class SQLMathExpression extends SimpleNode {
 
     public abstract Number apply(BigDecimal left, BigDecimal right);
 
+    @Nullable
     public Object apply(Object left, Object right) {
       if (left == null) {
         return right;
@@ -636,9 +671,9 @@ public class SQLMathExpression extends SimpleNode {
     super(p, id);
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (childExpressions != null) {
-      for (SQLMathExpression exp : childExpressions) {
+      for (var exp : childExpressions) {
         if (!exp.isCacheable(session)) {
           return false;
         }
@@ -647,66 +682,68 @@ public class SQLMathExpression extends SimpleNode {
     return true;
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (childExpressions == null || operators == null) {
       return null;
     }
 
-    if (childExpressions.size() == 0) {
+    if (childExpressions.isEmpty()) {
       return null;
     }
     if (childExpressions.size() == 1) {
-      return childExpressions.get(0).execute(iCurrentRecord, ctx);
+      return childExpressions.getFirst().execute(iCurrentRecord, ctx);
     }
 
     if (childExpressions.size() == 2) {
-      Object leftValue = childExpressions.get(0).execute(iCurrentRecord, ctx);
-      Object rightValue = childExpressions.get(1).execute(iCurrentRecord, ctx);
-      return operators.get(0).apply(leftValue, rightValue);
+      var leftValue = childExpressions.get(0).execute(iCurrentRecord, ctx);
+      var rightValue = childExpressions.get(1).execute(iCurrentRecord, ctx);
+      return operators.getFirst().apply(leftValue, rightValue);
     }
 
     return calculateWithOpPriority(iCurrentRecord, ctx);
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     if (childExpressions == null || operators == null) {
       return null;
     }
-    if (childExpressions.size() == 0) {
+    if (childExpressions.isEmpty()) {
       return null;
     }
     if (childExpressions.size() == 1) {
-      return childExpressions.get(0).execute(iCurrentRecord, ctx);
+      return childExpressions.getFirst().execute(iCurrentRecord, ctx);
     }
 
     if (childExpressions.size() == 2) {
-      Object leftValue = childExpressions.get(0).execute(iCurrentRecord, ctx);
-      Object rightValue = childExpressions.get(1).execute(iCurrentRecord, ctx);
-      return operators.get(0).apply(leftValue, rightValue);
+      var leftValue = childExpressions.get(0).execute(iCurrentRecord, ctx);
+      var rightValue = childExpressions.get(1).execute(iCurrentRecord, ctx);
+      return operators.getFirst().apply(leftValue, rightValue);
     }
 
     return calculateWithOpPriority(iCurrentRecord, ctx);
   }
 
   private Object calculateWithOpPriority(Result iCurrentRecord, CommandContext ctx) {
-    Deque valuesStack = new ArrayDeque<>();
+    Deque<Object> valuesStack = new ArrayDeque<>();
     Deque<Operator> operatorsStack = new ArrayDeque<Operator>();
     if (childExpressions != null && operators != null) {
-      SQLMathExpression nextExpression = childExpressions.get(0);
-      Object val = nextExpression.execute(iCurrentRecord, ctx);
+      var nextExpression = childExpressions.getFirst();
+      var val = nextExpression.execute(iCurrentRecord, ctx);
       valuesStack.push(val == null ? NULL_VALUE : val);
 
-      for (int i = 0; i < operators.size() && i + 1 < childExpressions.size(); i++) {
-        Operator nextOperator = operators.get(i);
-        Object rightValue = childExpressions.get(i + 1).execute(iCurrentRecord, ctx);
+      for (var i = 0; i < operators.size() && i + 1 < childExpressions.size(); i++) {
+        var nextOperator = operators.get(i);
+        var rightValue = childExpressions.get(i + 1).execute(iCurrentRecord, ctx);
 
         if (!operatorsStack.isEmpty()
             && operatorsStack.peek().getPriority() <= nextOperator.getPriority()) {
-          Object right = valuesStack.poll();
+          var right = valuesStack.poll();
           right = right == NULL_VALUE ? null : right;
-          Object left = valuesStack.poll();
+          var left = valuesStack.poll();
           left = left == NULL_VALUE ? null : left;
-          Object calculatedValue = operatorsStack.poll().apply(left, right);
+          var calculatedValue = operatorsStack.poll().apply(left, right);
           valuesStack.push(calculatedValue == null ? NULL_VALUE : calculatedValue);
         }
         operatorsStack.push(nextOperator);
@@ -722,21 +759,21 @@ public class SQLMathExpression extends SimpleNode {
     Deque valuesStack = new ArrayDeque<>();
     Deque<Operator> operatorsStack = new ArrayDeque<Operator>();
     if (childExpressions != null && operators != null) {
-      SQLMathExpression nextExpression = childExpressions.get(0);
-      Object val = nextExpression.execute(iCurrentRecord, ctx);
+      var nextExpression = childExpressions.getFirst();
+      var val = nextExpression.execute(iCurrentRecord, ctx);
       valuesStack.push(val == null ? NULL_VALUE : val);
 
-      for (int i = 0; i < operators.size() && i + 1 < childExpressions.size(); i++) {
-        Operator nextOperator = operators.get(i);
-        Object rightValue = childExpressions.get(i + 1).execute(iCurrentRecord, ctx);
+      for (var i = 0; i < operators.size() && i + 1 < childExpressions.size(); i++) {
+        var nextOperator = operators.get(i);
+        var rightValue = childExpressions.get(i + 1).execute(iCurrentRecord, ctx);
 
         if (!operatorsStack.isEmpty()
             && operatorsStack.peek().getPriority() <= nextOperator.getPriority()) {
-          Object right = valuesStack.poll();
+          var right = valuesStack.poll();
           right = right == NULL_VALUE ? null : right;
-          Object left = valuesStack.poll();
+          var left = valuesStack.poll();
           left = left == NULL_VALUE ? null : left;
-          Object calculatedValue = operatorsStack.poll().apply(left, right);
+          var calculatedValue = operatorsStack.poll().apply(left, right);
           valuesStack.push(calculatedValue == null ? NULL_VALUE : calculatedValue);
         }
         operatorsStack.push(nextOperator);
@@ -747,9 +784,10 @@ public class SQLMathExpression extends SimpleNode {
     return iterateOnPriorities(valuesStack, operatorsStack);
   }
 
-  private Object iterateOnPriorities(Deque values, Deque<Operator> operators) {
+  @Nullable
+  private static Object iterateOnPriorities(Deque values, Deque<Operator> operators) {
     while (true) {
-      if (values.size() == 0) {
+      if (values.isEmpty()) {
         return null;
       }
       if (values.size() == 1) {
@@ -762,27 +800,27 @@ public class SQLMathExpression extends SimpleNode {
       valuesStack.push(values.removeLast());
 
       while (!operators.isEmpty()) {
-        Operator nextOperator = operators.removeLast();
-        Object rightValue = values.removeLast();
+        var nextOperator = operators.removeLast();
+        var rightValue = values.removeLast();
 
         if (!operatorsStack.isEmpty()
             && operatorsStack.peek().getPriority() <= nextOperator.getPriority()) {
-          Object right = valuesStack.poll();
+          var right = valuesStack.poll();
           right = right == NULL_VALUE ? null : right;
-          Object left = valuesStack.poll();
+          var left = valuesStack.poll();
           left = left == NULL_VALUE ? null : left;
-          Object calculatedValue = operatorsStack.poll().apply(left, right);
+          var calculatedValue = operatorsStack.poll().apply(left, right);
           valuesStack.push(calculatedValue == null ? NULL_VALUE : calculatedValue);
         }
         operatorsStack.push(nextOperator);
         valuesStack.push(rightValue == null ? NULL_VALUE : rightValue);
       }
       if (!operatorsStack.isEmpty()) {
-        Object right = valuesStack.poll();
+        var right = valuesStack.poll();
         right = right == NULL_VALUE ? null : right;
-        Object left = valuesStack.poll();
+        var left = valuesStack.poll();
         left = left == NULL_VALUE ? null : left;
-        Object val = operatorsStack.poll().apply(left, right);
+        var val = operatorsStack.poll().apply(left, right);
         valuesStack.push(val == null ? NULL_VALUE : val);
       }
 
@@ -808,7 +846,7 @@ public class SQLMathExpression extends SimpleNode {
 
   public SQLMathExpression unwrapIfNeeded() {
     if (this.childExpressions != null && this.childExpressions.size() == 1) {
-      return this.childExpressions.get(0);
+      return this.childExpressions.getFirst();
     }
     return this;
   }
@@ -824,11 +862,12 @@ public class SQLMathExpression extends SimpleNode {
     this.operators.add(operator);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (childExpressions == null || operators == null) {
       return;
     }
-    for (int i = 0; i < childExpressions.size(); i++) {
+    for (var i = 0; i < childExpressions.size(); i++) {
       if (i > 0) {
         builder.append(" ");
         switch (operators.get(i - 1)) {
@@ -872,11 +911,12 @@ public class SQLMathExpression extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (childExpressions == null || operators == null) {
       return;
     }
-    for (int i = 0; i < childExpressions.size(); i++) {
+    for (var i = 0; i < childExpressions.size(); i++) {
       if (i > 0) {
         builder.append(" ");
         switch (operators.get(i - 1)) {
@@ -922,7 +962,7 @@ public class SQLMathExpression extends SimpleNode {
 
   protected boolean supportsBasicCalculation() {
     if (this.childExpressions != null) {
-      for (SQLMathExpression expr : this.childExpressions) {
+      for (var expr : this.childExpressions) {
         if (!expr.supportsBasicCalculation()) {
           return false;
         }
@@ -931,10 +971,10 @@ public class SQLMathExpression extends SimpleNode {
     return true;
   }
 
-  public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
+  public boolean isIndexedFunctionCall(DatabaseSessionEmbedded session) {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
-        return this.childExpressions.get(0).isIndexedFunctionCall(session);
+        return this.childExpressions.getFirst().isIndexedFunctionCall(session);
       }
     }
     return false;
@@ -946,20 +986,21 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .estimateIndexedFunction(target, context, operator, right);
       }
     }
     return -1;
   }
 
+  @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .executeIndexedFunction(target, context, operator, right);
       }
     }
@@ -981,7 +1022,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .canExecuteIndexedFunctionWithoutIndex(target, context, operator, right);
       }
     }
@@ -1003,7 +1044,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .allowsIndexedFunctionExecutionOnTarget(target, context, operator, right);
       }
     }
@@ -1028,7 +1069,7 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
         return this.childExpressions
-            .get(0)
+            .getFirst()
             .executeIndexedFunctionAfterIndexSearch(target, context, operator, right);
       }
     }
@@ -1038,7 +1079,7 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isFunctionAny() {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
-        return this.childExpressions.get(0).isFunctionAny();
+        return this.childExpressions.getFirst().isFunctionAny();
       }
     }
     return false;
@@ -1047,7 +1088,7 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isFunctionAll() {
     if (this.childExpressions != null) {
       if (this.childExpressions.size() == 1) {
-        return this.childExpressions.get(0).isFunctionAll();
+        return this.childExpressions.getFirst().isFunctionAll();
       }
     }
     return false;
@@ -1056,25 +1097,50 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isBaseIdentifier() {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.get(0).isBaseIdentifier();
+        return childExpressions.getFirst().isBaseIdentifier();
       }
     }
+
     return false;
   }
 
-  public Optional<MetadataPath> getPath() {
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.get(0).getPath();
+        return childExpressions.getFirst().isGraphRelationFunction(session);
       }
     }
-    return Optional.empty();
+
+    return false;
   }
 
+  @Nullable
+  public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
+      SchemaClass schemaClass) {
+    if (this.childExpressions != null) {
+      if (childExpressions.size() == 1) {
+        return childExpressions.getFirst().getGraphNavigationFunctionProperties(ctx, schemaClass);
+      }
+    }
+
+    return null;
+  }
+
+  @Nullable
+  public IndexMetadataPath getIndexMetadataPath(DatabaseSessionEmbedded session) {
+    if (this.childExpressions != null) {
+      if (childExpressions.size() == 1) {
+        return childExpressions.getFirst().getIndexMetadataPath(session);
+      }
+    }
+    return null;
+  }
+
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     if (this.childExpressions != null) {
       if (childExpressions.size() == 1) {
-        return childExpressions.get(0).getCollate(currentRecord, ctx);
+        return childExpressions.getFirst().getCollate(currentRecord, ctx);
       }
     }
     return null;
@@ -1082,7 +1148,7 @@ public class SQLMathExpression extends SimpleNode {
 
   public boolean isEarlyCalculated(CommandContext ctx) {
     if (this.childExpressions != null) {
-      for (SQLMathExpression exp : childExpressions) {
+      for (var exp : childExpressions) {
         if (!exp.isEarlyCalculated(ctx)) {
           return false;
         }
@@ -1093,7 +1159,7 @@ public class SQLMathExpression extends SimpleNode {
 
   public boolean needsAliases(Set<String> aliases) {
     if (this.childExpressions != null) {
-      for (SQLMathExpression expr : childExpressions) {
+      for (var expr : childExpressions) {
         if (expr.needsAliases(aliases)) {
           return true;
         }
@@ -1105,7 +1171,7 @@ public class SQLMathExpression extends SimpleNode {
   public boolean isExpand() {
     if (this.childExpressions != null) {
 
-      for (SQLMathExpression expr : this.childExpressions) {
+      for (var expr : this.childExpressions) {
         if (expr.isExpand()) {
           if (this.childExpressions.size() > 1) {
             throw new CommandExecutionException(
@@ -1118,9 +1184,9 @@ public class SQLMathExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (this.childExpressions != null) {
-      for (SQLMathExpression expr : this.childExpressions) {
+      for (var expr : this.childExpressions) {
         if (expr.isAggregate(session)) {
           return true;
         }
@@ -1136,26 +1202,26 @@ public class SQLMathExpression extends SimpleNode {
     if (this.childExpressions.size() != 1) {
       return false;
     }
-    return this.childExpressions.get(0).isCount();
+    return this.childExpressions.getFirst().isCount();
   }
 
   public SimpleNode splitForAggregation(
       AggregateProjectionSplit aggregateProj, CommandContext ctx) {
-    var db = ctx.getDatabase();
-    if (isAggregate(db)) {
-      SQLMathExpression result = new SQLMathExpression(-1);
+    var session = ctx.getDatabaseSession();
+    if (isAggregate(session)) {
+      var result = new SQLMathExpression(-1);
       if (this.childExpressions != null && this.operators != null) {
-        int i = 0;
-        for (SQLMathExpression expr : this.childExpressions) {
+        var i = 0;
+        for (var expr : this.childExpressions) {
           if (i > 0) {
             result.addOperator(operators.get(i - 1));
           }
-          SimpleNode splitResult = expr.splitForAggregation(aggregateProj, ctx);
+          var splitResult = expr.splitForAggregation(aggregateProj, ctx);
           if (splitResult instanceof SQLMathExpression res) {
-            if (res.isEarlyCalculated(ctx) || res.isAggregate(db)) {
+            if (res.isEarlyCalculated(ctx) || res.isAggregate(session)) {
               result.addChildExpression(res);
             } else {
-              throw new CommandExecutionException(
+              throw new CommandExecutionException(session,
                   "Cannot mix aggregate and single record attribute values in the same projection");
             }
           } else if (splitResult instanceof SQLExpression) {
@@ -1177,6 +1243,7 @@ public class SQLMathExpression extends SimpleNode {
         "multiple math expressions do not allow plain aggregation");
   }
 
+  @Override
   public SQLMathExpression copy() {
     SQLMathExpression result = null;
     try {
@@ -1186,7 +1253,7 @@ public class SQLMathExpression extends SimpleNode {
     }
     if (this.childExpressions != null) {
       result.childExpressions =
-          childExpressions.stream().map(x -> x.copy()).collect(Collectors.toList());
+          childExpressions.stream().map(SQLMathExpression::copy).collect(Collectors.toList());
     }
     if (operators != null) {
       result.operators = new ArrayList<>(operators);
@@ -1196,7 +1263,7 @@ public class SQLMathExpression extends SimpleNode {
 
   public void extractSubQueries(SQLIdentifier letAlias, SubQueryCollector collector) {
     if (this.childExpressions != null) {
-      for (SQLMathExpression expr : this.childExpressions) {
+      for (var expr : this.childExpressions) {
         expr.extractSubQueries(letAlias, collector);
       }
     }
@@ -1204,7 +1271,7 @@ public class SQLMathExpression extends SimpleNode {
 
   public void extractSubQueries(SubQueryCollector collector) {
     if (this.childExpressions != null) {
-      for (SQLMathExpression expr : this.childExpressions) {
+      for (var expr : this.childExpressions) {
         expr.extractSubQueries(collector);
       }
     }
@@ -1212,7 +1279,7 @@ public class SQLMathExpression extends SimpleNode {
 
   public boolean refersToParent() {
     if (this.childExpressions != null) {
-      for (SQLMathExpression expr : this.childExpressions) {
+      for (var expr : this.childExpressions) {
         if (expr.refersToParent()) {
           return true;
         }
@@ -1230,7 +1297,7 @@ public class SQLMathExpression extends SimpleNode {
       return false;
     }
 
-    SQLMathExpression that = (SQLMathExpression) o;
+    var that = (SQLMathExpression) o;
 
     if (!Objects.equals(childExpressions, that.childExpressions)) {
       return false;
@@ -1240,22 +1307,23 @@ public class SQLMathExpression extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = childExpressions != null ? childExpressions.hashCode() : 0;
+    var result = childExpressions != null ? childExpressions.hashCode() : 0;
     result = 31 * result + (operators != null ? operators.hashCode() : 0);
     return result;
   }
 
+  @Nullable
   public List<String> getMatchPatternInvolvedAliases() {
     List<String> result = new ArrayList<String>();
     if (this.childExpressions != null) {
-      for (SQLMathExpression exp : childExpressions) {
-        List<String> x = exp.getMatchPatternInvolvedAliases();
+      for (var exp : childExpressions) {
+        var x = exp.getMatchPatternInvolvedAliases();
         if (x != null) {
           result.addAll(x);
         }
       }
     }
-    if (result.size() == 0) {
+    if (result.isEmpty()) {
       return null;
     }
     return result;
@@ -1263,36 +1331,37 @@ public class SQLMathExpression extends SimpleNode {
 
   public void applyRemove(ResultInternal result, CommandContext ctx) {
     if (childExpressions == null || childExpressions.size() != 1) {
-      throw new CommandExecutionException("cannot apply REMOVE " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(), "cannot apply REMOVE " + this);
     }
-    childExpressions.get(0).applyRemove(result, ctx);
+    childExpressions.getFirst().applyRemove(result, ctx);
   }
 
   public static SQLMathExpression deserializeFromResult(Result fromResult) {
     String className = fromResult.getProperty("__class");
     try {
-      SQLMathExpression result =
+      var result =
           (SQLMathExpression) Class.forName(className).getConstructor(Integer.class)
               .newInstance(-1);
       result.deserialize(fromResult);
       return result;
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(""), e, (String) null);
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("__class", getClass().getName());
     if (childExpressions != null) {
       result.setProperty(
           "childExpressions",
-          childExpressions.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          childExpressions.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     if (operators != null) {
       result.setProperty(
           "operators",
-          operators.stream().map(this::serializeOperator).collect(Collectors.toList()));
+          operators.stream().map(SQLMathExpression::serializeOperator)
+              .collect(Collectors.toList()));
     }
     return result;
   }
@@ -1301,19 +1370,20 @@ public class SQLMathExpression extends SimpleNode {
     if (fromResult.getProperty("childExpressions") != null) {
       List<Result> ser = fromResult.getProperty("childExpressions");
       childExpressions =
-          ser.stream().map(x -> deserializeFromResult(x)).collect(Collectors.toList());
+          ser.stream().map(SQLMathExpression::deserializeFromResult).collect(Collectors.toList());
     }
     if (fromResult.getProperty("operators") != null) {
       List<String> ser = fromResult.getProperty("operators");
-      operators = ser.stream().map(x -> deserializeOperator(x)).collect(Collectors.toList());
+      operators = ser.stream().map(SQLMathExpression::deserializeOperator)
+          .collect(Collectors.toList());
     }
   }
 
-  private String serializeOperator(Operator x) {
+  private static String serializeOperator(Operator x) {
     return x.toString();
   }
 
-  private Operator deserializeOperator(String x) {
+  private static Operator deserializeOperator(String x) {
     return Operator.valueOf(x);
   }
 }

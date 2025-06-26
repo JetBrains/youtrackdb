@@ -21,7 +21,7 @@ public class ReturnMatchPathsStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ RETURN $paths";
   }
 }

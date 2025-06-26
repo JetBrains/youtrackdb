@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritel
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.io.File;
 import java.io.IOException;
@@ -42,21 +43,22 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testWriteSinglePage() throws Exception {
-    final int pageSize = 256;
+    final var pageSize = 256;
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
 
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+      final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test",
+          ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, Paths.get(buildDirectory), pageSize);
       try {
         Pointer pointer;
 
-        final ByteBuffer buffer = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
-        ThreadLocalRandom random = ThreadLocalRandom.current();
+        final var buffer = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
+        var random = ThreadLocalRandom.current();
 
-        final byte[] data = new byte[pageSize];
+        final var data = new byte[pageSize];
         random.nextBytes(data);
 
         buffer.put(data);
@@ -74,10 +76,10 @@ public class DoubleWriteLogGLTestIT {
         doubleWriteLog.restoreModeOn();
 
         pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
-        final ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+        final var loadedBuffer = pointer.getNativeByteBuffer();
 
         Assert.assertEquals(256, loadedBuffer.limit());
-        final byte[] loadedData = new byte[256];
+        final var loadedData = new byte[256];
         loadedBuffer.rewind();
         loadedBuffer.get(loadedData);
 
@@ -96,19 +98,20 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testWriteSinglePageTwoTimes() throws Exception {
-    final int pageSize = 256;
+    final var pageSize = 256;
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
 
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+      final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        final ByteBuffer buffer = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
-        ThreadLocalRandom random = ThreadLocalRandom.current();
+        final var buffer = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
+        var random = ThreadLocalRandom.current();
 
-        final byte[] data = new byte[pageSize];
+        final var data = new byte[pageSize];
         random.nextBytes(data);
 
         buffer.put(data);
@@ -128,16 +131,16 @@ public class DoubleWriteLogGLTestIT {
             IntArrayList.of(24));
         doubleWriteLog.truncate();
 
-        Pointer pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
+        var pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
         Assert.assertNull(pointer);
 
         doubleWriteLog.restoreModeOn();
 
         pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
-        final ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+        final var loadedBuffer = pointer.getNativeByteBuffer();
 
         Assert.assertEquals(256, loadedBuffer.limit());
-        final byte[] loadedData = new byte[256];
+        final var loadedData = new byte[256];
         loadedBuffer.rewind();
         loadedBuffer.get(loadedData);
 
@@ -156,26 +159,27 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testWriteTwoPagesSameFile() throws Exception {
-    final int pageSize = 256;
+    final var pageSize = 256;
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+      final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        ThreadLocalRandom random = ThreadLocalRandom.current();
+        var random = ThreadLocalRandom.current();
 
         List<byte[]> datas = new ArrayList<>();
-        for (int i = 0; i < 2; i++) {
-          final byte[] data = new byte[pageSize];
+        for (var i = 0; i < 2; i++) {
+          final var data = new byte[pageSize];
           random.nextBytes(data);
           datas.add(data);
         }
 
-        final ByteBuffer buffer =
+        final var buffer =
             ByteBuffer.allocate(pageSize * datas.size()).order(ByteOrder.nativeOrder());
-        for (final byte[] data : datas) {
+        for (final var data : datas) {
           buffer.put(data);
         }
 
@@ -184,7 +188,7 @@ public class DoubleWriteLogGLTestIT {
             IntArrayList.of(12),
             IntArrayList.of(24));
 
-        Pointer pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
+        var pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
         Assert.assertNull(pointer);
 
         pointer = doubleWriteLog.loadPage(12, 25, bufferPool);
@@ -193,14 +197,14 @@ public class DoubleWriteLogGLTestIT {
         doubleWriteLog.restoreModeOn();
 
         pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
-        ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+        var loadedBuffer = pointer.getNativeByteBuffer();
 
         Assert.assertEquals(256, loadedBuffer.limit());
-        byte[] loadedData = new byte[256];
+        var loadedData = new byte[256];
         loadedBuffer.rewind();
         loadedBuffer.get(loadedData);
 
-        Assert.assertArrayEquals(datas.get(0), loadedData);
+        Assert.assertArrayEquals(datas.getFirst(), loadedData);
         bufferPool.release(pointer);
 
         pointer = doubleWriteLog.loadPage(12, 25, bufferPool);
@@ -222,26 +226,27 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testWriteTenPagesSameFile() throws Exception {
-    final int pageSize = 256;
+    final var pageSize = 256;
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+      final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        ThreadLocalRandom random = ThreadLocalRandom.current();
+        var random = ThreadLocalRandom.current();
 
         List<byte[]> datas = new ArrayList<>();
-        for (int i = 0; i < 10; i++) {
-          final byte[] data = new byte[pageSize];
+        for (var i = 0; i < 10; i++) {
+          final var data = new byte[pageSize];
           random.nextBytes(data);
           datas.add(data);
         }
 
-        ByteBuffer buffer =
+        var buffer =
             ByteBuffer.allocate(datas.size() * pageSize).order(ByteOrder.nativeOrder());
-        for (final byte[] data : datas) {
+        for (final var data : datas) {
           buffer.put(data);
         }
 
@@ -250,7 +255,7 @@ public class DoubleWriteLogGLTestIT {
             IntArrayList.of(12),
             IntArrayList.of(24));
 
-        Pointer pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
+        var pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
         Assert.assertNull(pointer);
 
         pointer = doubleWriteLog.loadPage(12, 25, bufferPool);
@@ -258,12 +263,12 @@ public class DoubleWriteLogGLTestIT {
 
         doubleWriteLog.restoreModeOn();
 
-        for (int i = 0; i < 10; i++) {
+        for (var i = 0; i < 10; i++) {
           pointer = doubleWriteLog.loadPage(12, 24 + i, bufferPool);
-          ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+          var loadedBuffer = pointer.getNativeByteBuffer();
 
           Assert.assertEquals(256, loadedBuffer.limit());
-          byte[] loadedData = new byte[256];
+          var loadedData = new byte[256];
           loadedBuffer.rewind();
           loadedBuffer.get(loadedData);
 
@@ -280,26 +285,27 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testWriteTenDifferentSinglePages() throws Exception {
-    final int pageSize = 256;
+    final var pageSize = 256;
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+      final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        ThreadLocalRandom random = ThreadLocalRandom.current();
+        var random = ThreadLocalRandom.current();
 
         List<byte[]> datas = new ArrayList<>();
-        for (int i = 0; i < 10; i++) {
-          final byte[] data = new byte[pageSize];
+        for (var i = 0; i < 10; i++) {
+          final var data = new byte[pageSize];
           random.nextBytes(data);
           datas.add(data);
         }
 
-        final ByteBuffer buffer =
+        final var buffer =
             ByteBuffer.allocate(pageSize * datas.size()).order(ByteOrder.nativeOrder());
-        for (byte[] data : datas) {
+        for (var data : datas) {
           buffer.put(data);
         }
         doubleWriteLog.write(
@@ -307,7 +313,7 @@ public class DoubleWriteLogGLTestIT {
             IntArrayList.of(12),
             IntArrayList.of(24));
 
-        Pointer pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
+        var pointer = doubleWriteLog.loadPage(12, 24, bufferPool);
         Assert.assertNull(pointer);
 
         pointer = doubleWriteLog.loadPage(12, 25, bufferPool);
@@ -315,12 +321,12 @@ public class DoubleWriteLogGLTestIT {
 
         doubleWriteLog.restoreModeOn();
 
-        for (int i = 0; i < 10; i++) {
+        for (var i = 0; i < 10; i++) {
           pointer = doubleWriteLog.loadPage(12, 24 + i, bufferPool);
-          ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+          var loadedBuffer = pointer.getNativeByteBuffer();
 
           Assert.assertEquals(256, loadedBuffer.limit());
-          byte[] loadedData = new byte[256];
+          var loadedData = new byte[256];
           loadedBuffer.rewind();
           loadedBuffer.get(loadedData);
 
@@ -337,27 +343,28 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testWriteTenDifferentPagesTenTimes() throws Exception {
-    final int pageSize = 256;
+    final var pageSize = 256;
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+      final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        ThreadLocalRandom random = ThreadLocalRandom.current();
+        var random = ThreadLocalRandom.current();
 
         List<byte[]> datas = new ArrayList<>();
-        for (int i = 0; i < 100; i++) {
-          final byte[] data = new byte[pageSize];
+        for (var i = 0; i < 100; i++) {
+          final var data = new byte[pageSize];
           random.nextBytes(data);
           datas.add(data);
         }
 
-        for (int i = 0; i < 10; i++) {
-          ByteBuffer buffer = ByteBuffer.allocate(10 * pageSize).order(ByteOrder.nativeOrder());
+        for (var i = 0; i < 10; i++) {
+          var buffer = ByteBuffer.allocate(10 * pageSize).order(ByteOrder.nativeOrder());
 
-          for (int j = 0; j < 10; j++) {
+          for (var j = 0; j < 10; j++) {
             buffer.put(datas.get(i * 10 + j));
           }
 
@@ -369,14 +376,14 @@ public class DoubleWriteLogGLTestIT {
 
         doubleWriteLog.restoreModeOn();
 
-        for (int i = 0; i < 10; i++) {
-          for (int j = 0; j < 10; j++) {
-            final Pointer pointer = doubleWriteLog.loadPage(12 + i, 24 + j, bufferPool);
+        for (var i = 0; i < 10; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var pointer = doubleWriteLog.loadPage(12 + i, 24 + j, bufferPool);
 
-            ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+            var loadedBuffer = pointer.getNativeByteBuffer();
 
             Assert.assertEquals(256, loadedBuffer.limit());
-            byte[] loadedData = new byte[256];
+            var loadedData = new byte[256];
             loadedBuffer.rewind();
             loadedBuffer.get(loadedData);
 
@@ -394,40 +401,41 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testRandomWriteOne() throws Exception {
-    final long seed = System.nanoTime();
+    final var seed = System.nanoTime();
     System.out.println("testRandomWriteOne : seed " + seed);
 
-    Random random = new Random(seed);
+    var random = new Random(seed);
 
-    for (int n = 0; n < 10; n++) {
+    for (var n = 0; n < 10; n++) {
       System.out.println("Iteration - " + n);
 
-      final int pageSize = 256;
+      final var pageSize = 256;
 
-      final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+      final var bufferPool = new ByteBufferPool(pageSize);
       try {
-        final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+        final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-        doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+        doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
         try {
-          final int pagesToWrite = random.nextInt(20_000) + 100;
+          final var pagesToWrite = random.nextInt(20_000) + 100;
 
           List<byte[]> datas = new ArrayList<>();
-          for (int i = 0; i < pagesToWrite; i++) {
-            final byte[] data = new byte[pageSize];
+          for (var i = 0; i < pagesToWrite; i++) {
+            final var data = new byte[pageSize];
             random.nextBytes(data);
             datas.add(data);
           }
 
-          int pageIndex = 0;
-          int writtenPages = 0;
+          var pageIndex = 0;
+          var writtenPages = 0;
 
           while (writtenPages < pagesToWrite) {
-            final int pagesForSinglePatch = random.nextInt(pagesToWrite - writtenPages) + 1;
-            final ByteBuffer buffer =
+            final var pagesForSinglePatch = random.nextInt(pagesToWrite - writtenPages) + 1;
+            final var buffer =
                 ByteBuffer.allocate(pagesForSinglePatch * pageSize).order(ByteOrder.nativeOrder());
 
-            for (int j = 0; j < pagesForSinglePatch; j++) {
+            for (var j = 0; j < pagesForSinglePatch; j++) {
               buffer.put(datas.get(pageIndex + j));
             }
 
@@ -441,13 +449,13 @@ public class DoubleWriteLogGLTestIT {
 
           doubleWriteLog.restoreModeOn();
 
-          for (int i = 0; i < pagesToWrite; i++) {
-            final Pointer pointer = doubleWriteLog.loadPage(12, 24 + i, bufferPool);
+          for (var i = 0; i < pagesToWrite; i++) {
+            final var pointer = doubleWriteLog.loadPage(12, 24 + i, bufferPool);
 
-            ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+            var loadedBuffer = pointer.getNativeByteBuffer();
 
             Assert.assertEquals(256, loadedBuffer.limit());
-            byte[] loadedData = new byte[256];
+            var loadedData = new byte[256];
             loadedBuffer.rewind();
             loadedBuffer.get(loadedData);
 
@@ -466,48 +474,49 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testRandomWriteTwo() throws Exception {
-    final long seed = System.nanoTime();
+    final var seed = System.nanoTime();
     System.out.println("testRandomWriteTwo : seed " + seed);
 
-    final Random random = new Random(seed);
-    final int pageSize = 256;
+    final var random = new Random(seed);
+    final var pageSize = 256;
 
-    for (int n = 0; n < 10; n++) {
+    for (var n = 0; n < 10; n++) {
       System.out.println("Iteration - " + n);
 
-      final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+      final var bufferPool = new ByteBufferPool(pageSize);
       try {
-        final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
-        doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+        final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+        doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
         try {
           final Map<Integer, ByteBuffer> pageMap = new HashMap<>();
-          final int pages = random.nextInt(900) + 100;
+          final var pages = random.nextInt(900) + 100;
 
           System.out.println("testRandomWriteTwo : pages " + pages);
 
-          for (int k = 0; k < 100; k++) {
-            final int pagesToWrite = random.nextInt(pages - 1) + 1;
+          for (var k = 0; k < 100; k++) {
+            final var pagesToWrite = random.nextInt(pages - 1) + 1;
 
             List<byte[]> datas = new ArrayList<>();
-            for (int i = 0; i < pagesToWrite; i++) {
-              final byte[] data = new byte[pageSize];
+            for (var i = 0; i < pagesToWrite; i++) {
+              final var data = new byte[pageSize];
               random.nextBytes(data);
               datas.add(data);
             }
 
-            final int startPageIndex = random.nextInt(pages);
-            int pageIndex = 0;
-            int writtenPages = 0;
+            final var startPageIndex = random.nextInt(pages);
+            var pageIndex = 0;
+            var writtenPages = 0;
 
             while (writtenPages < pagesToWrite) {
-              final int pagesForSinglePatch = random.nextInt(pagesToWrite - writtenPages) + 1;
-              ByteBuffer[] buffers = new ByteBuffer[pagesForSinglePatch];
+              final var pagesForSinglePatch = random.nextInt(pagesToWrite - writtenPages) + 1;
+              var buffers = new ByteBuffer[pagesForSinglePatch];
 
-              ByteBuffer containerBuffer =
+              var containerBuffer =
                   ByteBuffer.allocate(pagesForSinglePatch * pageSize)
                       .order(ByteOrder.nativeOrder());
-              for (int j = 0; j < pagesForSinglePatch; j++) {
-                final ByteBuffer buffer =
+              for (var j = 0; j < pagesForSinglePatch; j++) {
+                final var buffer =
                     ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
                 buffer.put(datas.get(pageIndex + j));
                 buffers[j] = buffer;
@@ -522,7 +531,7 @@ public class DoubleWriteLogGLTestIT {
                   IntArrayList.of(12),
                   IntArrayList.of(startPageIndex + pageIndex));
 
-              for (int j = 0; j < buffers.length; j++) {
+              for (var j = 0; j < buffers.length; j++) {
                 pageMap.put(startPageIndex + pageIndex + j, buffers[j]);
               }
 
@@ -533,19 +542,19 @@ public class DoubleWriteLogGLTestIT {
 
           doubleWriteLog.restoreModeOn();
 
-          for (final int pageIndex : pageMap.keySet()) {
-            final Pointer pointer = doubleWriteLog.loadPage(12, pageIndex, bufferPool);
+          for (final var entry : pageMap.entrySet()) {
+            final var pointer = doubleWriteLog.loadPage(12, entry.getKey(), bufferPool);
 
-            final ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+            final var loadedBuffer = pointer.getNativeByteBuffer();
 
             Assert.assertEquals(pageSize, loadedBuffer.limit());
-            final byte[] loadedData = new byte[pageSize];
+            final var loadedData = new byte[pageSize];
 
             loadedBuffer.rewind();
             loadedBuffer.get(loadedData);
 
-            final byte[] data = new byte[pageSize];
-            final ByteBuffer buffer = pageMap.get(pageIndex);
+            final var data = new byte[pageSize];
+            final var buffer = entry.getValue();
 
             buffer.rewind();
             buffer.get(data);
@@ -565,40 +574,41 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testRandomCrashOne() throws Exception {
-    final long seed = System.nanoTime();
+    final var seed = System.nanoTime();
     System.out.println("testRandomCrashOne : seed " + seed);
 
-    Random random = new Random(seed);
+    var random = new Random(seed);
 
-    for (int n = 0; n < 10; n++) {
+    for (var n = 0; n < 10; n++) {
       System.out.println("Iteration - " + n);
 
-      final int pageSize = 256;
+      final var pageSize = 256;
 
-      final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+      final var bufferPool = new ByteBufferPool(pageSize);
       try {
-        final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(4 * 4 * 1024, 512);
+        final var doubleWriteLog = new DoubleWriteLogGL(4 * 4 * 1024, 512);
 
-        doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+        doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
         try {
-          final int pagesToWrite = random.nextInt(20_000) + 100;
+          final var pagesToWrite = random.nextInt(20_000) + 100;
 
           List<byte[]> datas = new ArrayList<>();
-          for (int i = 0; i < pagesToWrite; i++) {
-            final byte[] data = new byte[pageSize];
+          for (var i = 0; i < pagesToWrite; i++) {
+            final var data = new byte[pageSize];
             random.nextBytes(data);
             datas.add(data);
           }
 
-          int pageIndex = 0;
-          int writtenPages = 0;
+          var pageIndex = 0;
+          var writtenPages = 0;
 
           while (writtenPages < pagesToWrite) {
-            final int pagesForSinglePatch = random.nextInt(pagesToWrite - writtenPages) + 1;
-            ByteBuffer buffer =
+            final var pagesForSinglePatch = random.nextInt(pagesToWrite - writtenPages) + 1;
+            var buffer =
                 ByteBuffer.allocate(pagesForSinglePatch * pageSize).order(ByteOrder.nativeOrder());
 
-            for (int j = 0; j < pagesForSinglePatch; j++) {
+            for (var j = 0; j < pagesForSinglePatch; j++) {
               buffer.put(datas.get(pageIndex + j));
             }
 
@@ -610,18 +620,19 @@ public class DoubleWriteLogGLTestIT {
             writtenPages += pagesForSinglePatch;
           }
 
-          final DoubleWriteLogGL doubleWriteLogRestore = new DoubleWriteLogGL(2 * 4 * 1024, 512);
-          doubleWriteLogRestore.open("test", Paths.get(buildDirectory), pageSize);
+          final var doubleWriteLogRestore = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+          doubleWriteLogRestore.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+              Paths.get(buildDirectory), pageSize);
 
           doubleWriteLogRestore.restoreModeOn();
 
-          for (int i = 0; i < pagesToWrite; i++) {
-            final Pointer pointer = doubleWriteLogRestore.loadPage(12, 24 + i, bufferPool);
+          for (var i = 0; i < pagesToWrite; i++) {
+            final var pointer = doubleWriteLogRestore.loadPage(12, 24 + i, bufferPool);
 
-            ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+            var loadedBuffer = pointer.getNativeByteBuffer();
 
             Assert.assertEquals(256, loadedBuffer.limit());
-            byte[] loadedData = new byte[256];
+            var loadedData = new byte[256];
             loadedBuffer.rewind();
             loadedBuffer.get(loadedData);
 
@@ -641,48 +652,49 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testRandomWriteCrashTwo() throws Exception {
-    final long seed = System.nanoTime();
+    final var seed = System.nanoTime();
     System.out.println("testRandomCrashTwo : seed " + seed);
 
-    final Random random = new Random(seed);
-    final int pageSize = 256;
+    final var random = new Random(seed);
+    final var pageSize = 256;
 
-    for (int n = 0; n < 10; n++) {
+    for (var n = 0; n < 10; n++) {
       System.out.println("Iteration - " + n);
 
-      final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+      final var bufferPool = new ByteBufferPool(pageSize);
       try {
-        final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
-        doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+        final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+        doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
         try {
           final Map<Integer, ByteBuffer> pageMap = new HashMap<>();
-          final int pages = random.nextInt(900) + 100;
+          final var pages = random.nextInt(900) + 100;
 
           System.out.println("testRandomCrashTwo : pages " + pages);
 
-          for (int k = 0; k < 100; k++) {
-            final int pagesToWrite = random.nextInt(pages - 1) + 1;
+          for (var k = 0; k < 100; k++) {
+            final var pagesToWrite = random.nextInt(pages - 1) + 1;
 
             List<byte[]> datas = new ArrayList<>();
-            for (int i = 0; i < pagesToWrite; i++) {
-              final byte[] data = new byte[pageSize];
+            for (var i = 0; i < pagesToWrite; i++) {
+              final var data = new byte[pageSize];
               random.nextBytes(data);
               datas.add(data);
             }
 
-            final int startPageIndex = random.nextInt(pages);
-            int pageIndex = 0;
-            int writtenPages = 0;
+            final var startPageIndex = random.nextInt(pages);
+            var pageIndex = 0;
+            var writtenPages = 0;
 
             while (writtenPages < pagesToWrite) {
-              final int pagesForSinglePatch = random.nextInt(pagesToWrite - writtenPages) + 1;
-              ByteBuffer[] buffers = new ByteBuffer[pagesForSinglePatch];
-              ByteBuffer containerBuffer =
+              final var pagesForSinglePatch = random.nextInt(pagesToWrite - writtenPages) + 1;
+              var buffers = new ByteBuffer[pagesForSinglePatch];
+              var containerBuffer =
                   ByteBuffer.allocate(pagesForSinglePatch * pageSize)
                       .order(ByteOrder.nativeOrder());
 
-              for (int j = 0; j < pagesForSinglePatch; j++) {
-                final ByteBuffer buffer =
+              for (var j = 0; j < pagesForSinglePatch; j++) {
+                final var buffer =
                     ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
                 buffer.put(datas.get(pageIndex + j));
                 buffer.rewind();
@@ -695,7 +707,7 @@ public class DoubleWriteLogGLTestIT {
                   new ArrayList<>(Collections.singleton(containerBuffer)),
                   IntArrayList.of(12),
                   IntArrayList.of(startPageIndex + pageIndex));
-              for (int j = 0; j < buffers.length; j++) {
+              for (var j = 0; j < buffers.length; j++) {
                 pageMap.put(startPageIndex + pageIndex + j, buffers[j]);
               }
 
@@ -704,24 +716,25 @@ public class DoubleWriteLogGLTestIT {
             }
           }
 
-          final DoubleWriteLogGL doubleWriteLogRestore = new DoubleWriteLogGL(2 * 4 * 1024, 512);
-          doubleWriteLogRestore.open("test", Paths.get(buildDirectory), pageSize);
+          final var doubleWriteLogRestore = new DoubleWriteLogGL(2 * 4 * 1024, 512);
+          doubleWriteLogRestore.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+              Paths.get(buildDirectory), pageSize);
 
           doubleWriteLogRestore.restoreModeOn();
 
-          for (final int pageIndex : pageMap.keySet()) {
-            final Pointer pointer = doubleWriteLogRestore.loadPage(12, pageIndex, bufferPool);
+          for (final var entry : pageMap.entrySet()) {
+            final var pointer = doubleWriteLogRestore.loadPage(12, entry.getKey(), bufferPool);
 
-            final ByteBuffer loadedBuffer = pointer.getNativeByteBuffer();
+            final var loadedBuffer = pointer.getNativeByteBuffer();
 
             Assert.assertEquals(pageSize, loadedBuffer.limit());
-            final byte[] loadedData = new byte[pageSize];
+            final var loadedData = new byte[pageSize];
 
             loadedBuffer.rewind();
             loadedBuffer.get(loadedData);
 
-            final byte[] data = new byte[pageSize];
-            final ByteBuffer buffer = pageMap.get(pageIndex);
+            final var data = new byte[pageSize];
+            final var buffer = entry.getValue();
 
             buffer.rewind();
             buffer.get(data);
@@ -742,19 +755,21 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testTruncate() throws IOException {
-    final int pageSize = 256;
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var pageSize = 256;
+    final var bufferPool = new ByteBufferPool(pageSize);
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(512, 512);
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      final var doubleWriteLog = new DoubleWriteLogGL(512, 512);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        List<Path> paths = listFiles();
+        var paths = listFiles();
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
-        for (int i = 0; i < 4; i++) {
-          final boolean overflow =
+        for (var i = 0; i < 4; i++) {
+          final var overflow =
               doubleWriteLog.write(
                   new ArrayList<>(Collections.singleton(ByteBuffer.allocate(pageSize))),
                   IntArrayList.of(12),
@@ -766,13 +781,17 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(4, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
 
         doubleWriteLog.restoreModeOn();
         doubleWriteLog.truncate();
@@ -781,13 +800,17 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(4, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
 
         doubleWriteLog.restoreModeOff();
 
@@ -797,7 +820,8 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(1, paths.size());
 
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
       } finally {
         doubleWriteLog.close();
       }
@@ -816,20 +840,22 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testClose() throws IOException {
-    final int pageSize = 256;
-    final int maxLogSize = 512; // single block for each segment
+    final var pageSize = 256;
+    final var maxLogSize = 512; // single block for each segment
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      final var doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        List<Path> paths = listFiles();
+        var paths = listFiles();
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
-        for (int i = 0; i < 4; i++) {
+        for (var i = 0; i < 4; i++) {
           doubleWriteLog.write(
               new ArrayList<>(Collections.singleton(ByteBuffer.allocate(pageSize))),
               IntArrayList.of(12),
@@ -840,13 +866,17 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(4, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
 
       } finally {
         doubleWriteLog.close();
@@ -855,55 +885,66 @@ public class DoubleWriteLogGLTestIT {
       bufferPool.clear();
     }
 
-    final List<Path> paths = listFiles();
+    final var paths = listFiles();
     Assert.assertTrue(paths.isEmpty());
   }
 
   @Test
   public void testInitAfterCrash() throws Exception {
-    final int pageSize = 256;
-    final int maxLogSize = 512; // single block for each segment
+    final var pageSize = 256;
+    final var maxLogSize = 512; // single block for each segment
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      final var doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        for (int i = 0; i < 4; i++) {
+        for (var i = 0; i < 4; i++) {
           doubleWriteLog.write(
               new ArrayList<>(Collections.singleton(ByteBuffer.allocate(pageSize))),
               IntArrayList.of(12),
               IntArrayList.of(45));
         }
 
-        List<Path> paths = listFiles();
+        var paths = listFiles();
         Assert.assertEquals(4, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
 
-        final DoubleWriteLogGL doubleWriteLogRestore = new DoubleWriteLogGL(maxLogSize, maxLogSize);
-        doubleWriteLogRestore.open("test", Paths.get(buildDirectory), pageSize);
+        final var doubleWriteLogRestore = new DoubleWriteLogGL(maxLogSize, maxLogSize);
+        doubleWriteLogRestore.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME
+            , Paths.get(buildDirectory), pageSize);
 
         paths = listFiles();
         Assert.assertEquals(5, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME +
+                "_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME +
+                "_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
         Assert.assertEquals(
-            "test_4" + DoubleWriteLogGL.EXTENSION, paths.get(4).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_4" + DoubleWriteLogGL.EXTENSION,
+            paths.get(4).getFileName().toString());
 
         doubleWriteLogRestore.close();
       } finally {
@@ -916,24 +957,27 @@ public class DoubleWriteLogGLTestIT {
 
   @Test
   public void testCreationNewSegment() throws Exception {
-    final int pageSize = 256;
-    final int maxLogSize = 512; // single block for each segment
+    final var pageSize = 256;
+    final var maxLogSize = 512; // single block for each segment
 
-    final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+    final var bufferPool = new ByteBufferPool(pageSize);
     try {
-      final DoubleWriteLogGL doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      final var doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
-        List<Path> paths = listFiles();
+        var paths = listFiles();
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME +
+                "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
         doubleWriteLog.startCheckpoint();
         doubleWriteLog.truncate();
 
-        for (int i = 0; i < 4; i++) {
-          final boolean overflow =
+        for (var i = 0; i < 4; i++) {
+          final var overflow =
               doubleWriteLog.write(
                   new ArrayList<>(Collections.singleton(ByteBuffer.allocate(pageSize))),
                   IntArrayList.of(12),
@@ -945,7 +989,8 @@ public class DoubleWriteLogGLTestIT {
 
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
         doubleWriteLog.endCheckpoint();
 
@@ -953,10 +998,11 @@ public class DoubleWriteLogGLTestIT {
 
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
-        for (int i = 0; i < 4; i++) {
-          final boolean overflow =
+        for (var i = 0; i < 4; i++) {
+          final var overflow =
               doubleWriteLog.write(
                   new ArrayList<>(Collections.singleton(ByteBuffer.allocate(pageSize))),
                   IntArrayList.of(12),
@@ -968,15 +1014,20 @@ public class DoubleWriteLogGLTestIT {
 
         Assert.assertEquals(5, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
         Assert.assertEquals(
-            "test_4" + DoubleWriteLogGL.EXTENSION, paths.get(4).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_4" + DoubleWriteLogGL.EXTENSION,
+            paths.get(4).getFileName().toString());
       } finally {
         doubleWriteLog.close();
       }

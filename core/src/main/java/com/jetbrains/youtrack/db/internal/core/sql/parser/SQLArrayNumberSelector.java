@@ -2,14 +2,15 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLArrayNumberSelector extends SimpleNode {
 
@@ -26,6 +27,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (inputValue != null) {
       inputValue.toString(params, builder);
@@ -47,7 +49,8 @@ public class SQLArrayNumberSelector extends SimpleNode {
     }
   }
 
-  public Integer getValue(Identifiable iCurrentRecord, Object iResult, CommandContext ctx) {
+  @Nullable
+  public Integer getValue(Identifiable iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputValue != null) {
       result = inputValue.getValue(ctx.getInputParameters());
@@ -66,7 +69,8 @@ public class SQLArrayNumberSelector extends SimpleNode {
     return null;
   }
 
-  public Integer getValue(Result iCurrentRecord, Object iResult, CommandContext ctx) {
+  @Nullable
+  public Integer getValue(Result iCurrentRecord, CommandContext ctx) {
     Object result = null;
     if (inputValue != null) {
       result = inputValue.getValue(ctx.getInputParameters());
@@ -92,11 +96,14 @@ public class SQLArrayNumberSelector extends SimpleNode {
     return false;
   }
 
+  @Override
   public SQLArrayNumberSelector copy() {
-    SQLArrayNumberSelector result = new SQLArrayNumberSelector(-1);
+    var result = new SQLArrayNumberSelector(-1);
+
     result.inputValue = inputValue == null ? null : inputValue.copy();
     result.expressionValue = expressionValue == null ? null : expressionValue.copy();
     result.integer = integer;
+
     return result;
   }
 
@@ -109,7 +116,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
       return false;
     }
 
-    SQLArrayNumberSelector that = (SQLArrayNumberSelector) o;
+    var that = (SQLArrayNumberSelector) o;
 
     if (!Objects.equals(inputValue, that.inputValue)) {
       return false;
@@ -122,7 +129,7 @@ public class SQLArrayNumberSelector extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = inputValue != null ? inputValue.hashCode() : 0;
+    var result = inputValue != null ? inputValue.hashCode() : 0;
     result = 31 * result + (expressionValue != null ? expressionValue.hashCode() : 0);
     result = 31 * result + (integer != null ? integer.hashCode() : 0);
     return result;
@@ -138,13 +145,13 @@ public class SQLArrayNumberSelector extends SimpleNode {
     return expressionValue != null && expressionValue.refersToParent();
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (inputValue != null) {
-      result.setProperty("inputValue", inputValue.serialize(db));
+      result.setProperty("inputValue", inputValue.serialize(session));
     }
     if (expressionValue != null) {
-      result.setProperty("expressionValue", expressionValue.serialize(db));
+      result.setProperty("expressionValue", expressionValue.serialize(session));
     }
     result.setProperty("integer", integer);
     return result;

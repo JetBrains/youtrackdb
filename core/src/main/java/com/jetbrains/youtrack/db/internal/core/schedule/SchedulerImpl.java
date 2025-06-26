@@ -21,19 +21,24 @@ import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.Arrays;
+import com.jetbrains.youtrack.db.internal.core.schedule.Scheduler.STATUS;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Scheduler default implementation.
@@ -42,27 +47,30 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class SchedulerImpl {
 
+  private static final Logger logger = LoggerFactory.getLogger(SchedulerImpl.class);
+
   private static final String RIDS_OF_EVENTS_TO_RESCHEDULE_KEY =
       SchedulerImpl.class.getName() + ".ridsOfEventsToReschedule";
+  private static final String DROPPED_EVENTS_MAP = "droppedEventsMap";
 
   private final ConcurrentHashMap<String, ScheduledEvent> events =
       new ConcurrentHashMap<>();
 
-  private final YouTrackDBInternal youtrackDB;
+  private final YouTrackDBInternalEmbedded youtrackDB;
 
-  public SchedulerImpl(YouTrackDBInternal youtrackDB) {
+  public SchedulerImpl(YouTrackDBInternalEmbedded youtrackDB) {
     this.youtrackDB = youtrackDB;
   }
 
   public void scheduleEvent(DatabaseSession session, final ScheduledEvent event) {
-    if (events.putIfAbsent(event.getName(session), event) == null) {
-      String database = session.getName();
+    if (events.putIfAbsent(event.getName(), event) == null) {
+      var database = session.getDatabaseName();
       event.schedule(database, "admin", youtrackDB);
     }
   }
 
   public ScheduledEvent removeEventInternal(final String eventName) {
-    final ScheduledEvent event = events.remove(eventName);
+    final var event = events.remove(eventName);
 
     if (event != null) {
       event.interrupt();
@@ -70,28 +78,46 @@ public class SchedulerImpl {
     return event;
   }
 
-  public void removeEvent(DatabaseSessionInternal session, final String eventName) {
-    LogManager.instance().debug(this, "Removing scheduled event '%s'...", eventName);
+  public static void onAfterEventDropped(FrontendTransactionImpl currentTx,
+      EntityImpl eventEntity) {
+    @SuppressWarnings("unchecked")
+    var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_EVENTS_MAP);
+    if (droppedSequencesMap == null) {
+      droppedSequencesMap = new HashMap<>();
+    }
 
-    final ScheduledEvent event = removeEventInternal(eventName);
+    currentTx.setCustomData(DROPPED_EVENTS_MAP, droppedSequencesMap);
+    droppedSequencesMap.put(eventEntity.getIdentity(),
+        eventEntity.getProperty(ScheduledEvent.PROP_NAME));
+  }
+
+  public void onEventDropped(DatabaseSessionInternal session, RID rid) {
+    var currentTx = (FrontendTransactionImpl) session.getTransactionInternal();
+
+    @SuppressWarnings("unchecked")
+    var droppedSequencesMap = (HashMap<RID, String>) currentTx.getCustomData(DROPPED_EVENTS_MAP);
+    var eventName = droppedSequencesMap.get(rid);
+    removeEventInternal(eventName);
+  }
+
+  public void removeEvent(DatabaseSessionInternal session, final String eventName) {
+    LogManager.instance().debug(this, "Removing scheduled event '%s'...", logger, eventName);
+
+    final var event = removeEventInternal(eventName);
 
     if (event != null) {
-      try {
-        session.load(event.getDocument(session).getIdentity());
-      } catch (RecordNotFoundException ignore) {
-        // ALREADY DELETED, JUST RETURN
-        return;
-      }
-
       // RECORD EXISTS: DELETE THE EVENT RECORD
-      session.begin();
-      event.getDocument(session).delete();
-      session.commit();
+      session.executeInTx(transaction -> {
+        try {
+          event.delete(session);
+        } catch (RecordNotFoundException ignore) {
+        }
+      });
     }
   }
 
   public void updateEvent(DatabaseSessionInternal session, final ScheduledEvent event) {
-    final ScheduledEvent oldEvent = events.remove(event.getName(session));
+    final var oldEvent = events.remove(event.getName());
     if (oldEvent != null) {
       oldEvent.interrupt();
     }
@@ -100,8 +126,8 @@ public class SchedulerImpl {
         .debug(
             this,
             "Updated scheduled event '%s' rid=%s...",
-            event,
-            event.getDocument(session).getIdentity());
+            logger, event,
+            event.getIdentity());
   }
 
   public Map<String, ScheduledEvent> getEvents() {
@@ -112,17 +138,21 @@ public class SchedulerImpl {
     return events.get(name);
   }
 
-  public void load(DatabaseSessionInternal database) {
-    if (database.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
-      final Iterable<EntityImpl> result = database.browseClass(ScheduledEvent.CLASS_NAME);
-      for (EntityImpl d : result) {
-        scheduleEvent(database, new ScheduledEvent(d, database));
-      }
+  public void load(DatabaseSessionInternal session) {
+    if (session.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
+      session.executeInTx(tx -> {
+        try (var result = tx.query("select from " + ScheduledEvent.CLASS_NAME)) {
+          while (result.hasNext()) {
+            var d = result.next();
+            scheduleEvent(session, new ScheduledEvent((EntityImpl) d.asEntity(), session));
+          }
+        }
+      });
     }
   }
 
   public void close() {
-    for (ScheduledEvent event : events.values()) {
+    for (var event : events.values()) {
       event.interrupt();
     }
     events.clear();
@@ -138,61 +168,66 @@ public class SchedulerImpl {
     var f = (SchemaClassInternal) database.getMetadata().getSchema()
         .createClass(ScheduledEvent.CLASS_NAME);
 
-    f.createProperty(database, ScheduledEvent.PROP_NAME, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_NAME, PropertyTypeInternal.STRING,
+            (PropertyTypeInternal) null,
             true)
-        .setMandatory(database, true)
-        .setNotNull(database, true);
-    f.createIndex(database, ScheduledEvent.PROP_NAME + "Index", SchemaClass.INDEX_TYPE.UNIQUE,
+        .setMandatory(true)
+        .setNotNull(true);
+    f.createIndex(ScheduledEvent.PROP_NAME + "Index", SchemaClass.INDEX_TYPE.UNIQUE,
         ScheduledEvent.PROP_NAME);
-    f.createProperty(database, ScheduledEvent.PROP_RULE, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_RULE, PropertyTypeInternal.STRING,
+            (PropertyTypeInternal) null,
             true)
-        .setMandatory(database, true)
-        .setNotNull(database, true);
-    f.createProperty(database, ScheduledEvent.PROP_ARGUMENTS, PropertyType.EMBEDDEDMAP,
-        (PropertyType) null,
+        .setMandatory(true)
+        .setNotNull(true);
+    f.createProperty(ScheduledEvent.PROP_ARGUMENTS, PropertyTypeInternal.EMBEDDEDMAP,
+        (PropertyTypeInternal) null,
         true);
-    f.createProperty(database, ScheduledEvent.PROP_STATUS, PropertyType.STRING, (PropertyType) null,
+    f.createProperty(ScheduledEvent.PROP_STATUS, PropertyTypeInternal.STRING,
+        (PropertyTypeInternal) null,
         true);
-    f.createProperty(database,
+    f.createProperty(
             ScheduledEvent.PROP_FUNC,
-            PropertyType.LINK,
+            PropertyTypeInternal.LINK,
             database.getMetadata().getSchema().getClass(Function.CLASS_NAME), true)
-        .setMandatory(database, true)
-        .setNotNull(database, true);
-    f.createProperty(database, ScheduledEvent.PROP_STARTTIME, PropertyType.DATETIME,
-        (PropertyType) null,
+        .setMandatory(true)
+        .setNotNull(true);
+    f.createProperty(ScheduledEvent.PROP_STARTTIME, PropertyTypeInternal.DATETIME,
+        (PropertyTypeInternal) null,
         true);
   }
 
-  public void initScheduleRecord(DatabaseSessionInternal session, EntityImpl entity) {
-    String name = entity.field(ScheduledEvent.PROP_NAME);
-    final ScheduledEvent event = getEvent(name);
-    if (event != null && event.getDocument(session) != entity) {
+  public void initScheduleRecord(EntityImpl entity) {
+    String name = entity.getProperty(ScheduledEvent.PROP_NAME);
+    final var event = getEvent(name);
+    if (event != null && event.getIdentity().equals(entity.getIdentity())) {
       throw new DatabaseException(
           "Scheduled event with name '" + name + "' already exists in database");
     }
-    entity.field(ScheduledEvent.PROP_STATUS, Scheduler.STATUS.STOPPED.name());
+    entity.setProperty(ScheduledEvent.PROP_STATUS, STATUS.STOPPED.name());
   }
 
   public void preHandleUpdateScheduleInTx(DatabaseSessionInternal session, EntityImpl entity) {
     try {
-      final String schedulerName = entity.field(ScheduledEvent.PROP_NAME);
-      ScheduledEvent event = getEvent(schedulerName);
+      final String schedulerName = entity.getProperty(ScheduledEvent.PROP_NAME);
+      var event = getEvent(schedulerName);
 
       if (event != null) {
         // UPDATED EVENT
-        final Set<String> dirtyFields = new HashSet<>(Arrays.asList(entity.getDirtyFields()));
+        var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
+        var dirtyFields = new HashSet<>(dirtyProperties);
 
         if (dirtyFields.contains(ScheduledEvent.PROP_NAME)) {
-          throw new ValidationException("Scheduled event cannot change name");
+          throw new ValidationException(session.getDatabaseName(),
+              "Scheduled event cannot change name");
         }
 
         if (dirtyFields.contains(ScheduledEvent.PROP_RULE)) {
           // RULE CHANGED, STOP CURRENT EVENT AND RESCHEDULE IT
-          var tx = session.getTransaction();
+          var tx = session.getTransactionInternal();
 
           @SuppressWarnings("unchecked")
-          Set<RID> rids = (Set<RID>) tx.getCustomData(RIDS_OF_EVENTS_TO_RESCHEDULE_KEY);
+          var rids = (Set<RID>) tx.getCustomData(RIDS_OF_EVENTS_TO_RESCHEDULE_KEY);
           if (rids == null) {
             rids = new HashSet<>();
             tx.setCustomData(RIDS_OF_EVENTS_TO_RESCHEDULE_KEY, rids);
@@ -209,13 +244,13 @@ public class SchedulerImpl {
   public void postHandleUpdateScheduleAfterTxCommit(DatabaseSessionInternal session,
       EntityImpl entity) {
     try {
-      var tx = session.getTransaction();
+      var tx = session.getTransactionInternal();
       @SuppressWarnings("unchecked")
-      Set<RID> rids = (Set<RID>) tx.getCustomData(RIDS_OF_EVENTS_TO_RESCHEDULE_KEY);
+      var rids = (Set<RID>) tx.getCustomData(RIDS_OF_EVENTS_TO_RESCHEDULE_KEY);
 
       if (rids != null && rids.contains(entity.getIdentity())) {
-        final String schedulerName = entity.field(ScheduledEvent.PROP_NAME);
-        ScheduledEvent event = getEvent(schedulerName);
+        final String schedulerName = entity.getProperty(ScheduledEvent.PROP_NAME);
+        var event = getEvent(schedulerName);
 
         if (event != null) {
           // RULE CHANGED, STOP CURRENT EVENT AND RESCHEDULE IT

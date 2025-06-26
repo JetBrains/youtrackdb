@@ -11,9 +11,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
@@ -21,12 +19,11 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 /**
@@ -34,53 +31,64 @@ import org.testng.annotations.Test;
  */
 public class MultipleDBTest extends BaseDBTest {
 
+  int oldCollectionCount = 8;
+
   public MultipleDBTest() {
   }
 
-  @Parameters(value = "remote")
-  public MultipleDBTest(@Optional Boolean remote) {
-    super(remote != null && remote);
+  @BeforeClass
+  @Override
+  public void beforeClass() throws Exception {
+    super.beforeClass();
+    oldCollectionCount = GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getValue();
+    GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(1);
+  }
+
+  @AfterClass
+  @Override
+  public void afterClass() throws Exception {
+    GlobalConfiguration.CLASS_COLLECTIONS_COUNT.setValue(oldCollectionCount);
+    super.afterClass();
   }
 
   @Test
   public void testObjectMultipleDBsThreaded() throws Exception {
-    final int operations_write = 1000;
-    final int operations_read = 1;
-    final int dbs = 10;
+    final var operations_write = 1000;
+    final var operations_read = 1;
+    final var dbs = 10;
 
     final Set<String> times = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     Set<Future<Void>> threads = new HashSet<>();
-    ExecutorService executorService = Executors.newFixedThreadPool(4);
-    for (int i = 0; i < dbs; i++) {
+    var executorService = Executors.newFixedThreadPool(4);
+    for (var i = 0; i < dbs; i++) {
       var dbName = this.dbName + i;
       Callable<Void> t =
           () -> {
             dropDatabase(dbName);
             createDatabase(dbName);
             try {
-              var db = createSessionInstance(dbName);
+              var session = createSessionInstance(dbName);
 
-              db.set(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 1);
-              db.getMetadata().getSchema().getOrCreateClass("DummyObject");
+              session.getMetadata().getSchema().getOrCreateClass("DummyObject");
 
-              long start = System.currentTimeMillis();
-              for (int j = 0; j < operations_write; j++) {
-                var dummy = db.newInstance("DummyObject");
+              var start = System.currentTimeMillis();
+              for (var j = 0; j < operations_write; j++) {
+                session.begin();
+                var dummy = session.newInstance("DummyObject");
                 dummy.setProperty("name", "name" + j);
 
-                db.begin();
-                dummy = db.save(dummy);
-                db.commit();
+                session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getClusterPosition(), j, "RID was " + dummy.getIdentity());
+                    dummy.getIdentity().getCollectionPosition(), j,
+                    "RID was " + dummy.getIdentity());
               }
-              long end = System.currentTimeMillis();
+              var end = System.currentTimeMillis();
 
-              String time =
+              var time =
                   "("
-                      + getDbId(db)
+                      + getDbId(session)
                       + ") "
                       + "Executed operations (WRITE) in: "
                       + (end - start)
@@ -89,15 +97,15 @@ public class MultipleDBTest extends BaseDBTest {
               times.add(time);
 
               start = System.currentTimeMillis();
-              for (int j = 0; j < operations_read; j++) {
-                var l = db.query(" select * from DummyObject ").stream().toList();
+              for (var j = 0; j < operations_read; j++) {
+                var l = session.query(" select * from DummyObject ").stream().toList();
                 Assert.assertEquals(l.size(), operations_write);
               }
               end = System.currentTimeMillis();
 
               time =
                   "("
-                      + getDbId(db)
+                      + getDbId(session)
                       + ") "
                       + "Executed operations (READ) in: "
                       + (end - start)
@@ -105,7 +113,7 @@ public class MultipleDBTest extends BaseDBTest {
               // System.out.println(time);
               times.add(time);
 
-              db.close();
+              session.close();
 
             } finally {
               dropDatabase(dbName);
@@ -116,49 +124,49 @@ public class MultipleDBTest extends BaseDBTest {
       threads.add(executorService.submit(t));
     }
 
-    for (Future<Void> future : threads) {
+    for (var future : threads) {
       future.get();
     }
   }
 
   @Test
   public void testDocumentMultipleDBsThreaded() throws Exception {
-    final int operations_write = 1000;
-    final int operations_read = 1;
-    final int dbs = 10;
+    final var operations_write = 1000;
+    final var operations_read = 1;
+    final var dbs = 10;
 
     final Set<String> times = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     Set<Future<Void>> results = new HashSet<>();
-    ExecutorService executorService = Executors.newFixedThreadPool(4);
-    for (int i = 0; i < dbs; i++) {
+    var executorService = Executors.newFixedThreadPool(4);
+    for (var i = 0; i < dbs; i++) {
       var dbName = this.dbName + i;
       Callable<Void> t =
           () -> {
             dropDatabase(dbName);
             createDatabase(dbName);
 
-            try (var db = createSessionInstance(dbName)) {
-              db.getMetadata().getSchema().createClass("DummyObject", 1);
+            try (var session = createSessionInstance(dbName)) {
+              session.getMetadata().getSchema().createClass("DummyObject", 1);
 
-              long start = System.currentTimeMillis();
-              for (int j = 0; j < operations_write; j++) {
+              var start = System.currentTimeMillis();
+              for (var j = 0; j < operations_write; j++) {
 
-                EntityImpl dummy = new EntityImpl("DummyObject");
-                dummy.field("name", "name" + j);
+                session.begin();
+                var dummy = ((EntityImpl) session.newEntity("DummyObject"));
+                dummy.setProperty("name", "name" + j);
 
-                db.begin();
-                dummy = db.save(dummy);
-                db.commit();
+                session.commit();
 
                 Assert.assertEquals(
-                    dummy.getIdentity().getClusterPosition(), j, "RID was " + dummy.getIdentity());
+                    dummy.getIdentity().getCollectionPosition(), j,
+                    "RID was " + dummy.getIdentity());
               }
-              long end = System.currentTimeMillis();
+              var end = System.currentTimeMillis();
 
-              String time =
+              var time =
                   "("
-                      + getDbId(db)
+                      + getDbId(session)
                       + ") "
                       + "Executed operations (WRITE) in: "
                       + (end - start)
@@ -166,15 +174,15 @@ public class MultipleDBTest extends BaseDBTest {
               times.add(time);
 
               start = System.currentTimeMillis();
-              for (int j = 0; j < operations_read; j++) {
-                var l = db.query(" select * from DummyObject ").stream().toList();
+              for (var j = 0; j < operations_read; j++) {
+                var l = session.query(" select * from DummyObject ").stream().toList();
                 Assert.assertEquals(l.size(), operations_write);
               }
               end = System.currentTimeMillis();
 
               time =
                   "("
-                      + getDbId(db)
+                      + getDbId(session)
                       + ") "
                       + "Executed operations (READ) in: "
                       + (end - start)
@@ -190,17 +198,12 @@ public class MultipleDBTest extends BaseDBTest {
       results.add(executorService.submit(t));
     }
 
-    for (Future<Void> future : results) {
+    for (var future : results) {
       future.get();
     }
   }
 
   private static String getDbId(DatabaseSessionInternal db) {
-    if (db.getStorage() instanceof StorageRemote) {
-      return db.getURL() + " - sessionId: " + ((StorageRemote) db.getStorage()).getSessionId(
-          (DatabaseSessionRemote) db);
-    } else {
-      return db.getURL();
-    }
+    return db.getURL();
   }
 }

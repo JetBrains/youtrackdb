@@ -79,7 +79,7 @@ public enum AnsiCode {
   }
 
   static {
-    final String ansiSupport = GlobalConfiguration.LOG_SUPPORTS_ANSI.getValueAsString();
+    final var ansiSupport = GlobalConfiguration.LOG_SUPPORTS_ANSI.getValueAsString();
     if ("true".equalsIgnoreCase(ansiSupport))
     // FORCE ANSI SUPPORT
     {
@@ -108,17 +108,17 @@ public enum AnsiCode {
             new VariableParserListener() {
               @Override
               public Object resolve(final String iVariable) {
-                final int pos = iVariable.indexOf(' ');
+                final var pos = iVariable.indexOf(' ');
 
-                final String text = pos > -1 ? iVariable.substring(pos + 1) : "";
+                final var text = pos > -1 ? iVariable.substring(pos + 1) : "";
 
                 if (supportsColors) {
-                  final String code = pos > -1 ? iVariable.substring(0, pos) : iVariable;
+                  final var code = pos > -1 ? iVariable.substring(0, pos) : iVariable;
 
-                  final StringBuilder buffer = new StringBuilder();
+                  final var buffer = new StringBuilder();
 
-                  final String[] codes = code.split(":");
-                  for (int i = 0; i < codes.length; ++i) {
+                  final var codes = code.split(":");
+                  for (var i = 0; i < codes.length; ++i) {
                     buffer.append(AnsiCode.valueOf(codes[i].toUpperCase(Locale.ENGLISH)));
                   }
 

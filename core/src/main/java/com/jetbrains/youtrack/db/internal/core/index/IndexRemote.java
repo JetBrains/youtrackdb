@@ -19,65 +19,40 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
+import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * Proxied abstract index.
  */
-public abstract class IndexRemote implements Index {
-  public static final String QUERY_GET_VALUES_BEETWEN_INCLUSIVE_FROM_CONDITION = "key >= ?";
-  public static final String QUERY_GET_VALUES_BEETWEN_EXCLUSIVE_FROM_CONDITION = "key > ?";
-  public static final String QUERY_GET_VALUES_BEETWEN_INCLUSIVE_TO_CONDITION = "key <= ?";
-  public static final String QUERY_GET_VALUES_BEETWEN_EXCLUSIVE_TO_CONDITION = "key < ?";
-  public static final String QUERY_GET_VALUES_AND_OPERATOR = " and ";
-  public static final String QUERY_GET_VALUES_LIMIT = " limit ";
-  protected static final String QUERY_ENTRIES = "select key, rid from index:`%s`";
-  protected static final String QUERY_ENTRIES_DESC =
-      "select key, rid from index:`%s` order by key desc";
+public class IndexRemote implements Index {
 
-  private static final String QUERY_ITERATE_ENTRIES =
-      "select from index:`%s` where key in [%s] order by key %s ";
-  private static final String QUERY_CONTAINS =
-      "select count(*) as size from index:`%s` where key = ?";
-  private static final String QUERY_COUNT = "select count(*) as size from index:`%s` where key = ?";
-  private static final String QUERY_COUNT_RANGE = "select count(*) as size from index:`%s` where ";
-  private static final String QUERY_SIZE = "select count(*) as size from index:`%s`";
-  private static final String QUERY_KEY_SIZE = "select indexKeySize('%s') as size";
-  private static final String QUERY_KEYS = "select key from index:`%s`";
-  private static final String QUERY_REBUILD = "rebuild index %s";
-  private static final String QUERY_CLEAR = "delete from index:`%s`";
-  private static final String QUERY_DROP = "drop index %s";
   protected final String databaseName;
   private final String wrappedType;
   private final String algorithm;
   private final RID rid;
   protected IndexDefinition indexDefinition;
   protected String name;
-  protected Map<String, Object> configuration;
 
-  private final int version;
   protected final Map<String, Object> metadata;
-  protected Set<String> clustersToIndex;
+  protected Set<String> collectionsToIndex;
 
   public IndexRemote(
       final String iName,
@@ -85,47 +60,33 @@ public abstract class IndexRemote implements Index {
       final String algorithm,
       final RID iRid,
       final IndexDefinition iIndexDefinition,
-      final EntityImpl iConfiguration,
-      final Set<String> clustersToIndex,
+      final Map<String, Object> metadata,
+      final Set<String> collectionsToIndex,
       String database) {
     this.name = iName;
     this.wrappedType = iWrappedType;
     this.algorithm = algorithm;
     this.rid = iRid;
     this.indexDefinition = iIndexDefinition;
-    this.configuration = iConfiguration.toMap();
 
-    var metadata = iConfiguration.<EntityImpl>getProperty("metadata").toMap();
-
-    metadata.remove("@rid");
-    metadata.remove("@class");
-    metadata.remove("@type");
-    metadata.remove("@version");
-
-    this.metadata = Collections.unmodifiableMap(metadata);
-
-    this.clustersToIndex = new HashSet<>(clustersToIndex);
-    this.databaseName = database;
-
-    if (configuration == null) {
-      version = -1;
+    if (metadata == null) {
+      this.metadata = Collections.emptyMap();
     } else {
-      final Integer version = (Integer) configuration.get(IndexInternal.INDEX_VERSION);
-      this.version = Objects.requireNonNullElse(version, -1);
+      this.metadata = Collections.unmodifiableMap(metadata);
     }
+
+    this.collectionsToIndex = new HashSet<>(collectionsToIndex);
+    this.databaseName = database;
   }
 
   public IndexRemote create(
-      final IndexMetadata indexMetadata,
-      boolean rebuild,
-      final ProgressListener progressListener) {
+      final IndexMetadata indexMetadata) {
     this.name = indexMetadata.getName();
     return this;
   }
 
-  public IndexRemote delete(DatabaseSessionInternal session) {
-    getDatabase().indexQuery(name, String.format(QUERY_DROP, name)).close();
-    return this;
+  public IndexRemote delete(FrontendTransaction transaction) {
+    throw new UnsupportedOperationException();
   }
 
   public String getDatabaseName() {
@@ -137,142 +98,43 @@ public abstract class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
-  public boolean contains(final Object iKey) {
-    try (ResultSet result =
-        getDatabase().indexQuery(name, String.format(QUERY_CONTAINS, name), iKey)) {
-      if (!result.hasNext()) {
-        return false;
-      }
-      return (Long) result.next().getProperty("size") > 0;
-    }
+  public long count(DatabaseSessionEmbedded session, final Object iKey) {
+    throw new UnsupportedOperationException();
   }
 
-  public long count(DatabaseSessionInternal session, final Object iKey) {
-    try (ResultSet result =
-        getDatabase().indexQuery(name, String.format(QUERY_COUNT, name), iKey)) {
-      if (!result.hasNext()) {
-        return 0;
-      }
-      return result.next().getProperty("size");
-    }
-  }
-
-  public long count(
-      final Object iRangeFrom,
-      final boolean iFromInclusive,
-      final Object iRangeTo,
-      final boolean iToInclusive,
-      final int maxValuesToFetch) {
-    final StringBuilder query = new StringBuilder(QUERY_COUNT_RANGE);
-
-    if (iFromInclusive) {
-      query.append(QUERY_GET_VALUES_BEETWEN_INCLUSIVE_FROM_CONDITION);
-    } else {
-      query.append(QUERY_GET_VALUES_BEETWEN_EXCLUSIVE_FROM_CONDITION);
-    }
-
-    query.append(QUERY_GET_VALUES_AND_OPERATOR);
-
-    if (iToInclusive) {
-      query.append(QUERY_GET_VALUES_BEETWEN_INCLUSIVE_TO_CONDITION);
-    } else {
-      query.append(QUERY_GET_VALUES_BEETWEN_EXCLUSIVE_TO_CONDITION);
-    }
-
-    if (maxValuesToFetch > 0) {
-      query.append(QUERY_GET_VALUES_LIMIT).append(maxValuesToFetch);
-    }
-
-    try (ResultSet rs = getDatabase().indexQuery(name, query.toString(), iRangeFrom, iRangeTo)) {
-      return rs.next().getProperty("value");
-    }
-  }
-
-  public IndexRemote put(DatabaseSessionInternal session, final Object key,
+  public IndexRemote put(FrontendTransaction session, final Object key,
       final Identifiable value) {
-    final RecordId rid = (RecordId) value.getIdentity();
-
-    if (!rid.isValid()) {
-      if (value instanceof DBRecord) {
-        // EARLY SAVE IT
-        ((DBRecord) value).save();
-      } else {
-        throw new IllegalArgumentException(
-            "Cannot store non persistent RID as index value for key '" + key + "'");
-      }
-    }
-
-    DatabaseSessionInternal database = getDatabase();
-    if (database.getTransaction().isActive()) {
-      FrontendTransaction singleTx = database.getTransaction();
-      singleTx.addIndexEntry(this, name, FrontendTransactionIndexChanges.OPERATION.PUT, key, value);
-    } else {
-      database.begin();
-      FrontendTransaction singleTx = database.getTransaction();
-      singleTx.addIndexEntry(this, name, FrontendTransactionIndexChanges.OPERATION.PUT, key, value);
-      database.commit();
-    }
-    return this;
+    throw new UnsupportedOperationException();
   }
 
-  public boolean remove(DatabaseSessionInternal session, final Object key) {
-    DatabaseSessionInternal database = getDatabase();
-    if (database.getTransaction().isActive()) {
-      database.getTransaction().addIndexEntry(this, name, OPERATION.REMOVE, key, null);
-    } else {
-      database.begin();
-      database.getTransaction().addIndexEntry(this, name, OPERATION.REMOVE, key, null);
-      database.commit();
-    }
-    return true;
+  public boolean remove(FrontendTransaction transaction, final Object key) {
+    throw new UnsupportedOperationException();
   }
 
-  public boolean remove(DatabaseSessionInternal session, final Object key,
+  public boolean remove(FrontendTransaction transaction, final Object key,
       final Identifiable rid) {
-
-    DatabaseSessionInternal database = getDatabase();
-    if (database.getTransaction().isActive()) {
-      database.getTransaction().addIndexEntry(this, name, OPERATION.REMOVE, key, rid);
-    } else {
-      database.begin();
-      database.getTransaction().addIndexEntry(this, name, OPERATION.REMOVE, key, rid);
-      database.commit();
-    }
-    return true;
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public int getVersion() {
-    return version;
+    return -1;
   }
 
-  public long rebuild(DatabaseSessionInternal session) {
-    try (ResultSet rs = getDatabase().command(String.format(QUERY_REBUILD, name))) {
-      return rs.next().getProperty("totalIndexed");
-    }
+  public long rebuild(DatabaseSessionEmbedded session) {
+    throw new UnsupportedOperationException();
   }
 
   public IndexRemote clear(DatabaseSessionInternal session) {
-    getDatabase().command(String.format(QUERY_CLEAR, name)).close();
-    return this;
+    throw new UnsupportedOperationException();
   }
 
-  public long getSize(DatabaseSessionInternal session) {
-    try (ResultSet result = getDatabase().indexQuery(name, String.format(QUERY_SIZE, name))) {
-      if (result.hasNext()) {
-        return result.next().getProperty("size");
-      }
-    }
-    return 0;
+  public long getSize(DatabaseSessionEmbedded session) {
+    throw new UnsupportedOperationException();
   }
 
   public long getKeySize() {
-    try (ResultSet result = getDatabase().indexQuery(name, String.format(QUERY_KEY_SIZE, name))) {
-      if (result.hasNext()) {
-        return result.next().getProperty("size");
-      }
-    }
-    return 0;
+    throw new UnsupportedOperationException();
   }
 
   public boolean isAutomatic() {
@@ -282,6 +144,136 @@ public abstract class IndexRemote implements Index {
   @Override
   public boolean isUnique() {
     return false;
+  }
+
+  @Override
+  public Object getCollatingValue(Object key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Index addCollection(FrontendTransaction transaction, String collectionName,
+      boolean requireEmpty) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void removeCollection(FrontendTransaction transaction, String iCollectionName) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean canBeUsedInEqualityOperators() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean hasRangeQuerySupport() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public IndexMetadata loadMetadata(FrontendTransaction transaction, Map<String, Object> config) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void close() {
+
+  }
+
+  @Override
+  public boolean acquireAtomicExclusiveLock() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public long size(DatabaseSessionEmbedded session) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RID> getRids(DatabaseSessionEmbedded session, Object key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> stream(DatabaseSessionEmbedded session) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<Object> keyStream() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> streamEntriesBetween(DatabaseSessionEmbedded session,
+      Object fromKey, boolean fromInclusive, Object toKey, boolean toInclusive, boolean ascOrder) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
+      Collection<?> keys, boolean ascSortOrder) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> streamEntriesMajor(DatabaseSessionEmbedded session,
+      Object fromKey, boolean fromInclusive, boolean ascOrder) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RawPair<Object, RID>> streamEntriesMinor(DatabaseSessionEmbedded session,
+      Object toKey, boolean toInclusive, boolean ascOrder) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Iterable<TransactionIndexEntry> interpretTxKeyChanges(
+      FrontendTransactionIndexChangesPerKey changes) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage, Object key,
+      RID rid) throws InvalidIndexEngineIdException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
+      Object key, RID rid) throws InvalidIndexEngineIdException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean doRemove(AbstractStorage storage, Object key,
+      DatabaseSessionInternal session)
+      throws InvalidIndexEngineIdException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Index create(FrontendTransaction transaction, IndexMetadata metadata) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int getIndexId() {
+    throw new UnsupportedOperationException();
   }
 
   public String getName() {
@@ -300,33 +292,40 @@ public abstract class IndexRemote implements Index {
     return algorithm;
   }
 
-  public EntityImpl getConfiguration(DatabaseSessionInternal session) {
+  public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Map<String, ?> getMetadata() {
+  public Map<String, Object> getMetadata() {
     return metadata;
+  }
+
+  @Override
+  public boolean supportsOrderedIterations() {
+    throw new UnsupportedOperationException();
   }
 
   public RID getIdentity() {
     return rid;
   }
 
-  public IndexInternal getInternal() {
-    return null;
-  }
-
-  public long rebuild(DatabaseSessionInternal session,
-      final ProgressListener iProgressListener) {
+  public long rebuild(DatabaseSessionEmbedded session,
+      final ProgressListener progressListener) {
     return rebuild(session);
   }
 
-  public PropertyType[] getKeyTypes() {
+  public PropertyTypeInternal[] getKeyTypes() {
     if (indexDefinition != null) {
       return indexDefinition.getTypes();
     }
-    return new PropertyType[0];
+    return new PropertyTypeInternal[0];
+  }
+
+  @Nullable
+  @Override
+  public Object get(DatabaseSessionEmbedded session, Object key) {
+    return null;
   }
 
   public IndexDefinition getDefinition() {
@@ -342,7 +341,7 @@ public abstract class IndexRemote implements Index {
       return false;
     }
 
-    final IndexRemote that = (IndexRemote) o;
+    final var that = (IndexRemote) o;
 
     return name.equals(that.name);
   }
@@ -352,8 +351,8 @@ public abstract class IndexRemote implements Index {
     return name.hashCode();
   }
 
-  public Set<String> getClusters() {
-    return Collections.unmodifiableSet(clustersToIndex);
+  public Set<String> getCollections() {
+    return Collections.unmodifiableSet(collectionsToIndex);
   }
 
   @Override
@@ -367,177 +366,53 @@ public abstract class IndexRemote implements Index {
   }
 
   @Override
-  public Object getLastKey(DatabaseSessionInternal session) {
+  public Object getLastKey(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException("getLastKey");
   }
 
   @Override
   public IndexCursor iterateEntriesBetween(
-      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, Object toKey,
+      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException("iterateEntriesBetween");
   }
 
   @Override
-  public IndexCursor iterateEntriesMajor(DatabaseSessionInternal session, Object fromKey,
+  public IndexCursor iterateEntriesMajor(DatabaseSessionEmbedded session, Object fromKey,
       boolean fromInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException("iterateEntriesMajor");
   }
 
   @Override
-  public IndexCursor iterateEntriesMinor(DatabaseSessionInternal session, Object toKey,
+  public IndexCursor iterateEntriesMinor(DatabaseSessionEmbedded session, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     throw new UnsupportedOperationException("iterateEntriesMinor");
   }
 
   @Override
-  public IndexCursor iterateEntries(DatabaseSessionInternal session, Collection<?> keys,
+  public IndexCursor iterateEntries(DatabaseSessionEmbedded session, Collection<?> keys,
       boolean ascSortOrder) {
-
-    final StringBuilder params = new StringBuilder(128);
-    if (!keys.isEmpty()) {
-      params.append("?");
-      params.append(", ?".repeat(keys.size() - 1));
-    }
-
-    final InternalResultSet copy = new InternalResultSet(); // TODO a raw array instead...?
-    try (ResultSet res =
-        getDatabase()
-            .indexQuery(
-                name,
-                String.format(QUERY_ITERATE_ENTRIES, name, params, ascSortOrder ? "ASC" : "DESC"),
-                keys.toArray())) {
-
-      res.forEachRemaining(copy::add);
-    }
-
-    return new IndexAbstractCursor() {
-      @Override
-      public Map.Entry<Object, Identifiable> nextEntry() {
-        if (!copy.hasNext()) {
-          return null;
-        }
-        final Result next = copy.next();
-        return new Map.Entry<>() {
-          @Override
-          public Object getKey() {
-            return next.getProperty("key");
-          }
-
-          @Override
-          public Identifiable getValue() {
-            return next.getProperty("rid");
-          }
-
-          @Override
-          public Identifiable setValue(Identifiable value) {
-            throw new UnsupportedOperationException("cannot set value of index entry");
-          }
-        };
-      }
-    };
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public IndexCursor cursor(DatabaseSessionInternal session) {
-    final InternalResultSet copy = new InternalResultSet(); // TODO a raw array instead...?
-    try (ResultSet result = getDatabase().indexQuery(name, String.format(QUERY_ENTRIES, name))) {
-      result.forEachRemaining(x -> copy.add(x));
-    }
-
-    return new IndexAbstractCursor() {
-
-      @Override
-      public Map.Entry<Object, Identifiable> nextEntry() {
-        if (!copy.hasNext()) {
-          return null;
-        }
-
-        final Result value = copy.next();
-
-        return new Map.Entry<Object, Identifiable>() {
-          @Override
-          public Object getKey() {
-            return value.getProperty("key");
-          }
-
-          @Override
-          public Identifiable getValue() {
-            return value.getProperty("rid");
-          }
-
-          @Override
-          public Identifiable setValue(Identifiable value) {
-            throw new UnsupportedOperationException("setValue");
-          }
-        };
-      }
-    };
+  public IndexCursor cursor(DatabaseSessionEmbedded session) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
-  public IndexCursor descCursor(DatabaseSessionInternal session) {
-    final InternalResultSet copy = new InternalResultSet(); // TODO a raw array instead...?
-    try (ResultSet result =
-        getDatabase().indexQuery(name, String.format(QUERY_ENTRIES_DESC, name))) {
-      result.forEachRemaining(x -> copy.add(x));
-    }
-
-    return new IndexAbstractCursor() {
-
-      @Override
-      public Map.Entry<Object, Identifiable> nextEntry() {
-        if (!copy.hasNext()) {
-          return null;
-        }
-
-        final Result value = copy.next();
-
-        return new Map.Entry<Object, Identifiable>() {
-          @Override
-          public Object getKey() {
-            return value.getProperty("key");
-          }
-
-          @Override
-          public Identifiable getValue() {
-            return value.getProperty("rid");
-          }
-
-          @Override
-          public Identifiable setValue(Identifiable value) {
-            throw new UnsupportedOperationException("setValue");
-          }
-        };
-      }
-    };
+  public IndexCursor descCursor(DatabaseSessionEmbedded session) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public IndexKeyCursor keyCursor() {
-    final InternalResultSet copy = new InternalResultSet(); // TODO a raw array instead...?
-    try (final ResultSet result =
-        getDatabase().indexQuery(name, String.format(QUERY_KEYS, name))) {
-      result.forEachRemaining(copy::add);
-    }
-    return prefetchSize -> {
-      if (!copy.hasNext()) {
-        return null;
-      }
-
-      final Result value = copy.next();
-
-      return value.getProperty("key");
-    };
+    throw new UnsupportedOperationException();
   }
 
   @Override
   public int compareTo(Index index) {
-    final String name = index.getName();
+    final var name = index.getName();
     return this.name.compareTo(name);
-  }
-
-  protected DatabaseSessionInternal getDatabase() {
-    return DatabaseRecordThreadLocal.instance().get();
   }
 }

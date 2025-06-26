@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.parser.operators;
 
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLGtOperator;
 import java.math.BigDecimal;
 import org.junit.Assert;
@@ -27,38 +28,38 @@ import org.junit.Test;
 /**
  *
  */
-public class GtOperatorTest {
+public class GtOperatorTest extends DbTestBase {
 
   @Test
   public void test() {
-    SQLGtOperator op = new SQLGtOperator(-1);
-    Assert.assertFalse(op.execute(1, 1));
-    Assert.assertTrue(op.execute(1, 0));
-    Assert.assertFalse(op.execute(0, 1));
+    var op = new SQLGtOperator(-1);
+    Assert.assertFalse(op.execute(session, 1, 1));
+    Assert.assertTrue(op.execute(session, 1, 0));
+    Assert.assertFalse(op.execute(session, 0, 1));
 
-    Assert.assertFalse(op.execute("aaa", "zzz"));
-    Assert.assertTrue(op.execute("zzz", "aaa"));
+    Assert.assertFalse(op.execute(session, "aaa", "zzz"));
+    Assert.assertTrue(op.execute(session, "zzz", "aaa"));
 
-    Assert.assertFalse(op.execute("aaa", "aaa"));
+    Assert.assertFalse(op.execute(session, "aaa", "aaa"));
 
-    Assert.assertFalse(op.execute(1, 1.1));
-    Assert.assertTrue(op.execute(1.1, 1));
+    Assert.assertFalse(op.execute(session, 1, 1.1));
+    Assert.assertTrue(op.execute(session, 1.1, 1));
 
-    Assert.assertFalse(op.execute(BigDecimal.ONE, 1));
-    Assert.assertFalse(op.execute(1, BigDecimal.ONE));
+    Assert.assertFalse(op.execute(session, BigDecimal.ONE, 1));
+    Assert.assertFalse(op.execute(session, 1, BigDecimal.ONE));
 
-    Assert.assertFalse(op.execute(1.1, 1.1));
-    Assert.assertFalse(op.execute(new BigDecimal(15), new BigDecimal(15)));
+    Assert.assertFalse(op.execute(session, 1.1, 1.1));
+    Assert.assertFalse(op.execute(session, new BigDecimal(15), new BigDecimal(15)));
 
-    Assert.assertTrue(op.execute(1.1, BigDecimal.ONE));
-    Assert.assertTrue(op.execute(2, BigDecimal.ONE));
+    Assert.assertTrue(op.execute(session, 1.1, BigDecimal.ONE));
+    Assert.assertTrue(op.execute(session, 2, BigDecimal.ONE));
 
-    Assert.assertTrue(op.execute(BigDecimal.ONE, 0.999999));
-    Assert.assertTrue(op.execute(BigDecimal.ONE, 0));
+    Assert.assertTrue(op.execute(session, BigDecimal.ONE, 0.999999));
+    Assert.assertTrue(op.execute(session, BigDecimal.ONE, 0));
 
-    Assert.assertFalse(op.execute(BigDecimal.ONE, 2));
-    Assert.assertFalse(op.execute(BigDecimal.ONE, 1.0001));
+    Assert.assertFalse(op.execute(session, BigDecimal.ONE, 2));
+    Assert.assertFalse(op.execute(session, BigDecimal.ONE, 1.0001));
 
-    Assert.assertFalse(op.execute(new Object(), new Object()));
+    Assert.assertFalse(op.execute(session, new Object(), new Object()));
   }
 }

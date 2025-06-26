@@ -2,11 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -15,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLContainsAllCondition extends SQLBooleanExpression {
 
@@ -32,7 +35,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
     super(p, id);
   }
 
-  public boolean execute(Object left, Object right) {
+  public static boolean execute(Object left, Object right) {
     if (left instanceof Collection) {
       if (right instanceof Collection) {
         if (((Collection) left).containsAll((Collection) right)) {
@@ -44,13 +47,13 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
       }
       if (right instanceof Iterator iterator) {
         while (iterator.hasNext()) {
-          Object next = iterator.next();
-          boolean found = false;
+          var next = iterator.next();
+          var found = false;
           if (((Collection) left).contains(next)) {
             found = true;
           } else if (next instanceof Result
               && ((Result) next).isEntity()
-              && ((Collection) left).contains(((Result) next).toEntity())) {
+              && ((Collection) left).contains(((Result) next).asEntityOrNull())) {
             found = true;
           }
           if (!found) {
@@ -70,12 +73,12 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
       }
       right = ((Iterable) right).iterator();
 
-      Iterator rightIterator = (Iterator) right;
+      var rightIterator = (Iterator) right;
       while (rightIterator.hasNext()) {
-        Object leftItem = rightIterator.next();
-        boolean found = false;
+        var leftItem = rightIterator.next();
+        var found = false;
         while (leftIterator.hasNext()) {
-          Object rightItem = leftIterator.next();
+          var rightItem = leftIterator.next();
           if (leftItem != null && leftItem.equals(rightItem)) {
             found = true;
             break;
@@ -92,17 +95,17 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    Object leftValue = left.execute(currentRecord, ctx);
+    var leftValue = left.execute(currentRecord, ctx);
     if (right != null) {
-      Object rightValue = right.execute(currentRecord, ctx);
+      var rightValue = right.execute(currentRecord, ctx);
       return execute(leftValue, rightValue);
     } else {
       if (!MultiValue.isMultiValue(leftValue)) {
         return false;
       }
-      Iterator<?> iter = MultiValue.getMultiValueIterator(leftValue);
+      var iter = MultiValue.getMultiValueIterator(leftValue);
       while (iter.hasNext()) {
-        Object item = iter.next();
+        var item = iter.next();
         if (item instanceof Identifiable) {
           if (!rightBlock.evaluate((Identifiable) item, ctx)) {
             return false;
@@ -129,13 +132,13 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
       return evaluateAllFunction(currentRecord, ctx);
     }
 
-    Object leftValue = left.execute(currentRecord, ctx);
+    var leftValue = left.execute(currentRecord, ctx);
     return evaluateSingle(leftValue, currentRecord, ctx);
   }
 
   private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
-    for (String propertyName : currentRecord.getPropertyNames()) {
-      Object leftValue = currentRecord.getProperty(propertyName);
+    for (var propertyName : currentRecord.getPropertyNames()) {
+      var leftValue = currentRecord.getProperty(propertyName);
       if (!evaluateSingle(leftValue, currentRecord, ctx)) {
         return false;
       }
@@ -144,8 +147,8 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
-    for (String propertyName : currentRecord.getPropertyNames()) {
-      Object leftValue = currentRecord.getProperty(propertyName);
+    for (var propertyName : currentRecord.getPropertyNames()) {
+      var leftValue = currentRecord.getProperty(propertyName);
       if (evaluateSingle(leftValue, currentRecord, ctx)) {
         return true;
       }
@@ -155,15 +158,15 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
 
   private boolean evaluateSingle(Object leftValue, Result currentRecord, CommandContext ctx) {
     if (right != null) {
-      Object rightValue = right.execute(currentRecord, ctx);
+      var rightValue = right.execute(currentRecord, ctx);
       return execute(leftValue, rightValue);
     } else {
       if (!MultiValue.isMultiValue(leftValue)) {
         return false;
       }
-      Iterator<?> iter = MultiValue.getMultiValueIterator(leftValue);
+      var iter = MultiValue.getMultiValueIterator(leftValue);
       while (iter.hasNext()) {
-        Object item = iter.next();
+        var item = iter.next();
         if (item instanceof Identifiable) {
           if (!rightBlock.evaluate((Identifiable) item, ctx)) {
             return false;
@@ -180,6 +183,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" CONTAINSALL ");
@@ -234,7 +238,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
 
   @Override
   protected int getNumberOfExternalCalculations() {
-    int total = 0;
+    var total = 0;
     if (left != null && !left.supportsBasicCalculation()) {
       total++;
     }
@@ -276,7 +280,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
 
   @Override
   public SQLContainsAllCondition copy() {
-    SQLContainsAllCondition result = new SQLContainsAllCondition(-1);
+    var result = new SQLContainsAllCondition(-1);
     result.left = left.copy();
     result.right = right == null ? null : right.copy();
     result.rightBlock = rightBlock == null ? null : rightBlock.copy();
@@ -314,7 +318,7 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLContainsAllCondition that = (SQLContainsAllCondition) o;
+    var that = (SQLContainsAllCondition) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -327,17 +331,18 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (right != null ? right.hashCode() : 0);
     result = 31 * result + (rightBlock != null ? rightBlock.hashCode() : 0);
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
-    List<String> leftX = left == null ? null : left.getMatchPatternInvolvedAliases();
-    List<String> rightX = right == null ? null : right.getMatchPatternInvolvedAliases();
-    List<String> rightBlockX =
+    var leftX = left == null ? null : left.getMatchPatternInvolvedAliases();
+    var rightX = right == null ? null : right.getMatchPatternInvolvedAliases();
+    var rightBlockX =
         rightBlock == null ? null : rightBlock.getMatchPatternInvolvedAliases();
 
     List<String> result = new ArrayList<String>();
@@ -351,11 +356,11 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
       result.addAll(rightBlockX);
     }
 
-    return result.size() == 0 ? null : result;
+    return result.isEmpty() ? null : result;
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (left != null && !left.isCacheable(session)) {
       return false;
     }
@@ -365,6 +370,29 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
     }
 
     return rightBlock == null || rightBlock.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=ab7b4e192a01cda09a82d5b80ef4ec60 (do not edit this line) */

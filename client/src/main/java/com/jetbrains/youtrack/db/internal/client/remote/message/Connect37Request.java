@@ -1,14 +1,14 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 
 public class Connect37Request implements BinaryRequest<ConnectResponse> {
@@ -25,15 +25,15 @@ public class Connect37Request implements BinaryRequest<ConnectResponse> {
   }
 
   @Override
-  public void write(DatabaseSessionInternal database, ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException {
+  public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
+      BinaryProtocolSession session) throws IOException {
     network.writeString(username);
     network.writeString(password);
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput channel, int protocolVersion,
-      RecordSerializer serializer)
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
       throws IOException {
     username = channel.readString();
     password = channel.readString();
@@ -57,6 +57,7 @@ public class Connect37Request implements BinaryRequest<ConnectResponse> {
     return username;
   }
 
+  @Override
   public boolean requireDatabaseSession() {
     return false;
   }

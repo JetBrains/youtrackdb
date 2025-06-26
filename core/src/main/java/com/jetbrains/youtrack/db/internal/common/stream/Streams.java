@@ -6,14 +6,18 @@ import java.util.function.Consumer;
 import java.util.stream.BaseStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class Streams {
 
   public static <T> Stream<T> mergeSortedSpliterators(
-      Stream<T> streamOne, Stream<T> streamTwo, Comparator<? super T> comparator) {
-    final SortedStreamSpliterator<T> spliterator =
-        new SortedStreamSpliterator<>(streamOne.spliterator(), streamTwo.spliterator(), comparator);
-    @SuppressWarnings("resource") final Stream<T> stream = StreamSupport.stream(spliterator, false);
+      @Nonnull Stream<T> streamOne, @Nonnull Stream<T> streamTwo,
+      @Nullable Comparator<? super T> comparator) {
+    final var spliterator =
+        new SortedStreamSpliterator<>(streamOne.spliterator(), streamTwo.spliterator(),
+            comparator);
+    @SuppressWarnings("resource") final var stream = StreamSupport.stream(spliterator, false);
     return stream.onClose(composedClose(streamOne, streamTwo));
   }
 
@@ -21,17 +25,23 @@ public class Streams {
 
     private boolean firstStream;
 
+    @Nonnull
     private final Spliterator<T> firstSpliterator;
+    @Nonnull
     private final Spliterator<T> secondSpliterator;
 
     private T firstValue;
     private T secondValue;
 
+    @Nullable
     private final Comparator<? super T> comparator;
 
     private SortedStreamSpliterator(
+        @Nonnull
         Spliterator<T> firstSpliterator,
+        @Nonnull
         Spliterator<T> secondSpliterator,
+        @Nullable
         Comparator<? super T> comparator) {
       this.firstSpliterator = firstSpliterator;
       this.secondSpliterator = secondSpliterator;
@@ -70,21 +80,31 @@ public class Streams {
         return true;
       }
 
-      final int res = comparator.compare(firstValue, secondValue);
-      if (res == 0) {
-        if (firstValue.equals(secondValue)) {
-          action.accept(firstValue);
+      int res;
+      if (comparator != null) {
+        res = comparator.compare(firstValue, secondValue);
+        if (res == 0) {
+          if (firstValue.equals(secondValue)) {
+            action.accept(firstValue);
 
-          firstValue = null;
-          secondValue = null;
+            firstValue = null;
+            secondValue = null;
 
-          return true;
-        } else {
-          action.accept(firstValue);
+            return true;
+          } else {
+            action.accept(firstValue);
 
-          firstValue = null;
-          return true;
+            firstValue = null;
+            return true;
+          }
         }
+      } else if (firstValue instanceof Comparable<?>
+          && secondValue instanceof Comparable<?>) {
+        //noinspection unchecked
+        res = ((Comparable<T>) firstValue).compareTo(secondValue);
+      } else {
+        throw new IllegalArgumentException(
+            "Cannot compare values : " + firstValue + " and " + secondValue);
       }
 
       if (res < 0) {
@@ -99,6 +119,7 @@ public class Streams {
       return true;
     }
 
+    @Nullable
     @Override
     public Spliterator<T> trySplit() {
       return null;
@@ -115,6 +136,7 @@ public class Streams {
     }
 
     @Override
+    @Nullable
     public Comparator<? super T> getComparator() {
       return comparator;
     }
@@ -140,7 +162,10 @@ public class Streams {
           try {
             e1.addSuppressed(e2);
           } catch (Throwable throwable) {
-            throwable.printStackTrace();
+            if (throwable instanceof Error error) {
+              throw error;
+            }
+            throw new RuntimeException(throwable);
           }
         }
         throw e1;

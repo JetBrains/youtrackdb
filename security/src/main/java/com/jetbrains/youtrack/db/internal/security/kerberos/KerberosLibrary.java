@@ -89,7 +89,7 @@ public class KerberosLibrary {
       // Subject.doAsPrivileged(...),
       // the to-be-used GSSCredential should be added to Subject's private credential set.
       // Otherwise, the GSS operations will fail since no credential is found.
-      boolean useNativeJgss = Boolean.getBoolean("sun.security.jgss.native");
+      var useNativeJgss = Boolean.getBoolean("sun.security.jgss.native");
 
       if (useNativeJgss) {
         LogManager.instance()
@@ -97,18 +97,18 @@ public class KerberosLibrary {
                 KerberosLibrary.class,
                 "KerberosLibrary.checkNativeJGSS() Using Native JGSS, Principal = " + principal);
 
-        int usage = GSSCredential.INITIATE_ONLY;
+        var usage = GSSCredential.INITIATE_ONLY;
 
         if (!initiate) {
           usage = GSSCredential.ACCEPT_ONLY;
         }
 
-        GSSManager manager = GSSManager.getInstance();
+        var manager = GSSManager.getInstance();
 
-        GSSName serviceName = manager.createName(principal, GSSName.NT_USER_NAME);
+        var serviceName = manager.createName(principal, GSSName.NT_USER_NAME);
 
         // Standard Kerberos
-        Oid krb5Oid = new Oid("1.2.840.113554.1.2.2");
+        var krb5Oid = new Oid("1.2.840.113554.1.2.2");
 
         LogManager.instance()
             .info(
@@ -116,7 +116,7 @@ public class KerberosLibrary {
                 "KerberosLibrary.checkNativeJGSS() calling createCredential() for Kerberos OID");
 
         // null: indicates using the default principal.
-        GSSCredential kerbCreds =
+        var kerbCreds =
             manager.createCredential(serviceName, GSSCredential.DEFAULT_LIFETIME, krb5Oid, usage);
         subject.getPrivateCredentials().add(kerbCreds);
 
@@ -127,7 +127,7 @@ public class KerberosLibrary {
                     + kerbCreds.getName().toString());
 
         // SPNEGO
-        Oid spnegoOid = new Oid("1.3.6.1.5.5.2");
+        var spnegoOid = new Oid("1.3.6.1.5.5.2");
 
         LogManager.instance()
             .info(
@@ -135,7 +135,7 @@ public class KerberosLibrary {
                 "KerberosLibrary.checkNativeJGSS() calling createCredential() for SPNEGO OID");
 
         // null: indicates using the default principal.
-        GSSCredential spnegoCreds =
+        var spnegoCreds =
             manager.createCredential(serviceName, GSSCredential.DEFAULT_LIFETIME, spnegoOid, usage);
         subject.getPrivateCredentials().add(spnegoCreds);
 
@@ -162,11 +162,11 @@ public class KerberosLibrary {
             String source = null;
 
             try {
-              GSSManager manager = GSSManager.getInstance();
+              var manager = GSSManager.getInstance();
 
-              GSSName serviceName = manager.createName(principal, GSSName.NT_USER_NAME);
+              var serviceName = manager.createName(principal, GSSName.NT_USER_NAME);
 
-              Oid spnegoOid = new Oid("1.3.6.1.5.5.2");
+              var spnegoOid = new Oid("1.3.6.1.5.5.2");
 
               // null: indicates using the default principal.
 
@@ -175,7 +175,7 @@ public class KerberosLibrary {
               //						GSSName serviceName = manager.createName("OrientDBClient@AD.SDICLOUD.COM",
               // GSSName.NT_HOSTBASED_SERVICE);
 
-              GSSCredential serverCreds =
+              var serverCreds =
                   manager.createCredential(
                       serviceName,
                       GSSCredential.DEFAULT_LIFETIME,
@@ -189,7 +189,7 @@ public class KerberosLibrary {
                           + serverCreds.getName().toString());
 
               // Default acceptor.
-              GSSContext context = manager.createContext(serverCreds);
+              var context = manager.createContext(serverCreds);
 
               if (context != null) {
                 if (!context.isEstablished()) {
@@ -235,14 +235,14 @@ public class KerberosLibrary {
             String source = null;
 
             try {
-              GSSManager manager = GSSManager.getInstance();
+              var manager = GSSManager.getInstance();
 
-              GSSName serviceName = manager.createName(principal, GSSName.NT_USER_NAME);
+              var serviceName = manager.createName(principal, GSSName.NT_USER_NAME);
 
-              Oid krb5Oid = new Oid("1.2.840.113554.1.2.2");
+              var krb5Oid = new Oid("1.2.840.113554.1.2.2");
 
               // null: indicates using the default principal.
-              GSSCredential serverCreds =
+              var serverCreds =
                   manager.createCredential(
                       serviceName,
                       GSSCredential.DEFAULT_LIFETIME,
@@ -256,7 +256,7 @@ public class KerberosLibrary {
                           + serverCreds.getName().toString());
 
               // Default acceptor.
-              GSSContext context = manager.createContext(serverCreds);
+              var context = manager.createContext(serverCreds);
 
               if (context != null) {
                 if (!context.isEstablished()) {
@@ -303,7 +303,7 @@ public class KerberosLibrary {
     }
 
     // Token Length
-    int len = 1;
+    var len = 1;
     if ((ticket[1] & 0x80) != 0) {
       len = 1 + (ticket[1] & 0x7f);
     }
@@ -313,7 +313,7 @@ public class KerberosLibrary {
     }
 
     // Look for SPNEGO OID
-    for (int i = 0; i < SPENGO_OID.length; i++) {
+    for (var i = 0; i < SPENGO_OID.length; i++) {
       if (SPENGO_OID[i] != ticket[i + 1 + len]) {
         return false;
       }
@@ -336,7 +336,7 @@ public class KerberosLibrary {
     } else {
       lenBytes = ticket[1] & 0x7f;
       len = 0;
-      final int i = 2;
+      final var i = 2;
 
       while (lenBytes > 0) {
         len = len << 8;

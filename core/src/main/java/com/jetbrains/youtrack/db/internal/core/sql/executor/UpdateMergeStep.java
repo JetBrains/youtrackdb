@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -23,30 +24,33 @@ public class UpdateMergeStep extends AbstractExecutionStep {
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
 
-    ExecutionStream upstream = prev.start(ctx);
+    var upstream = prev.start(ctx);
     return upstream.map(this::mapResult);
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
     if (result instanceof ResultInternal) {
-      if (!(result.getEntity().orElse(null) instanceof EntityImpl)) {
-        ((ResultInternal) result).setIdentifiable(result.toEntity().getRecord());
+      if (result.isEntity()) {
+        Identifiable identifiable = result.asEntity();
+        var transaction = ctx.getDatabaseSession().getActiveTransaction();
+        ((ResultInternal) result).setIdentifiable(
+            transaction.load(identifiable));
       }
-      if (!(result.getEntity().orElse(null) instanceof EntityImpl)) {
+      if (!result.isEntity()) {
         return result;
       }
-      handleMerge((EntityImpl) result.getEntity().orElse(null), ctx);
+      handleMerge((EntityImpl) result.asEntity(), ctx);
     }
     return result;
   }
 
   private void handleMerge(EntityImpl record, CommandContext ctx) {
-    record.merge(json.toDocument(record, ctx), true, false);
+    record.updateFromJSON(json.toString());
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ UPDATE MERGE\n" + spaces + "  " + json;
   }
 }

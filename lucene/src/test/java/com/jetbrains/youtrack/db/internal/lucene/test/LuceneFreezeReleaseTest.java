@@ -1,9 +1,7 @@
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Ignore;
@@ -20,31 +18,39 @@ public class LuceneFreezeReleaseTest extends BaseLuceneTest {
       return;
     }
 
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass person = schema.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var person = schema.createClass("Person");
+    person.createProperty("name", PropertyType.STRING);
 
-    db.command("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
 
-    db.begin();
-    db.save(new EntityImpl("Person").field("name", "John"));
-    db.commit();
+    session.begin();
+    var entity1 = ((EntityImpl) session.newEntity("Person"));
+    entity1.setProperty("name", "John");
+    session.commit();
 
-    ResultSet results = db.query("select from Person where name lucene 'John'");
+    session.begin();
+    var results = session.query("select from Person where name lucene 'John'");
     Assert.assertEquals(1, results.stream().count());
-    db.freeze();
+    session.commit();
+    session.freeze();
 
-    results = db.query("select from Person where name lucene 'John'");
+    session.begin();
+    results = session.query("select from Person where name lucene 'John'");
     Assert.assertEquals(1, results.stream().count());
+    session.commit();
 
-    db.release();
+    session.release();
 
-    db.begin();
-    db.save(new EntityImpl("Person").field("name", "John"));
-    db.commit();
+    session.begin();
+    var entity = ((EntityImpl) session.newEntity("Person"));
+    entity.setProperty("name", "John");
+    session.commit();
 
-    results = db.query("select from Person where name lucene 'John'");
+    session.begin();
+    results = session.query("select from Person where name lucene 'John'");
     Assert.assertEquals(2, results.stream().count());
+    session.commit();
   }
 
   // With double calling freeze/release
@@ -55,39 +61,41 @@ public class LuceneFreezeReleaseTest extends BaseLuceneTest {
       return;
     }
 
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass person = schema.createClass("Person");
-    person.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var person = schema.createClass("Person");
+    person.createProperty("name", PropertyType.STRING);
 
-    db.command("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Person.name on Person (name) FULLTEXT ENGINE LUCENE").close();
 
-    db.begin();
-    db.save(new EntityImpl("Person").field("name", "John"));
-    db.commit();
+    session.begin();
+    EntityImpl entity1 = ((EntityImpl) session.newEntity("Person"));
+    entity1.setProperty("name", "John");
+    session.commit();
 
-      ResultSet results = db.query("select from Person where name lucene 'John'");
+    var results = session.query("select from Person where name lucene 'John'");
       Assert.assertEquals(1, results.stream().count());
 
-      db.freeze();
+    session.freeze();
 
-      db.freeze();
+    session.freeze();
 
-      results = db.query("select from Person where name lucene 'John'");
+    results = session.query("select from Person where name lucene 'John'");
       Assert.assertEquals(1, results.stream().count());
 
-      db.release();
-      db.release();
+    session.release();
+    session.release();
 
-      db.begin();
-      db.save(new EntityImpl("Person").field("name", "John"));
-      db.commit();
+    session.begin();
+    EntityImpl entity = ((EntityImpl) session.newEntity("Person"));
+    entity.setProperty("name", "John");
+    session.commit();
 
-      results = db.query("select from Person where name lucene 'John'");
+    results = session.query("select from Person where name lucene 'John'");
       Assert.assertEquals(2, results.stream().count());
   }
 
   private static boolean isWindows() {
-    final String osName = System.getProperty("os.name").toLowerCase();
+    final var osName = System.getProperty("os.name").toLowerCase();
     return osName.contains("win");
   }
 }

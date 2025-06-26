@@ -2,8 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,10 +23,11 @@ public class SQLLetClause extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("LET ");
-    boolean first = true;
-    for (SQLLetItem item : items) {
+    var first = true;
+    for (var item : items) {
       if (!first) {
         builder.append(", ");
       }
@@ -35,10 +36,11 @@ public class SQLLetClause extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("LET ");
-    boolean first = true;
-    for (SQLLetItem item : items) {
+    var first = true;
+    for (var item : items) {
       if (!first) {
         builder.append(", ");
       }
@@ -51,9 +53,10 @@ public class SQLLetClause extends SimpleNode {
     this.items.add(item);
   }
 
+  @Override
   public SQLLetClause copy() {
-    SQLLetClause result = new SQLLetClause(-1);
-    result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
+    var result = new SQLLetClause(-1);
+    result.items = items.stream().map(SQLLetItem::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -70,7 +73,7 @@ public class SQLLetClause extends SimpleNode {
       return false;
     }
 
-    SQLLetClause that = (SQLLetClause) o;
+    var that = (SQLLetClause) o;
 
     return Objects.equals(items, that.items);
   }
@@ -81,7 +84,7 @@ public class SQLLetClause extends SimpleNode {
   }
 
   public boolean refersToParent() {
-    for (SQLLetItem item : items) {
+    for (var item : items) {
       if (item.refersToParent()) {
         return true;
       }
@@ -90,17 +93,18 @@ public class SQLLetClause extends SimpleNode {
   }
 
   public void extractSubQueries(SubQueryCollector collector) {
-    for (SQLLetItem item : items) {
+    for (var item : items) {
       item.extractSubQueries(collector);
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
+
     if (items != null) {
       result.setProperty(
           "items",
-          items.stream().map(oLetItem -> oLetItem.serialize(db)).collect(Collectors.toList()));
+          items.stream().map(oLetItem -> oLetItem.serialize(session)).collect(Collectors.toList()));
     }
     return result;
   }
@@ -110,16 +114,16 @@ public class SQLLetClause extends SimpleNode {
     if (fromResult.getProperty("items") != null) {
       List<Result> ser = fromResult.getProperty("items");
       items = new ArrayList<>();
-      for (Result r : ser) {
-        SQLLetItem exp = new SQLLetItem(-1);
+      for (var r : ser) {
+        var exp = new SQLLetItem(-1);
         exp.deserialize(r);
         items.add(exp);
       }
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
-    for (SQLLetItem item : items) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
+    for (var item : items) {
       if (!item.isCacheable(session)) {
         return false;
       }

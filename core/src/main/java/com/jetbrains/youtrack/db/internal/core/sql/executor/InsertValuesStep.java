@@ -1,9 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ResultMapper;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
@@ -32,7 +34,7 @@ public class InsertValuesStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
-    ExecutionStream upstream = prev.start(ctx);
+    var upstream = prev.start(ctx);
 
     return upstream.map(
         new ResultMapper() {
@@ -43,14 +45,14 @@ public class InsertValuesStep extends AbstractExecutionStep {
           public Result map(Result result, CommandContext ctx) {
             if (!(result instanceof ResultInternal)) {
               if (!result.isEntity()) {
-                throw new CommandExecutionException(
+                throw new CommandExecutionException(ctx.getDatabaseSession(),
                     "Error executing INSERT, cannot modify entity: " + result);
               }
-              result = new UpdatableResult(ctx.getDatabase(), result.toEntity());
+              result = new UpdatableResult(ctx.getDatabaseSession(), result.asEntityOrNull());
             }
-            List<SQLExpression> currentValues = values.get(nextValueSet++);
+            var currentValues = values.get(nextValueSet++);
             if (currentValues.size() != identifiers.size()) {
-              throw new CommandExecutionException(
+              throw new CommandExecutionException(ctx.getDatabaseSession(),
                   "Cannot execute INSERT, the number of fields is different from the number of"
                       + " expressions: "
                       + identifiers
@@ -58,13 +60,23 @@ public class InsertValuesStep extends AbstractExecutionStep {
                       + currentValues);
             }
             nextValueSet %= values.size();
-            for (int i = 0; i < currentValues.size(); i++) {
-              SQLIdentifier identifier = identifiers.get(i);
-              Object value = currentValues.get(i).execute(result, ctx);
-              value =
-                  SQLUpdateItem.convertToPropertyType(
-                      (ResultInternal) result, identifier, value, ctx);
-              ((ResultInternal) result).setProperty(identifier.getStringValue(), value);
+            for (var i = 0; i < currentValues.size(); i++) {
+              var identifier = identifiers.get(i);
+              var propertyName = identifier.getStringValue();
+
+              var session = ctx.getDatabaseSession();
+              SchemaProperty schemaProperty = null;
+
+              if (result.isEntity()) {
+                var entity = (EntityImpl) result.asEntity();
+                var schema = entity.getImmutableSchemaClass(session);
+                schemaProperty =
+                    schema != null ? schema.getProperty(propertyName) : null;
+              }
+
+              var value = currentValues.get(i).execute(result, ctx);
+              value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
+              ((ResultInternal) result).setProperty(propertyName, value);
             }
             return result;
           }
@@ -73,13 +85,13 @@ public class InsertValuesStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ SET VALUES \n");
     result.append(spaces);
     result.append("  (");
-    for (int i = 0; i < identifiers.size(); i++) {
+    for (var i = 0; i < identifiers.size(); i++) {
       if (i > 0) {
         result.append(", ");
       }
@@ -90,14 +102,14 @@ public class InsertValuesStep extends AbstractExecutionStep {
     result.append(spaces);
     result.append("  VALUES\n");
 
-    for (int c = 0; c < this.values.size(); c++) {
+    for (var c = 0; c < this.values.size(); c++) {
       if (c > 0) {
         result.append("\n");
       }
-      List<SQLExpression> exprs = this.values.get(c);
+      var exprs = this.values.get(c);
       result.append(spaces);
       result.append("  (");
-      for (int i = 0; i < exprs.size() && i < 3; i++) {
+      for (var i = 0; i < exprs.size() && i < 3; i++) {
         if (i > 0) {
           result.append(", ");
         }

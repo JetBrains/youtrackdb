@@ -13,8 +13,9 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.strategy;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
-import com.jetbrains.youtrack.db.internal.spatial.engine.OLuceneSpatialIndexContainer;
+import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.query.SpatialQueryContext;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeBuilder;
 import java.util.Map;
@@ -32,24 +33,25 @@ public abstract class SpatialQueryBuilderAbstract {
   public static final String SHAPE_TYPE = "type";
   public static final String COORDINATES = "coordinates";
   public static final String MAX_DISTANCE = "maxDistance";
-  protected OLuceneSpatialIndexContainer manager;
+  protected LuceneSpatialIndexContainer manager;
   protected ShapeBuilder factory;
 
-  public SpatialQueryBuilderAbstract(OLuceneSpatialIndexContainer manager, ShapeBuilder factory) {
+  public SpatialQueryBuilderAbstract(LuceneSpatialIndexContainer manager, ShapeBuilder factory) {
     this.manager = manager;
     this.factory = factory;
   }
 
-  public abstract SpatialQueryContext build(Map<String, Object> query) throws Exception;
+  public abstract SpatialQueryContext build(DatabaseSessionEmbedded db, Map<String, Object> query)
+      throws Exception;
 
   protected Shape parseShape(Map<String, Object> query) {
 
-    Object geometry = query.get(SHAPE);
+    var geometry = query.get(SHAPE);
 
     if (geometry == null) {
       throw new IndexEngineException("Invalid spatial query. Missing shape field " + query, null);
     }
-    Shape parsed = factory.fromObject(geometry);
+    var parsed = factory.fromObject(geometry);
 
     if (parsed == null) {
       throw new IndexEngineException(

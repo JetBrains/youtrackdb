@@ -19,12 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.security;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -53,9 +52,9 @@ public interface SecuritySystem {
     return new HashMap<>();
   }
 
-  EntityImpl getConfig();
+  Map<String, Object> getConfig();
 
-  EntityImpl getComponentConfig(final String name);
+  Map<String, Object> getComponentConfig(final String name);
 
   /**
    * Returns the "System User" associated with 'username' from the system database. If not found,
@@ -90,13 +89,13 @@ public interface SecuritySystem {
 
   void registerSecurityClass(final Class<?> cls);
 
-  void reload(DatabaseSessionInternal session, final EntityImpl jsonConfig);
+  void reload(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig);
 
-  void reload(DatabaseSessionInternal session, SecurityUser user,
-      final EntityImpl jsonConfig);
+  void reload(DatabaseSessionEmbedded session, SecurityUser user,
+      final Map<String, Object> jsonConfig);
 
-  void reloadComponent(DatabaseSessionInternal session, SecurityUser user, final String name,
-      final EntityImpl jsonConfig);
+  void reloadComponent(DatabaseSessionEmbedded session, SecurityUser user, final String name,
+      final Map<String, Object> jsonConfig);
 
   void unregisterSecurityClass(final Class<?> cls);
 
@@ -126,9 +125,9 @@ public interface SecuritySystem {
    */
   SecurityUser getUser(final String username, DatabaseSessionInternal session);
 
-  void onAfterDynamicPlugins(DatabaseSessionInternal session);
+  void onAfterDynamicPlugins(DatabaseSessionEmbedded session);
 
-  default void onAfterDynamicPlugins(DatabaseSessionInternal session, SecurityUser user) {
+  default void onAfterDynamicPlugins(DatabaseSessionEmbedded session, SecurityUser user) {
     onAfterDynamicPlugins(session);
   }
 
@@ -144,7 +143,7 @@ public interface SecuritySystem {
   boolean isServerUserAuthorized(DatabaseSessionInternal session, String username,
       String resource);
 
-  YouTrackDBInternal getContext();
+  YouTrackDBInternalEmbedded getContext();
 
   boolean existsUser(String defaultRootUser);
 

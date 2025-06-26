@@ -2,16 +2,15 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.EmptyStep;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IfExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IfStep;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.UpdateExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -50,12 +49,12 @@ public class SQLIfStatement extends SQLStatement {
 
   @Override
   public boolean isIdempotent() {
-    for (SQLStatement stm : statements) {
+    for (var stm : statements) {
       if (!stm.isIdempotent()) {
         return false;
       }
     }
-    for (SQLStatement stm : elseStatements) {
+    for (var stm : elseStatements) {
       if (!stm.isIdempotent()) {
         return false;
       }
@@ -65,16 +64,16 @@ public class SQLIfStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -87,30 +86,31 @@ public class SQLIfStatement extends SQLStatement {
       executionPlan = (IfExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
 
-    ExecutionStepInternal last = executionPlan.executeUntilReturn();
+    var last = executionPlan.executeUntilReturn();
     if (last == null) {
       last = new EmptyStep(ctx, false);
     }
     if (isIdempotent()) {
-      SelectExecutionPlan finalPlan = new SelectExecutionPlan(ctx);
+      var finalPlan = new SelectExecutionPlan(ctx);
       finalPlan.chain(last);
-      return new LocalResultSet(finalPlan);
+      return new LocalResultSet(session, finalPlan);
     } else {
-      UpdateExecutionPlan finalPlan = new UpdateExecutionPlan(ctx);
+      var finalPlan = new UpdateExecutionPlan(ctx);
       finalPlan.chain(last);
       finalPlan.executeInternal();
-      return new LocalResultSet(finalPlan);
+      return new LocalResultSet(session, finalPlan);
     }
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
 
     IfExecutionPlan executionPlan;
@@ -120,28 +120,28 @@ public class SQLIfStatement extends SQLStatement {
       executionPlan = (IfExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
 
-    ExecutionStepInternal last = executionPlan.executeUntilReturn();
+    var last = executionPlan.executeUntilReturn();
     if (last == null) {
       last = new EmptyStep(ctx, false);
     }
     if (isIdempotent()) {
-      SelectExecutionPlan finalPlan = new SelectExecutionPlan(ctx);
+      var finalPlan = new SelectExecutionPlan(ctx);
       finalPlan.chain(last);
-      return new LocalResultSet(finalPlan);
+      return new LocalResultSet(session, finalPlan);
     } else {
-      UpdateExecutionPlan finalPlan = new UpdateExecutionPlan(ctx);
+      var finalPlan = new UpdateExecutionPlan(ctx);
       finalPlan.chain(last);
       finalPlan.executeInternal();
-      return new LocalResultSet(finalPlan);
+      return new LocalResultSet(session, finalPlan);
     }
   }
 
   @Override
   public IfExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
 
-    IfExecutionPlan plan = new IfExecutionPlan(ctx);
+    var plan = new IfExecutionPlan(ctx);
 
-    IfStep step = new IfStep(ctx, enableProfiling);
+    var step = new IfStep(ctx, enableProfiling);
     step.setCondition(this.expression);
     plan.chain(step);
 
@@ -155,14 +155,14 @@ public class SQLIfStatement extends SQLStatement {
     builder.append("IF(");
     expression.toString(params, builder);
     builder.append("){\n");
-    for (SQLStatement stm : statements) {
+    for (var stm : statements) {
       stm.toString(params, builder);
       builder.append(";\n");
     }
     builder.append("}");
     if (elseStatements.size() > 0) {
       builder.append("\nELSE {\n");
-      for (SQLStatement stm : elseStatements) {
+      for (var stm : elseStatements) {
         stm.toString(params, builder);
         builder.append(";\n");
       }
@@ -175,14 +175,14 @@ public class SQLIfStatement extends SQLStatement {
     builder.append("IF(");
     expression.toGenericStatement(builder);
     builder.append("){\n");
-    for (SQLStatement stm : statements) {
+    for (var stm : statements) {
       stm.toGenericStatement(builder);
       builder.append(";\n");
     }
     builder.append("}");
     if (elseStatements.size() > 0) {
       builder.append("\nELSE {\n");
-      for (SQLStatement stm : elseStatements) {
+      for (var stm : elseStatements) {
         stm.toGenericStatement(builder);
         builder.append(";\n");
       }
@@ -192,7 +192,7 @@ public class SQLIfStatement extends SQLStatement {
 
   @Override
   public SQLIfStatement copy() {
-    SQLIfStatement result = new SQLIfStatement(-1);
+    var result = new SQLIfStatement(-1);
     result.expression = expression == null ? null : expression.copy();
     result.statements =
         statements == null
@@ -214,7 +214,7 @@ public class SQLIfStatement extends SQLStatement {
       return false;
     }
 
-    SQLIfStatement that = (SQLIfStatement) o;
+    var that = (SQLIfStatement) o;
 
     if (!Objects.equals(expression, that.expression)) {
       return false;
@@ -227,7 +227,7 @@ public class SQLIfStatement extends SQLStatement {
 
   @Override
   public int hashCode() {
-    int result = expression != null ? expression.hashCode() : 0;
+    var result = expression != null ? expression.hashCode() : 0;
     result = 31 * result + (statements != null ? statements.hashCode() : 0);
     result = 31 * result + (elseStatements != null ? elseStatements.hashCode() : 0);
     return result;
@@ -238,7 +238,7 @@ public class SQLIfStatement extends SQLStatement {
   }
 
   public boolean containsReturn() {
-    for (SQLStatement stm : this.statements) {
+    for (var stm : this.statements) {
       if (stm instanceof SQLReturnStatement) {
         return true;
       }
@@ -251,7 +251,7 @@ public class SQLIfStatement extends SQLStatement {
     }
 
     if (elseStatements != null) {
-      for (SQLStatement stm : this.elseStatements) {
+      for (var stm : this.elseStatements) {
         if (stm instanceof SQLReturnStatement) {
           return true;
         }

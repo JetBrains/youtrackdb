@@ -2,241 +2,226 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.SkipException;
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
-public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
+public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
-  private static final String CLASS_NAME = "IndexTxAwareOneValueGetValuesTest";
-  private static final String FIELD_NAME = "value";
-  private static final String INDEX_NAME = "IndexTxAwareOneValueGetValuesTest";
-
-  @Parameters(value = "remote")
-  public IndexTxAwareOneValueGetValuesTest(boolean remote) {
-    super(remote);
-  }
-
-  @BeforeClass
-  public void beforeClass() throws Exception {
-    super.beforeClass();
-
-    final Schema schema = database.getMetadata().getSchema();
-    final SchemaClass cls = schema.createClass(CLASS_NAME);
-    cls.createProperty(database, FIELD_NAME, PropertyType.INTEGER);
-    cls.createIndex(database, INDEX_NAME, SchemaClass.INDEX_TYPE.UNIQUE, FIELD_NAME);
-  }
-
-  @BeforeMethod
-  @Override
-  public void beforeMethod() throws Exception {
-    super.beforeMethod();
-
-    var cls = database.getMetadata().getSchema().getClassInternal(CLASS_NAME);
-    cls.truncate(database);
+  public IndexTxAwareOneValueGetValuesTest() {
+    super(true);
   }
 
   @Test
   public void testPut() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is enabled only for embedded database");
     }
 
-    database.begin();
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    session.begin();
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 2).save();
-    database.commit();
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    Assert.assertNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
+
+    session.commit();
 
     Set<Identifiable> resultOne = new HashSet<>();
-    Stream<RawPair<Object, RID>> stream =
-        index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    var stream =
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
 
-    database.begin();
+    session.begin();
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 3).save();
-
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    var doc3 = newDoc(3);
+    verifyTxIndexPut(Map.of(3, Set.of(doc3.getIdentity())));
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2, 3), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2, 3), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 3);
 
-    database.rollback();
+    session.rollback();
 
-    Assert.assertNull(database.getTransaction().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 2);
   }
 
   @Test
   public void testRemove() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is enabled only for embedded database");
     }
 
-    database.begin();
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    session.begin();
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 2).save();
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    database.commit();
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    Assert.assertNull(database.getTransaction().getIndexChanges(INDEX_NAME));
-    Stream<RawPair<Object, RID>> stream =
-        index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    session.commit();
+
+    var stream =
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     Set<Identifiable> resultOne = new HashSet<>();
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
 
-    database.begin();
+    session.begin();
 
-    try (Stream<RID> rids = index.getInternal().getRids(database, 1)) {
-      rids.map(RID::getRecord).forEach(record -> ((EntityImpl) record).delete());
+    try (var rids = index.getRids(session, 1)) {
+      rids.map(rid -> {
+        var transaction = session.getActiveTransaction();
+        return transaction.load(rid);
+      }).forEach(record -> ((EntityImpl) record).delete());
     }
 
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    verifyTxIndexRemove(Map.of(1, Set.of(doc1.getIdentity())));
+
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     Set<Identifiable> resultTwo = new HashSet<>();
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 1);
 
-    database.rollback();
+    session.rollback();
 
-    Assert.assertNull(database.getTransaction().getIndexChanges(INDEX_NAME));
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 2);
   }
 
   @Test
   public void testRemoveAndPut() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is enabled only for embedded database");
     }
 
-    database.begin();
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    session.begin();
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 2).save();
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    database.commit();
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    Assert.assertNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    session.commit();
+
     Set<Identifiable> resultOne = new HashSet<>();
-    Stream<RawPair<Object, RID>> stream =
-        index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    var stream =
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
 
-    database.begin();
+    session.begin();
 
-    try (Stream<RID> ridStream = index.getInternal().getRids(database, 1)) {
-      ridStream.map(RID::getRecord).forEach(record -> ((EntityImpl) record).delete());
+    try (var ridStream = index.getRids(session, 1)) {
+      ridStream.map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          })
+          .forEach(record -> ((EntityImpl) record).delete());
     }
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
+    var doc3 = newDoc(1);
 
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    verifyTxIndexChanges(
+        Map.of(1, Set.of(doc3.getIdentity())),
+        Map.of(1, Set.of(doc1.getIdentity()))
+    );
+
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 2);
 
-    database.rollback();
+    session.rollback();
   }
 
   @Test
   public void testMultiPut() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is enabled only for embedded database");
     }
 
-    database.begin();
+    session.begin();
 
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    final var doc1 = newDoc(1);
+    doc1.setProperty(fieldName, 0);
+    doc1.setProperty(fieldName, 1);
 
-    final EntityImpl document = new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1);
-    document.save();
-    document.field(FIELD_NAME, 0);
-    document.field(FIELD_NAME, 1);
-    document.save();
+    final var doc2 = newDoc(2);
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 2).save();
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
     Set<Identifiable> result = new HashSet<>();
-    Stream<RawPair<Object, RID>> stream =
-        index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    var stream =
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
 
-    database.commit();
+    session.commit();
 
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 2);
   }
 
   @Test
   public void testPutAfterTransaction() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is enabled only for embedded database");
     }
 
-    database.begin();
+    session.begin();
 
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 2).save();
-
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
     Set<Identifiable> result = new HashSet<>();
-    Stream<RawPair<Object, RID>> stream =
-        index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    var stream =
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
-    database.commit();
+    session.commit();
 
-    database.begin();
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 3).save();
-    database.commit();
+    session.begin();
+    newDoc(3);
 
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2, 3), true);
+    session.commit();
+
+    stream = index.streamEntries(session, Arrays.asList(1, 2, 3), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 3);
@@ -244,98 +229,123 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
 
   @Test
   public void testRemoveOneWithinTransaction() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is enabled only for embedded database");
     }
 
-    database.begin();
+    session.begin();
 
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 2).save();
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    try (Stream<RID> ridStream = index.getInternal().getRids(database, 1)) {
-      ridStream.map(RID::getRecord).forEach(record -> ((EntityImpl) record).delete());
+    try (var ridStream = index.getRids(session, 1)) {
+      ridStream.map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          })
+          .forEach(record -> ((EntityImpl) record).delete());
     }
 
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    verifyTxIndexPut(Map.of(
+        2, Set.of(doc2.getIdentity())
+    ));
     Set<Identifiable> result = new HashSet<>();
-    Stream<RawPair<Object, RID>> stream =
-        index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    var stream =
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 1);
 
-    database.commit();
+    session.commit();
 
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 1);
   }
 
   @Test
   public void testRemoveAllWithinTransaction() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is enabled only for embedded database");
     }
 
-    database.begin();
+    session.begin();
 
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 2).save();
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    try (Stream<RID> ridStream = index.getInternal().getRids(database, 1)) {
-      ridStream.map(RID::getRecord).forEach(record -> ((EntityImpl) record).delete());
+    try (var ridStream = index.getRids(session, 1)) {
+      ridStream.map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          })
+          .forEach(record -> ((EntityImpl) record).delete());
     }
 
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
+    verifyTxIndexPut(Map.of(
+        2, Set.of(doc2.getIdentity())
+    ));
     Set<Identifiable> result = new HashSet<>();
-    Stream<RawPair<Object, RID>> stream =
-        index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    var stream =
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 1);
 
-    database.commit();
+    session.commit();
 
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 1);
   }
 
   @Test
   public void testPutAfterRemove() {
-    if (database.getStorage().isRemote()) {
+    if (session.getStorage().isRemote()) {
       throw new SkipException("Test is enabled only for embedded database");
     }
 
-    database.begin();
+    session.begin();
 
-    final Index index =
-        database.getMetadata().getIndexManagerInternal().getIndex(database, INDEX_NAME);
+    var doc1 = newDoc(1);
+    var doc2 = newDoc(2);
 
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 2).save();
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc1.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    try (Stream<RID> ridStream = index.getInternal().getRids(database, 1)) {
-      ridStream.map(RID::getRecord).forEach(record -> ((EntityImpl) record).delete());
+    try (var ridStream = index.getRids(session, 1)) {
+      ridStream.map(rid -> {
+            var transaction = session.getActiveTransaction();
+            return transaction.load(rid);
+          })
+          .forEach(record -> ((EntityImpl) record).delete());
     }
-    new EntityImpl(CLASS_NAME).field(FIELD_NAME, 1).save();
+    var doc3 = newDoc(1);
+    verifyTxIndexPut(Map.of(
+        1, Set.of(doc3.getIdentity()),
+        2, Set.of(doc2.getIdentity())
+    ));
 
-    Assert.assertNotNull(database.getTransaction().getIndexChanges(INDEX_NAME));
     Set<Identifiable> result = new HashSet<>();
-    Stream<RawPair<Object, RID>> stream =
-        index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    var stream =
+        index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
 
-    database.commit();
+    session.commit();
 
-    stream = index.getInternal().streamEntries(database, Arrays.asList(1, 2), true);
+    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 2);
   }
@@ -343,6 +353,6 @@ public class IndexTxAwareOneValueGetValuesTest extends BaseDBTest {
   private static void streamToSet(
       Stream<RawPair<Object, RID>> stream, Set<Identifiable> result) {
     result.clear();
-    result.addAll(stream.map((entry) -> entry.second).collect(Collectors.toSet()));
+    result.addAll(stream.map((entry) -> entry.second()).collect(Collectors.toSet()));
   }
 }

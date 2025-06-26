@@ -26,7 +26,7 @@ public class SubQueryCollector {
   protected Map<SQLIdentifier, SQLStatement> subQueries = new LinkedHashMap<>();
 
   protected SQLIdentifier getNextAlias() {
-    SQLIdentifier result = new SQLIdentifier(GENERATED_ALIAS_PREFIX + (nextAliasId++));
+    var result = new SQLIdentifier(GENERATED_ALIAS_PREFIX + (nextAliasId++));
     result.internalAlias = true;
     return result;
   }
@@ -44,7 +44,7 @@ public class SubQueryCollector {
   }
 
   public SQLIdentifier addStatement(SQLStatement stm) {
-    SQLIdentifier alias = getNextAlias();
+    var alias = getNextAlias();
     return addStatement(alias, stm);
   }
 

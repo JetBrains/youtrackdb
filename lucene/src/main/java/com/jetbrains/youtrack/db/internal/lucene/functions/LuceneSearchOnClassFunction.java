@@ -4,16 +4,14 @@ import static com.jetbrains.youtrack.db.internal.lucene.functions.LuceneFunction
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrack.db.internal.lucene.builder.LuceneQueryBuilder;
 import com.jetbrains.youtrack.db.internal.lucene.collections.LuceneCompositeKey;
 import com.jetbrains.youtrack.db.internal.lucene.index.LuceneFullTextIndex;
@@ -22,9 +20,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import org.apache.lucene.index.IndexableField;
-import org.apache.lucene.index.memory.MemoryIndex;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -55,7 +51,7 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] params,
       CommandContext ctx) {
@@ -64,43 +60,47 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
     if (iThis instanceof Result) {
       result = (Result) iThis;
     } else {
-      result = new ResultInternal(ctx.getDatabase(), (Identifiable) iThis);
+      result = new ResultInternal(ctx.getDatabaseSession(), (Identifiable) iThis);
     }
 
-    Entity element = result.toEntity();
+    var entity = (EntityImpl) result.asEntity();
 
-    String className = element.getSchemaType().get().getName();
+    var session = ctx.getDatabaseSession();
+    var schemaClass = entity.getImmutableSchemaClass(ctx.getDatabaseSession());
+    if (schemaClass == null) {
+      return false;
+    }
 
-    LuceneFullTextIndex index = searchForIndex(ctx, className);
+    var index = searchForIndex(schemaClass);
 
     if (index == null) {
       return false;
     }
 
-    String query = (String) params[0];
+    var query = (String) params[0];
 
-    MemoryIndex memoryIndex = getOrCreateMemoryIndex(ctx);
+    var memoryIndex = getOrCreateMemoryIndex(ctx);
 
-    List<Object> key =
-        index.getDefinition().getFields().stream()
-            .map(s -> element.getProperty(s))
+    var key =
+        index.getDefinition().getProperties().stream()
+            .map(entity::getProperty)
             .collect(Collectors.toList());
 
-    for (IndexableField field : index.buildDocument(ctx.getDatabase(), key).getFields()) {
+    for (var field : index.buildDocument(ctx.getDatabaseSession(), key).getFields()) {
       memoryIndex.addField(field, index.indexAnalyzer());
     }
 
     var metadata = getMetadata(params);
-    LuceneKeyAndMetadata keyAndMetadata =
+    var keyAndMetadata =
         new LuceneKeyAndMetadata(
             new LuceneCompositeKey(Collections.singletonList(query)).setContext(ctx), metadata);
 
-    return memoryIndex.search(index.buildQuery(keyAndMetadata)) > 0.0f;
+    return memoryIndex.search(index.buildQuery(keyAndMetadata, session)) > 0.0f;
   }
 
-  private Map<String, ?> getMetadata(Object[] params) {
-
+  private static Map<String, ?> getMetadata(Object[] params) {
     if (params.length == 2) {
+      //noinspection unchecked
       return (Map<String, ?>) params[1];
     }
 
@@ -125,20 +125,19 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
       CommandContext ctx,
       SQLExpression... args) {
 
-    LuceneFullTextIndex index = searchForIndex(target, ctx);
+    var index = searchForIndex(target, ctx);
 
-    SQLExpression expression = args[0];
-    String query = (String) expression.execute((Identifiable) null, ctx);
+    var expression = args[0];
+    var query = (String) expression.execute((Identifiable) null, ctx);
 
     if (index != null) {
 
       var metadata = getMetadata(args, ctx);
 
       List<Identifiable> luceneResultSet;
-      try (Stream<RID> rids =
+      try (var rids =
           index
-              .getInternal()
-              .getRids(ctx.getDatabase(),
+              .getRids(ctx.getDatabaseSession(),
                   new LuceneKeyAndMetadata(
                       new LuceneCompositeKey(Collections.singletonList(query)).setContext(ctx),
                       metadata))) {
@@ -150,7 +149,7 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
     return Collections.emptySet();
   }
 
-  private Map<String, ?> getMetadata(SQLExpression[] args, CommandContext ctx) {
+  private static Map<String, ?> getMetadata(SQLExpression[] args, CommandContext ctx) {
     if (args.length == 2) {
       return getMetadata(args[1], ctx);
     }
@@ -160,29 +159,30 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
   @Override
   protected LuceneFullTextIndex searchForIndex(
       SQLFromClause target, CommandContext ctx, SQLExpression... args) {
-    SQLFromItem item = target.getItem();
+    var item = target.getItem();
 
-    String className = item.getIdentifier().getStringValue();
+    var schemaClass = item.getSchemaClass(ctx.getDatabaseSession());
+    if (schemaClass == null) {
+      return null;
+    }
 
-    return searchForIndex(ctx, className);
+    return searchForIndex(schemaClass);
   }
 
-  private static LuceneFullTextIndex searchForIndex(CommandContext ctx, String className) {
-    var db = ctx.getDatabase();
-    db.activateOnCurrentThread();
-    MetadataInternal dbMetadata = db.getMetadata();
-
-    List<LuceneFullTextIndex> indices =
-        dbMetadata.getImmutableSchemaSnapshot().getClassInternal(className).getIndexesInternal(db)
+  @Nullable
+  private static LuceneFullTextIndex searchForIndex(SchemaClassInternal schemaClass) {
+    var indices =
+        schemaClass.getIndexesInternal()
             .stream()
             .filter(idx -> idx instanceof LuceneFullTextIndex)
             .map(idx -> (LuceneFullTextIndex) idx)
             .toList();
 
     if (indices.size() > 1) {
-      throw new IllegalArgumentException("too many full-text indices on given class: " + className);
+      throw new IllegalArgumentException(
+          "too many full-text indices on given class: " + schemaClass.getName());
     }
 
-    return indices.isEmpty() ? null : indices.get(0);
+    return indices.isEmpty() ? null : indices.getFirst();
   }
 }

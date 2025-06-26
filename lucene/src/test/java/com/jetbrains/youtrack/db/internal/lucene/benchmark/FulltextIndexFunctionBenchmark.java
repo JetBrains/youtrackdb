@@ -1,14 +1,12 @@
 package com.jetbrains.youtrack.db.internal.lucene.benchmark;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
@@ -26,7 +24,6 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
-import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 @State(Scope.Thread)
@@ -38,7 +35,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 public class FulltextIndexFunctionBenchmark {
 
   public static void main(String[] args) throws RunnerException {
-    final Options opt =
+    final var opt =
         new OptionsBuilder()
             .include("FulltextIndexFunctionBenchmark.*")
             // .addProfiler(StackProfiler.class, "detailLine=true;excludePackages=true;period=1")
@@ -60,35 +57,35 @@ public class FulltextIndexFunctionBenchmark {
   public void setup() {
     this.setupDatabase();
 
-    final InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
-    db.execute("sql", getScriptFromStream(stream));
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
-    db.command("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
-    db.command(
+    final var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    db.computeScript("sql", getScriptFromStream(stream));
+    db.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
+    db.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE ");
+    db.execute(
         "create index Song.lyrics_description on Song (lyrics,description) FULLTEXT ENGINE LUCENE"
             + " ");
   }
 
   private void setupDatabase() {
-    final String config =
+    final var config =
         System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
-    String path = DbTestBase.embeddedDBUrl(getClass());
+    var path = DbTestBase.embeddedDBUrl(getClass());
     if ("ci".equals(config) || "release".equals(config)) {
-      type = DatabaseType.PLOCAL;
+      type = DatabaseType.DISK;
     } else {
       type = DatabaseType.MEMORY;
     }
-    context = new YouTrackDBImpl(path, YouTrackDBConfig.defaultConfig());
+
+    context = YourTracks.embedded(path, YouTrackDBConfig.defaultConfig());
 
     if (context.exists(name)) {
       context.drop(name);
     }
 
     context.execute(
-        "create database " + name + " plocal users ( admin identified by 'admin' role admin)");
+        "create database " + name + " disk users ( admin identified by 'admin' role admin)");
 
     db = (DatabaseSessionInternal) context.open(name, "admin", "admin");
-    db.set(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 8);
   }
 
   private String getScriptFromStream(final InputStream scriptStream) {
@@ -107,14 +104,14 @@ public class FulltextIndexFunctionBenchmark {
 
   @Benchmark
   public void searchOnSingleField() {
-    final ResultSet resultSet =
+    final var resultSet =
         db.query("SELECT from Song where SEARCH_FIELDS(['title'], 'BELIEVE') = true");
     resultSet.close();
   }
 
   @Benchmark
   public void searhOnTwoFieldsInOR() {
-    final ResultSet resultSet =
+    final var resultSet =
         db.query(
             "SELECT from Song where SEARCH_FIELDS(['title'], 'BELIEVE') = true OR"
                 + " SEARCH_FIELDS(['author'], 'Bob') = true ");
@@ -123,7 +120,7 @@ public class FulltextIndexFunctionBenchmark {
 
   @Benchmark
   public void searhOnTwoFieldsInAND() throws Exception {
-    final ResultSet resultSet =
+    final var resultSet =
         db.query(
             "SELECT from Song where SEARCH_FIELDS(['title'], 'tambourine') = true AND"
                 + " SEARCH_FIELDS(['author'], 'Bob') = true ");

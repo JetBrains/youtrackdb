@@ -15,12 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import java.util.List;
 import org.testng.Assert;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -29,43 +24,32 @@ import org.testng.annotations.Test;
 @Test
 public class SQLMetadataTest extends BaseDBTest {
 
-  @Parameters(value = "remote")
-  public SQLMetadataTest(boolean remote) {
-    super(remote);
-  }
-
   @Test
   public void querySchemaClasses() {
-    List<EntityImpl> result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>("select expand(classes) from metadata:schema"))
-            .execute(database);
+    var result =
+        session
+            .query("select expand(classes) from metadata:schema").toList();
 
     Assert.assertTrue(result.size() != 0);
   }
 
   @Test
   public void querySchemaProperties() {
-    List<EntityImpl> result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select expand(properties) from (select expand(classes) from metadata:schema)"
-                        + " where name = 'OUser'"))
-            .execute(database);
+    var result =
+        session
+            .query(
+                "select expand(properties) from (select expand(classes) from metadata:schema)"
+                    + " where name = 'OUser'").toList();
 
     Assert.assertTrue(result.size() != 0);
   }
 
   @Test
   public void queryIndexes() {
-    List<EntityImpl> result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select expand(indexes) from metadata:indexmanager"))
-            .execute(database);
+    var result =
+        session
+            .query(
+                "select from metadata:indexes").toList();
 
     Assert.assertTrue(result.size() != 0);
   }
@@ -73,11 +57,10 @@ public class SQLMetadataTest extends BaseDBTest {
   @Test
   public void queryMetadataNotSupported() {
     try {
-      database
-          .command(new SQLSynchQuery<EntityImpl>("select expand(indexes) from metadata:blaaa"))
-          .execute(database);
+      session
+          .query("select from metadata:blaaa").toList();
       Assert.fail();
-    } catch (QueryParsingException e) {
+    } catch (UnsupportedOperationException e) {
     }
   }
 }

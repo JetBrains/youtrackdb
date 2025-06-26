@@ -78,7 +78,7 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers</artifactId>
-      <version>1.20.4</version>
+      <version>1.21.1</version>
       <scope>test</scope>
     </dependency>
 
@@ -101,15 +101,15 @@
               <workingDirectory>${project.basedir}</workingDirectory>
               <arguments>
                 <argument>-Xmx${heapSize}</argument>
-                <argument>-DridBag.embeddedToSbtreeBonsaiThreshold=10000000</argument>
-                <argument>-Dmemory.directMemory.preallocate=false</argument>
-                <argument>-Dtx.nonTxReadsWarningMode=SILENT</argument>
+                <argument>-Dyoutrackdb.linkcollection.embeddedToBtreeThreshold=10000000</argument>
+                <argument>-Dyoutrackdb.memory.directMemory.preallocate=false</argument>
                 <argument>-classpath</argument>
                 <classpath/>
-                <argument>com.jetbrains.youtrack.db.internal.console.ConsoleDatabaseApp</argument>
-                <argument>connect env embedded:${basedir}/target/databases/ root root;</argument>
-                <argument>create database demodb plocal users (admin identified by 'admin' role admin, reader identified by 'reader' role reader, writer identified by 'writer' role writer);</argument>
-                <argument>open demodb admin admin;</argument>
+                <argument>com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp
+                </argument>
+                <argument>connect embedded:${basedir}/target/databases/ root root;</argument>
+                <argument>create database demodb disk users (admin identified by 'admin' role admin, reader identified by 'reader' role reader, writer identified by 'writer' role writer);</argument>
+                <argument>use demodb admin admin;</argument>
                 <argument>LOAD SCRIPT ${basedir}/src/main/resources/demodb-1-schema.osql;</argument>
                 <argument>LOAD SCRIPT ${basedir}/src/main/resources/demodb-2.osql;</argument>
                 <argument>LOAD SCRIPT ${basedir}/src/main/resources/demodb-3.osql;</argument>
@@ -154,7 +154,7 @@
         <jdk>[17,)</jdk>
       </activation>
       <properties>
-        <argLine>-Xmx${heapSize} -Xms${heapSize} -Dstorage.diskCache.bufferSize=4096
+        <argLine>-Xmx${heapSize} -Xms${heapSize} -Dyoutrackdb.storage.diskCache.bufferSize=4096
           --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED --add-opens
           java.base/sun.security.x509=ALL-UNNAMED
         </argLine>

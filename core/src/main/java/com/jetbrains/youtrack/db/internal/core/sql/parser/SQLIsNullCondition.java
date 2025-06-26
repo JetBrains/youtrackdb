@@ -2,15 +2,18 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLIsNullCondition extends SQLBooleanExpression {
 
@@ -42,9 +45,9 @@ public class SQLIsNullCondition extends SQLBooleanExpression {
     return expression.execute(currentRecord, ctx) == null;
   }
 
-  private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
-    for (String s : currentRecord.getPropertyNames()) {
-      Object leftVal = currentRecord.getProperty(s);
+  private static boolean evaluateAny(Result currentRecord, CommandContext ctx) {
+    for (var s : currentRecord.getPropertyNames()) {
+      var leftVal = currentRecord.getProperty(s);
       if (leftVal == null) {
         return true;
       }
@@ -52,9 +55,9 @@ public class SQLIsNullCondition extends SQLBooleanExpression {
     return false;
   }
 
-  private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
-    for (String s : currentRecord.getPropertyNames()) {
-      Object leftVal = currentRecord.getProperty(s);
+  private static boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
+    for (var s : currentRecord.getPropertyNames()) {
+      var leftVal = currentRecord.getProperty(s);
       if (!(leftVal == null)) {
         return false;
       }
@@ -70,11 +73,13 @@ public class SQLIsNullCondition extends SQLBooleanExpression {
     this.expression = expression;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     expression.toString(params, builder);
     builder.append(" is null");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     expression.toGenericStatement(builder);
     builder.append(" is null");
@@ -96,7 +101,7 @@ public class SQLIsNullCondition extends SQLBooleanExpression {
   @Override
   protected List<Object> getExternalCalculationConditions() {
     if (expression.supportsBasicCalculation()) {
-      return Collections.EMPTY_LIST;
+      return Collections.emptyList();
     }
     return Collections.singletonList(expression);
   }
@@ -108,7 +113,7 @@ public class SQLIsNullCondition extends SQLBooleanExpression {
 
   @Override
   public SQLIsNullCondition copy() {
-    SQLIsNullCondition result = new SQLIsNullCondition(-1);
+    var result = new SQLIsNullCondition(-1);
     result.expression = expression.copy();
     return result;
   }
@@ -132,7 +137,7 @@ public class SQLIsNullCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLIsNullCondition that = (SQLIsNullCondition) o;
+    var that = (SQLIsNullCondition) o;
 
     return Objects.equals(expression, that.expression);
   }
@@ -148,8 +153,31 @@ public class SQLIsNullCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return expression.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=29ebbc506a98f90953af91a66a03aa1e (do not edit this line) */

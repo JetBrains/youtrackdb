@@ -41,6 +41,7 @@ public class IterableObject<T> implements Iterable<T>, Resettable, Iterator<T> {
    *
    * @return an Iterator.
    */
+  @Override
   public Iterator<T> iterator() {
     return this;
   }
@@ -48,6 +49,11 @@ public class IterableObject<T> implements Iterable<T>, Resettable, Iterator<T> {
   @Override
   public void reset() {
     alreadyRead = false;
+  }
+
+  @Override
+  public boolean isResetable() {
+    return true;
   }
 
   @Override

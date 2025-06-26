@@ -19,18 +19,17 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -45,6 +44,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * IN operator.
@@ -60,20 +60,21 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.INDEX_METHOD;
   }
 
+  @Nullable
   @SuppressWarnings("unchecked")
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    final IndexDefinition indexDefinition = index.getDefinition();
+    final var indexDefinition = index.getDefinition();
 
-    final IndexInternal internalIndex = index.getInternal();
     Stream<RawPair<Object, RID>> stream;
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
-      final Object inKeyValue = keyParams.get(0);
+      final var inKeyValue = keyParams.get(0);
       Collection<Object> inParams;
       if (inKeyValue instanceof List<?>) {
         inParams = (Collection<Object>) inKeyValue;
@@ -86,11 +87,11 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
 
       if (inParams instanceof LegacyResultSet) { // manage IN (subquery)
         Set newInParams = new HashSet();
-        for (Object o : inParams) {
-          if (o instanceof EntityImpl entity && entity.getIdentity().getClusterId() < -1) {
-            String[] fieldNames = entity.fieldNames();
+        for (var o : inParams) {
+          if (o instanceof EntityImpl entity && entity.getIdentity().getCollectionId() < -1) {
+            var fieldNames = entity.propertyNames();
             if (fieldNames.length == 1) {
-              newInParams.add(entity.field(fieldNames[0]));
+              newInParams.add(entity.getProperty(fieldNames[0]));
             } else {
               newInParams.add(o);
             }
@@ -102,15 +103,16 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       }
       final List<Object> inKeys = new ArrayList<Object>();
 
-      boolean containsNotCompatibleKey = false;
-      for (final Object keyValue : inParams) {
+      var containsNotCompatibleKey = false;
+
+      for (final var keyValue : inParams) {
         final Object key;
         if (indexDefinition instanceof IndexDefinitionMultiValue) {
           key =
               ((IndexDefinitionMultiValue) indexDefinition)
-                  .createSingleValue(iContext.getDatabase(), SQLHelper.getValue(keyValue));
+                  .createSingleValue(transaction, SQLHelper.getValue(keyValue));
         } else {
-          key = indexDefinition.createValue(iContext.getDatabase(), SQLHelper.getValue(keyValue));
+          key = indexDefinition.createValue(transaction, SQLHelper.getValue(keyValue));
         }
 
         if (key == null) {
@@ -124,13 +126,14 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      stream = index.getInternal().streamEntries(iContext.getDatabase(), inKeys, ascSortOrder);
+      stream = index
+          .streamEntries(iContext.getDatabaseSession(), inKeys, ascSortOrder);
     } else {
       final List<Object> partialKey = new ArrayList<Object>();
       partialKey.addAll(keyParams);
       partialKey.remove(keyParams.size() - 1);
 
-      final Object inKeyValue = keyParams.get(keyParams.size() - 1);
+      final var inKeyValue = keyParams.get(keyParams.size() - 1);
 
       final Collection<Object> inParams;
       if (inKeyValue instanceof List<?>) {
@@ -144,16 +147,15 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
 
       final List<Object> inKeys = new ArrayList<Object>();
 
-      final CompositeIndexDefinition compositeIndexDefinition =
+      final var compositeIndexDefinition =
           (CompositeIndexDefinition) indexDefinition;
 
-      boolean containsNotCompatibleKey = false;
-      for (final Object keyValue : inParams) {
-        List<Object> fullKey = new ArrayList<Object>();
-        fullKey.addAll(partialKey);
+      var containsNotCompatibleKey = false;
+      for (final var keyValue : inParams) {
+        List<Object> fullKey = new ArrayList<Object>(partialKey);
         fullKey.add(keyValue);
         final Object key =
-            compositeIndexDefinition.createSingleValue(iContext.getDatabase(), fullKey);
+            compositeIndexDefinition.createSingleValue(transaction, fullKey);
         if (key == null) {
           containsNotCompatibleKey = true;
           break;
@@ -166,69 +168,72 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
       }
 
       if (indexDefinition.getParamCount() == keyParams.size()) {
-        stream = index.getInternal().streamEntries(iContext.getDatabase(), inKeys, ascSortOrder);
+        stream = index
+            .streamEntries(iContext.getDatabaseSession(), inKeys, ascSortOrder);
       } else {
         return null;
       }
     }
 
-    updateProfiler(iContext, internalIndex, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     final Iterable<?> ridCollection;
     final int ridSize;
     if (iRight instanceof SQLFilterItemField
-        && DocumentHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iRight).getRoot(session))) {
+        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iRight).getRoot(session))) {
       if (iLeft instanceof SQLFilterItem) {
         iLeft = ((SQLFilterItem) iLeft).getValue(null, null, null);
       }
 
       ridCollection = MultiValue.getMultiValueIterable(iLeft);
-      ridSize = MultiValue.getSize(iLeft);
+      ridSize = (int) MultiValue.getSize(iLeft);
     } else if (iLeft instanceof SQLFilterItemField
-        && DocumentHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
+        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
       if (iRight instanceof SQLFilterItem) {
         iRight = ((SQLFilterItem) iRight).getValue(null, null, null);
       }
       ridCollection = MultiValue.getMultiValueIterable(iRight);
-      ridSize = MultiValue.getSize(iRight);
+      ridSize = (int) MultiValue.getSize(iRight);
     } else {
       return null;
     }
 
-    final List<RID> rids = addRangeResults(ridCollection, ridSize);
+    final var rids = addRangeResults(ridCollection, ridSize);
 
     return rids == null ? null : Collections.min(rids);
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     final Iterable<?> ridCollection;
     final int ridSize;
     if (iRight instanceof SQLFilterItemField
-        && DocumentHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iRight).getRoot(session))) {
+        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iRight).getRoot(session))) {
       if (iLeft instanceof SQLFilterItem) {
         iLeft = ((SQLFilterItem) iLeft).getValue(null, null, null);
       }
 
       ridCollection = MultiValue.getMultiValueIterable(iLeft);
-      ridSize = MultiValue.getSize(iLeft);
+      ridSize = (int) MultiValue.getSize(iLeft);
     } else if (iLeft instanceof SQLFilterItemField
-        && DocumentHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
+        && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
       if (iRight instanceof SQLFilterItem) {
         iRight = ((SQLFilterItem) iRight).getValue(null, null, null);
       }
 
       ridCollection = MultiValue.getMultiValueIterable(iRight);
-      ridSize = MultiValue.getSize(iRight);
+      ridSize = (int) MultiValue.getSize(iRight);
     } else {
       return null;
     }
 
-    final List<RID> rids = addRangeResults(ridCollection, ridSize);
+    final var rids = addRangeResults(ridCollection, ridSize);
 
     return rids == null ? null : Collections.max(rids);
   }
@@ -236,20 +241,20 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
   @Override
   @SuppressWarnings("unchecked")
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
       CommandContext iContext) {
-    var database = iContext.getDatabase();
+    var database = iContext.getDatabaseSession();
     if (MultiValue.isMultiValue(iLeft)) {
       if (iRight instanceof Collection<?>) {
         // AGAINST COLLECTION OF ITEMS
-        final Collection<Object> collectionToMatch = (Collection<Object>) iRight;
+        final var collectionToMatch = (Collection<Object>) iRight;
 
-        boolean found = false;
-        for (final Object o1 : MultiValue.getMultiValueIterable(iLeft)) {
-          for (final Object o2 : collectionToMatch) {
+        var found = false;
+        for (final var o1 : MultiValue.getMultiValueIterable(iLeft)) {
+          for (final var o2 : collectionToMatch) {
             if (QueryOperatorEquals.equals(database, o1, o2)) {
               found = true;
               break;
@@ -263,7 +268,7 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
           return ((Set) iLeft).contains(iRight);
         }
 
-        for (final Object o : MultiValue.getMultiValueIterable(iLeft)) {
+        for (final var o : MultiValue.getMultiValueIterable(iLeft)) {
           if (QueryOperatorEquals.equals(database, iRight, o)) {
             return true;
           }
@@ -275,21 +280,21 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
         return ((Set) iRight).contains(iLeft);
       }
 
-      for (final Object o : MultiValue.getMultiValueIterable(iRight)) {
+      for (final var o : MultiValue.getMultiValueIterable(iRight)) {
         if (QueryOperatorEquals.equals(database, iLeft, o)) {
           return true;
         }
       }
     } else if (iLeft.getClass().isArray()) {
 
-      for (final Object o : (Object[]) iLeft) {
+      for (final var o : (Object[]) iLeft) {
         if (QueryOperatorEquals.equals(database, iRight, o)) {
           return true;
         }
       }
     } else if (iRight.getClass().isArray()) {
 
-      for (final Object o : (Object[]) iRight) {
+      for (final var o : (Object[]) iRight) {
         if (QueryOperatorEquals.equals(database, iLeft, o)) {
           return true;
         }
@@ -299,19 +304,20 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
     return iLeft.equals(iRight);
   }
 
+  @Nullable
   protected List<RID> addRangeResults(final Iterable<?> ridCollection, final int ridSize) {
     if (ridCollection == null) {
       return null;
     }
 
     List<RID> rids = null;
-    for (Object rid : ridCollection) {
+    for (var rid : ridCollection) {
       if (rid instanceof SQLFilterItemParameter) {
         rid = ((SQLFilterItemParameter) rid).getValue(null, null, null);
       }
 
       if (rid instanceof Identifiable) {
-        final RID r = ((Identifiable) rid).getIdentity();
+        final var r = ((Identifiable) rid).getIdentity();
         if (r.isPersistent()) {
           if (rids == null)
           // LAZY CREATE IT

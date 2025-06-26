@@ -1,10 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.math;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLPredicate;
-import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Returns the index of the argument that is more than the first argument.
@@ -28,7 +28,7 @@ public class SQLFunctionInterval extends SQLFunctionMathAbstract {
   @SuppressWarnings({"rawtypes", "unchecked"})
   public Object execute(
       Object iThis,
-      final Identifiable iRecord,
+      final Result iRecord,
       final Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -43,7 +43,7 @@ public class SQLFunctionInterval extends SQLFunctionMathAbstract {
       return -1;
     }
 
-    for (int i = 1; i < iParams.length; ++i) {
+    for (var i = 1; i < iParams.length; ++i) {
       final Comparable other = (Comparable<?>) iParams[i];
       if (other.compareTo(first) > 0) {
         return i - 1;
@@ -61,13 +61,9 @@ public class SQLFunctionInterval extends SQLFunctionMathAbstract {
     return "interval(<field> [,<field>*])";
   }
 
+  @Nullable
   @Override
   public Object getResult() {
-    return null;
-  }
-
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
     return null;
   }
 }

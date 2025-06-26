@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import java.util.HashMap;
@@ -32,13 +32,14 @@ public class YouTrackDBConfigImplTest {
 
   @Test
   public void testBuildSettings() {
-    YouTrackDBConfig settings =
+    var settings =
         YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 20)
             .addAttribute(ATTRIBUTES.LOCALE_COUNTRY, "US")
             .build();
 
-    assertEquals(20, settings.getConfiguration().getValue(GlobalConfiguration.DB_POOL_MAX));
+    assertEquals(20, ((YouTrackDBConfigImpl) settings).getConfiguration()
+        .getValue(GlobalConfiguration.DB_POOL_MAX));
     assertEquals("US", settings.getAttributes().get(ATTRIBUTES.LOCALE_COUNTRY));
   }
 
@@ -46,7 +47,7 @@ public class YouTrackDBConfigImplTest {
   public void testBuildSettingsFromMap() {
     Map<String, Object> configs = new HashMap<>();
     configs.put(GlobalConfiguration.DB_POOL_MAX.getKey(), 20);
-    YouTrackDBConfigImpl settings = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+    var settings = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
         .fromMap(configs).build();
     assertEquals(20, settings.getConfiguration().getValue(GlobalConfiguration.DB_POOL_MAX));
   }
@@ -55,7 +56,7 @@ public class YouTrackDBConfigImplTest {
   public void testBuildSettingsFromGlobalMap() {
     Map<GlobalConfiguration, Object> configs = new HashMap<>();
     configs.put(GlobalConfiguration.DB_POOL_MAX, 20);
-    YouTrackDBConfigImpl settings = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
+    var settings = (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
         .fromGlobalConfigurationParameters(configs).build();
     assertEquals(20, settings.getConfiguration().getValue(GlobalConfiguration.DB_POOL_MAX));
   }

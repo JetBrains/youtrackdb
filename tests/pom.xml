@@ -29,14 +29,15 @@
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>
+      -ea
+      -Xms${heapSize}
       -Xmx${heapSize}
-      -Dstorage.diskCache.bufferSize=4096
-      -Dmemory.directMemory.trackMode=true
+      -Dyoutrackdb.storage.diskCache.bufferSize=4096
+      -Dyoutrackdb.memory.directMemory.trackMode=true
       -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-      -Dstorage.diskCache.checksumMode=storeAndThrow
-      -Dsecurity.warningDefaultUsers=false
-      -Dfile.log.deletion=false
-      -Dtx.nonTxReadsWarningMode=SILENT
+      -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
+      -Dyoutrackdb.security.warningDefaultUsers=false
+      -Dyoutrackdb.file.log.deletion=false
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
     </argLine>
   </properties>
@@ -74,7 +75,7 @@
     <dependency>
       <groupId>org.testng</groupId>
       <artifactId>testng</artifactId>
-      <version>7.10.2</version>
+      <version>7.11.0</version>
       <scope>test</scope>
       <exclusions>
         <exclusion>
@@ -123,6 +124,36 @@
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <executions>
+          <!-- Replacing default-compile as it is treated specially by Maven -->
+          <execution>
+            <id>default-compile</id>
+            <phase>none</phase>
+          </execution>
+          <!-- Replacing default-testCompile as it is treated specially by Maven -->
+          <execution>
+            <id>default-testCompile</id>
+            <phase>none</phase>
+          </execution>
+          <execution>
+            <id>java-compile</id>
+            <phase>compile</phase>
+            <goals>
+              <goal>compile</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>java-test-compile</id>
+            <phase>test-compile</phase>
+            <goals>
+              <goal>testCompile</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-deploy-plugin</artifactId>
         <configuration>
           <skip>true</skip>
@@ -134,17 +165,20 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
           <systemPropertyVariables>
-            <storage.lockTimeout>60000</storage.lockTimeout>
-            <storage.makeFullCheckpointAfterCreate>false</storage.makeFullCheckpointAfterCreate>
-            <storage.makeFullCheckpointAfterClusterCreate>false
-            </storage.makeFullCheckpointAfterClusterCreate>
+            <youtrackdb.storage.lockTimeout>60000</youtrackdb.storage.lockTimeout>
+            <youtrackdb.storage.makeFullCheckpointAfterCreate>false
+            </youtrackdb.storage.makeFullCheckpointAfterCreate>
+            <storage.makeFullCheckpointAfterCollectionCreate>false
+            </storage.makeFullCheckpointAfterCollectionCreate>
             <storage.wal.syncOnPageFlush>false</storage.wal.syncOnPageFlush>
             <storage.configuration.syncOnUpdate>false</storage.configuration.syncOnUpdate>
             <index.flushAfterCreate>false</index.flushAfterCreate>
-            <security.userPasswordSaltIterations>10</security.userPasswordSaltIterations>
+            <youtrackdb.security.userPasswordSaltIterations>10
+            </youtrackdb.security.userPasswordSaltIterations>
             <buildDirectory>${project.build.directory}</buildDirectory>
             <testPath>${project.basedir}</testPath>
-            <memory.directMemory.preallocate>false</memory.directMemory.preallocate>
+            <youtrackdb.memory.directMemory.preallocate>false
+            </youtrackdb.memory.directMemory.preallocate>
           </systemPropertyVariables>
           <properties>
             <property>
@@ -174,24 +208,24 @@
               </suiteXmlFiles>
             </configuration>
           </execution>
-          <execution>
-            <id>test-remote</id>
-            <goals>
-              <goal>test</goal>
-            </goals>
-            <configuration>
-              <systemPropertyVariables>
-                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml
-                </youtrackdb.config.file>
-                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>
-              </systemPropertyVariables>
-              <suiteXmlFiles>
-                <suiteXmlFile>
-                  src/test/java/com/jetbrains/youtrack/db/auto/remote-test-db-from-scratch.xml
-                </suiteXmlFile>
-              </suiteXmlFiles>
-            </configuration>
-          </execution>
+<!--          <execution>-->
+<!--            <id>test-remote</id>-->
+<!--            <goals>-->
+<!--              <goal>test</goal>-->
+<!--            </goals>-->
+<!--            <configuration>-->
+<!--              <systemPropertyVariables>-->
+<!--                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml-->
+<!--                </youtrackdb.config.file>-->
+<!--                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>-->
+<!--              </systemPropertyVariables>-->
+<!--              <suiteXmlFiles>-->
+<!--                <suiteXmlFile>-->
+<!--                  src/test/java/com/jetbrains/youtrack/db/auto/remote-test-db-from-scratch.xml-->
+<!--                </suiteXmlFile>-->
+<!--              </suiteXmlFiles>-->
+<!--            </configuration>-->
+<!--          </execution>-->
         </executions>
         <dependencies>
           <dependency>

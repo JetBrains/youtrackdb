@@ -18,16 +18,10 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.tests;
 
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.Collection;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,47 +33,45 @@ public class LuceneInsertUpdateSingleDocumentTransactionTest extends LuceneBaseT
 
   @Before
   public void init() {
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
 
-    SchemaClass oClass = schema.createClass("City");
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    var oClass = schema.createClass("City");
+    oClass.createProperty("name", PropertyType.STRING);
     //noinspection EmptyTryBlock
-    try (ResultSet command =
-        db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE")) {
+    try (var command =
+        session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE")) {
     }
   }
 
   @Test
   public void testInsertUpdateTransactionWithIndex() {
 
-    Schema schema = db.getMetadata().getSchema();
-    db.begin();
-    EntityImpl doc = new EntityImpl("City");
-    doc.field("name", "");
-    EntityImpl doc1 = new EntityImpl("City");
-    doc1.field("name", "");
-    doc = db.save(doc);
-    doc1 = db.save(doc1);
-    db.commit();
-    db.begin();
-    doc = db.load(doc.getIdentity());
-    doc1 = db.load(doc1.getIdentity());
-    doc.field("name", "Rome");
-    doc1.field("name", "Rome");
-    db.save(doc);
-    db.save(doc1);
-    db.commit();
+    Schema schema = session.getMetadata().getSchema();
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("City"));
+    doc.setProperty("name", "");
+    var doc1 = ((EntityImpl) session.newEntity("City"));
+    doc1.setProperty("name", "");
+    doc = doc;
+    doc1 = doc1;
+    session.commit();
+    session.begin();
+    doc = session.load(doc.getIdentity());
+    doc1 = session.load(doc1.getIdentity());
+    doc.setProperty("name", "Rome");
+    doc1.setProperty("name", "Rome");
+    session.commit();
 
-    var indexManager = db.getMetadata().getIndexManager();
-    Index idx = indexManager.getIndex("City.name");
+    var indexManager = session.getSharedContext().getIndexManager();
+    var idx = indexManager.getIndex("City.name");
     Collection<?> coll;
-    try (Stream<RID> stream = idx.getInternal().getRids(db, "Rome")) {
+    try (var stream = idx.getRids(session, "Rome")) {
       coll = stream.toList();
     }
 
-    db.begin();
+    session.begin();
     Assert.assertEquals(2, coll.size());
-    Assert.assertEquals(2, idx.getInternal().size(db));
-    db.commit();
+    Assert.assertEquals(2, idx.size(session));
+    session.commit();
   }
 }

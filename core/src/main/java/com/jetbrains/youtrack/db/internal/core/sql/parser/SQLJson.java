@@ -2,25 +2,26 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.FieldTypesString;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.FieldTypesString;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.UpdatableResult;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLJson extends SimpleNode {
 
@@ -34,10 +35,11 @@ public class SQLJson extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("{");
-    boolean first = true;
-    for (SQLJsonItem item : items) {
+    var first = true;
+    for (var item : items) {
       if (!first) {
         builder.append(", ");
       }
@@ -48,10 +50,11 @@ public class SQLJson extends SimpleNode {
     builder.append("}");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("{");
-    boolean first = true;
-    for (SQLJsonItem item : items) {
+    var first = true;
+    for (var item : items) {
       if (!first) {
         builder.append(", ");
       }
@@ -62,49 +65,95 @@ public class SQLJson extends SimpleNode {
     builder.append("}");
   }
 
-  public EntityImpl toDocument(Identifiable source, CommandContext ctx) {
-    String className = getClassNameForDocument(ctx);
+  public EntityImpl toEntity(Identifiable source, CommandContext ctx) {
+    var className = getClassNameForEntity(ctx);
+    var session = ctx.getDatabaseSession();
+
     EntityImpl entity;
-    if (className != null) {
-      entity = new EntityImpl(className);
+    if (className == null) {
+      entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
-      entity = new EntityImpl();
+      var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+
+      if (cls.isAbstract()) {
+        entity = (EntityImpl) session.newEmbeddedEntity();
+      } else if (cls.isVertexType()) {
+        entity = (EntityImpl) session.newVertex(className);
+      } else {
+        entity = (EntityImpl) session.newEntity(className);
+      }
     }
-    for (SQLJsonItem item : items) {
-      String name = item.getLeftValue();
+
+    for (var item : items) {
+      var name = item.getLeftValue();
       if (name == null) {
         continue;
       }
       Object value;
       if (item.right.value instanceof SQLJson) {
-        value = ((SQLJson) item.right.value).toDocument(source, ctx);
+        value = ((SQLJson) item.right.value).toEntity(source, ctx);
       } else {
         value = item.right.execute(source, ctx);
       }
-      entity.field(name, value);
+
+      var schemaClass = entity.getImmutableSchemaClass(session);
+      var schemaProperty = schemaClass != null ? schemaClass.getProperty(name) : null;
+      entity.setProperty(name, SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty));
     }
 
     return entity;
   }
 
-  private EntityImpl toDocument(Result source, CommandContext ctx, String className) {
-    EntityImpl retDoc = new EntityImpl(className);
+  private EntityImpl toEntity(Result source, CommandContext ctx, String className) {
+    var session = ctx.getDatabaseSession();
+    EntityImpl entity;
+    if (className == null) {
+      entity = (EntityImpl) session.newEmbeddedEntity();
+    } else {
+      var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+
+      if (cls.isAbstract()) {
+        entity = (EntityImpl) session.newEmbeddedEntity(cls);
+      } else if (cls.isVertexType()) {
+        entity = (EntityImpl) session.newVertex(className);
+      } else {
+        entity = (EntityImpl) session.newEntity(className);
+      }
+    }
+
+    var schemaClass = entity.getImmutableSchemaClass(session);
+
     Map<String, Character> types = null;
-    for (SQLJsonItem item : items) {
-      String name = item.getLeftValue();
+    for (var item : items) {
+      var name = item.getLeftValue();
       if (name == null
-          || DocumentHelper.getReservedAttributes().contains(name.toLowerCase(Locale.ENGLISH))) {
+          || EntityHelper.getReservedAttributes().contains(name.toLowerCase(Locale.ENGLISH))) {
         if (name.equals(FieldTypesString.ATTRIBUTE_FIELD_TYPES)) {
-          Object value = item.right.execute(source, ctx);
+          var value = item.right.execute(source, ctx);
           types = FieldTypesString.loadFieldTypes(value.toString());
-          for (Map.Entry<String, Character> entry : types.entrySet()) {
-            PropertyType t = FieldTypesString.getOTypeFromChar(entry.getValue());
-            retDoc.setFieldType(entry.getKey(), t);
+          for (var entry : types.entrySet()) {
+            var t = FieldTypesString.getOTypeFromChar(entry.getValue());
+            var propertyName = entry.getKey();
+            if (entity.hasProperty(propertyName)
+                && PropertyTypeInternal.convertFromPublicType(entity.getPropertyType(propertyName))
+                != t) {
+              if (t != null) {
+                entity.setProperty(propertyName,
+                    entity.getProperty(propertyName), t.getPublicPropertyType());
+              } else {
+                entity.setProperty(propertyName,
+                    entity.getProperty(propertyName));
+              }
+            }
+
           }
         }
         continue;
       }
-      Object value = item.right.execute(source, ctx);
+
+      var value = item.right.execute(source, ctx);
+      value = SQLUpdateItem.cleanPropertyValue(value, session, schemaClass != null ?
+          schemaClass.getProperty(name) : null);
       Character charType;
       if (types != null) {
         charType = types.get(name);
@@ -112,36 +161,37 @@ public class SQLJson extends SimpleNode {
         charType = null;
       }
       if (charType != null) {
-        PropertyType t = FieldTypesString.getOTypeFromChar(charType);
-        retDoc.setProperty(name, value, t);
+        var t = FieldTypesString.getOTypeFromChar(charType);
+        if (t != null) {
+          entity.setProperty(name, value, t.getPublicPropertyType());
+        } else {
+          entity.setProperty(name, value);
+        }
       } else {
-        retDoc.setPropertyInternal(name, value);
+        entity.setProperty(name, value);
       }
     }
-    return retDoc;
+    return entity;
   }
 
   /**
    * choosing return type is based on existence of @class and @type field in JSON
-   *
-   * @param source
-   * @param ctx
-   * @return
    */
   public Object toObjectDetermineType(Result source, CommandContext ctx) {
-    String className = getClassNameForDocument(ctx);
-    String type = getTypeForDocument(ctx);
+    var className = getClassNameForEntity(ctx);
+    var type = getTypeForEntity(ctx);
     if (className != null || ("d".equalsIgnoreCase(type))) {
-      return toDocument(source, ctx, className);
+      return toEntity(source, ctx, className);
     } else {
       return toMap(source, ctx);
     }
   }
 
   public Object toObjectDetermineType(Identifiable source, CommandContext ctx) {
-    var db = ctx.getDatabase();
-    String className = getClassNameForDocument(ctx);
-    String type = getTypeForDocument(ctx);
+    var db = ctx.getDatabaseSession();
+    var className = getClassNameForEntity(ctx);
+    var type = getTypeForEntity(ctx);
+
     if (className != null || ("d".equalsIgnoreCase(type))) {
       UpdatableResult element = null;
       if (source != null) {
@@ -152,20 +202,20 @@ public class SQLJson extends SimpleNode {
           element = new UpdatableResult(db, el);
         }
       }
-      return toDocument(element, ctx, className);
+      return toEntity(element, ctx, className);
     } else {
       return toMap(source, ctx);
     }
   }
 
   public Map<String, Object> toMap(Identifiable source, CommandContext ctx) {
-    Map<String, Object> map = new LinkedHashMap<String, Object>();
-    for (SQLJsonItem item : items) {
-      String name = item.getLeftValue();
+    Map<String, Object> map = new HashMap<String, Object>();
+    for (var item : items) {
+      var name = item.getLeftValue();
       if (name == null) {
         continue;
       }
-      Object value = item.right.execute(source, ctx);
+      var value = item.right.execute(source, ctx);
       map.put(name, value);
     }
 
@@ -173,41 +223,45 @@ public class SQLJson extends SimpleNode {
   }
 
   public Map<String, Object> toMap(Result source, CommandContext ctx) {
-    Map<String, Object> map = new LinkedHashMap<String, Object>();
-    for (SQLJsonItem item : items) {
-      String name = item.getLeftValue();
+    Map<String, Object> map = new HashMap<String, Object>();
+    for (var item : items) {
+      var name = item.getLeftValue();
       if (name == null) {
         continue;
       }
-      Object value = item.right.execute(source, ctx);
+      var value = item.right.execute(source, ctx);
       map.put(name, value);
     }
 
     return map;
   }
 
-  private String getClassNameForDocument(CommandContext ctx) {
-    for (SQLJsonItem item : items) {
-      String left = item.getLeftValue();
+  @Nullable
+  private String getClassNameForEntity(CommandContext ctx) {
+    for (var item : items) {
+      var left = item.getLeftValue();
       if (left != null && left.toLowerCase(Locale.ENGLISH).equals("@class")) {
         return "" + item.right.execute((Result) null, ctx);
       }
     }
+
     return null;
   }
 
-  private String getTypeForDocument(CommandContext ctx) {
-    for (SQLJsonItem item : items) {
-      String left = item.getLeftValue();
+  @Nullable
+  private String getTypeForEntity(CommandContext ctx) {
+    for (var item : items) {
+      var left = item.getLeftValue();
       if (left != null && left.toLowerCase(Locale.ENGLISH).equals("@type")) {
         return "" + item.right.execute((Result) null, ctx);
       }
     }
+
     return null;
   }
 
   public boolean needsAliases(Set<String> aliases) {
-    for (SQLJsonItem item : items) {
+    for (var item : items) {
       if (item.needsAliases(aliases)) {
         return true;
       }
@@ -215,8 +269,8 @@ public class SQLJson extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
-    for (SQLJsonItem item : items) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    for (var item : items) {
       if (item.isAggregate(session)) {
         return true;
       }
@@ -225,9 +279,9 @@ public class SQLJson extends SimpleNode {
   }
 
   public SQLJson splitForAggregation(AggregateProjectionSplit aggregateSplit, CommandContext ctx) {
-    if (isAggregate(ctx.getDatabase())) {
-      SQLJson result = new SQLJson(-1);
-      for (SQLJsonItem item : items) {
+    if (isAggregate(ctx.getDatabaseSession())) {
+      var result = new SQLJson(-1);
+      for (var item : items) {
         result.items.add(item.splitForAggregation(aggregateSplit, ctx));
       }
       return result;
@@ -236,9 +290,10 @@ public class SQLJson extends SimpleNode {
     }
   }
 
+  @Override
   public SQLJson copy() {
-    SQLJson result = new SQLJson(-1);
-    result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
+    var result = new SQLJson(-1);
+    result.items = items.stream().map(SQLJsonItem::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -251,7 +306,7 @@ public class SQLJson extends SimpleNode {
       return false;
     }
 
-    SQLJson oJson = (SQLJson) o;
+    var oJson = (SQLJson) o;
 
     return Objects.equals(items, oJson.items);
   }
@@ -262,13 +317,13 @@ public class SQLJson extends SimpleNode {
   }
 
   public void extractSubQueries(SubQueryCollector collector) {
-    for (SQLJsonItem item : items) {
+    for (var item : items) {
       item.extractSubQueries(collector);
     }
   }
 
   public boolean refersToParent() {
-    for (SQLJsonItem item : items) {
+    for (var item : items) {
       if (item.refersToParent()) {
         return true;
       }
@@ -276,12 +331,13 @@ public class SQLJson extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (items != null) {
       result.setProperty(
           "items",
-          items.stream().map(oJsonItem -> oJsonItem.serialize(db)).collect(Collectors.toList()));
+          items.stream().map(oJsonItem -> oJsonItem.serialize(session))
+              .collect(Collectors.toList()));
     }
     return result;
   }
@@ -291,8 +347,8 @@ public class SQLJson extends SimpleNode {
     if (fromResult.getProperty("items") != null) {
       List<Result> ser = fromResult.getProperty("items");
       items = new ArrayList<>();
-      for (Result r : ser) {
-        SQLJsonItem exp = new SQLJsonItem();
+      for (var r : ser) {
+        var exp = new SQLJsonItem();
         exp.deserialize(r);
         items.add(exp);
       }
@@ -303,8 +359,5 @@ public class SQLJson extends SimpleNode {
     this.items.add(item);
   }
 
-  public boolean isCacheable() {
-    return false; // TODO optimize
-  }
 }
 /* JavaCC - OriginalChecksum=3beec9f6db486de944498588b51a505d (do not edit this line) */

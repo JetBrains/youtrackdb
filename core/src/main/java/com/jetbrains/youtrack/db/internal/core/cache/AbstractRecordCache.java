@@ -20,11 +20,10 @@
 package com.jetbrains.youtrack.db.internal.core.cache;
 
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.profiler.AbstractProfiler.ProfilerHookValue;
-import com.jetbrains.youtrack.db.internal.common.profiler.Profiler.METRIC_TYPE;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.HashSet;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  * Cache of documents. Delegates real work on storing to {@link RecordCache} implementation passed
@@ -33,9 +32,7 @@ import java.util.Set;
 public abstract class AbstractRecordCache {
 
   protected RecordCache underlying;
-  protected String profilerPrefix = "noname";
-  protected String profilerMetadataPrefix = "noname";
-  protected int excludedCluster = -1;
+  protected int excludedCollection = -1;
 
   /**
    * Create cache backed by given implementation
@@ -69,21 +66,21 @@ public abstract class AbstractRecordCache {
   }
 
   /**
-   * Remove all records belonging to specified cluster
+   * Remove all records belonging to specified collection
    *
-   * @param cid identifier of cluster
+   * @param cid identifier of collection
    */
-  public void freeCluster(final int cid) {
+  public void freeCollection(final int cid) {
     final Set<RID> toRemove = new HashSet<RID>(underlying.size() / 2);
 
     final Set<RID> keys = new HashSet<RID>(underlying.keys());
-    for (final RID id : keys) {
-      if (id.getClusterId() == cid) {
+    for (final var id : keys) {
+      if (id.getCollectionId() == cid) {
         toRemove.add(id);
       }
     }
 
-    for (final RID ridToRemove : toRemove) {
+    for (final var ridToRemove : toRemove) {
       underlying.remove(ridToRemove);
     }
   }
@@ -127,21 +124,8 @@ public abstract class AbstractRecordCache {
   /**
    * All operations running at cache initialization stage
    */
-  public void startup() {
+  public void startup(@Nonnull DatabaseSessionInternal session) {
     underlying.startup();
-
-    YouTrackDBEnginesManager.instance()
-        .getProfiler()
-        .registerHookValue(
-            profilerPrefix + "current",
-            "Number of entries in cache",
-            METRIC_TYPE.SIZE,
-            new ProfilerHookValue() {
-              public Object getValue() {
-                return getSize();
-              }
-            },
-            profilerMetadataPrefix + "current");
   }
 
   /**
@@ -149,13 +133,5 @@ public abstract class AbstractRecordCache {
    */
   public void shutdown() {
     underlying.shutdown();
-
-    if (YouTrackDBEnginesManager.instance().getProfiler() != null) {
-      YouTrackDBEnginesManager.instance().getProfiler()
-          .unregisterHookValue(profilerPrefix + "enabled");
-      YouTrackDBEnginesManager.instance().getProfiler()
-          .unregisterHookValue(profilerPrefix + "current");
-      YouTrackDBEnginesManager.instance().getProfiler().unregisterHookValue(profilerPrefix + "max");
-    }
   }
 }

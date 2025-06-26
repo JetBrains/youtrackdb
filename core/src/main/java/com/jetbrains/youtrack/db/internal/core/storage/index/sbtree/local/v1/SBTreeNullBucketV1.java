@@ -20,8 +20,10 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.local.v1;
 
 import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
+import javax.annotation.Nullable;
 
 /**
  * Bucket which is intended to save values stored in sbtree under <code>null</code> key. Bucket has
@@ -53,32 +55,37 @@ public final class SBTreeNullBucketV1<V> extends DurablePage {
     setBinaryValue(NEXT_FREE_POSITION + 2, value);
   }
 
-  public SBTreeValue<V> getValue(final BinarySerializer<V> valueSerializer) {
+  @Nullable
+  public SBTreeValue<V> getValue(final BinarySerializer<V> valueSerializer,
+      BinarySerializerFactory serializerFactory) {
     if (getByteValue(NEXT_FREE_POSITION) == 0) {
       return null;
     }
 
-    final boolean isLink = getByteValue(NEXT_FREE_POSITION + 1) == 0;
+    final var isLink = getByteValue(NEXT_FREE_POSITION + 1) == 0;
     assert !isLink;
 
     return new SBTreeValue<>(
-        false, -1, deserializeFromDirectMemory(valueSerializer, NEXT_FREE_POSITION + 2));
+        false, -1, deserializeFromDirectMemory(valueSerializer, serializerFactory,
+        NEXT_FREE_POSITION + 2));
   }
 
   public void removeValue(BinarySerializer<V> valueSerializer) {
     setByteValue(NEXT_FREE_POSITION, (byte) 0);
   }
 
-  public byte[] getRawValue(final BinarySerializer<V> valueSerializer) {
+  @Nullable
+  public byte[] getRawValue(final BinarySerializer<V> valueSerializer,
+      BinarySerializerFactory serializerFactory) {
     if (getByteValue(NEXT_FREE_POSITION) == 0) {
       return null;
     }
 
-    final boolean isLink = getByteValue(NEXT_FREE_POSITION + 1) == 0;
+    final var isLink = getByteValue(NEXT_FREE_POSITION + 1) == 0;
     assert !isLink;
 
     return getBinaryValue(
         NEXT_FREE_POSITION + 2,
-        getObjectSizeInDirectMemory(valueSerializer, NEXT_FREE_POSITION + 2));
+        getObjectSizeInDirectMemory(valueSerializer, serializerFactory, NEXT_FREE_POSITION + 2));
   }
 }

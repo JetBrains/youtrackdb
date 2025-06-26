@@ -19,11 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.function;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
-import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Dynamic function factory bound to the database's functions
@@ -39,7 +39,7 @@ public class DatabaseFunction implements SQLFunction {
   @Override
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iFuncParams,
       final CommandContext iContext) {
@@ -58,7 +58,7 @@ public class DatabaseFunction implements SQLFunction {
 
   @Override
   public String getName(DatabaseSession session) {
-    return f.getName(session);
+    return f.getName();
   }
 
   @Override
@@ -68,16 +68,16 @@ public class DatabaseFunction implements SQLFunction {
 
   @Override
   public int getMaxParams(DatabaseSession session) {
-    return f.getParameters(session) != null ? f.getParameters(session).size() : 0;
+    return f.getParameters() != null ? f.getParameters().size() : 0;
   }
 
   @Override
   public String getSyntax(DatabaseSession session) {
-    final StringBuilder buffer = new StringBuilder(512);
-    buffer.append(f.getName(session));
+    final var buffer = new StringBuilder(512);
+    buffer.append(f.getName());
     buffer.append('(');
-    final List<String> params = f.getParameters(session);
-    for (int p = 0; p < params.size(); ++p) {
+    final var params = f.getParameters();
+    for (var p = 0; p < params.size(); ++p) {
       if (p > 0) {
         buffer.append(',');
       }
@@ -87,6 +87,7 @@ public class DatabaseFunction implements SQLFunction {
     return buffer.toString();
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;
@@ -98,15 +99,5 @@ public class DatabaseFunction implements SQLFunction {
 
   @Override
   public void config(final Object[] configuredParameters) {
-  }
-
-  @Override
-  public boolean shouldMergeDistributedResult() {
-    return false;
-  }
-
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    return null;
   }
 }

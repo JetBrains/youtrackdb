@@ -16,6 +16,7 @@ package com.jetbrains.youtrack.db.internal.security.auditing;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParser;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParserListener;
 import com.jetbrains.youtrack.db.internal.core.security.AuditingOperation;
+import javax.annotation.Nullable;
 
 public abstract class AuditingConfig {
 
@@ -39,6 +40,7 @@ public abstract class AuditingConfig {
             "${",
             "}",
             new VariableParserListener() {
+              @Nullable
               @Override
               public Object resolve(final String iVariable) {
                 if (iVariable.equalsIgnoreCase(varName)) {

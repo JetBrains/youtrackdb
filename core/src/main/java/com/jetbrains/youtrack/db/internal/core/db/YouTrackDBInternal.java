@@ -20,31 +20,32 @@
 
 package com.jetbrains.youtrack.db.internal.core.db;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import java.io.InputStream;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.util.Collection;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.Future;
 
 /**
  *
  */
-public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
+public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
+    extends AutoCloseable, SchedulerInternal {
 
   /**
    * Create a new factory from a given url.
@@ -57,20 +58,18 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    *                      {@see GlobalConfiguration}.
    * @return the new YouTrackDB Factory.
    */
-  static YouTrackDBInternal fromUrl(String url, YouTrackDBConfig configuration) {
-    String what = url.substring(0, url.indexOf(':'));
+  static YouTrackDBInternal<?> fromUrl(String url, YouTrackDBConfig configuration) {
+    var what = url.substring(0, url.indexOf(':'));
     if ("embedded".equals(what)) {
-      return embedded(url.substring(url.indexOf(':') + 1), configuration);
+      return embedded(url.substring(url.indexOf(':') + 1), configuration, false);
     } else if ("remote".equals(what)) {
       return remote(url.substring(url.indexOf(':') + 1).split(";"),
           (YouTrackDBConfigImpl) configuration);
     }
-    throw new DatabaseException("not supported database type");
+    throw new DatabaseException(url, "not supported database type");
   }
 
-  default YouTrackDBImpl newYouTrackDb() {
-    return new YouTrackDBImpl(this);
-  }
+  YouTrackDBAbstract<?, S> newYouTrackDb();
 
   /**
    * Create a new remote factory
@@ -80,32 +79,35 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    *                      {@see GlobalConfiguration}.
    * @return a new remote databases factory
    */
-  static YouTrackDBInternal remote(String[] hosts, YouTrackDBConfigImpl configuration) {
-    YouTrackDBInternal factory;
+  static YouTrackDBInternal<RemoteDatabaseSession>
+  remote(String[] hosts, YouTrackDBConfigImpl configuration) {
+    YouTrackDBInternal<RemoteDatabaseSession> factory;
     try {
-      String className = "com.jetbrains.youtrack.db.internal.client.remote.YouTrackDBRemote";
+      var className = "com.jetbrains.youtrack.db.internal.client.remote.YouTrackDBInternalRemote";
       ClassLoader loader;
       if (configuration != null) {
         loader = configuration.getClassLoader();
       } else {
         loader = YouTrackDBInternal.class.getClassLoader();
       }
-      Class<?> kass = loader.loadClass(className);
-      Constructor<?> constructor =
+      var kass = loader.loadClass(className);
+      var constructor =
           kass.getConstructor(String[].class, YouTrackDBConfig.class,
               YouTrackDBEnginesManager.class);
+      //noinspection unchecked,rawtypes
       factory = (YouTrackDBInternal) constructor.newInstance(hosts, configuration,
           YouTrackDBEnginesManager.instance());
     } catch (ClassNotFoundException
              | NoSuchMethodException
              | IllegalAccessException
              | InstantiationException e) {
-      throw BaseException.wrapException(new DatabaseException("YouTrackDB client API missing"), e);
+      throw BaseException.wrapException(
+          new DatabaseException((String) null, "YouTrackDB client API missing"), e, (String) null);
     } catch (InvocationTargetException e) {
       //noinspection ThrowInsideCatchBlockWhichIgnoresCaughtException
       throw BaseException.wrapException(
-          new DatabaseException("Error creating YouTrackDB remote factory"),
-          e.getTargetException());
+          new DatabaseException((String) null, "Error creating YouTrackDB remote factory"),
+          e.getTargetException(), (String) null);
     }
     return factory;
   }
@@ -116,10 +118,15 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @param directoryPath base path where the database are hosted
    * @param config        configuration for the specific factory for the list of option
    *                      {@see GlobalConfiguration}
+   * @param serverMode
    * @return a new embedded databases factory
    */
-  static YouTrackDBInternal embedded(String directoryPath, YouTrackDBConfig config) {
-    return new YouTrackDBEmbedded(directoryPath, config, YouTrackDBEnginesManager.instance());
+  static YouTrackDBInternal<DatabaseSession> embedded(
+      String directoryPath,
+      YouTrackDBConfig config,
+      boolean serverMode) {
+    return new YouTrackDBInternalEmbedded(directoryPath, config,
+        YouTrackDBEnginesManager.instance(), serverMode);
   }
 
 
@@ -131,7 +138,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @param password related to the specified username
    * @return the opened database
    */
-  DatabaseSessionInternal open(String name, String user, String password);
+  S open(String name, String user, String password);
 
   /**
    * Open a database specified by name using the username and password if needed, with specific
@@ -144,7 +151,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    *                 needed.
    * @return the opened database
    */
-  DatabaseSessionInternal open(String name, String user, String password,
+  S open(String name, String user, String password,
       YouTrackDBConfig config);
 
   /**
@@ -156,7 +163,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    *                           settings where needed.
    * @return the opened database
    */
-  DatabaseSessionInternal open(AuthenticationInfo authenticationInfo, YouTrackDBConfig config);
+  S open(AuthenticationInfo authenticationInfo, YouTrackDBConfig config);
 
   /**
    * Create a new database
@@ -165,7 +172,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @param user     the username of a user allowed to create a database, in case of remote is a
    *                 server user for embedded it can be left empty
    * @param password the password relative to the user
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    */
   void create(String name, String user, String password, DatabaseType type);
 
@@ -178,7 +185,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @param password the password relative to the user
    * @param config   database specific configuration that override the factory global settings where
    *                 needed.
-   * @param type     can be plocal or memory
+   * @param type     can be disk or memory
    */
   void create(String name, String user, String password, DatabaseType type,
       YouTrackDBConfig config);
@@ -222,7 +229,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    * @param password the password relative to the user
    * @return a new pool of databases.
    */
-  DatabasePoolInternal openPool(String name, String user, String password);
+  DatabasePoolInternal<S> openPool(String name, String user, String password);
 
   /**
    * Open a pool of databases, similar to open but with multiple instances.
@@ -234,19 +241,23 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
    *                 needed.
    * @return a new pool of databases.
    */
-  DatabasePoolInternal openPool(String name, String user, String password,
+  DatabasePoolInternal<S> openPool(String name, String user, String password,
       YouTrackDBConfig config);
 
-  DatabasePoolInternal cachedPool(String database, String user, String password);
+  DatabasePoolInternal<S> cachedPool(String database, String user, String password);
 
-  DatabasePoolInternal cachedPool(
+  DatabasePoolInternal<S> cachedPool(
       String database, String user, String password, YouTrackDBConfig config);
+
+  DatabasePoolInternal<S> cachedPoolNoAuthentication(String database, String user,
+      YouTrackDBConfig config);
 
   /**
    * Internal api for request to open a database with a pool
    */
-  DatabaseSessionInternal poolOpen(
-      String name, String user, String password, DatabasePoolInternal pool);
+  S poolOpen(
+      String name, String user, String password, DatabasePoolInternal<S> pool);
+
 
   void restore(
       String name,
@@ -266,6 +277,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
   /**
    * Close the factory with all related databases and pools.
    */
+  @Override
   void close();
 
   /**
@@ -276,7 +288,7 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
   /**
    * Internal API for pool close
    */
-  void removePool(DatabasePoolInternal toRemove);
+  void removePool(DatabasePoolInternal<S> toRemove);
 
   /**
    * Check if the current instance is open
@@ -289,63 +301,36 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
     return false;
   }
 
-  static YouTrackDBInternal extract(YouTrackDBImpl youTrackDB) {
+  static <S extends BasicDatabaseSession<?, ?>> YouTrackDBInternal<S> extract(
+      YouTrackDBAbstract<?, S> youTrackDB) {
     return youTrackDB.internal;
   }
 
-  static String extractUser(YouTrackDBImpl youTrackDB) {
+  static String extractUser(YouTrackDBAbstract<?, ?> youTrackDB) {
     return youTrackDB.serverUser;
   }
 
-  DatabaseSessionInternal openNoAuthenticate(String iDbUrl, String user);
-
-  DatabaseSessionInternal openNoAuthorization(String name);
-
-  void initCustomStorage(String name, String baseUrl, String userName, String userPassword);
-
-  void loadAllDatabases();
-
   void removeShutdownHook();
-
-  Collection<Storage> getStorages();
 
   void forceDatabaseClose(String databaseName);
 
-  Future<?> execute(Runnable task);
-
-  <X> Future<X> execute(Callable<X> task);
-
-  <X> Future<X> execute(String database, String user, DatabaseTask<X> task);
-
-  <X> Future<X> executeNoAuthorizationAsync(String database, DatabaseTask<X> task);
-
-  <X> X executeNoAuthorizationSync(DatabaseSessionInternal database, DatabaseTask<X> task);
-
-  default Storage fullSync(String dbName, InputStream backupStream, YouTrackDBConfig config) {
-    throw new UnsupportedOperationException();
+  default boolean validateServerStatement(String query) {
+    try {
+      StatementCache.getServerStatement(query, this);
+      return true;
+    } catch (CommandSQLParsingException e) {
+      return false;
+    }
   }
 
-  default void deltaSync(String dbName, InputStream backupStream, YouTrackDBConfig config) {
-    throw new UnsupportedOperationException();
-  }
+  BasicResultSet<BasicResult> executeServerStatementNamedParams(String script,
+      String user, String pw,
+      Map<String, Object> params);
 
-  default ScriptManager getScriptManager() {
-    throw new UnsupportedOperationException();
-  }
-
-  default void networkRestore(String databaseName, InputStream in, Callable<Object> callback) {
-    throw new UnsupportedOperationException();
-  }
-
-  default ResultSet executeServerStatementNamedParams(String script, String user, String pw,
-      Map<String, Object> params) {
-    throw new UnsupportedOperationException();
-  }
-
-  default ResultSet executeServerStatementPositionalParams(String script, String user, String pw,
-      Object... params) {
-    throw new UnsupportedOperationException();
-  }
+  BasicResultSet<BasicResult> executeServerStatementPositionalParams(String script,
+      String user,
+      String pw,
+      Object... params);
 
   default SystemDatabase getSystemDatabase() {
     throw new UnsupportedOperationException();
@@ -353,11 +338,6 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
 
   default String getBasePath() {
     throw new UnsupportedOperationException();
-  }
-
-  void internalDrop(String database);
-
-  default void distributedSetOnline(String database) {
   }
 
   void create(
@@ -372,19 +352,5 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
 
   SecuritySystem getSecuritySystem();
 
-  default Set<String> listLodadedDatabases() {
-    throw new UnsupportedOperationException();
-  }
-
   String getConnectionUrl();
-
-  default void startCommand(Optional<Long> timeout) {
-  }
-
-  default void endCommand() {
-  }
-
-  static YouTrackDBInternal getInternal(YouTrackDBImpl youTrackDB) {
-    return youTrackDB.internal;
-  }
 }

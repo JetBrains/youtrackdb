@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Wrapper to use the HTTP request in functions and scripts. This class mimics the J2EE HTTPRequest
@@ -27,15 +28,15 @@ import java.util.Map;
  */
 public class HttpRequestWrapper {
 
-  private final OHttpRequest request;
+  private final HttpRequest request;
   private final String[] args;
 
-  public HttpRequestWrapper(final OHttpRequest iRequest) {
+  public HttpRequestWrapper(final HttpRequest iRequest) {
     this.request = iRequest;
     this.args = null;
   }
 
-  public HttpRequestWrapper(final OHttpRequest iRequest, final String[] iArgs) {
+  public HttpRequestWrapper(final HttpRequest iRequest, final String[] iArgs) {
     this.request = iRequest;
     this.args = iArgs;
   }
@@ -126,6 +127,7 @@ public class HttpRequestWrapper {
    *
    * @return Array of arguments
    */
+  @Nullable
   public String getArgument(final int iPosition) {
     return args != null && args.length > iPosition ? args[iPosition] : null;
   }
@@ -144,6 +146,7 @@ public class HttpRequestWrapper {
    *
    * @return The parameter value if any otherwise null
    */
+  @Nullable
   public String getParameter(final String iName) {
     return request.getParameters() != null ? request.getParameters().get(iName) : null;
   }
@@ -154,10 +157,10 @@ public class HttpRequestWrapper {
    * @return The number of parameters found between the passed ones
    */
   public int hasParameters(final String... iNames) {
-    int found = 0;
+    var found = 0;
 
     if (iNames != null && request.getParameters() != null) {
-      for (String name : iNames) {
+      for (var name : iNames) {
         found += request.getParameters().containsKey(name) ? 1 : 0;
       }
     }

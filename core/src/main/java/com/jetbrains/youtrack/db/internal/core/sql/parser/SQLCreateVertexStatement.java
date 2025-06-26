@@ -2,13 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.CreateVertexExecutionPlanner;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InsertExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -16,8 +16,6 @@ import java.util.Objects;
 public class SQLCreateVertexStatement extends SQLStatement {
 
   SQLIdentifier targetClass;
-  SQLIdentifier targetClusterName;
-  SQLCluster targetCluster;
   SQLProjection returnStatement;
   SQLInsertBody insertBody;
 
@@ -31,12 +29,13 @@ public class SQLCreateVertexStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
     InsertExecutionPlan executionPlan;
     if (usePlanCache) {
@@ -45,21 +44,21 @@ public class SQLCreateVertexStatement extends SQLStatement {
       executionPlan = (InsertExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -71,12 +70,12 @@ public class SQLCreateVertexStatement extends SQLStatement {
       executionPlan = (InsertExecutionPlan) createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
   @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    CreateVertexExecutionPlanner planner = new CreateVertexExecutionPlanner(this);
+    var planner = new CreateVertexExecutionPlanner(this);
     InternalExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
@@ -88,20 +87,13 @@ public class SQLCreateVertexStatement extends SQLStatement {
     builder.append("CREATE VERTEX ");
     if (targetClass != null) {
       targetClass.toString(params, builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toString(params, builder);
-      }
-    }
-    if (targetCluster != null) {
-      targetCluster.toString(params, builder);
     }
     if (returnStatement != null) {
       builder.append(" RETURN ");
       returnStatement.toString(params, builder);
     }
     if (insertBody != null) {
-      if (targetClass != null || targetCluster != null || returnStatement != null) {
+      if (targetClass != null || returnStatement != null) {
         builder.append(" ");
       }
       insertBody.toString(params, builder);
@@ -113,20 +105,13 @@ public class SQLCreateVertexStatement extends SQLStatement {
     builder.append("CREATE VERTEX ");
     if (targetClass != null) {
       targetClass.toGenericStatement(builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toGenericStatement(builder);
-      }
-    }
-    if (targetCluster != null) {
-      targetCluster.toGenericStatement(builder);
     }
     if (returnStatement != null) {
       builder.append(" RETURN ");
       returnStatement.toGenericStatement(builder);
     }
     if (insertBody != null) {
-      if (targetClass != null || targetCluster != null || returnStatement != null) {
+      if (targetClass != null || returnStatement != null) {
         builder.append(" ");
       }
       insertBody.toGenericStatement(builder);
@@ -142,8 +127,6 @@ public class SQLCreateVertexStatement extends SQLStatement {
       throw new RuntimeException(e);
     }
     result.targetClass = targetClass == null ? null : targetClass.copy();
-    result.targetClusterName = targetClusterName == null ? null : targetClusterName.copy();
-    result.targetCluster = targetCluster == null ? null : targetCluster.copy();
     result.returnStatement = returnStatement == null ? null : returnStatement.copy();
     result.insertBody = insertBody == null ? null : insertBody.copy();
     return result;
@@ -158,15 +141,9 @@ public class SQLCreateVertexStatement extends SQLStatement {
       return false;
     }
 
-    SQLCreateVertexStatement that = (SQLCreateVertexStatement) o;
+    var that = (SQLCreateVertexStatement) o;
 
     if (!Objects.equals(targetClass, that.targetClass)) {
-      return false;
-    }
-    if (!Objects.equals(targetClusterName, that.targetClusterName)) {
-      return false;
-    }
-    if (!Objects.equals(targetCluster, that.targetCluster)) {
       return false;
     }
     if (!Objects.equals(returnStatement, that.returnStatement)) {
@@ -177,9 +154,7 @@ public class SQLCreateVertexStatement extends SQLStatement {
 
   @Override
   public int hashCode() {
-    int result = targetClass != null ? targetClass.hashCode() : 0;
-    result = 31 * result + (targetClusterName != null ? targetClusterName.hashCode() : 0);
-    result = 31 * result + (targetCluster != null ? targetCluster.hashCode() : 0);
+    var result = targetClass != null ? targetClass.hashCode() : 0;
     result = 31 * result + (returnStatement != null ? returnStatement.hashCode() : 0);
     result = 31 * result + (insertBody != null ? insertBody.hashCode() : 0);
     return result;
@@ -191,22 +166,6 @@ public class SQLCreateVertexStatement extends SQLStatement {
 
   public void setTargetClass(SQLIdentifier targetClass) {
     this.targetClass = targetClass;
-  }
-
-  public SQLIdentifier getTargetClusterName() {
-    return targetClusterName;
-  }
-
-  public void setTargetClusterName(SQLIdentifier targetClusterName) {
-    this.targetClusterName = targetClusterName;
-  }
-
-  public SQLCluster getTargetCluster() {
-    return targetCluster;
-  }
-
-  public void setTargetCluster(SQLCluster targetCluster) {
-    this.targetCluster = targetCluster;
   }
 
   public SQLProjection getReturnStatement() {

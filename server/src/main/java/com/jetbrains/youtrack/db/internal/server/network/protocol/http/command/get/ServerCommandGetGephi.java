@@ -19,18 +19,20 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
-import com.jetbrains.youtrack.db.internal.server.config.ServerCommandConfiguration;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerCommandConfiguration;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.util.HashMap;
@@ -49,8 +51,8 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    var urlParts =
         checkSyntax(
             iRequest.getUrl(),
             4,
@@ -58,63 +60,43 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
                 + " gephi/<database>/<language>/<query-text>[/<limit>][/<fetchPlan>].<br>Limit is"
                 + " optional and is set to 20 by default. Set to 0 to have no limits.");
 
-    final String language = urlParts[2];
-    final String text = urlParts[3];
-    final int limit = urlParts.length > 4 ? Integer.parseInt(urlParts[4]) : 20;
-    final String fetchPlan = urlParts.length > 5 ? urlParts[5] : null;
+    final var language = urlParts[2];
+    final var text = urlParts[3];
+    final var limit = urlParts.length > 4 ? Integer.parseInt(urlParts[4]) : 20;
+    final var fetchPlan = urlParts.length > 5 ? urlParts[5] : null;
 
     iRequest.getData().commandInfo = "Gephi";
     iRequest.getData().commandDetail = text;
 
-    var db = getProfiledDatabaseInstance(iRequest);
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
+      db.executeInTx(transaction -> {
+        final ResultSet resultSet;
+        if (language.equals("sql")) {
+          resultSet = executeStatement(language, text, new HashMap<>(), db);
+        } else {
+          throw new IllegalArgumentException(
+              "Language '" + language + "' is not supported. Use 'sql' or 'gremlin'");
+        }
 
-    try {
-
-      final ResultSet resultSet;
-      if (language.equals("sql")) {
-        resultSet = executeStatement(language, text, new HashMap<>(), db);
-      } else if (language.equals("gremlin")) {
-        // TODO use TP3
-
-        // EMPTY
-        resultSet = null;
-        //        List<Object> result = new ArrayList<Object>();
-        //        OGremlinHelper.execute(graph, text, null, null, result, null, null);
-        //
-        //        resultSet = new ArrayList<Entity>(result.size());
-        //
-        //        for (Object o : result) {
-        //          ((ArrayList<Entity>) resultSet).add(db.getVertex(o));
-        //        }
-      } else {
-        throw new IllegalArgumentException(
-            "Language '" + language + "' is not supported. Use 'sql' or 'gremlin'");
-      }
-
-      sendRecordsContent(iRequest, iResponse, resultSet, fetchPlan, limit);
-
-    } finally {
-      if (db != null) {
-        db.close();
-      }
+        sendRecordsContent(db, iRequest, iResponse, resultSet, fetchPlan, limit);
+      });
     }
 
     return false;
   }
 
-  protected void sendRecordsContent(
-      final OHttpRequest iRequest,
+  protected static void sendRecordsContent(
+      DatabaseSessionInternal db, final HttpRequest iRequest,
       final HttpResponse iResponse,
       ResultSet resultSet,
       String iFetchPlan,
-      int limit)
-      throws IOException {
+      int limit) {
 
-    final StringWriter buffer = new StringWriter();
-    final JSONWriter json = new JSONWriter(buffer, HttpResponse.JSON_FORMAT);
+    final var buffer = new StringWriter();
+    final var json = new JSONWriter(buffer, HttpResponse.JSON_FORMAT);
     json.setPrettyPrint(true);
 
-    generateGraphDbOutput(resultSet, limit, json);
+    generateGraphDbOutput(db, resultSet, limit, json);
 
     iResponse.send(
         HttpUtils.STATUS_OK_CODE,
@@ -124,8 +106,8 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
         null);
   }
 
-  protected void generateGraphDbOutput(
-      final ResultSet resultSet, int limit, final JSONWriter json) throws IOException {
+  protected static void generateGraphDbOutput(
+      DatabaseSessionInternal db, final ResultSet resultSet, int limit, final JSONWriter json) {
     if (resultSet == null) {
       return;
     }
@@ -134,66 +116,76 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
     final Set<Vertex> vertexes = new HashSet<>();
     final Set<Edge> edges = new HashSet<>();
 
-    int i = 0;
+    var i = 0;
     while (resultSet.hasNext()) {
       if (limit >= 0 && i >= limit) {
         break;
       }
-      Result next = resultSet.next();
+      var next = resultSet.next();
       if (next.isVertex()) {
-        vertexes.add(next.getVertex().get());
-      } else if (next.isEdge()) {
-        edges.add(next.getEdge().get());
+        vertexes.add(next.asVertex());
+      } else if (next.isStatefulEdge()) {
+        edges.add(next.asStatefulEdge());
       }
       i++;
     }
     resultSet.close();
 
-    for (Vertex vertex : vertexes) {
-      json.resetAttributes();
-      json.beginObject(0, false, null);
-      json.beginObject(1, false, "an");
-      json.beginObject(2, false, vertex.getIdentity());
+    try {
+      for (var vertex : vertexes) {
+        json.resetAttributes();
+        json.beginObject(0, false, null);
+        json.beginObject(1, false, "an");
+        json.beginObject(2, false, vertex.getIdentity());
 
-      // ADD ALL THE EDGES
-      vertex.getEdges(Direction.BOTH).forEach(edges::add);
+        // ADD ALL THE EDGES
+        vertex.getEdges(Direction.BOTH).forEach(edges::add);
 
-      // ADD ALL THE PROPERTIES
-      for (String field : vertex.getPropertyNames()) {
-        final Object v = vertex.getProperty(field);
-        if (v != null) {
-          json.writeAttribute(3, false, field, v);
+        // ADD ALL THE PROPERTIES
+        for (var field : vertex.getPropertyNames()) {
+          final var v = vertex.getProperty(field);
+          if (v != null) {
+            json.writeAttribute(db, 3, false, field, v);
+          }
         }
-      }
-      json.endObject(2, false);
-      json.endObject(1, false);
-      json.endObject(0, false);
-      json.newline();
-    }
-
-    for (Edge edge : edges) {
-
-      json.resetAttributes();
-      json.beginObject();
-      json.beginObject(1, false, "ae");
-      json.beginObject(2, false, edge.getIdentity());
-      json.writeAttribute(3, false, "directed", false);
-
-      json.writeAttribute(3, false, "source", edge.getToIdentifiable());
-      json.writeAttribute(3, false, "target", edge.getFromIdentifiable());
-
-      for (String field : edge.getPropertyNames()) {
-        final Object v = edge.getProperty(field);
-
-        if (v != null) {
-          json.writeAttribute(3, false, field, v);
-        }
+        json.endObject(2, false);
+        json.endObject(1, false);
+        json.endObject(0, false);
+        json.newline();
       }
 
-      json.endObject(2, false);
-      json.endObject(1, false);
-      json.endObject(0, false);
-      json.newline();
+      for (var edge : edges) {
+        json.resetAttributes();
+        json.beginObject();
+        json.beginObject(1, false, "ae");
+        if (edge.isStateful()) {
+          json.beginObject(2, false, edge.asStatefulEdge().getIdentity());
+        }
+
+        json.writeAttribute(db, 3, false, "directed", false);
+
+        json.writeAttribute(db, 3, false, "source", edge.getToLink());
+        json.writeAttribute(db, 3, false, "target", edge.getFromLink());
+
+        if (edge.isStateful()) {
+          var statefulEdge = edge.asStatefulEdge();
+          for (var field : statefulEdge.getPropertyNames()) {
+            final var v = statefulEdge.getProperty(field);
+
+            if (v != null) {
+              json.writeAttribute(db, 3, false, field, v);
+            }
+          }
+        }
+
+        json.endObject(2, false);
+        json.endObject(1, false);
+        json.endObject(0, false);
+        json.newline();
+      }
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new CommandExecutionException(db, "Error while writing graph output"), e, db);
     }
   }
 
@@ -202,15 +194,15 @@ public class ServerCommandGetGephi extends ServerCommandAuthenticatedDbAbstract 
     return NAMES;
   }
 
-  protected ResultSet executeStatement(
-      String language, String text, Object params, DatabaseSession db) {
+  protected static ResultSet executeStatement(
+      String language, String text, Object params, DatabaseSessionEmbedded db) {
     ResultSet result;
     if (params instanceof Map) {
-      result = db.command(text, (Map) params);
+      result = db.computeScript("sql", text, (Map) params);
     } else if (params instanceof Object[]) {
-      result = db.command(text, (Object[]) params);
+      result = db.computeScript("sql", text, (Object[]) params);
     } else {
-      result = db.command(text, params);
+      result = db.computeScript("sql", text, params);
     }
     return result;
   }

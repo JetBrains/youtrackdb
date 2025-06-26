@@ -1,1 +1,0 @@
-export * from "./permissionsettings.component";

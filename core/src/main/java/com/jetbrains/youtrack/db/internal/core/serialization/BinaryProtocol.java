@@ -41,7 +41,7 @@ public class BinaryProtocol {
   }
 
   public static int long2bytes(final long value, final OutputStream iStream) throws IOException {
-    final int beginOffset =
+    final var beginOffset =
         iStream instanceof MemoryStream ? ((MemoryStream) iStream).getPosition() : -1;
 
     iStream.write((int) (value >>> 56) & 0xFF);
@@ -73,7 +73,7 @@ public class BinaryProtocol {
   }
 
   public static int int2bytes(final int value, final OutputStream iStream) throws IOException {
-    final int beginOffset =
+    final var beginOffset =
         iStream instanceof MemoryStream ? ((MemoryStream) iStream).getPosition() : -1;
 
     iStream.write((value >>> 24) & 0xFF);
@@ -97,7 +97,7 @@ public class BinaryProtocol {
   }
 
   public static int short2bytes(final short value, final OutputStream iStream) throws IOException {
-    final int beginOffset =
+    final var beginOffset =
         iStream instanceof MemoryStream ? ((MemoryStream) iStream).getPosition() : -1;
     iStream.write((value >>> 8) & 0xFF);
     iStream.write((value >>> 0) & 0xFF);

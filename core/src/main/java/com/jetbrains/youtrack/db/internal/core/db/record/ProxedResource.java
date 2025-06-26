@@ -19,7 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import javax.annotation.Nonnull;
 
 /**
  * Generic proxy abstratc class.
@@ -27,10 +29,10 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 public abstract class ProxedResource<T> {
 
   protected final T delegate;
-  protected final DatabaseSessionInternal database;
+  protected final @Nonnull DatabaseSessionEmbedded session;
 
-  protected ProxedResource(final T iDelegate, final DatabaseSessionInternal iDatabase) {
+  protected ProxedResource(final T iDelegate,@Nonnull final DatabaseSessionEmbedded session) {
     this.delegate = iDelegate;
-    this.database = iDatabase;
+    this.session = session;
   }
 }

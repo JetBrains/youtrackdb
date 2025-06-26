@@ -16,6 +16,7 @@ package com.cloudbees.syslog;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Syslog severity as defined in <a href="https://tools.ietf.org/html/rfc5424">RFC 5424 - The Syslog
@@ -61,7 +62,7 @@ public enum Severity {
       new HashMap<Integer, Severity>();
 
   static {
-    for (Severity severity : Severity.values()) {
+    for (var severity : Severity.values()) {
       severityFromLabel.put(severity.label, severity);
       severityFromNumericalCode.put(severity.numericalCode, severity);
     }
@@ -82,7 +83,7 @@ public enum Severity {
    *                                  numerical code
    */
   public static Severity fromNumericalCode(int numericalCode) throws IllegalArgumentException {
-    Severity severity = severityFromNumericalCode.get(numericalCode);
+    var severity = severityFromNumericalCode.get(numericalCode);
     if (severity == null) {
       throw new IllegalArgumentException("Invalid severity '" + numericalCode + "'");
     }
@@ -94,12 +95,13 @@ public enum Severity {
    * @return Syslog severity, {@code null} if given value is {@code null}
    * @throws IllegalArgumentException the given value is not a valid Syslog severity textual code
    */
+  @Nullable
   public static Severity fromLabel(String label) throws IllegalArgumentException {
     if (label == null || label.isEmpty()) {
       return null;
     }
 
-    Severity severity = severityFromLabel.get(label);
+    var severity = severityFromLabel.get(label);
     if (severity == null) {
       throw new IllegalArgumentException("Invalid severity '" + label + "'");
     }

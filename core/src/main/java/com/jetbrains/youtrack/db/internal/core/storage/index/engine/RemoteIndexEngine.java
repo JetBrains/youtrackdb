@@ -19,18 +19,21 @@
  */
 package com.jetbrains.youtrack.db.internal.core.storage.index.engine;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngine;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTransformer;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * @since 18.07.13
@@ -61,17 +64,7 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public void updateUniqueIndexVersion(final Object key) {
-    // not implemented
-  }
-
-  @Override
-  public int getUniqueIndexVersion(final Object key) {
-    return 0; // not implemented
-  }
-
-  @Override
-  public void init(IndexMetadata metadata) {
+  public void init(DatabaseSessionInternal session, IndexMetadata metadata) {
   }
 
   @Override
@@ -90,31 +83,32 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public boolean remove(AtomicOperation atomicOperation, Object key) {
+  public boolean remove(Storage storage, AtomicOperation atomicOperation, Object key) {
     return false;
   }
 
   @Override
-  public void clear(AtomicOperation atomicOperation) {
+  public void clear(Storage storage, AtomicOperation atomicOperation) {
   }
 
   @Override
   public void close() {
   }
 
+  @Nullable
   @Override
-  public Object get(DatabaseSessionInternal session, Object key) {
+  public Object get(DatabaseSessionEmbedded db, Object key) {
     return null;
   }
 
   @Override
-  public void put(DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+  public void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       Object value) {
   }
 
   @Override
   public void update(
-      DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+      DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater) {
   }
 
@@ -129,7 +123,7 @@ public class RemoteIndexEngine implements IndexEngine {
 
   @Override
   public Stream<RawPair<Object, RID>> iterateEntriesBetween(
-      DatabaseSessionInternal session, Object rangeFrom,
+      DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
@@ -157,7 +151,7 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public long size(IndexEngineValuesTransformer transformer) {
+  public long size(Storage storage, IndexEngineValuesTransformer transformer) {
     return 0;
   }
 
@@ -183,7 +177,7 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock(Object key) {
+  public boolean acquireAtomicExclusiveLock() {
     throw new UnsupportedOperationException(
         "atomic locking is not supported by remote index engine");
   }

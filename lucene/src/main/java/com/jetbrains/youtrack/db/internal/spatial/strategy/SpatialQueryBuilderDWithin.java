@@ -13,18 +13,16 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.strategy;
 
-import com.jetbrains.youtrack.db.internal.spatial.engine.OLuceneSpatialIndexContainer;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.query.SpatialQueryContext;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeBuilder;
 import java.util.Map;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.spatial.SpatialStrategy;
 import org.apache.lucene.spatial.query.SpatialArgs;
 import org.apache.lucene.spatial.query.SpatialOperation;
-import org.locationtech.spatial4j.shape.Shape;
 
 /**
  *
@@ -33,17 +31,18 @@ public class SpatialQueryBuilderDWithin extends SpatialQueryBuilderAbstract {
 
   public static final String NAME = "dwithin";
 
-  public SpatialQueryBuilderDWithin(OLuceneSpatialIndexContainer manager, ShapeBuilder factory) {
+  public SpatialQueryBuilderDWithin(LuceneSpatialIndexContainer manager, ShapeBuilder factory) {
     super(manager, factory);
   }
 
   @Override
-  public SpatialQueryContext build(Map<String, Object> query) throws Exception {
-    Shape shape = parseShape(query);
+  public SpatialQueryContext build(DatabaseSessionEmbedded db, Map<String, Object> query)
+      throws Exception {
+    var shape = parseShape(query);
 
-    SpatialStrategy strategy = manager.strategy();
+    var strategy = manager.strategy();
 
-    Number distance = (Number) query.get("distance");
+    var distance = (Number) query.get("distance");
     if (distance != null) {
       shape = shape.getBuffered(distance.doubleValue(), factory.context());
     }
@@ -51,17 +50,17 @@ public class SpatialQueryBuilderDWithin extends SpatialQueryBuilderAbstract {
     if (isOnlyBB(strategy)) {
       shape = shape.getBoundingBox();
     }
-    SpatialArgs args1 = new SpatialArgs(SpatialOperation.Intersects, shape);
+    var args1 = new SpatialArgs(SpatialOperation.Intersects, shape);
 
-    Query filterQuery = strategy.makeQuery(args1);
+    var filterQuery = strategy.makeQuery(args1);
 
-    BooleanQuery q =
+    var q =
         new BooleanQuery.Builder()
             .add(filterQuery, BooleanClause.Occur.MUST)
             .add(new MatchAllDocsQuery(), BooleanClause.Occur.SHOULD)
             .build();
 
-    return new SpatialQueryContext(null, manager.searcher(), q);
+    return new SpatialQueryContext(null, manager.searcher(db.getStorage()), q);
   }
 
   @Override

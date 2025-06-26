@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.common.serialization.types;
 
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverter;
 import com.jetbrains.youtrack.db.internal.common.serialization.BinaryConverterFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -43,30 +44,41 @@ public class DoubleSerializer implements BinarySerializer<Double> {
   private static final BinaryConverter CONVERTER = BinaryConverterFactory.getConverter();
   public static final DoubleSerializer INSTANCE = new DoubleSerializer();
 
-  public int getObjectSize(Double object, Object... hints) {
+  @Override
+  public int getObjectSize(BinarySerializerFactory serializerFactory, Double object,
+      Object... hints) {
     return DOUBLE_SIZE;
   }
 
+  @Override
   public void serialize(
-      final Double object, final byte[] stream, final int startPosition, final Object... hints) {
-    LongSerializer.INSTANCE.serializeLiteral(
+      final Double object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
+    LongSerializer.serializeLiteral(
         Double.doubleToLongBits(object), stream, startPosition);
   }
 
-  public Double deserialize(final byte[] stream, final int startPosition) {
+  @Override
+  public Double deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return Double.longBitsToDouble(
-        LongSerializer.INSTANCE.deserializeLiteral(stream, startPosition));
+        LongSerializer.deserializeLiteral(stream, startPosition));
   }
 
-  public int getObjectSize(final byte[] stream, final int startPosition) {
+  @Override
+  public int getObjectSize(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return DOUBLE_SIZE;
   }
 
+  @Override
   public byte getId() {
     return ID;
   }
 
-  public int getObjectSizeNative(final byte[] stream, final int startPosition) {
+  @Override
+  public int getObjectSizeNative(BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition) {
     return DOUBLE_SIZE;
   }
 
@@ -86,7 +98,8 @@ public class DoubleSerializer implements BinarySerializer<Double> {
 
   @Override
   public void serializeNativeObject(
-      final Double object, final byte[] stream, final int startPosition, final Object... hints) {
+      final Double object, BinarySerializerFactory serializerFactory, final byte[] stream,
+      final int startPosition, final Object... hints) {
     checkBoundaries(stream, startPosition);
 
     CONVERTER.putLong(
@@ -94,23 +107,27 @@ public class DoubleSerializer implements BinarySerializer<Double> {
   }
 
   @Override
-  public Double deserializeNativeObject(byte[] stream, int startPosition) {
+  public Double deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
+      int startPosition) {
     checkBoundaries(stream, startPosition);
 
     return Double.longBitsToDouble(
         CONVERTER.getLong(stream, startPosition, ByteOrder.nativeOrder()));
   }
 
+  @Override
   public boolean isFixedLength() {
     return true;
   }
 
+  @Override
   public int getFixedLength() {
     return DOUBLE_SIZE;
   }
 
   @Override
-  public Double preprocess(final Double value, final Object... hints) {
+  public Double preprocess(BinarySerializerFactory serializerFactory, final Double value,
+      final Object... hints) {
     return value;
   }
 
@@ -118,7 +135,8 @@ public class DoubleSerializer implements BinarySerializer<Double> {
    * {@inheritDoc}
    */
   @Override
-  public void serializeInByteBufferObject(Double object, ByteBuffer buffer, Object... hints) {
+  public void serializeInByteBufferObject(BinarySerializerFactory serializerFactory, Double object,
+      ByteBuffer buffer, Object... hints) {
     buffer.putLong(Double.doubleToLongBits(object));
   }
 
@@ -126,12 +144,14 @@ public class DoubleSerializer implements BinarySerializer<Double> {
    * {@inheritDoc}
    */
   @Override
-  public Double deserializeFromByteBufferObject(ByteBuffer buffer) {
+  public Double deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return Double.longBitsToDouble(buffer.getLong());
   }
 
   @Override
-  public Double deserializeFromByteBufferObject(int offset, ByteBuffer buffer) {
+  public Double deserializeFromByteBufferObject(BinarySerializerFactory serializerFactory,
+      int offset, ByteBuffer buffer) {
     return Double.longBitsToDouble(buffer.getLong(offset));
   }
 
@@ -139,12 +159,14 @@ public class DoubleSerializer implements BinarySerializer<Double> {
    * {@inheritDoc}
    */
   @Override
-  public int getObjectSizeInByteBuffer(ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory,
+      ByteBuffer buffer) {
     return DOUBLE_SIZE;
   }
 
   @Override
-  public int getObjectSizeInByteBuffer(int offset, ByteBuffer buffer) {
+  public int getObjectSizeInByteBuffer(BinarySerializerFactory serializerFactory, int offset,
+      ByteBuffer buffer) {
     return DOUBLE_SIZE;
   }
 
@@ -153,7 +175,8 @@ public class DoubleSerializer implements BinarySerializer<Double> {
    */
   @Override
   public Double deserializeFromByteBufferObject(
-      ByteBuffer buffer, WALChanges walChanges, int offset) {
+      BinarySerializerFactory serializerFactory, ByteBuffer buffer, WALChanges walChanges,
+      int offset) {
     return Double.longBitsToDouble(walChanges.getLongValue(buffer, offset));
   }
 

@@ -10,13 +10,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 
 public final class SpliteratorBackward<K> implements Spliterator<RawPair<K, RID>> {
 
   /**
    *
    */
-  private final CellBTreeSingleValueV3<K> btree;
+  private final BTree<K> btree;
 
   private final K fromKey;
   private final K toKey;
@@ -32,12 +33,12 @@ public final class SpliteratorBackward<K> implements Spliterator<RawPair<K, RID>
   private Iterator<RawPair<K, RID>> cacheIterator = Collections.emptyIterator();
 
   public SpliteratorBackward(
-      CellBTreeSingleValueV3<K> cellBTreeSingleValueV3,
+      BTree<K> BTree,
       final K fromKey,
       final K toKey,
       final boolean fromKeyInclusive,
       final boolean toKeyInclusive) {
-    btree = cellBTreeSingleValueV3;
+    btree = BTree;
     this.fromKey = fromKey;
     this.toKey = toKey;
     this.fromKeyInclusive = fromKeyInclusive;
@@ -69,6 +70,7 @@ public final class SpliteratorBackward<K> implements Spliterator<RawPair<K, RID>
     return false;
   }
 
+  @Nullable
   @Override
   public Spliterator<RawPair<K, RID>> trySplit() {
     return null;
@@ -86,7 +88,7 @@ public final class SpliteratorBackward<K> implements Spliterator<RawPair<K, RID>
 
   @Override
   public Comparator<? super RawPair<K, RID>> getComparator() {
-    return (pairOne, pairTwo) -> -btree.comparator.compare(pairOne.first, pairTwo.first);
+    return (pairOne, pairTwo) -> -btree.comparator.compare(pairOne.first(), pairTwo.first());
   }
 
   public int getItemIndex() {

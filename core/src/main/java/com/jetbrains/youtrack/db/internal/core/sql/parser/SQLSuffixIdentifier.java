@@ -6,8 +6,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
@@ -15,8 +13,10 @@ import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLSuffixIdentifier extends SimpleNode {
 
@@ -47,6 +48,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     this.recordAttribute = attr;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (identifier != null) {
       identifier.toString(params, builder);
@@ -57,6 +59,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (identifier != null) {
       identifier.toGenericStatement(builder);
@@ -67,33 +70,41 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     if (star) {
       return iCurrentRecord;
     }
+
+    var db = ctx.getDatabaseSession();
     if (identifier != null) {
-      String varName = identifier.getStringValue();
-      if (ctx != null && varName.equalsIgnoreCase("$parent")) {
+      var varName = identifier.getStringValue();
+      if (varName.equalsIgnoreCase("$parent")) {
         return ctx.getParent();
       }
-      if (varName.startsWith("$") && ctx != null && ctx.getVariable(varName) != null) {
+      if (!varName.isEmpty() && varName.charAt(0) == '$' && ctx.getVariable(varName) != null) {
         return ctx.getVariable(varName);
       }
 
       if (iCurrentRecord != null) {
         if (iCurrentRecord instanceof ContextualRecordId) {
-          Map<String, Object> meta = ((ContextualRecordId) iCurrentRecord).getContext();
+          var meta = ((ContextualRecordId) iCurrentRecord).getContext();
           if (meta != null && meta.containsKey(varName)) {
             return meta.get(varName);
           }
         }
         try {
-          Entity rec = iCurrentRecord.getRecord();
-          if (rec.isUnloaded()) {
-            rec = ctx.getDatabase().bindToSession(rec);
+
+          Entity rec;
+          if (iCurrentRecord instanceof Entity entity) {
+            rec = entity;
+          } else if (iCurrentRecord instanceof RecordId) {
+            rec = db.getActiveTransaction().loadEntity(iCurrentRecord);
+          } else {
+            throw new CommandExecutionException("Unexpected type of record: " + iCurrentRecord);
           }
 
-          Object result = rec.getProperty(varName);
+          var result = rec.getProperty(varName);
           if (result == null && ctx != null) {
             result = ctx.getVariable(varName);
           }
@@ -106,10 +117,13 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
     if (recordAttribute != null && iCurrentRecord != null) {
       try {
-        Entity rec =
-            iCurrentRecord instanceof Entity
-                ? (Entity) iCurrentRecord
-                : iCurrentRecord.getRecord();
+        Entity rec;
+        if (iCurrentRecord instanceof Entity) {
+          rec = (Entity) iCurrentRecord;
+        } else {
+          var transaction = db.getActiveTransaction();
+          rec = transaction.load(iCurrentRecord);
+        }
         return recordAttribute.evaluate(rec, ctx);
       } catch (RecordNotFoundException rnf) {
         return null;
@@ -119,19 +133,23 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     if (star) {
       return iCurrentRecord;
     }
     if (identifier != null) {
-      String varName = identifier.getStringValue();
+      var varName = identifier.getStringValue();
       if (ctx != null && varName.equalsIgnoreCase("$parent")) {
         return ctx.getParent();
       }
       if (ctx != null && varName.startsWith("$") && ctx.getVariable(varName) != null) {
-        Object result = ctx.getVariable(varName);
-        if (result instanceof Resettable) {
-          ((Resettable) result).reset();
+        var result = ctx.getVariable(varName);
+        if (result instanceof Resettable resettable && resettable.isResetable()) {
+          resettable.reset();
+        }
+        if (result instanceof InternalResultSet internalResultSet) {
+          result = internalResultSet.copy(ctx.getDatabaseSession());
         }
         return result;
       }
@@ -139,12 +157,14 @@ public class SQLSuffixIdentifier extends SimpleNode {
         if (iCurrentRecord.hasProperty(varName)) {
           return iCurrentRecord.getProperty(varName);
         }
-        if (iCurrentRecord.getMetadataKeys().contains(varName)) {
-          return iCurrentRecord.getMetadata(varName);
+
+        if (iCurrentRecord instanceof ResultInternal resultInternal
+            && resultInternal.getMetadataKeys().contains(varName)) {
+          return resultInternal.getMetadata(varName);
         }
-        if (iCurrentRecord instanceof ResultInternal
-            && ((ResultInternal) iCurrentRecord).getTemporaryProperties().contains(varName)) {
-          return ((ResultInternal) iCurrentRecord).getTemporaryProperty(varName);
+        if (iCurrentRecord instanceof ResultInternal resultInternal
+            && resultInternal.getTemporaryProperties().contains(varName)) {
+          return resultInternal.getTemporaryProperty(varName);
         }
       }
       return null;
@@ -157,11 +177,12 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Map iCurrentRecord, CommandContext ctx) {
     if (star) {
-      ResultInternal result = new ResultInternal(ctx.getDatabase());
+      var result = new ResultInternal(ctx.getDatabaseSession());
       if (iCurrentRecord != null) {
-        for (Map.Entry<Object, Object> x : ((Map<Object, Object>) iCurrentRecord).entrySet()) {
+        for (var x : ((Map<Object, Object>) iCurrentRecord).entrySet()) {
           result.setProperty("" + x.getKey(), x.getValue());
         }
         return result;
@@ -169,7 +190,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
       return iCurrentRecord;
     }
     if (identifier != null) {
-      String varName = identifier.getStringValue();
+      var varName = identifier.getStringValue();
       if (ctx != null && varName.equalsIgnoreCase("$parent")) {
         return ctx.getParent();
       }
@@ -187,18 +208,20 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Iterable iterable, CommandContext ctx) {
     if (star) {
       return null;
     }
     List<Object> result = new ArrayList<>();
-    for (Object o : iterable) {
+    for (var o : iterable) {
       result.add(execute(o, ctx));
     }
     return result;
   }
 
-  public Object execute(Iterator iterator, CommandContext ctx) {
+  @Nullable
+  public Object execute(Iterator<?> iterator, CommandContext ctx) {
     if (star) {
       return null;
     }
@@ -206,21 +229,16 @@ public class SQLSuffixIdentifier extends SimpleNode {
     while (iterator.hasNext()) {
       result.add(execute(iterator.next(), ctx));
     }
-    if (iterator instanceof ResultSet) {
-      try {
-        ((ResultSet) iterator).reset();
-      } catch (Exception ignore) {
-      }
-    }
     return result;
   }
 
+  @Nullable
   public Object execute(CommandContext iCurrentRecord) {
     if (star) {
       return null;
     }
     if (identifier != null) {
-      String varName = identifier.getStringValue();
+      var varName = identifier.getStringValue();
       if (iCurrentRecord != null) {
         return iCurrentRecord.getVariable(varName);
       }
@@ -232,7 +250,11 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Object execute(Object currentValue, CommandContext ctx) {
+    if (currentValue instanceof InternalResultSet internalResultSet) {
+      return execute(internalResultSet.copy(ctx.getDatabaseSession()), ctx);
+    }
     if (currentValue instanceof Result) {
       return execute((Result) currentValue, ctx);
     }
@@ -268,7 +290,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
       return aliases.contains(identifier.getStringValue());
     }
     if (recordAttribute != null) {
-      for (String s : aliases) {
+      for (var s : aliases) {
         if (s.equalsIgnoreCase(recordAttribute.name)) {
           return true;
         }
@@ -303,8 +325,9 @@ public class SQLSuffixIdentifier extends SimpleNode {
         "this operation does not support plain aggregation: " + this);
   }
 
+  @Override
   public SQLSuffixIdentifier copy() {
-    SQLSuffixIdentifier result = new SQLSuffixIdentifier(-1);
+    var result = new SQLSuffixIdentifier(-1);
     result.identifier = identifier == null ? null : identifier.copy();
     result.recordAttribute = recordAttribute == null ? null : recordAttribute.copy();
     result.star = star;
@@ -320,7 +343,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
       return false;
     }
 
-    SQLSuffixIdentifier that = (SQLSuffixIdentifier) o;
+    var that = (SQLSuffixIdentifier) o;
 
     if (star != that.star) {
       return false;
@@ -333,7 +356,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = identifier != null ? identifier.hashCode() : 0;
+    var result = identifier != null ? identifier.hashCode() : 0;
     result = 31 * result + (recordAttribute != null ? recordAttribute.hashCode() : 0);
     result = 31 * result + (star ? 1 : 0);
     return result;
@@ -365,21 +388,22 @@ public class SQLSuffixIdentifier extends SimpleNode {
       entity = (Entity) target;
     } else {
       try {
-        DBRecord rec = target.getRecord();
+        var transaction = ctx.getDatabaseSession().getActiveTransaction();
+        var rec = transaction.load(target);
         if (rec instanceof Entity) {
           entity = (Entity) rec;
         }
       } catch (RecordNotFoundException rnf) {
         throw BaseException.wrapException(
-            new CommandExecutionException(
+            new CommandExecutionException(ctx.getDatabaseSession(),
                 "Cannot set record attribute " + recordAttribute + " on existing entity"),
-            rnf);
+            rnf, ctx.getDatabaseSession());
       }
     }
     if (entity != null) {
       entity.setProperty(identifier.getStringValue(), value);
     } else {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot set record attribute " + recordAttribute + " on existing entity");
     }
   }
@@ -399,15 +423,27 @@ public class SQLSuffixIdentifier extends SimpleNode {
     if (target == null) {
       return;
     }
-    if (target instanceof ResultInternal intTarget) {
-      if (identifier != null) {
-        intTarget.setProperty(identifier.getStringValue(), value);
-      } else if (recordAttribute != null) {
-        intTarget.setProperty(recordAttribute.getName(), value);
-      }
-    } else {
-      throw new CommandExecutionException(
+
+    if (!(target instanceof ResultInternal) && !(target instanceof Entity)) {
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot set property on unmodifiable target: " + target);
+    }
+
+    final var propertyName =
+        identifier != null ?
+            identifier.getStringValue() :
+            recordAttribute != null ?
+                recordAttribute.getName() :
+                null;
+
+    if (propertyName == null) {
+      return;
+    }
+
+    if (target instanceof ResultInternal intTarget) {
+      intTarget.setProperty(propertyName, value);
+    } else {
+      ((Entity) target).setProperty(propertyName, value);
     }
   }
 
@@ -427,7 +463,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (identifier != null) {
       result.setProperty("identifier", identifier.serialize(db));
     }
@@ -456,23 +492,31 @@ public class SQLSuffixIdentifier extends SimpleNode {
     return true;
   }
 
-  public boolean isDefinedFor(Entity currentRecord) {
+  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     if (identifier != null) {
-      return ((EntityImpl) currentRecord.getRecord()).containsField(identifier.getStringValue());
+      var transaction = db.getActiveTransaction();
+      EntityImpl entity = transaction.load(currentRecord);
+      return entity.hasProperty(identifier.getStringValue());
     }
     return true;
   }
 
-  public Collate getCollate(Result currentRecord, CommandContext ctx) {
-    if (identifier != null && currentRecord != null) {
-      return currentRecord
-          .getRecord()
-          .map(x -> (Entity) x)
-          .flatMap(elem -> elem.getSchemaType())
-          .map(clazz -> clazz.getProperty(identifier.getStringValue()))
-          .map(prop -> prop.getCollate())
-          .orElse(null);
+  @Nullable
+  public Collate getCollate(Result currentResult, CommandContext ctx) {
+    if (identifier != null && currentResult != null) {
+      var session = ctx.getDatabaseSession();
+      if (currentResult.isEntity()) {
+        var record = (EntityImpl) currentResult.asEntity();
+        var schemaClass = record.getImmutableSchemaClass(session);
+        if (schemaClass != null) {
+          var property = schemaClass.getProperty(identifier.getStringValue());
+          if (property != null) {
+            return property.getCollate();
+          }
+        }
+      }
     }
+
     return null;
   }
 

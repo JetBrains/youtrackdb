@@ -3,27 +3,30 @@ package com.jetbrains.youtrack.db.internal;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class DbTestBase {
+
   private static final AtomicLong counter = new AtomicLong();
   private static final ConcurrentHashMap<Class<?>, Long> ids = new ConcurrentHashMap<>();
 
-  protected DatabaseSessionInternal db;
-  protected SessionPool pool;
-  protected YouTrackDBImpl context;
+  protected DatabaseSessionEmbedded session;
+  protected SessionPool<DatabaseSession> pool;
+  protected YouTrackDBImpl youTrackDB;
 
   @Rule
   public TestName name = new TestName();
@@ -35,11 +38,12 @@ public class DbTestBase {
 
   protected String readerUser = "reader";
   protected String readerPassword = "readerpwd";
+  protected String dbPath;
 
   @Before
   public void beforeTest() throws Exception {
-    context = createContext();
-    String dbName = name.getMethodName();
+    youTrackDB = createContext();
+    var dbName = name.getMethodName();
 
     dbName = dbName.replace('[', '_');
     dbName = dbName.replace(']', '_');
@@ -54,26 +58,36 @@ public class DbTestBase {
   }
 
   protected void createDatabase(DatabaseType dbType) {
-    if (db != null && !db.isClosed()) {
-      db.close();
+    if (session != null && !session.isClosed()) {
+      session.close();
     }
     if (pool != null && !pool.isClosed()) {
       pool.close();
     }
 
-    context.create(this.databaseName, dbType,
+    var config = createConfig();
+    youTrackDB.create(this.databaseName, dbType, config,
         adminUser, adminPassword, "admin", readerUser, readerPassword, "reader");
-    pool = context.cachedPool(this.databaseName, adminUser, adminPassword);
+    pool = youTrackDB.cachedPool(this.databaseName, adminUser, adminPassword, config);
 
-    db = (DatabaseSessionInternal) context.open(this.databaseName, "admin", "adminpwd");
+    session = openDatabase(config);
+  }
+
+  private DatabaseSessionEmbedded openDatabase(YouTrackDBConfig config) {
+    return (DatabaseSessionEmbedded)
+        youTrackDB.open(this.databaseName, "admin", "adminpwd", config);
+  }
+
+  protected YouTrackDBConfig createConfig() {
+    return YouTrackDBConfig.builder().build();
   }
 
   public static String embeddedDBUrl(Class<?> testClass) {
-    return "embedded:" + getDirectoryPath(testClass);
+    return "embedded:" + getBaseDirectoryPath(testClass);
   }
 
-  public static String getDirectoryPath(Class<?> testClass) {
-    final String buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
+  public static String getBaseDirectoryPath(Class<?> testClass) {
+    final var buildDirectory = Path.of(System.getProperty("buildDirectory", "./target"))
         .toAbsolutePath().toString();
     return
         buildDirectory + File.separator + "databases" + File.separator + testClass
@@ -85,19 +99,20 @@ public class DbTestBase {
   }
 
   protected YouTrackDBImpl createContext() {
-    var directoryPath = getDirectoryPath(getClass());
+    dbPath = getBaseDirectoryPath(getClass());
+
     var builder = YouTrackDBConfig.builder();
     var config = createConfig((YouTrackDBConfigBuilderImpl) builder);
 
-    return (YouTrackDBImpl) YourTracks.embedded(directoryPath, config);
+    return (YouTrackDBImpl) YourTracks.embedded(dbPath, config);
   }
 
   protected DatabaseType calculateDbType() {
-    final String testConfig =
+    final var testConfig =
         System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
 
     if ("ci".equals(testConfig) || "release".equals(testConfig)) {
-      return DatabaseType.PLOCAL;
+      return DatabaseType.DISK;
     }
 
     return DatabaseType.MEMORY;
@@ -107,22 +122,22 @@ public class DbTestBase {
   protected void reOpen(String user, String password) {
     if (!pool.isClosed()) {
       pool.close();
-      this.pool = context.cachedPool(this.databaseName, user, password);
+      this.pool = youTrackDB.cachedPool(this.databaseName, user, password);
     }
 
-    if (!db.isClosed()) {
-      db.activateOnCurrentThread();
-      db.close();
-      this.db = (DatabaseSessionInternal) context.open(this.databaseName, user, password);
+    if (!session.isClosed()) {
+      session.activateOnCurrentThread();
+      session.close();
+      this.session = (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
     }
   }
 
-  public DatabaseSessionInternal openDatabase() {
-    return (DatabaseSessionInternal) context.open(this.databaseName, adminUser, adminPassword);
+  public DatabaseSessionEmbedded openDatabase() {
+    return (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, adminUser, adminPassword);
   }
 
-  public DatabaseSessionInternal openDatabase(String user, String password) {
-    return (DatabaseSessionInternal) context.open(this.databaseName, user, password);
+  public DatabaseSessionEmbedded openDatabase(String user, String password) {
+    return (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
   }
 
   protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
@@ -132,40 +147,59 @@ public class DbTestBase {
   @After
   public void afterTest() {
     dropDatabase();
-    context.close();
+    youTrackDB.close();
   }
 
   public void dropDatabase() {
-    if (!db.isClosed()) {
-      db.activateOnCurrentThread();
-      db.close();
+    if (!session.isClosed()) {
+      session.activateOnCurrentThread();
+      session.close();
     }
     if (!pool.isClosed()) {
       pool.close();
     }
 
-    if (context.exists(this.databaseName)) {
-      context.drop(databaseName);
+    if (youTrackDB.exists(this.databaseName)) {
+      youTrackDB.drop(databaseName);
     }
   }
 
   public static void assertWithTimeout(DatabaseSession session, Runnable runnable)
       throws Exception {
-    for (int i = 0; i < 30 * 60 * 10; i++) {
+    for (var i = 0; i < 30 * 60 * 10; i++) {
+      var tx = session.begin();
       try {
-        session.begin();
         runnable.run();
-        session.commit();
+        tx.commit();
         return;
       } catch (AssertionError e) {
-        session.rollback();
+        tx.rollback();
         Thread.sleep(100);
       } catch (Exception e) {
-        session.rollback();
+        tx.rollback();
         throw e;
       }
     }
 
     runnable.run();
+  }
+
+  public void withOverriddenConfig(
+      GlobalConfiguration parameter,
+      Object value,
+      Consumer<DatabaseSessionEmbedded> action) {
+
+    var oldValue = parameter.getValue();
+    DatabaseSessionEmbedded session = null;
+    try {
+      parameter.setValue(value);
+      session = openDatabase(createConfig());
+      action.accept(session);
+    } finally {
+      parameter.setValue(oldValue);
+      if (session != null) {
+        session.close();
+      }
+    }
   }
 }

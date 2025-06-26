@@ -26,11 +26,12 @@ public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
   }
 
   private static Result produce(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    ResultInternal result = new ResultInternal(db);
+    var db = ctx.getDatabaseSession();
+    var result = new ResultInternal(db);
 
-    result.setProperty("name", db.getName());
-    result.setProperty("user", db.geCurrentUser() == null ? null : db.geCurrentUser().getName(db));
+    result.setProperty("name", db.getDatabaseName());
+    result.setProperty("user",
+        db.getCurrentUser() == null ? null : db.getCurrentUser().getName(db));
     result.setProperty(
         "dateFormat", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.DATEFORMAT)));
     result.setProperty(
@@ -41,17 +42,13 @@ public class FetchFromDatabaseMetadataStep extends AbstractExecutionStep {
     result.setProperty(
         "localeLanguage", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE)));
     result.setProperty("charset", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.CHARSET)));
-    result.setProperty(
-        "clusterSelection", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.CLUSTER_SELECTION)));
-    result.setProperty(
-        "minimumClusters", String.valueOf(db.get(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS)));
     return result;
   }
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    String result = spaces + "+ FETCH DATABASE METADATA";
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = spaces + "+ FETCH DATABASE METADATA";
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }

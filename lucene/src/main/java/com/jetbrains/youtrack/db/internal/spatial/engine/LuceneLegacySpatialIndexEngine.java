@@ -19,16 +19,19 @@ package com.jetbrains.youtrack.db.internal.spatial.engine;
 
 import static com.jetbrains.youtrack.db.internal.lucene.builder.LuceneQueryBuilder.EMPTY_METADATA;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.lucene.collections.LuceneResultSet;
@@ -44,13 +47,11 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.DoubleValuesSource;
-import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.spatial.SpatialStrategy;
@@ -67,7 +68,7 @@ import org.locationtech.spatial4j.shape.Shape;
  */
 public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbstract {
 
-  private final ShapeBuilderLegacy legacyBuilder = ShapeBuilderLegacyImpl.INSTANCE;
+  private final ShapeBuilderLegacy<Shape> legacyBuilder = ShapeBuilderLegacyImpl.INSTANCE;
 
   public LuceneLegacySpatialIndexEngine(
       Storage storage, String indexName, int id, ShapeBuilder factory) {
@@ -78,7 +79,7 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
       LuceneTxChanges changes) throws IOException {
     if (key instanceof SpatialCompositeKey newKey) {
 
-      final SpatialOperation strategy =
+      final var strategy =
           newKey.getOperation() != null ? newKey.getOperation() : SpatialOperation.Intersects;
 
       if (SpatialOperation.Intersects.equals(strategy)) {
@@ -91,70 +92,72 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
     } else if (key instanceof CompositeKey) {
       return searchIntersect(session, (CompositeKey) key, 0, null, changes);
     }
-    throw new IndexEngineException("Unknown key" + key, null);
+    throw new IndexEngineException(session.getDatabaseName(), "Unknown key" + key, null);
   }
 
   private Set<Identifiable> searchIntersect(
-      DatabaseSessionInternal session, CompositeKey key, double distance,
+      DatabaseSessionInternal db, CompositeKey key, double distance,
       CommandContext context,
       LuceneTxChanges changes)
       throws IOException {
 
-    double lat = (Double) PropertyType.convert(session, key.getKeys().get(0), Double.class);
-    double lng = (Double) PropertyType.convert(session, key.getKeys().get(1), Double.class);
-    SpatialOperation operation = SpatialOperation.Intersects;
+    double lat = PropertyTypeInternal.convert(db, key.getKeys().get(0), Double.class);
+    double lng = PropertyTypeInternal.convert(db, key.getKeys().get(1), Double.class);
+    var operation = SpatialOperation.Intersects;
 
     @SuppressWarnings("deprecation")
-    Point p = ctx.makePoint(lng, lat);
+    var p = ctx.makePoint(lng, lat);
     @SuppressWarnings("deprecation")
-    SpatialArgs args =
+    var args =
         new SpatialArgs(
             operation,
             ctx.makeCircle(
                 lng,
                 lat,
                 DistanceUtils.dist2Degrees(distance, DistanceUtils.EARTH_MEAN_RADIUS_KM)));
-    Query filterQuery = strategy.makeQuery(args);
+    var filterQuery = strategy.makeQuery(args);
 
-    IndexSearcher searcher = searcher();
-    DoubleValuesSource valueSource = strategy.makeDistanceValueSource(p);
-    Sort distSort = new Sort(valueSource.getSortField(false)).rewrite(searcher);
+    var searcher = searcher(db.getStorage());
+    var valueSource = strategy.makeDistanceValueSource(p);
+    var distSort = new Sort(valueSource.getSortField(false)).rewrite(searcher);
 
-    BooleanQuery q =
+    var q =
         new BooleanQuery.Builder()
             .add(filterQuery, BooleanClause.Occur.MUST)
             .add(new MatchAllDocsQuery(), BooleanClause.Occur.SHOULD)
             .build();
 
-    LuceneQueryContext queryContext =
+    var queryContext =
         new SpatialQueryContext(context, searcher, q, Arrays.asList(distSort.getSort()))
             .setSpatialArgs(args)
             .withChanges(changes);
-    return new LuceneResultSet(this, queryContext, EMPTY_METADATA);
+    return new LuceneResultSet(db, this, queryContext, EMPTY_METADATA);
   }
 
+  @Nullable
   private Set<Identifiable> searchWithin(
       SpatialCompositeKey key, CommandContext context, LuceneTxChanges changes) {
 
-    Shape shape = legacyBuilder.makeShape(context.getDatabase(), key, ctx);
+    var db = context.getDatabaseSession();
+    var shape = legacyBuilder.makeShape(db, key, ctx);
     if (shape == null) {
       return null;
     }
-    SpatialArgs args = new SpatialArgs(SpatialOperation.IsWithin, shape);
-    IndexSearcher searcher = searcher();
+    var args = new SpatialArgs(SpatialOperation.IsWithin, shape);
+    var searcher = searcher(db.getStorage());
 
-    Query filterQuery = strategy.makeQuery(args);
+    var filterQuery = strategy.makeQuery(args);
 
-    BooleanQuery query =
+    var query =
         new BooleanQuery.Builder()
             .add(filterQuery, BooleanClause.Occur.MUST)
             .add(new MatchAllDocsQuery(), BooleanClause.Occur.SHOULD)
             .build();
 
-    LuceneQueryContext queryContext =
+    var queryContext =
         new SpatialQueryContext(context, searcher, query).withChanges(changes);
 
-    return new LuceneResultSet(this, queryContext, EMPTY_METADATA);
+    return new LuceneResultSet(db, this, queryContext, EMPTY_METADATA);
   }
 
   @Override
@@ -164,13 +167,13 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
       Document doc,
       ScoreDoc score) {
 
-    SpatialQueryContext spatialContext = (SpatialQueryContext) queryContext;
+    var spatialContext = (SpatialQueryContext) queryContext;
     if (spatialContext.spatialArgs != null) {
       @SuppressWarnings("deprecation")
-      Point docPoint = (Point) ctx.readShape(doc.get(strategy.getFieldName()));
-      double docDistDEG =
+      var docPoint = (Point) ctx.readShape(doc.get(strategy.getFieldName()));
+      var docDistDEG =
           ctx.getDistCalc().distance(spatialContext.spatialArgs.getShape().getCenter(), docPoint);
-      final double docDistInKM =
+      final var docDistInKM =
           DistanceUtils.degrees2Dist(docDistDEG, DistanceUtils.EARTH_EQUATORIAL_RADIUS_KM);
       Map<String, Object> data = new HashMap<String, Object>();
       data.put("distance", docDistInKM);
@@ -179,41 +182,41 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
   }
 
   @Override
-  public Set<Identifiable> getInTx(DatabaseSessionInternal session, Object key,
+  public Set<Identifiable> getInTx(DatabaseSessionEmbedded session, Object key,
       LuceneTxChanges changes) {
     try {
       updateLastAccess();
-      openIfClosed();
+      openIfClosed(session.getStorage());
       return legacySearch(session, key, changes);
     } catch (IOException e) {
-      e.printStackTrace();
+      throw BaseException.wrapException(new DatabaseException(session, "Error while searching"), e,
+          session);
     }
-    return null;
   }
 
   @Override
-  public Object get(DatabaseSessionInternal session, Object key) {
-    return getInTx(session, key, null);
+  public Object get(DatabaseSessionEmbedded db, Object key) {
+    return getInTx(db, key, null);
   }
 
   @Override
-  public void put(DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+  public void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       Object value) {
 
     if (key instanceof CompositeKey compositeKey) {
       updateLastAccess();
-      openIfClosed();
+      openIfClosed(db.getStorage());
       addDocument(
           newGeoDocument(
               (Identifiable) value,
-              legacyBuilder.makeShape(session, compositeKey, ctx),
-              compositeKey.toDocument()));
+              legacyBuilder.makeShape(db, compositeKey, ctx),
+              compositeKey.toEntity(db)));
     }
   }
 
   @Override
   public void update(
-      DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
+      DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       IndexKeyUpdater<Object> updater) {
     throw new UnsupportedOperationException();
   }
@@ -234,27 +237,17 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
     return newGeoDocument(
         value,
         legacyBuilder.makeShape(session, (CompositeKey) key, ctx),
-        ((CompositeKey) key).toDocument());
+        ((CompositeKey) key).toEntity(session));
   }
 
   @Override
   protected SpatialStrategy createSpatialStrategy(
-      IndexDefinition indexDefinition, Map<String, ?> metadata) {
+      DatabaseSessionInternal db, IndexDefinition indexDefinition, Map<String, ?> metadata) {
     return new RecursivePrefixTreeStrategy(new GeohashPrefixTree(ctx, 11), "location");
   }
 
   @Override
   public boolean isLegacy() {
     return true;
-  }
-
-  @Override
-  public void updateUniqueIndexVersion(Object key) {
-    // not implemented
-  }
-
-  @Override
-  public int getUniqueIndexVersion(Object key) {
-    return 0; // not implemented
   }
 }

@@ -2,12 +2,9 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -19,176 +16,195 @@ public class DeleteStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testSimple() {
-    String className = "testSimple";
-    db.getMetadata().getSchema().createClass(className);
-    for (int i = 0; i < 10; i++) {
-      db.begin();
-      EntityImpl doc = db.newInstance(className);
+    var className = "testSimple";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
       doc.setProperty("name", "name" + i);
-      doc.save();
-      db.commit();
+
+      session.commit();
+      if (i == 4) {
+        System.out.println("deleted");
+      }
+      System.out.println(doc.getIdentity());
     }
 
-    db.begin();
-    ResultSet result = db.command("delete from  " + className + " where name = 'name4'");
+    session.begin();
+    try (var rs = session.query("select from " + className)) {
+      Assert.assertEquals(10, rs.stream().count());
+    }
+    session.commit();
+
+    session.begin();
+    var result = session.execute("delete from  " + className + " where name = 'name4'");
     printExecutionPlan(result);
-    for (int i = 0; i < 1; i++) {
+    for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertNotNull(item);
       Assert.assertEquals((Object) 1L, item.getProperty("count"));
     }
     Assert.assertFalse(result.hasNext());
-    db.commit();
+    session.commit();
 
-    result = db.query("select from " + className);
-    for (int i = 0; i < 9; i++) {
+    System.out.println("-------------------");
+
+    session.begin();
+    result = session.query("select from " + className);
+    for (var i = 0; i < 9; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
+      System.out.println(item.getIdentity());
       Assert.assertNotNull(item);
       Assert.assertNotEquals("name4", item.getProperty("name"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testUnsafe1() {
-    String className = "testUnsafe1";
-    SchemaClass v = db.getMetadata().getSchema().getClass("V");
+    var className = "testUnsafe1";
+    var v = session.getMetadata().getSchema().getClass("V");
     if (v == null) {
-      db.getMetadata().getSchema().createClass("V");
+      session.getMetadata().getSchema().createClass("V");
     }
-    db.getMetadata().getSchema().createClass(className, v);
-    for (int i = 0; i < 10; i++) {
-      db.begin();
-      EntityImpl doc = db.newInstance(className);
+    session.getMetadata().getSchema().createClass(className, v);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newVertex(className);
       doc.setProperty("name", "name" + i);
-      doc.save();
-      db.commit();
+      session.commit();
     }
+
     try {
-      ResultSet result = db.command("delete from  " + className + " where name = 'name4'");
+      session.begin();
+      session.execute("delete from  " + className + " where name = 'name4'");
       Assert.fail();
     } catch (CommandExecutionException ex) {
-
-    } catch (Exception e) {
-      Assert.fail();
     }
+    session.rollback();
   }
 
   @Test
   public void testUnsafe2() {
-    String className = "testUnsafe2";
-    SchemaClass v = db.getMetadata().getSchema().getClass("V");
+    var className = "testUnsafe2";
+    var v = session.getMetadata().getSchema().getClass("V");
     if (v == null) {
-      db.getMetadata().getSchema().createClass("V");
+      session.getMetadata().getSchema().createClass("V");
     }
-    db.getMetadata().getSchema().createClass(className, v);
-    for (int i = 0; i < 10; i++) {
-      db.begin();
-      EntityImpl doc = db.newInstance(className);
-      doc.setProperty("name", "name" + i);
-      doc.save();
-      db.commit();
+    session.getMetadata().getSchema().createClass(className, v);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var vertex = session.newVertex(className);
+      vertex.setProperty("name", "name" + i);
+
+      session.commit();
     }
 
-    db.begin();
-    ResultSet result = db.command("delete from  " + className + " where name = 'name4' unsafe");
+    session.begin();
+    var result = session.execute("delete from  " + className + " where name = 'name4' unsafe");
 
     printExecutionPlan(result);
-    for (int i = 0; i < 1; i++) {
+    for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertNotNull(item);
       Assert.assertEquals((Object) 1L, item.getProperty("count"));
     }
     Assert.assertFalse(result.hasNext());
-    db.commit();
+    session.commit();
 
-    result = db.query("select from " + className);
-    for (int i = 0; i < 9; i++) {
+    session.begin();
+    result = session.query("select from " + className);
+    for (var i = 0; i < 9; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertNotNull(item);
       Assert.assertNotEquals("name4", item.getProperty("name"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testReturnBefore() {
-    String className = "testReturnBefore";
-    db.getMetadata().getSchema().createClass(className);
+    var className = "testReturnBefore";
+    session.getMetadata().getSchema().createClass(className);
     RID fourthId = null;
 
-    for (int i = 0; i < 10; i++) {
-      db.begin();
-      EntityImpl doc = db.newInstance(className);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      EntityImpl doc = session.newInstance(className);
       doc.setProperty("name", "name" + i);
       if (i == 4) {
         fourthId = doc.getIdentity();
       }
 
-      doc.save();
-      db.commit();
+      session.commit();
     }
 
-    db.begin();
-    ResultSet result =
-        db.command("delete from  " + className + " return before where name = 'name4' ");
+    session.begin();
+    var result =
+        session.execute("delete from  " + className + " return before where name = 'name4' ");
     printExecutionPlan(result);
-    for (int i = 0; i < 1; i++) {
+    for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertNotNull(item);
-      Assert.assertEquals(fourthId, item.getRecordId());
+      Assert.assertEquals(fourthId, item.getIdentity());
     }
     Assert.assertFalse(result.hasNext());
-    db.commit();
+    session.commit();
 
-    result = db.query("select from " + className);
-    for (int i = 0; i < 9; i++) {
+    session.begin();
+    result = session.query("select from " + className);
+    for (var i = 0; i < 9; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertNotNull(item);
       Assert.assertNotEquals("name4", item.getProperty("name"));
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void testLimit() {
-    String className = "testLimit";
-    db.getMetadata().getSchema().createClass(className);
-    for (int i = 0; i < 10; i++) {
-      db.begin();
-      EntityImpl doc = db.newInstance(className);
+    var className = "testLimit";
+    session.getMetadata().getSchema().createClass(className);
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      EntityImpl doc = session.newInstance(className);
       doc.setProperty("name", "name" + i);
-      doc.save();
-      db.commit();
+
+      session.commit();
     }
-    db.begin();
-    ResultSet result = db.command("delete from  " + className + " limit 5");
+    session.begin();
+    var result = session.execute("delete from  " + className + " limit 5");
     printExecutionPlan(result);
-    for (int i = 0; i < 1; i++) {
+    for (var i = 0; i < 1; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertNotNull(item);
       Assert.assertEquals((Object) 5L, item.getProperty("count"));
     }
     Assert.assertFalse(result.hasNext());
-    db.commit();
+    session.commit();
 
-    result = db.query("select from " + className);
-    for (int i = 0; i < 5; i++) {
+    session.begin();
+    result = session.query("select from " + className);
+    for (var i = 0; i < 5; i++) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertNotNull(item);
     }
     Assert.assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 }

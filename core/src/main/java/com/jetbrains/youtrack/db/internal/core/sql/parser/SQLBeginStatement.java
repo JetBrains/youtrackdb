@@ -19,10 +19,12 @@ public class SQLBeginStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    db.begin();
-    ResultInternal item = new ResultInternal(db);
+    var session = ctx.getDatabaseSession();
+    session.begin();
+    var item = new ResultInternal(session);
     item.setProperty("operation", "begin");
+    item.setProperty("txId", session.getTransactionInternal().getId());
+
     return ExecutionStream.singleton(item);
   }
 

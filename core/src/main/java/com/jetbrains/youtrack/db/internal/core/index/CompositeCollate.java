@@ -22,18 +22,15 @@ package com.jetbrains.youtrack.db.internal.core.index;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Collate implementation used on composite indexes.
  */
 public class CompositeCollate implements Collate {
-
-  private static final long serialVersionUID = 8683726773893639905L;
   private final AbstractIndexDefinition oCompositeIndexDefinition;
 
-  /**
-   * @param oCompositeIndexDefinition
-   */
   public CompositeCollate(final AbstractIndexDefinition oCompositeIndexDefinition) {
     this.oCompositeIndexDefinition = oCompositeIndexDefinition;
   }
@@ -45,13 +42,13 @@ public class CompositeCollate implements Collate {
   }
 
   @Override
-  public String getName() {
-    throw new UnsupportedOperationException("getName");
+  public @Nonnull String getName() {
+    return "CompositeCollate";
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public Object transform(final Object obj) {
+  public @Nullable Object transform(final @Nullable Object obj) {
     final List<Object> keys;
     if (obj instanceof CompositeKey compositeKey) {
       keys = compositeKey.getKeys();
@@ -62,17 +59,17 @@ public class CompositeCollate implements Collate {
           "Impossible add as key of a CompositeIndex a value of type " + obj.getClass());
     }
 
-    final CompositeKey transformedKey = new CompositeKey();
+    final var transformedKey = new CompositeKey();
 
-    final int size = Math.min(keys.size(), collates.size());
-    for (int i = 0; i < size; i++) {
-      final Object key = keys.get(i);
+    final var size = Math.min(keys.size(), collates.size());
+    for (var i = 0; i < size; i++) {
+      final var key = keys.get(i);
 
-      final Collate collate = collates.get(i);
+      final var collate = collates.get(i);
       transformedKey.addKey(collate.transform(key));
     }
 
-    for (int i = size; i < keys.size(); i++) {
+    for (var i = size; i < keys.size(); i++) {
       transformedKey.addKey(keys.get(i));
     }
 
@@ -88,7 +85,7 @@ public class CompositeCollate implements Collate {
       return false;
     }
 
-    final CompositeCollate that = (CompositeCollate) o;
+    final var that = (CompositeCollate) o;
 
     return collates.equals(that.collates);
   }

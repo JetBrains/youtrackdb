@@ -2,14 +2,11 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.session.SessionPool;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.SessionPoolImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.ArrayList;
@@ -25,22 +22,22 @@ public class TestConcurrentCachedDBSequenceGenerationIT {
   static final int THREADS = 20;
   static final int RECORDS = 100;
   private YouTrackDBServer server;
-  private YouTrackDBImpl youTrackDB;
+  private RemoteYouTrackDB youTrackDB;
 
   @Before
   public void before() throws Exception {
     server = new YouTrackDBServer(false);
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config.xml"));
     server.activate();
-    youTrackDB = new YouTrackDBImpl("remote:localhost", "root", "root",
+    youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
         TestConcurrentCachedDBSequenceGenerationIT.class.getSimpleName());
-    DatabaseSession databaseSession =
+    var databaseSession =
         youTrackDB.open(
             TestConcurrentCachedDBSequenceGenerationIT.class.getSimpleName(), "admin", "admin");
-    databaseSession.execute(
+    databaseSession.executeScript(
         "sql",
         """
             CREATE CLASS TestSequence EXTENDS V;
@@ -55,41 +52,42 @@ public class TestConcurrentCachedDBSequenceGenerationIT {
 
   @Test
   public void test() throws InterruptedException {
-    AtomicLong failures = new AtomicLong(0);
-    SessionPool pool =
-        new SessionPoolImpl(
-            youTrackDB,
-            TestConcurrentCachedDBSequenceGenerationIT.class.getSimpleName(),
-            "admin",
-            "admin");
-    List<Thread> threads = new ArrayList<>();
-    for (int i = 0; i < THREADS; i++) {
-      Thread thread =
-          new Thread() {
-            @Override
-            public void run() {
-              try (DatabaseSession db = pool.acquire()) {
-                for (int j = 0; j < RECORDS; j++) {
-                  db.begin();
-                  Vertex vert = db.newVertex("TestSequence");
-                  assertNotNull(vert.getProperty("id"));
-                  db.save(vert);
-                  db.commit();
+    var failures = new AtomicLong(0);
+    try (var pool = youTrackDB.cachedPool(
+        TestConcurrentCachedDBSequenceGenerationIT.class.getSimpleName(), "admin", "admin")) {
+      List<Thread> threads = new ArrayList<>();
+      for (var i = 0; i < THREADS; i++) {
+        var thread =
+            new Thread() {
+              @Override
+              public void run() {
+                try (var db = pool.acquire()) {
+                  for (var j = 0; j < RECORDS; j++) {
+                    var rid = db.computeSQLScript("""
+                        begin;
+                        let $v = create vertex TestSequence;
+                        commit;
+                        return $v;
+                        """).findFirst().getIdentity();
+                    db.begin();
+                    var entity = db.query("select id from ?", rid).findFirst();
+                    db.commit();
+                    assertNotNull(entity.getLong("id"));
+                  }
+                } catch (Exception e) {
+                  failures.incrementAndGet();
+                  e.printStackTrace();
                 }
-              } catch (Exception e) {
-                failures.incrementAndGet();
-                e.printStackTrace();
               }
-            }
-          };
-      threads.add(thread);
-      thread.start();
-    }
-    for (Thread t : threads) {
-      t.join();
+            };
+        threads.add(thread);
+        thread.start();
+      }
+      for (var t : threads) {
+        t.join();
+      }
     }
     Assert.assertEquals(0, failures.get());
-    pool.close();
   }
 
   @After

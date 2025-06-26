@@ -2,16 +2,20 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SQLConsoleStatement extends SQLSimpleExecStatement {
+
+  private static final Logger logger = LoggerFactory.getLogger(SQLConsoleStatement.class);
 
   protected SQLIdentifier logLevel;
   protected SQLExpression message;
@@ -26,7 +30,7 @@ public class SQLConsoleStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    ResultInternal item = new ResultInternal(ctx.getDatabase());
+    var item = new ResultInternal(ctx.getDatabaseSession());
     Object msg = "" + message.execute((Identifiable) null, ctx);
 
     if (logLevel.getStringValue().equalsIgnoreCase("log")) {
@@ -39,9 +43,10 @@ public class SQLConsoleStatement extends SQLSimpleExecStatement {
     } else if (logLevel.getStringValue().equalsIgnoreCase("warn")) {
       LogManager.instance().warn(this, "%s", msg);
     } else if (logLevel.getStringValue().equalsIgnoreCase("debug")) {
-      LogManager.instance().debug(this, "%s", msg);
+      LogManager.instance().debug(this, "%s", logger, msg);
     } else {
-      throw new CommandExecutionException("Unsupported log level: " + logLevel);
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Unsupported log level: " + logLevel);
     }
 
     item.setProperty("operation", "console");
@@ -68,7 +73,7 @@ public class SQLConsoleStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLConsoleStatement copy() {
-    SQLConsoleStatement result = new SQLConsoleStatement(-1);
+    var result = new SQLConsoleStatement(-1);
     result.logLevel = logLevel == null ? null : logLevel.copy();
     result.message = message == null ? null : message.copy();
     return result;
@@ -83,7 +88,7 @@ public class SQLConsoleStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLConsoleStatement that = (SQLConsoleStatement) o;
+    var that = (SQLConsoleStatement) o;
 
     if (!Objects.equals(logLevel, that.logLevel)) {
       return false;
@@ -93,7 +98,7 @@ public class SQLConsoleStatement extends SQLSimpleExecStatement {
 
   @Override
   public int hashCode() {
-    int result = logLevel != null ? logLevel.hashCode() : 0;
+    var result = logLevel != null ? logLevel.hashCode() : 0;
     result = 31 * result + (message != null ? message.hashCode() : 0);
     return result;
   }

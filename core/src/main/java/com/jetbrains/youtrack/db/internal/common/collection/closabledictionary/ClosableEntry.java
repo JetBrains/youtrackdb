@@ -88,12 +88,12 @@ public class ClosableEntry<K, V extends ClosableItem> {
   }
 
   void makeAcquiredFromClosed(ClosableItem item) {
-    final long s = state;
+    final var s = state;
     if (s != STATUS_CLOSED) {
       throw new IllegalStateException();
     }
 
-    final long acquiredState = 1L << ACQUIRED_OFFSET;
+    final var acquiredState = 1L << ACQUIRED_OFFSET;
     item.open();
 
     state = acquiredState;
@@ -110,7 +110,7 @@ public class ClosableEntry<K, V extends ClosableItem> {
   void releaseAcquired() {
     stateLock.lock();
     try {
-      long acquireCount = state >>> ACQUIRED_OFFSET;
+      var acquireCount = state >>> ACQUIRED_OFFSET;
 
       if (acquireCount < 1) {
         throw new IllegalStateException("Amount of acquires less than one");
@@ -129,7 +129,7 @@ public class ClosableEntry<K, V extends ClosableItem> {
   }
 
   void incrementAcquired() {
-    long acquireCount = state >>> ACQUIRED_OFFSET;
+    var acquireCount = state >>> ACQUIRED_OFFSET;
 
     if (acquireCount < 1) {
       throw new IllegalStateException();
@@ -140,7 +140,7 @@ public class ClosableEntry<K, V extends ClosableItem> {
   }
 
   long makeRetired() {
-    long oldSate = state;
+    var oldSate = state;
 
     stateLock.lock();
     try {

@@ -58,7 +58,7 @@ public class UpdatePageRecord extends AbstractPageWALRecord {
 
   @Override
   public int serializedSize() {
-    int serializedSize = super.serializedSize();
+    var serializedSize = super.serializedSize();
     serializedSize += changes.serializedSize();
 
     serializedSize += Integer.BYTES + Long.BYTES;
@@ -82,8 +82,8 @@ public class UpdatePageRecord extends AbstractPageWALRecord {
     changes = new WALPageChangesPortion();
     changes.fromStream(buffer);
 
-    final long segment = buffer.getLong();
-    final int position = buffer.getInt();
+    final var segment = buffer.getLong();
+    final var position = buffer.getInt();
     initialLsn = new LogSequenceNumber(segment, position);
   }
 
@@ -99,7 +99,7 @@ public class UpdatePageRecord extends AbstractPageWALRecord {
       return false;
     }
 
-    final UpdatePageRecord that = (UpdatePageRecord) o;
+    final var that = (UpdatePageRecord) o;
 
     if (logSequenceNumber == null && that.logSequenceNumber == null) {
       return true;
@@ -117,7 +117,7 @@ public class UpdatePageRecord extends AbstractPageWALRecord {
 
   @Override
   public int hashCode() {
-    int result = super.hashCode();
+    var result = super.hashCode();
     result = 31 * result + (logSequenceNumber != null ? logSequenceNumber.hashCode() : 0);
     return result;
   }

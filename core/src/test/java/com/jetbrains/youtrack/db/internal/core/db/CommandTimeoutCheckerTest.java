@@ -25,12 +25,12 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
 
   @Test
   public void testTimeout() throws InterruptedException {
-    CommandTimeoutChecker checker = new CommandTimeoutChecker(100, this);
-    CountDownLatch latch = new CountDownLatch(10);
-    for (int i = 0; i < 10; i++) {
+    var checker = new CommandTimeoutChecker(100, this);
+    var latch = new CountDownLatch(10);
+    for (var i = 0; i < 10; i++) {
       new Thread(
           () -> {
-            checker.startCommand(Optional.empty());
+            checker.startCommand(null);
             try {
               Thread.sleep(1000);
             } catch (InterruptedException e) {
@@ -47,12 +47,12 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
 
   @Test
   public void testNoTimeout() throws InterruptedException {
-    CommandTimeoutChecker checker = new CommandTimeoutChecker(1000, this);
-    CountDownLatch latch = new CountDownLatch(10);
-    for (int i = 0; i < 10; i++) {
+    var checker = new CommandTimeoutChecker(1000, this);
+    var latch = new CountDownLatch(10);
+    for (var i = 0; i < 10; i++) {
       new Thread(
           () -> {
-            checker.startCommand(Optional.empty());
+            checker.startCommand(null);
             try {
               Thread.sleep(100);
             } catch (InterruptedException e) {

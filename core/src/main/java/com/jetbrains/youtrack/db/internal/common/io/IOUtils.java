@@ -43,6 +43,7 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
+import javax.annotation.Nullable;
 
 public class IOUtils {
 
@@ -65,10 +66,10 @@ public class IOUtils {
       return ((Number) iSize).longValue();
     }
 
-    String time = iSize.toString();
+    var time = iSize.toString();
 
-    boolean number = true;
-    for (int i = time.length() - 1; i >= 0; --i) {
+    var number = true;
+    for (var i = time.length() - 1; i >= 0; --i) {
       if (!Character.isDigit(time.charAt(i))) {
         number = false;
         break;
@@ -82,8 +83,8 @@ public class IOUtils {
     } else {
       time = time.toUpperCase(Locale.ENGLISH);
 
-      int pos = time.indexOf("MS");
-      final String timeAsNumber = PatternConst.PATTERN_NUMBERS.matcher(time).replaceAll("");
+      var pos = time.indexOf("MS");
+      final var timeAsNumber = PatternConst.PATTERN_NUMBERS.matcher(time).replaceAll("");
       if (pos > -1) {
         return Long.parseLong(timeAsNumber);
       }
@@ -148,10 +149,10 @@ public class IOUtils {
   }
 
   public static Date getTodayWithTime(final String iTime) throws ParseException {
-    final SimpleDateFormat df = new SimpleDateFormat("HH:mm:ss");
-    Calendar calParsed = Calendar.getInstance();
+    final var df = new SimpleDateFormat("HH:mm:ss");
+    var calParsed = Calendar.getInstance();
     calParsed.setTime(df.parse(iTime));
-    Calendar cal = Calendar.getInstance();
+    var cal = Calendar.getInstance();
     cal.set(Calendar.HOUR_OF_DAY, calParsed.get(Calendar.HOUR_OF_DAY));
     cal.set(Calendar.MINUTE, calParsed.get(Calendar.MINUTE));
     cal.set(Calendar.SECOND, calParsed.get(Calendar.SECOND));
@@ -173,13 +174,13 @@ public class IOUtils {
 
   public static String readStreamAsString(final InputStream iStream, Charset iCharset)
       throws IOException {
-    final StringBuilder fileData = new StringBuilder(1000);
-    try (BufferedReader reader = new BufferedReader(new InputStreamReader(iStream, iCharset))) {
-      final char[] buf = new char[1024];
+    final var fileData = new StringBuilder(1000);
+    try (var reader = new BufferedReader(new InputStreamReader(iStream, iCharset))) {
+      final var buf = new char[1024];
       int numRead;
 
       while ((numRead = reader.read(buf)) != -1) {
-        String readData = String.valueOf(buf, 0, numRead);
+        var readData = String.valueOf(buf, 0, numRead);
 
         if (fileData.isEmpty() && readData.startsWith(UTF8_BOM))
         // SKIP UTF-8 BOM IF ANY
@@ -194,9 +195,9 @@ public class IOUtils {
   }
 
   public static void writeFile(final File iFile, final String iContent) throws IOException {
-    try (FileOutputStream fos = new FileOutputStream(iFile)) {
-      try (OutputStreamWriter os = new OutputStreamWriter(fos)) {
-        try (BufferedWriter writer = new BufferedWriter(os)) {
+    try (var fos = new FileOutputStream(iFile)) {
+      try (var os = new OutputStreamWriter(fos)) {
+        try (var writer = new BufferedWriter(os)) {
           writer.write(iContent);
         }
       }
@@ -204,7 +205,7 @@ public class IOUtils {
   }
 
   public static void copyStream(final InputStream in, final OutputStream out) throws IOException {
-    final byte[] buf = new byte[8192];
+    final var buf = new byte[8192];
     int byteRead;
     while ((byteRead = in.read(buf)) != -1) {
       out.write(buf, 0, byteRead);
@@ -214,18 +215,19 @@ public class IOUtils {
   /**
    * Returns the Unix file name format converting backslashes (\) to slasles (/)
    */
+  @Nullable
   public static String getUnixFileName(final String iFileName) {
     return iFileName != null ? iFileName.replace('\\', '/') : null;
   }
 
   public static String getRelativePathIfAny(final String iDatabaseURL, final String iBasePath) {
     if (iBasePath == null) {
-      final int pos = iDatabaseURL.lastIndexOf('/');
+      final var pos = iDatabaseURL.lastIndexOf('/');
       if (pos > -1) {
         return iDatabaseURL.substring(pos + 1);
       }
     } else {
-      final int pos = iDatabaseURL.indexOf(iBasePath);
+      final var pos = iDatabaseURL.indexOf(iBasePath);
       if (pos > -1) {
         return iDatabaseURL.substring(pos + iBasePath.length() + 1);
       }
@@ -247,12 +249,12 @@ public class IOUtils {
   }
 
   public static String java2unicode(final String iInput) {
-    final StringBuilder result = new StringBuilder(iInput.length() * 2);
-    final int inputSize = iInput.length();
+    final var result = new StringBuilder(iInput.length() * 2);
+    final var inputSize = iInput.length();
 
     char ch;
     String hex;
-    for (int i = 0; i < inputSize; i++) {
+    for (var i = 0; i < inputSize; i++) {
       ch = iInput.charAt(i);
 
       if (ch >= 0x0020 && ch <= 0x007e) // Does the char need to be converted to unicode?
@@ -274,12 +276,12 @@ public class IOUtils {
 
   public static String encodeJsonString(final String iInput) {
 
-    final StringBuilder result = new StringBuilder(iInput.length() * 2);
-    final int inputSize = iInput.length();
+    final var result = new StringBuilder(iInput.length() * 2);
+    final var inputSize = iInput.length();
 
     char ch;
     String hex;
-    for (int i = 0; i < inputSize; i++) {
+    for (var i = 0; i < inputSize; i++) {
       ch = iInput.charAt(i);
 
       if (ch >= 0x0020 && ch <= 0x007e) { // Does the char need to be converted to unicode?
@@ -312,7 +314,7 @@ public class IOUtils {
       return false;
     }
 
-    final String s = iValue.toString();
+    final var s = iValue.toString();
 
     if (s == null) {
       return false;
@@ -323,12 +325,13 @@ public class IOUtils {
         || s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"');
   }
 
+  @Nullable
   public static String getStringContent(final Object iValue) {
     if (iValue == null) {
       return null;
     }
 
-    final String s = iValue.toString();
+    final var s = iValue.toString();
 
     if (s == null) {
       return null;
@@ -347,12 +350,13 @@ public class IOUtils {
     return s;
   }
 
+  @Nullable
   public static String wrapStringContent(final Object iValue, final char iStringDelimiter) {
     if (iValue == null) {
       return null;
     }
 
-    final String s = iValue.toString();
+    final var s = iValue.toString();
 
     if (s == null) {
       return null;
@@ -366,7 +370,7 @@ public class IOUtils {
       return false;
     }
 
-    for (int i = 0; i < buffer.length; ++i) {
+    for (var i = 0; i < buffer.length; ++i) {
       if (buffer[i] != buffer2[i]) {
         return false;
       }
@@ -376,10 +380,10 @@ public class IOUtils {
   }
 
   public static boolean isLong(final String iText) {
-    boolean isLong = true;
-    final int size = iText.length();
-    for (int i = 0; i < size && isLong; i++) {
-      final char c = iText.charAt(i);
+    var isLong = true;
+    final var size = iText.length();
+    for (var i = 0; i < size && isLong; i++) {
+      final var c = iText.charAt(i);
       isLong = c >= '0' && c <= '9';
     }
 
@@ -388,7 +392,7 @@ public class IOUtils {
 
   public static void readFully(InputStream in, byte[] b, int off, int len) throws IOException {
     while (len > 0) {
-      int n = in.read(b, off, len);
+      var n = in.read(b, off, len);
 
       if (n == -1) {
         throw new EOFException();
@@ -401,13 +405,13 @@ public class IOUtils {
   public static void readByteBuffer(
       ByteBuffer buffer, FileChannel channel, long position, boolean throwOnEof)
       throws IOException {
-    int bytesToRead = buffer.limit();
+    var bytesToRead = buffer.limit();
 
-    int read = 0;
+    var read = 0;
     while (read < bytesToRead) {
       buffer.position(read);
 
-      final int r = channel.read(buffer, position + read);
+      final var r = channel.read(buffer, position + read);
       if (r < 0) {
         if (throwOnEof) {
           throw new EOFException("End of file is reached");
@@ -422,13 +426,13 @@ public class IOUtils {
   }
 
   public static void readByteBuffer(ByteBuffer buffer, FileChannel channel) throws IOException {
-    int bytesToRead = buffer.limit();
+    var bytesToRead = buffer.limit();
 
-    int read = 0;
+    var read = 0;
 
     while (read < bytesToRead) {
       buffer.position(read);
-      final int r = channel.read(buffer);
+      final var r = channel.read(buffer);
 
       if (r < 0) {
         throw new EOFException("End of file is reached");
@@ -440,9 +444,9 @@ public class IOUtils {
 
   public static int writeByteBuffer(ByteBuffer buffer, FileChannel channel, long position)
       throws IOException {
-    int bytesToWrite = buffer.limit();
+    var bytesToWrite = buffer.limit();
 
-    int written = 0;
+    var written = 0;
     while (written < bytesToWrite) {
       buffer.position(written);
 
@@ -459,12 +463,12 @@ public class IOUtils {
   }
 
   public static boolean isOsWindows() {
-    String osName = System.getProperty("os.name").split(" ")[0];
+    var osName = System.getProperty("os.name").split(" ")[0];
     return compareStartIgnoreCase(osName, "windows");
   }
 
   public static boolean isOsLinux() {
-    String osName = System.getProperty("os.name").split(" ")[0];
+    var osName = System.getProperty("os.name").split(" ")[0];
     return compareStartIgnoreCase(osName, "linux");
   }
 

@@ -21,17 +21,12 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.JSONWriter;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalPaginatedStorage;
-import com.jetbrains.youtrack.db.internal.server.config.ServerEntryConfiguration;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocolData;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.Collection;
 import java.util.Date;
-import java.util.List;
 
 /**
  * Returns information about the server.
@@ -39,8 +34,8 @@ import java.util.List;
 public class ServerInfo {
 
   public static String getServerInfo(final YouTrackDBServer server) throws IOException {
-    final StringWriter jsonBuffer = new StringWriter();
-    final JSONWriter json = new JSONWriter(jsonBuffer);
+    final var jsonBuffer = new StringWriter();
+    final var json = new JSONWriter(jsonBuffer);
     json.beginObject();
 
     getConnections(server, json, null);
@@ -59,12 +54,12 @@ public class ServerInfo {
       throws IOException {
     final DateFormat dateTimeFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
-    json.beginCollection(1, true, "connections");
+    json.beginCollection(null, 1, true, "connections");
 
-    final List<ClientConnection> conns = server.getClientConnectionManager().getConnections();
-    for (ClientConnection c : conns) {
-      final NetworkProtocolData data = c.getData();
-      final ClientConnectionStats stats = c.getStats();
+    final var conns = server.getClientConnectionManager().getConnections();
+    for (var c : conns) {
+      final var data = c.getData();
+      final var stats = c.getStats();
 
       if (databaseName != null && !databaseName.equals((stats.lastDatabase)))
       // SKIP IT
@@ -107,13 +102,12 @@ public class ServerInfo {
       writeField(json, 2, "lastCommandDetail", stats.lastCommandDetail);
       writeField(json, 2, "lastExecutionTime", stats.lastCommandExecutionTime);
       writeField(json, 2, "totalWorkingTime", stats.totalCommandExecutionTime);
-      writeField(json, 2, "activeQueries", stats.activeQueries);
       writeField(json, 2, "connectedOn", connectedOn);
       writeField(json, 2, "protocol", c.getProtocol().getType());
       writeField(json, 2, "sessionId", data.sessionId);
       writeField(json, 2, "clientId", data.clientId);
 
-      final StringBuilder driver = new StringBuilder(128);
+      final var driver = new StringBuilder(128);
       if (data.driverName != null) {
         driver.append(data.driverName);
         driver.append(" v");
@@ -130,15 +124,15 @@ public class ServerInfo {
 
   public static void getGlobalProperties(final YouTrackDBServer server, final JSONWriter json)
       throws IOException {
-    json.beginCollection(2, true, "globalProperties");
+    json.beginCollection(null, 2, true, "globalProperties");
 
-    for (GlobalConfiguration c : GlobalConfiguration.values()) {
+    for (var c : GlobalConfiguration.values()) {
       json.beginObject(3, true, null);
-      json.writeAttribute(4, false, "key", c.getKey());
-      json.writeAttribute(4, false, "description", c.getDescription());
-      json.writeAttribute(4, false, "value", c.isHidden() ? "<hidden>" : c.getValue());
-      json.writeAttribute(4, false, "defaultValue", c.getDefValue());
-      json.writeAttribute(4, false, "canChange", c.isChangeableAtRuntime());
+      json.writeAttribute(null, 4, false, "key", c.getKey());
+      json.writeAttribute(null, 4, false, "description", c.getDescription());
+      json.writeAttribute(null, 4, false, "value", c.isHidden() ? "<hidden>" : c.getValue());
+      json.writeAttribute(null, 4, false, "defaultValue", c.getDefValue());
+      json.writeAttribute(null, 4, false, "canChange", c.isChangeableAtRuntime());
       json.endObject(3, true);
     }
 
@@ -147,14 +141,14 @@ public class ServerInfo {
 
   public static void getProperties(final YouTrackDBServer server, final JSONWriter json)
       throws IOException {
-    json.beginCollection(2, true, "properties");
+    json.beginCollection(null, 2, true, "properties");
 
-    ServerEntryConfiguration[] confProperties = server.getConfiguration().properties;
+    var confProperties = server.getConfiguration().properties;
     if (confProperties != null) {
-      for (ServerEntryConfiguration entry : confProperties) {
+      for (var entry : confProperties) {
         json.beginObject(3, true, null);
-        json.writeAttribute(4, false, "name", entry.name);
-        json.writeAttribute(4, false, "value", entry.value);
+        json.writeAttribute(null, 4, false, "name", entry.name);
+        json.writeAttribute(null, 4, false, "value", entry.value);
         json.endObject(3, true);
       }
     }
@@ -163,9 +157,9 @@ public class ServerInfo {
 
   public static void getStorages(final YouTrackDBServer server, final JSONWriter json)
       throws IOException {
-    json.beginCollection(1, true, "storages");
-    Collection<Storage> storages = server.getDatabases().getStorages();
-    for (Storage s : storages) {
+    json.beginCollection(null, 1, true, "storages");
+    var storages = server.getDatabases().getStorages();
+    for (var s : storages) {
       json.beginObject(2);
       writeField(json, 2, "name", s.getName());
       writeField(json, 2, "type", s.getClass().getSimpleName());
@@ -173,8 +167,8 @@ public class ServerInfo {
           json,
           2,
           "path",
-          s instanceof LocalPaginatedStorage
-              ? ((LocalPaginatedStorage) s).getStoragePath().toString().replace('\\', '/')
+          s instanceof DiskStorage
+              ? ((DiskStorage) s).getStoragePath().toString().replace('\\', '/')
               : "");
       writeField(json, 2, "activeUsers", "n.a.");
       json.endObject(2);
@@ -184,7 +178,7 @@ public class ServerInfo {
 
   public static void getDatabases(final YouTrackDBServer server, final JSONWriter json)
       throws IOException {
-    json.beginCollection(1, true, "dbs");
+    json.beginCollection(null, 1, true, "dbs");
     // TODO:get this info from somewhere else
     //    if (!server.getDatabasePoolFactory().isClosed()) {
     //      Collection<PartitionedDatabasePool> dbPools =
@@ -204,7 +198,7 @@ public class ServerInfo {
       final String iAttributeName,
       final Object iAttributeValue)
       throws IOException {
-    json.writeAttribute(
+    json.writeAttribute(null,
         iLevel, true, iAttributeName, iAttributeValue != null ? iAttributeValue.toString() : "-");
   }
 }

@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 public class JSONReader {
 
@@ -103,6 +104,7 @@ public class JSONReader {
     return readString(iUntil, iInclude, DEFAULT_JUMP, null);
   }
 
+  @Nullable
   public String readString(
       final char[] iUntil, final boolean iInclude, final char[] iJumpChars, final char[] iSkipChars)
       throws IOException, ParseException {
@@ -117,6 +119,7 @@ public class JSONReader {
     return value;
   }
 
+  @Nullable
   public String readString(
       final char[] iUntil,
       final boolean iInclude,
@@ -142,9 +145,10 @@ public class JSONReader {
    * @throws IOException
    * @throws ParseException
    */
+  @Nullable
   public Pair<String, Map<String, RidSet>> readRecordString(int maxRidbagSizeLazyImport)
       throws IOException, ParseException {
-    Map<String, RidSet> ridbags =
+    var ridbags =
         readNextRecord(
             JSONReader.NEXT_IN_ARRAY,
             false,
@@ -156,7 +160,7 @@ public class JSONReader {
       return null;
     }
 
-    String resultValue = value;
+    var resultValue = value;
     if (value.startsWith("\"")) {
       resultValue = value.substring(1, value.lastIndexOf('"'));
     }
@@ -204,9 +208,9 @@ public class JSONReader {
     }
 
     // READ WHILE THERE IS SOMETHING OF AVAILABLE
-    int openBrackets = 0;
-    char beginStringChar = ' ';
-    boolean encodeMode = false;
+    var openBrackets = 0;
+    var beginStringChar = ' ';
+    var encodeMode = false;
     boolean found;
     do {
       found = false;
@@ -214,7 +218,7 @@ public class JSONReader {
         // NO INSIDE A STRING
         if (openBrackets == 0) {
           // FIND FOR SEPARATOR
-          for (char u : iUntil) {
+          for (var u : iUntil) {
             if (u == c) {
               found = true;
               break;
@@ -238,7 +242,7 @@ public class JSONReader {
 
         if (!found && openBrackets == 0) {
           // FIND FOR SEPARATOR
-          for (char u : iUntil) {
+          for (var u : iUntil) {
             if (u == c) {
               found = true;
               break;
@@ -254,7 +258,7 @@ public class JSONReader {
       encodeMode = c == '\\' && !encodeMode;
 
       if (!found) {
-        final int read = nextChar();
+        final var read = nextChar();
         if (read == -1) {
           break;
         }
@@ -262,9 +266,9 @@ public class JSONReader {
         // APPEND IT
         c = (char) read;
 
-        boolean skip = false;
+        var skip = false;
         if (iSkipChars != null) {
-          for (char j : iSkipChars) {
+          for (var j : iSkipChars) {
             if (j == c) {
               skip = true;
               break;
@@ -313,17 +317,17 @@ public class JSONReader {
 
     Map<String, RidSet> result = new HashMap<>();
 
-    Pattern ridPattern = Pattern.compile("\"#([0-9]+):([0-9]+)\"");
+    var ridPattern = Pattern.compile("\"#([0-9]+):([0-9]+)\"");
     RidSet ridbagSet = null;
     StringBuilder lastString = null;
     String lastFieldName = null;
     StringBuilder lastCollection = null;
 
     // READ WHILE THERE IS SOMETHING OF AVAILABLE
-    int openBrackets = 0;
-    int openSquare = 0;
-    char beginStringChar = ' ';
-    boolean encodeMode = false;
+    var openBrackets = 0;
+    var openSquare = 0;
+    var beginStringChar = ' ';
+    var encodeMode = false;
     boolean found;
     do {
       found = false;
@@ -331,7 +335,7 @@ public class JSONReader {
         // NO INSIDE A STRING
         if (openBrackets == 0) {
           // FIND FOR SEPARATOR
-          for (char u : iUntil) {
+          for (var u : iUntil) {
             if (u == c) {
               found = true;
               break;
@@ -363,7 +367,7 @@ public class JSONReader {
           openSquare++;
         } else if (c == ']' && openSquare == 1) {
           if (lastFieldName != null && ridbagSet != null && ridbagSet.size() > 0) {
-            boolean ridbagAdderd = stringToRidbag(lastCollection, ridbagSet, ridPattern);
+            var ridbagAdderd = stringToRidbag(lastCollection, ridbagSet, ridPattern);
             result.put(lastFieldName, ridbagSet);
             lastFieldName = null;
             ridbagSet = null;
@@ -376,7 +380,7 @@ public class JSONReader {
 
         if (!found && openBrackets == 0) {
           // FIND FOR SEPARATOR
-          for (char u : iUntil) {
+          for (var u : iUntil) {
             if (u == c) {
               found = true;
               break;
@@ -392,7 +396,7 @@ public class JSONReader {
       encodeMode = c == '\\' && !encodeMode;
 
       if (!found) {
-        final int read = nextChar();
+        final var read = nextChar();
         if (read == -1) {
           break;
         }
@@ -400,9 +404,9 @@ public class JSONReader {
         // APPEND IT
         c = (char) read;
 
-        boolean skip = false;
+        var skip = false;
         if (iSkipChars != null) {
-          for (char j : iSkipChars) {
+          for (var j : iSkipChars) {
             if (j == c) {
               skip = true;
               break;
@@ -453,7 +457,7 @@ public class JSONReader {
 
   private boolean stringToRidbag(
       StringBuilder lastCollection, RidSet ridbagSet, Pattern ridPattern) {
-    String collectionString = lastCollection.toString();
+    var collectionString = lastCollection.toString();
 
     if (collectionString.startsWith(",") && collectionString.endsWith("]")) {
       collectionString = collectionString.substring(1, collectionString.length() - 1);
@@ -462,12 +466,12 @@ public class JSONReader {
     } else if (collectionString.startsWith(",")) {
       collectionString = collectionString.substring(1);
     }
-    String[] split = collectionString.split(",");
+    var split = collectionString.split(",");
 
-    int i = 0;
+    var i = 0;
     while (i < split.length) {
-      Matcher matcher = ridPattern.matcher(split[i]);
-      boolean matches = matcher.matches();
+      var matcher = ridPattern.matcher(split[i]);
+      var matches = matcher.matches();
       if (i == 0 && !matches) {
         buffer.append(lastCollection);
         return false;
@@ -480,7 +484,7 @@ public class JSONReader {
       i++;
     }
     lastCollection.setLength(0);
-    for (int j = i; j < split.length; j++) {
+    for (var j = i; j < split.length; j++) {
       if (j != i || lastCollection.toString().startsWith(",")) {
         lastCollection.append(",");
       }
@@ -500,15 +504,15 @@ public class JSONReader {
     }
 
     // READ WHILE THERE IS SOMETHING OF AVAILABLE
-    boolean go = true;
+    var go = true;
     while (go && in.ready()) {
-      int read = nextChar();
+      var read = nextChar();
       if (read == -1) {
         return -1;
       }
 
       go = false;
-      for (char j : iJumpChars) {
+      for (var j : iJumpChars) {
         if (j == c) {
           go = true;
           break;
@@ -534,7 +538,7 @@ public class JSONReader {
       missedChar = null;
 
     } else {
-      int read = in.read();
+      var read = in.read();
       if (read == -1) {
         return -1;
       }
@@ -547,11 +551,11 @@ public class JSONReader {
           return -1;
         }
 
-        char c2 = (char) read;
+        var c2 = (char) read;
         if (c2 == 'u') {
           // DECODE UNICODE CHAR
-          final StringBuilder buff = new StringBuilder(8);
-          for (int i = 0; i < 4; ++i) {
+          final var buff = new StringBuilder(8);
+          for (var i = 0; i < 4; ++i) {
             read = in.read();
             if (read == -1) {
               return -1;

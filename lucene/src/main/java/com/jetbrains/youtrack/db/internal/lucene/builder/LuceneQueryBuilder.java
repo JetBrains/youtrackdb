@@ -19,18 +19,21 @@
 package com.jetbrains.youtrack.db.internal.lucene.builder;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory;
 import com.jetbrains.youtrack.db.internal.lucene.parser.LuceneMultiFieldQueryParser;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
 
@@ -67,18 +70,18 @@ public class LuceneQueryBuilder {
       final IndexDefinition index,
       final Object key,
       final Map<String, ?> metadata,
-      final Analyzer analyzer)
+      final Analyzer analyzer, DatabaseSessionInternal session)
       throws ParseException {
-    final String query = constructQueryString(key);
+    final var query = constructQueryString(key);
     if (query.isEmpty()) {
       return new MatchNoDocsQuery();
     }
-    return buildQuery(index, query, metadata, analyzer);
+    return buildQuery(index, query, metadata, analyzer, session);
   }
 
   private static String constructQueryString(final Object key) {
     if (key instanceof CompositeKey) {
-      final Object params = ((CompositeKey) key).getKeys().get(0);
+      final var params = ((CompositeKey) key).getKeys().get(0);
       return params.toString();
     } else {
       return key.toString();
@@ -89,24 +92,24 @@ public class LuceneQueryBuilder {
       final IndexDefinition index,
       final String query,
       final Map<String, ?> metadata,
-      final Analyzer queryAnalyzer)
+      final Analyzer queryAnalyzer, DatabaseSessionInternal session)
       throws ParseException {
     String[] fields;
     if (index.isAutomatic()) {
-      fields = index.getFields().toArray(new String[index.getFields().size()]);
+      fields = index.getProperties().toArray(new String[index.getProperties().size()]);
     } else {
-      final int length = index.getTypes().length;
+      final var length = index.getTypes().length;
       fields = new String[length];
-      for (int i = 0; i < length; i++) {
+      for (var i = 0; i < length; i++) {
         fields[i] = "k" + i;
       }
     }
-    final Map<String, PropertyType> types = new HashMap<>();
-    for (int i = 0; i < fields.length; i++) {
-      final String field = fields[i];
+    final Map<String, PropertyTypeInternal> types = new HashMap<>();
+    for (var i = 0; i < fields.length; i++) {
+      final var field = fields[i];
       types.put(field, index.getTypes()[i]);
     }
-    return getQuery(index, query, metadata, queryAnalyzer, fields, types);
+    return getQuery(index, query, metadata, queryAnalyzer, fields, types, session);
   }
 
   private Query getQuery(
@@ -115,15 +118,15 @@ public class LuceneQueryBuilder {
       final Map<String, ?> metadata,
       final Analyzer queryAnalyzer,
       final String[] fields,
-      final Map<String, PropertyType> types)
+      final Map<String, PropertyTypeInternal> types, DatabaseSessionInternal session)
       throws ParseException {
-    @SuppressWarnings("unchecked") final Map<String, Float> boost =
+    @SuppressWarnings("unchecked") final var boost =
         Optional.ofNullable((Map<String, Number>) metadata.get("boost"))
             .orElse(new HashMap<>())
             .entrySet()
             .stream()
-            .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue().floatValue()));
-    final Analyzer analyzer =
+            .collect(Collectors.toMap(Entry::getKey, e -> e.getValue().floatValue()));
+    final var analyzer =
         Optional.ofNullable((Boolean) metadata.get("customAnalysis"))
             .filter(b -> b)
             .map(
@@ -131,22 +134,22 @@ public class LuceneQueryBuilder {
                     analyzerFactory.createAnalyzer(
                         index, LuceneAnalyzerFactory.AnalyzerKind.QUERY, metadata))
             .orElse(queryAnalyzer);
-    final LuceneMultiFieldQueryParser queryParser =
-        new LuceneMultiFieldQueryParser(types, fields, analyzer, boost);
+    final var queryParser =
+        new LuceneMultiFieldQueryParser(types, fields, analyzer, boost, session);
     queryParser.setAllowLeadingWildcard(
         Optional.ofNullable((Boolean) metadata.get("allowLeadingWildcard"))
             .orElse(allowLeadingWildcard));
     queryParser.setSplitOnWhitespace(
         Optional.ofNullable((Boolean) metadata.get("splitOnWhitespace"))
             .orElse(splitOnWhitespace));
-    //  TODO   REMOVED
-    //    queryParser.setLowercaseExpandedTerms(
-    //        Optional.ofNullable(metadata.<Boolean>getProperty("lowercaseExpandedTerms"))
-    //            .orElse(lowercaseExpandedTerms));
     try {
-      return queryParser.parse(query);
+      var paresedQuery = queryParser.parse(query);
+      if (paresedQuery instanceof MatchAllDocsQuery) {
+        return queryParser.parse("RID:#*");
+      }
+      return paresedQuery;
     } catch (final org.apache.lucene.queryparser.classic.ParseException e) {
-      final Throwable cause = prepareParseError(e, metadata);
+      final var cause = prepareParseError(e, metadata);
       LogManager.instance().error(this, "Exception is suppressed, original exception is ", cause);
       //noinspection ThrowInsideCatchBlockWhichIgnoresCaughtException
       throw new ParseException(cause.getMessage());
@@ -166,7 +169,7 @@ public class LuceneQueryBuilder {
   private static Throwable prepareParseError(
       org.apache.lucene.queryparser.classic.ParseException e, Map<String, ?> metadata) {
     final Throwable cause;
-    final String reportAs = (String) metadata.get("reportQueryAs");
+    final var reportAs = (String) metadata.get("reportQueryAs");
     if (reportAs == null) {
       cause = e;
     } else {

@@ -3,66 +3,64 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransacationMetadataHolder;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionId;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionSequenceStatus;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionInternal;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.Optional;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 public class TransactionMetadataTest {
 
-  private YouTrackDBImpl youTrackDB;
+  private YouTrackDB youTrackDB;
   private DatabaseSessionInternal db;
   private static final String DB_NAME = TransactionMetadataTest.class.getSimpleName();
 
   @Before
   public void before() {
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
-        "create database `" + DB_NAME + "` plocal users(admin identified by 'admin' role admin)");
+        "create database `" + DB_NAME + "` disk users(admin identified by 'admin' role admin)");
     db = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin", "admin");
   }
 
   @Test
   public void testBackupRestore() {
     db.begin();
-    byte[] metadata = new byte[]{1, 2, 4};
-    ((TransactionInternal) db.getTransaction())
+    var metadata = new byte[]{1, 2, 4};
+    db.getTransactionInternal()
         .setMetadataHolder(new TestTransacationMetadataHolder(metadata));
-    Vertex v = db.newVertex("V");
+    var v = db.newVertex("V");
     v.setProperty("name", "Foo");
-    db.save(v);
     db.commit();
     db.incrementalBackup(Path.of("target/backup_metadata"));
     db.close();
-    YouTrackDBInternal.extract(youTrackDB)
+    YouTrackDBInternal.extract((YouTrackDBImpl) youTrackDB)
         .restore(
             DB_NAME + "_re",
             null,
             null,
-            DatabaseType.PLOCAL,
+            DatabaseType.DISK,
             "target/backup_metadata",
             YouTrackDBConfig.defaultConfig());
-    DatabaseSession db1 = youTrackDB.open(DB_NAME + "_re", "admin", "admin");
-    Optional<byte[]> fromStorage =
-        ((AbstractPaginatedStorage) ((DatabaseSessionInternal) db1).getStorage())
+    var db1 = youTrackDB.open(DB_NAME + "_re", "admin", "admin");
+    var fromStorage =
+        ((AbstractStorage) ((DatabaseSessionInternal) db1).getStorage())
             .getLastMetadata();
     assertTrue(fromStorage.isPresent());
     assertArrayEquals(fromStorage.get(), metadata);

@@ -20,22 +20,16 @@
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
-import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLAbstract;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandExecutorSQLResultsetDelegate;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQL;
-import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.internal.core.sql.CommandSQLResultset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -53,8 +47,8 @@ public class SQLTarget extends BaseParser {
   protected final CommandContext context;
   protected String targetVariable;
   protected String targetQuery;
-  protected Iterable<? extends Identifiable> targetRecords;
-  protected Map<String, String> targetClusters;
+  protected Iterable<Identifiable> targetRecords;
+  protected Map<String, String> targetCollections;
   protected Map<String, String> targetClasses;
 
   protected String targetIndex;
@@ -69,16 +63,16 @@ public class SQLTarget extends BaseParser {
     parserTextUpperCase = SQLPredicate.upperCase(iText);
 
     try {
-      empty = !extractTargets();
+      empty = !extractTargets(iContext.getDatabaseSession());
 
     } catch (QueryParsingException e) {
       if (e.getText() == null)
       // QUERY EXCEPTION BUT WITHOUT TEXT: NEST IT
       {
         throw BaseException.wrapException(
-            new QueryParsingException(
+            new QueryParsingException(iContext.getDatabaseSession().getDatabaseName(),
                 "Error on parsing query", parserText, parserGetCurrentPosition()),
-            e);
+            e, iContext.getDatabaseSession().getDatabaseName());
       }
 
       throw e;
@@ -86,21 +80,21 @@ public class SQLTarget extends BaseParser {
       throw ex;
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new QueryParsingException(
+          new QueryParsingException(iContext.getDatabaseSession().getDatabaseName(),
               "Error on parsing query", parserText, parserGetCurrentPosition()),
-          e);
+          e, iContext.getDatabaseSession().getDatabaseName());
     }
   }
 
-  public Map<String, String> getTargetClusters() {
-    return targetClusters;
+  public Map<String, String> getTargetCollections() {
+    return targetCollections;
   }
 
   public Map<String, String> getTargetClasses() {
     return targetClasses;
   }
 
-  public Iterable<? extends Identifiable> getTargetRecords() {
+  public Iterable<Identifiable> getTargetRecords() {
     return targetRecords;
   }
 
@@ -124,8 +118,8 @@ public class SQLTarget extends BaseParser {
   public String toString() {
     if (targetClasses != null) {
       return "class " + targetClasses.keySet();
-    } else if (targetClusters != null) {
-      return "cluster " + targetClusters.keySet();
+    } else if (targetCollections != null) {
+      return "collection " + targetCollections.keySet();
     }
     if (targetIndex != null) {
       return "index " + targetIndex;
@@ -148,67 +142,36 @@ public class SQLTarget extends BaseParser {
   }
 
   @Override
-  protected void throwSyntaxErrorException(String iText) {
-    throw new CommandSQLParsingException(
+  protected void throwSyntaxErrorException(String dbName, String iText) {
+    throw new CommandSQLParsingException(dbName,
         iText + ". Use " + getSyntax(), parserText, parserGetPreviousPosition());
   }
 
   @SuppressWarnings("unchecked")
-  private boolean extractTargets() {
+  private boolean extractTargets(DatabaseSessionInternal session) {
     parserSkipWhiteSpaces();
 
     if (parserIsEnded()) {
-      throw new QueryParsingException("No query target found", parserText, 0);
+      throw new QueryParsingException(null, "No query target found", parserText, 0);
     }
 
-    final char c = parserGetCurrentChar();
+    final var c = parserGetCurrentChar();
 
     if (c == '$') {
-      targetVariable = parserRequiredWord(false, "No valid target");
+      targetVariable = parserRequiredWord(false, "No valid target", session.getDatabaseName());
       targetVariable = targetVariable.substring(1);
     } else if (c == StringSerializerHelper.LINK || Character.isDigit(c)) {
       // UNIQUE RID
       targetRecords = new ArrayList<Identifiable>();
       ((List<Identifiable>) targetRecords)
-          .add(new RecordId(parserRequiredWord(true, "No valid RID")));
+          .add(new RecordId(parserRequiredWord(true, "No valid RID", session.getDatabaseName())));
 
     } else if (c == StringSerializerHelper.EMBEDDED_BEGIN) {
       // SUB QUERY
-      final StringBuilder subText = new StringBuilder(256);
+      final var subText = new StringBuilder(256);
       parserSetCurrentPosition(
           StringSerializerHelper.getEmbedded(parserText, parserGetCurrentPosition(), -1, subText)
               + 1);
-      final CommandSQL subCommand = new CommandSQLResultset(subText.toString());
-
-      DatabaseSessionInternal db = DatabaseRecordThreadLocal.instance().get();
-      final CommandExecutorSQLResultsetDelegate executor =
-          (CommandExecutorSQLResultsetDelegate)
-              db.getSharedContext()
-                  .getYouTrackDB()
-                  .getScriptManager()
-                  .getCommandManager()
-                  .getExecutor(subCommand);
-      executor.setContext(context);
-      var commandContext = new BasicCommandContext();
-      context.setChild(commandContext);
-
-      subCommand.setContext(commandContext);
-      executor.setProgressListener(subCommand.getProgressListener());
-      executor.parse(subCommand);
-      CommandContext childContext = executor.getContext();
-      if (childContext != null) {
-        childContext.setParent(context);
-      }
-
-      if (!(executor instanceof Iterable<?>)) {
-        throw new CommandSQLParsingException(
-            "Sub-query cannot be iterated because doesn't implement the Iterable interface: "
-                + subCommand);
-      }
-
-      targetQuery = subText.toString();
-      targetRecords = executor;
-
     } else if (c == StringSerializerHelper.LIST_BEGIN) {
       // COLLECTION OF RIDS
       final List<String> rids = new ArrayList<String>();
@@ -216,7 +179,7 @@ public class SQLTarget extends BaseParser {
           StringSerializerHelper.getCollection(parserText, parserGetCurrentPosition(), rids));
 
       targetRecords = new ArrayList<Identifiable>();
-      for (String rid : rids) {
+      for (var rid : rids) {
         ((List<Identifiable>) targetRecords).add(new RecordId(rid));
       }
 
@@ -225,36 +188,37 @@ public class SQLTarget extends BaseParser {
 
       while (!parserIsEnded()
           && (targetClasses == null
-          && targetClusters == null
+          && targetCollections == null
           && targetIndex == null
           && targetIndexValues == null
           && targetRecords == null)) {
-        String originalSubjectName = parserRequiredWord(false, "Target not found");
-        String subjectName = originalSubjectName.toUpperCase(Locale.ENGLISH);
+        var originalSubjectName = parserRequiredWord(false, "Target not found",
+            session.getDatabaseName());
+        var subjectName = originalSubjectName.toUpperCase(Locale.ENGLISH);
 
         final String alias;
         if (subjectName.equals("AS")) {
-          alias = parserRequiredWord(true, "Alias not found");
+          alias = parserRequiredWord(true, "Alias not found", session.getDatabaseName());
         } else {
           alias = subjectName;
         }
 
-        final String subjectToMatch = subjectName;
-        if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.CLUSTER_PREFIX)) {
-          // REGISTER AS CLUSTER
-          if (targetClusters == null) {
-            targetClusters = new HashMap<String, String>();
+        final var subjectToMatch = subjectName;
+        if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.COLLECTION_PREFIX)) {
+          // REGISTER AS COLLECTION
+          if (targetCollections == null) {
+            targetCollections = new HashMap<String, String>();
           }
-          final String clusterNames =
-              subjectName.substring(CommandExecutorSQLAbstract.CLUSTER_PREFIX.length());
-          if (clusterNames.startsWith("[") && clusterNames.endsWith("]")) {
-            final Collection<String> clusters = new HashSet<String>(3);
-            StringSerializerHelper.getCollection(clusterNames, 0, clusters);
-            for (String cl : clusters) {
-              targetClusters.put(cl, cl);
+          final var collectionNames =
+              subjectName.substring(CommandExecutorSQLAbstract.COLLECTION_PREFIX.length());
+          if (collectionNames.startsWith("[") && collectionNames.endsWith("]")) {
+            final Collection<String> collections = new HashSet<String>(3);
+            StringSerializerHelper.getCollection(collectionNames, 0, collections);
+            for (var cl : collections) {
+              targetCollections.put(cl, cl);
             }
           } else {
-            targetClusters.put(clusterNames, alias);
+            targetCollections.put(collectionNames, alias);
           }
 
         } else if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.INDEX_PREFIX)) {
@@ -263,7 +227,7 @@ public class SQLTarget extends BaseParser {
               originalSubjectName.substring(CommandExecutorSQLAbstract.INDEX_PREFIX.length());
         } else if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.METADATA_PREFIX)) {
           // METADATA
-          final String metadataTarget =
+          final var metadataTarget =
               subjectName.substring(CommandExecutorSQLAbstract.METADATA_PREFIX.length());
           targetRecords = new ArrayList<Identifiable>();
 
@@ -271,8 +235,7 @@ public class SQLTarget extends BaseParser {
             ((ArrayList<Identifiable>) targetRecords)
                 .add(
                     new RecordId(
-                        DatabaseRecordThreadLocal.instance()
-                            .get()
+                        session
                             .getStorageInfo()
                             .getConfiguration()
                             .getSchemaRecordId()));
@@ -280,25 +243,13 @@ public class SQLTarget extends BaseParser {
             ((ArrayList<Identifiable>) targetRecords)
                 .add(
                     new RecordId(
-                        DatabaseRecordThreadLocal.instance()
-                            .get()
+                        session
                             .getStorageInfo()
                             .getConfiguration()
                             .getIndexMgrRecordId()));
           } else {
-            throw new QueryParsingException("Metadata entity not supported: " + metadataTarget);
-          }
-
-        } else if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.DICTIONARY_PREFIX)) {
-          // DICTIONARY
-          final String key =
-              originalSubjectName.substring(CommandExecutorSQLAbstract.DICTIONARY_PREFIX.length());
-          targetRecords = new ArrayList<Identifiable>();
-
-          final Identifiable value =
-              DatabaseRecordThreadLocal.instance().get().getDictionary().get(key);
-          if (value != null) {
-            ((List<Identifiable>) targetRecords).add(value);
+            throw new QueryParsingException(session.getDatabaseName(),
+                "Metadata entity not supported: " + metadataTarget);
           }
 
         } else if (subjectToMatch.startsWith(CommandExecutorSQLAbstract.INDEX_VALUES_PREFIX)) {
@@ -329,18 +280,17 @@ public class SQLTarget extends BaseParser {
             targetClasses = new HashMap<String, String>();
           }
 
-          final SchemaClass cls =
-              DatabaseRecordThreadLocal.instance()
-                  .get()
+          final var cls =
+              session
                   .getMetadata()
                   .getImmutableSchemaSnapshot()
                   .getClass(subjectName);
           if (cls == null) {
-            throw new CommandExecutionException(
+            throw new CommandExecutionException(session,
                 "Class '"
                     + subjectName
                     + "' was not found in database '"
-                    + DatabaseRecordThreadLocal.instance().get().getName()
+                    + session.getDatabaseName()
                     + "'");
           }
 

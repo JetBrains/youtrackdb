@@ -13,7 +13,9 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.strategy;
 
-import com.jetbrains.youtrack.db.internal.spatial.engine.OLuceneSpatialIndexContainer;
+import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.query.SpatialQueryContext;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeBuilder;
 import java.util.Arrays;
@@ -21,16 +23,12 @@ import java.util.Map;
 import java.util.Optional;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.DoubleValuesSource;
-import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.spatial.query.SpatialArgs;
 import org.apache.lucene.spatial.query.SpatialOperation;
 import org.locationtech.spatial4j.distance.DistanceUtils;
 import org.locationtech.spatial4j.shape.Point;
-import org.locationtech.spatial4j.shape.Shape;
 
 /**
  *
@@ -39,13 +37,14 @@ public class SpatialQueryBuilderNear extends SpatialQueryBuilderAbstract {
 
   public static final String NAME = "near";
 
-  public SpatialQueryBuilderNear(OLuceneSpatialIndexContainer manager, ShapeBuilder factory) {
+  public SpatialQueryBuilderNear(LuceneSpatialIndexContainer manager, ShapeBuilder factory) {
     super(manager, factory);
   }
 
   @Override
-  public SpatialQueryContext build(Map<String, Object> query) throws Exception {
-    Shape shape = parseShape(query);
+  public SpatialQueryContext build(DatabaseSessionEmbedded db, Map<String, Object> query)
+      throws Exception {
+    var shape = parseShape(query);
 
     double distance =
         Optional.ofNullable(query.get(MAX_DISTANCE))
@@ -53,9 +52,9 @@ public class SpatialQueryBuilderNear extends SpatialQueryBuilderAbstract {
             .map(n -> n.doubleValue())
             .orElse(0D);
 
-    Point p = (Point) shape;
+    var p = (Point) shape;
 
-    SpatialArgs args =
+    var args =
         new SpatialArgs(
             SpatialOperation.Intersects,
             factory
@@ -64,18 +63,20 @@ public class SpatialQueryBuilderNear extends SpatialQueryBuilderAbstract {
                     p.getX(),
                     p.getY(),
                     DistanceUtils.dist2Degrees(distance, DistanceUtils.EARTH_MEAN_RADIUS_KM)));
-    Query filterQuery = manager.strategy().makeQuery(args);
-    DoubleValuesSource valueSource = manager.strategy().makeDistanceValueSource(p);
-    IndexSearcher searcher = manager.searcher();
-    Sort distSort = new Sort(valueSource.getSortField(false)).rewrite(searcher);
+    var filterQuery = manager.strategy().makeQuery(args);
+    var valueSource = manager.strategy().makeDistanceValueSource(p);
+    var searcher = manager.searcher(db.getStorage());
+    var distSort = new Sort(valueSource.getSortField(false)).rewrite(searcher);
 
-    BooleanQuery q =
+    var q =
         new BooleanQuery.Builder()
             .add(filterQuery, BooleanClause.Occur.MUST)
             .add(new MatchAllDocsQuery(), BooleanClause.Occur.SHOULD)
             .build();
 
-    return new SpatialQueryContext(null, searcher, q, Arrays.asList(distSort.getSort()))
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(db);
+    return new SpatialQueryContext(context, searcher, q, Arrays.asList(distSort.getSort()))
         .setSpatialArgs(args);
   }
 

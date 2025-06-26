@@ -19,15 +19,18 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.index.engine.UniqueIndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Index implementation that allows only one value for a key.
@@ -37,17 +40,17 @@ public class IndexUnique extends IndexOneValue {
   private final IndexEngineValidator<Object, RID> uniqueValidator =
       new UniqueIndexEngineValidator(this);
 
-  public IndexUnique(IndexMetadata im, final Storage storage) {
-    super(im, storage);
+  public IndexUnique(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
+      @Nonnull Storage storage) {
+    super(identity, transaction, storage);
+  }
+
+  public IndexUnique(@Nonnull Storage storage) {
+    super(storage);
   }
 
   @Override
-  public boolean isNativeTxSupported() {
-    return true;
-  }
-
-  @Override
-  public void doPut(DatabaseSessionInternal session, AbstractPaginatedStorage storage,
+  public void doPut(DatabaseSessionInternal session, AbstractStorage storage,
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {

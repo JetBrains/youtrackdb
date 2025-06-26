@@ -2,17 +2,20 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLParenthesisBlock extends SQLBooleanExpression {
 
@@ -36,12 +39,14 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
     return subElement.evaluate(currentRecord, ctx);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("(");
     subElement.toString(params, builder);
     builder.append(" )");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("(");
     subElement.toGenericStatement(builder);
@@ -64,8 +69,8 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public List<SQLAndBlock> flatten() {
-    return subElement.flatten();
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
+    return subElement.flatten(ctx, schemaClass);
   }
 
   @Override
@@ -75,7 +80,7 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
 
   @Override
   public SQLParenthesisBlock copy() {
-    SQLParenthesisBlock result = new SQLParenthesisBlock(-1);
+    var result = new SQLParenthesisBlock(-1);
     result.subElement = subElement.copy();
     return result;
   }
@@ -99,7 +104,7 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
       return false;
     }
 
-    SQLParenthesisBlock that = (SQLParenthesisBlock) o;
+    var that = (SQLParenthesisBlock) o;
 
     return Objects.equals(subElement, that.subElement);
   }
@@ -120,17 +125,42 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return subElement.isCacheable(session);
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
+  @Override
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
     return subElement.findIndex(info, ctx);
   }
 
   @Override
-  public boolean isAlwaysTrue() {
-    return subElement.isAlwaysTrue();
+  public boolean isConstantExpression() {
+    return subElement.isConstantExpression();
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    //only simple expression like `a = 3` can be indexed
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return subElement.mergeUsingAnd(other, ctx);
   }
 }
 /* JavaCC - OriginalChecksum=9a16b6cf7d051382acb94c45067631a9 (do not edit this line) */

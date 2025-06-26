@@ -2,10 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,10 +36,30 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    db.commit(); // no RETRY and ELSE here, that case is allowed only for batch scripts;
-    ResultInternal item = new ResultInternal(db);
+    var session = ctx.getDatabaseSession();
+    var txInternal = session.getTransactionInternal();
+
+    if (txInternal == null || !txInternal.isActive()) {
+      throw new CommandExecutionException("No active transaction");
+    }
+
+    var activeTxCount = txInternal.activeTxCount();
+    var item = new ResultInternal(session);
+    item.setProperty("txId", txInternal.getId());
+
+    var updatedRids = session.commit();
     item.setProperty("operation", "commit");
+
+    if (updatedRids != null) {
+      var updateRidsLinkMap = new HashMap<String, RID>();
+      for (var entry : updatedRids.entrySet()) {
+        updateRidsLinkMap.put(entry.getKey().toString(), entry.getValue());
+      }
+
+      item.setProperty("updatedRids", updateRidsLinkMap);
+    }
+
+    item.setProperty("activeTxCount", activeTxCount - 1);
     return ExecutionStream.singleton(item);
   }
 
@@ -51,7 +74,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
       }
       if (elseStatements != null) {
         builder.append("{\n");
-        for (SQLStatement stm : elseStatements) {
+        for (var stm : elseStatements) {
           stm.toString(params, builder);
           builder.append(";\n");
         }
@@ -81,7 +104,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
       }
       if (elseStatements != null) {
         builder.append("{\n");
-        for (SQLStatement stm : elseStatements) {
+        for (var stm : elseStatements) {
           stm.toGenericStatement(builder);
           builder.append(";\n");
         }
@@ -102,11 +125,11 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLCommitStatement copy() {
-    SQLCommitStatement result = new SQLCommitStatement(-1);
+    var result = new SQLCommitStatement(-1);
     result.retry = retry == null ? null : retry.copy();
     if (this.elseStatements != null) {
       result.elseStatements = new ArrayList<>();
-      for (SQLStatement stm : elseStatements) {
+      for (var stm : elseStatements) {
         result.elseStatements.add(stm.copy());
       }
     }
@@ -137,7 +160,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLCommitStatement that = (SQLCommitStatement) o;
+    var that = (SQLCommitStatement) o;
 
     if (!Objects.equals(retry, that.retry)) {
       return false;
@@ -150,7 +173,7 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
 
   @Override
   public int hashCode() {
-    int result = retry != null ? retry.hashCode() : 0;
+    var result = retry != null ? retry.hashCode() : 0;
     result = 31 * result + (elseStatements != null ? elseStatements.hashCode() : 0);
     result = 31 * result + (elseFail != null ? elseFail.hashCode() : 0);
     return result;

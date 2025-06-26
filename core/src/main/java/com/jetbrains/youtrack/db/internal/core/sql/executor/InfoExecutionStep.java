@@ -3,8 +3,11 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -20,12 +23,12 @@ public class InfoExecutionStep implements ExecutionStep {
   private final List<ExecutionStep> subSteps = new ArrayList<>();
 
   @Override
-  public String getName() {
+  public @Nonnull String getName() {
     return name;
   }
 
   @Override
-  public String getType() {
+  public @Nonnull String getType() {
     return type;
   }
 
@@ -34,6 +37,7 @@ public class InfoExecutionStep implements ExecutionStep {
     return description;
   }
 
+  @Nonnull
   @Override
   public List<ExecutionStep> getSubSteps() {
     return subSteps;
@@ -44,9 +48,10 @@ public class InfoExecutionStep implements ExecutionStep {
     return cost;
   }
 
+  @Nonnull
   @Override
-  public Result toResult(DatabaseSession db) {
-    return null;
+  public Result toResult(DatabaseSession session) {
+    return new ResultInternal((DatabaseSessionInternal) session);
   }
 
   public void setName(String name) {

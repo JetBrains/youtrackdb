@@ -21,15 +21,12 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import static com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE.FULLTEXT;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
+import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.lucene.LuceneIndexFactory;
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.zip.GZIPInputStream;
@@ -45,26 +42,25 @@ public class LuceneExportImportTest extends LuceneBaseTest {
   @Before
   public void init() {
 
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass city = schema.createClass("City");
-    city.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var city = schema.createClass("City");
+    city.createProperty("name", PropertyType.STRING);
 
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
 
-    EntityImpl doc = new EntityImpl("City");
-    doc.field("name", "Rome");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
 
-    db.begin();
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("City"));
+    doc.setProperty("name", "Rome");
+    session.commit();
   }
 
   @Test
   public void testExportImport() throws Throwable {
 
-    String file = "./target/exportTest.json";
+    var file = "./target/exportTest.json";
 
-    ResultSet query = db.query("select from City where search_class('Rome')=true");
+    var query = session.query("select from City where search_class('Rome')=true");
 
     assertThat(query).hasSize(1);
 
@@ -73,30 +69,30 @@ public class LuceneExportImportTest extends LuceneBaseTest {
     try {
 
       // export
-      new DatabaseExport(db, file, s -> {
+      new DatabaseExport(session, file, s -> {
       }).exportDatabase();
 
       // import
       dropDatabase();
       createDatabase();
 
-      GZIPInputStream stream = new GZIPInputStream(new FileInputStream(file + ".gz"));
-      new DatabaseImport(db, stream, s -> {
+      var stream = new GZIPInputStream(new FileInputStream(file + ".gz"));
+      new DatabaseImport(session, stream, s -> {
       }).importDatabase();
 
     } catch (IOException e) {
       Assert.fail(e.getMessage());
     }
 
-    assertThat(db.countClass("City")).isEqualTo(1);
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.name");
+    assertThat(session.countClass("City")).isEqualTo(1);
+    var index = session.getSharedContext().getIndexManager().getIndex("City.name");
 
     assertThat(index.getType()).isEqualTo(FULLTEXT.toString());
 
     assertThat(index.getAlgorithm()).isEqualTo(LuceneIndexFactory.LUCENE_ALGORITHM);
 
     // redo the query
-    query = db.query("select from City where search_class('Rome')=true");
+    query = session.query("select from City where search_class('Rome')=true");
 
     assertThat(query).hasSize(1);
     query.close();

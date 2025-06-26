@@ -3,11 +3,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -15,6 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLRightBinaryCondition extends SimpleNode {
 
@@ -35,7 +36,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
 
   @Override
   public SQLRightBinaryCondition copy() {
-    SQLRightBinaryCondition result = new SQLRightBinaryCondition(-1);
+    var result = new SQLRightBinaryCondition(-1);
     result.operator = operator == null ? null : operator.copy();
     result.not = not;
     result.inOperator = inOperator == null ? null : inOperator.copy();
@@ -77,24 +78,21 @@ public class SQLRightBinaryCondition extends SimpleNode {
     }
   }
 
+  @Nullable
   public Object execute(Result iCurrentRecord, Object elementToFilter, CommandContext ctx) {
     if (elementToFilter == null) {
       return null;
     }
-    Iterator iterator;
-    if (elementToFilter instanceof Identifiable) {
-      iterator = Collections.singleton(elementToFilter).iterator();
-    } else if (elementToFilter instanceof Iterable) {
-      iterator = ((Iterable) elementToFilter).iterator();
-    } else if (elementToFilter instanceof Iterator) {
-      iterator = (Iterator) elementToFilter;
-    } else {
-      iterator = Collections.singleton(elementToFilter).iterator();
-    }
+    Iterator iterator = switch (elementToFilter) {
+      case Identifiable identifiable -> Collections.singleton(elementToFilter).iterator();
+      case Iterable iterable -> iterable.iterator();
+      case Iterator iterator1 -> iterator1;
+      default -> Collections.singleton(elementToFilter).iterator();
+    };
 
     List result = new ArrayList();
     while (iterator.hasNext()) {
-      Object element = iterator.next();
+      var element = iterator.next();
       if (matchesFilters(iCurrentRecord, element, ctx)) {
         result.add(element);
       }
@@ -102,6 +100,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
     return result;
   }
 
+  @Nullable
   public Object execute(Identifiable iCurrentRecord, Object elementToFilter,
       CommandContext ctx) {
     if (elementToFilter == null) {
@@ -120,7 +119,7 @@ public class SQLRightBinaryCondition extends SimpleNode {
 
     List result = new ArrayList();
     while (iterator.hasNext()) {
-      Object element = iterator.next();
+      var element = iterator.next();
       if (matchesFilters(iCurrentRecord, element, ctx)) {
         result.add(element);
       }
@@ -130,15 +129,16 @@ public class SQLRightBinaryCondition extends SimpleNode {
 
   private boolean matchesFilters(
       Identifiable iCurrentRecord, Object element, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     if (operator != null) {
-      operator.execute(element, right.execute(iCurrentRecord, ctx));
+      operator.execute(session, element, right.execute(iCurrentRecord, ctx));
     } else if (inOperator != null) {
 
-      Object rightVal = evaluateRight(iCurrentRecord, ctx);
+      var rightVal = evaluateRight(iCurrentRecord, ctx);
       if (rightVal == null) {
         return false;
       }
-      boolean result = SQLInCondition.evaluateExpression(ctx.getDatabase(), element, rightVal);
+      var result = SQLInCondition.evaluateExpression(session, element, rightVal);
       if (not) {
         result = !result;
       }
@@ -148,15 +148,16 @@ public class SQLRightBinaryCondition extends SimpleNode {
   }
 
   private boolean matchesFilters(Result iCurrentRecord, Object element, CommandContext ctx) {
-    if (operator != null) {
-      return operator.execute(element, right.execute(iCurrentRecord, ctx));
-    } else if (inOperator != null) {
+    var session = ctx.getDatabaseSession();
 
-      Object rightVal = evaluateRight(iCurrentRecord, ctx);
+    if (operator != null) {
+      return operator.execute(session, element, right.execute(iCurrentRecord, ctx));
+    } else if (inOperator != null) {
+      var rightVal = evaluateRight(iCurrentRecord, ctx);
       if (rightVal == null) {
         return false;
       }
-      boolean result = SQLInCondition.evaluateExpression(ctx.getDatabase(), element, rightVal);
+      var result = SQLInCondition.evaluateExpression(session, element, rightVal);
       if (not) {
         result = !result;
       }
@@ -187,12 +188,12 @@ public class SQLRightBinaryCondition extends SimpleNode {
     return right != null && right.refersToParent();
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("operator", operator.getClass().getName());
     result.setProperty("not", not);
     result.setProperty("in", inOperator != null);
-    result.setProperty("right", right.serialize(db));
+    result.setProperty("right", right.serialize(session));
     return result;
   }
 
@@ -202,7 +203,9 @@ public class SQLRightBinaryCondition extends SimpleNode {
           (SQLBinaryCompareOperator)
               Class.forName(String.valueOf(fromResult.getProperty("operator"))).newInstance();
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(
+          new CommandExecutionException(fromResult.getBoundedToSession(), ""), e,
+          fromResult.getBoundedToSession());
     }
     not = fromResult.getProperty("not");
     if (Boolean.TRUE.equals(fromResult.getProperty("in"))) {

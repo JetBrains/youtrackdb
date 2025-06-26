@@ -21,19 +21,19 @@ package com.jetbrains.youtrack.db.internal.core.command;
 
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
+import javax.annotation.Nullable;
 
 /**
  * Basic implementation of CommandContext interface that stores variables in a map. Supports
@@ -41,19 +41,17 @@ import java.util.concurrent.atomic.AtomicLong;
  * the search is applied recursively on child contexts.
  */
 public class BasicCommandContext implements CommandContext {
-
-  public static final String EXECUTION_BEGUN = "EXECUTION_BEGUN";
-  public static final String TIMEOUT_MS = "TIMEOUT_MS";
-  public static final String TIMEOUT_STRATEGY = "TIMEOUT_STARTEGY";
   public static final String INVALID_COMPARE_COUNT = "INVALID_COMPARE_COUNT";
 
-  protected DatabaseSessionInternal database;
+  protected DatabaseSessionEmbedded session;
   protected Object[] args;
 
   protected boolean recordMetrics = false;
   protected CommandContext parent;
   protected CommandContext child;
-  protected Map<String, Object> variables;
+  private Map<String, Object> variables;
+
+  private final Int2ObjectOpenHashMap<Object> systemVariables = new Int2ObjectOpenHashMap<>();
 
   protected Map<Object, Object> inputParameters;
 
@@ -62,24 +60,59 @@ public class BasicCommandContext implements CommandContext {
   // MANAGES THE TIMEOUT
   private long executionStartedOn;
   private long timeoutMs;
-  private CommandContext.TIMEOUT_STRATEGY
-      timeoutStrategy;
-  protected AtomicLong resultsProcessed = new AtomicLong(0);
-  protected Set<Object> uniqueResult = new HashSet<Object>();
+  private CommandContext.TIMEOUT_STRATEGY timeoutStrategy;
+
   private final Map<ExecutionStep, StepStats> stepStats = new IdentityHashMap<>();
   private final LinkedList<StepStats> currentStepStats = new LinkedList<>();
 
   public BasicCommandContext() {
   }
 
-  public BasicCommandContext(DatabaseSessionInternal session) {
-    this.database = session;
+  public BasicCommandContext(DatabaseSessionEmbedded session) {
+    this.session = session;
   }
 
+  @Override
+  public <T> void setSystemVariable(int id, T value) {
+    if (parent != null) {
+      if (parent.hasSystemVariable(id)) {
+        parent.setSystemVariable(id, value);
+      } else {
+        systemVariables.put(id, value);
+      }
+    } else {
+      systemVariables.put(id, value);
+    }
+  }
+
+  @Override
+  public boolean hasSystemVariable(int id) {
+    if (systemVariables.containsKey(id)) {
+      return true;
+    } else if (parent != null) {
+      return parent.hasSystemVariable(id);
+    }
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public <T> T getSystemVariable(int id) {
+    var value = systemVariables.get(id);
+    if (value != null) {
+      return (T) value;
+    } else if (parent != null) {
+      return parent.getSystemVariable(id);
+    }
+    return null;
+  }
+
+  @Override
   public Object getVariable(String iName) {
     return getVariable(iName, null);
   }
 
+  @Override
   public Object getVariable(String iName, final Object iDefault) {
     if (iName == null) {
       return iDefault;
@@ -91,7 +124,7 @@ public class BasicCommandContext implements CommandContext {
       iName = iName.substring(1);
     }
 
-    int pos = StringSerializerHelper.getLowerIndexOf(iName, 0, ".", "[");
+    var pos = StringSerializerHelper.getLowerIndexOf(iName, 0, ".", "[");
 
     String firstPart;
     String lastPart;
@@ -106,7 +139,7 @@ public class BasicCommandContext implements CommandContext {
         if (lastPart.startsWith("$")) {
           result = parent.getVariable(lastPart.substring(1));
         } else {
-          result = DocumentHelper.getFieldValue(getDatabase(), parent, lastPart);
+          result = EntityHelper.getFieldValue(getDatabaseSession(), parent, lastPart);
         }
 
         return result != null ? resolveValue(result) : iDefault;
@@ -120,7 +153,7 @@ public class BasicCommandContext implements CommandContext {
         if (lastPart.startsWith("$")) {
           result = p.getVariable(lastPart.substring(1));
         } else {
-          result = DocumentHelper.getFieldValue(getDatabase(), p, lastPart, this);
+          result = EntityHelper.getFieldValue(getDatabaseSession(), p, lastPart, this);
         }
 
         return result != null ? resolveValue(result) : iDefault;
@@ -153,7 +186,7 @@ public class BasicCommandContext implements CommandContext {
     }
 
     if (pos > -1) {
-      result = DocumentHelper.getFieldValue(getDatabase(), result, lastPart, this);
+      result = EntityHelper.getFieldValue(getDatabaseSession(), result, lastPart, this);
     }
 
     return result != null ? resolveValue(result) : iDefault;
@@ -166,6 +199,7 @@ public class BasicCommandContext implements CommandContext {
     return value;
   }
 
+  @Nullable
   protected Object getVariableFromParentHierarchy(String varName) {
     if (this.variables != null && variables.containsKey(varName)) {
       return variables.get(varName);
@@ -180,20 +214,22 @@ public class BasicCommandContext implements CommandContext {
     return setVariable(iName, iValue);
   }
 
+  @Override
+  @Nullable
   public CommandContext setVariable(String iName, final Object iValue) {
     if (iName == null) {
       return null;
     }
 
-    if (iName.startsWith("$")) {
+    if (!iName.isEmpty() && iName.charAt(0) == '$') {
       iName = iName.substring(1);
     }
 
     init();
 
-    int pos = StringSerializerHelper.getHigherIndexOf(iName, 0, ".", "[");
+    var pos = StringSerializerHelper.getHigherIndexOf(iName, 0, ".", "[");
     if (pos > -1) {
-      Object nested = getVariable(iName.substring(0, pos));
+      var nested = getVariable(iName.substring(0, pos));
       if (nested != null && nested instanceof CommandContext) {
         ((CommandContext) nested).setVariable(iName.substring(pos + 1), iValue);
       }
@@ -238,18 +274,18 @@ public class BasicCommandContext implements CommandContext {
 
       init();
 
-      int pos = StringSerializerHelper.getHigherIndexOf(iName, 0, ".", "[");
+      var pos = StringSerializerHelper.getHigherIndexOf(iName, 0, ".", "[");
       if (pos > -1) {
-        Object nested = getVariable(iName.substring(0, pos));
+        var nested = getVariable(iName.substring(0, pos));
         if (nested != null && nested instanceof CommandContext) {
           ((CommandContext) nested).incrementVariable(iName.substring(pos + 1));
         }
       } else {
-        final Object v = variables.get(iName);
+        final var v = variables.get(iName);
         if (v == null) {
           variables.put(iName, 1);
         } else if (v instanceof Number) {
-          variables.put(iName, PropertyType.increment((Number) v, 1));
+          variables.put(iName, PropertyTypeInternal.increment((Number) v, 1));
         } else {
           throw new IllegalArgumentException(
               "Variable '" + iName + "' is not a number, but: " + v.getClass());
@@ -259,13 +295,14 @@ public class BasicCommandContext implements CommandContext {
     return this;
   }
 
+  @Override
   public long updateMetric(final String iName, final long iValue) {
     if (!recordMetrics) {
       return -1;
     }
 
     init();
-    Long value = (Long) variables.get(iName);
+    var value = (Long) variables.get(iName);
     if (value == null) {
       value = iValue;
     } else {
@@ -278,8 +315,9 @@ public class BasicCommandContext implements CommandContext {
   /**
    * Returns a read-only map with all the variables.
    */
+  @Override
   public Map<String, Object> getVariables() {
-    final HashMap<String, Object> map = new HashMap<String, Object>();
+    final var map = new HashMap<String, Object>();
     if (child != null) {
       map.putAll(child.getVariables());
     }
@@ -296,12 +334,13 @@ public class BasicCommandContext implements CommandContext {
    *
    * @return
    */
+  @Override
   public CommandContext setChild(final CommandContext iContext) {
     if (iContext == null) {
       if (child != null) {
         // REMOVE IT
         child.setParent(null);
-        child.setDatabase(null);
+        child.setDatabaseSession(null);
 
         child = null;
       }
@@ -309,16 +348,18 @@ public class BasicCommandContext implements CommandContext {
       // ADD IT
       child = iContext;
       iContext.setParent(this);
-      child.setDatabase(database);
+      child.setDatabaseSession(session);
     }
 
     return this;
   }
 
+  @Override
   public CommandContext getParent() {
     return parent;
   }
 
+  @Override
   public CommandContext setParent(final CommandContext iParentContext) {
     if (parent != iParentContext) {
       parent = iParentContext;
@@ -341,10 +382,12 @@ public class BasicCommandContext implements CommandContext {
     return getVariables().toString();
   }
 
+  @Override
   public boolean isRecordingMetrics() {
     return recordMetrics;
   }
 
+  @Override
   public CommandContext setRecordingMetrics(final boolean recordMetrics) {
     this.recordMetrics = recordMetrics;
     return this;
@@ -359,6 +402,7 @@ public class BasicCommandContext implements CommandContext {
     }
   }
 
+  @Override
   public boolean checkTimeout() {
     if (timeoutMs > 0) {
       if (System.currentTimeMillis() - executionStartedOn > timeoutMs) {
@@ -381,11 +425,14 @@ public class BasicCommandContext implements CommandContext {
 
   @Override
   public CommandContext copy() {
-    final BasicCommandContext copy = new BasicCommandContext();
+    final var copy = new BasicCommandContext();
     copy.init();
 
     if (variables != null && !variables.isEmpty()) {
       copy.variables.putAll(variables);
+    }
+    if (!systemVariables.isEmpty()) {
+      copy.systemVariables.putAll(systemVariables);
     }
 
     copy.recordMetrics = recordMetrics;
@@ -393,7 +440,7 @@ public class BasicCommandContext implements CommandContext {
     copy.child = child.copy();
     copy.child.setParent(copy);
 
-    copy.setDatabase(null);
+    copy.setDatabaseSession(null);
 
     return copy;
   }
@@ -409,6 +456,8 @@ public class BasicCommandContext implements CommandContext {
     }
   }
 
+  @Override
+  @Nullable
   public Map<Object, Object> getInputParameters() {
     if (inputParameters != null) {
       return inputParameters;
@@ -417,57 +466,35 @@ public class BasicCommandContext implements CommandContext {
     return parent == null ? null : parent.getInputParameters();
   }
 
+  @Override
   public void setInputParameters(Map<Object, Object> inputParameters) {
     this.inputParameters = inputParameters;
   }
 
-  /**
-   * returns the number of results processed. This is intended to be used with LIMIT in SQL
-   * statements
-   *
-   * @return
-   */
-  public AtomicLong getResultsProcessed() {
-    return resultsProcessed;
-  }
-
-  /**
-   * adds an item to the unique result set
-   *
-   * @param o the result item to add
-   * @return true if the element is successfully added (it was not present yet), false otherwise (it
-   * was already present)
-   */
-  public synchronized boolean addToUniqueResult(Object o) {
-    Object toAdd = o;
-    if (o instanceof EntityImpl && ((EntityImpl) o).getIdentity().isNew()) {
-      toAdd = new DocumentEqualityWrapper((EntityImpl) o);
-    }
-    return this.uniqueResult.add(toAdd);
-  }
-
-  public DatabaseSessionInternal getDatabase() {
-    if (database != null) {
-      return database;
+  @Override
+  public DatabaseSessionEmbedded getDatabaseSession() {
+    if (session != null) {
+      return session;
     }
 
     if (parent != null) {
-      database = parent.getDatabase();
+      session = parent.getDatabaseSession();
     }
 
-    if (database == null && !(this instanceof ServerCommandContext)) {
-      throw new DatabaseException("No database found in SQL context");
+    if (session == null && !(this instanceof ServerCommandContext)) {
+      throw new DatabaseException("No database session found in SQL context");
     }
 
-    return database;
+    return session;
   }
 
 
-  public void setDatabase(DatabaseSessionInternal database) {
-    this.database = database;
+  @Override
+  public void setDatabaseSession(DatabaseSessionEmbedded session) {
+    this.session = session;
 
     if (child != null) {
-      child.setDatabase(database);
+      child.setDatabaseSession(session);
     }
   }
 
@@ -481,7 +508,7 @@ public class BasicCommandContext implements CommandContext {
     if (varName == null || varName.length() == 0) {
       return false;
     }
-    String dollarVar = varName;
+    var dollarVar = varName;
     if (!dollarVar.startsWith("$")) {
       dollarVar = "$" + varName;
     }
@@ -494,8 +521,9 @@ public class BasicCommandContext implements CommandContext {
         || (parent != null && parent.isScriptVariableDeclared(varName));
   }
 
+  @Override
   public void startProfiling(ExecutionStep step) {
-    StepStats stats = stepStats.get(step);
+    var stats = stepStats.get(step);
     if (stats == null) {
       stats = new StepStats();
       stepStats.put(step, stats);
@@ -507,6 +535,7 @@ public class BasicCommandContext implements CommandContext {
     this.currentStepStats.push(stats);
   }
 
+  @Override
   public void endProfiling(ExecutionStep step) {
     if (!this.currentStepStats.isEmpty()) {
       this.currentStepStats.pop().end();

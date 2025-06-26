@@ -22,12 +22,11 @@ package com.jetbrains.youtrack.db.internal.core.record;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
-import com.jetbrains.youtrack.db.internal.core.record.impl.RecordFlat;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 
 /**
@@ -47,43 +46,36 @@ public class RecordFactoryManager {
 
   public interface RecordFactory {
 
-    DBRecord newRecord(RecordId rid, DatabaseSessionInternal database);
+    DBRecord newRecord(RecordId rid, DatabaseSessionEmbedded database);
   }
 
   public RecordFactoryManager() {
     declareRecordType(
         EntityImpl.RECORD_TYPE,
-        "document",
-        EntityImpl.class,
-        (rid, database) -> {
-          var cluster = rid.getClusterId();
-          if (database != null && cluster >= 0) {
-            if (database.isClusterVertex(cluster)) {
-              return new VertexEntityImpl(database, rid);
-            } else if (database.isClusterEdge(cluster)) {
-              return new EdgeEntityImpl(database, rid);
-            }
-          }
-          return new EntityImpl(database, rid);
-        });
+        "entity",
+        EntityImpl.class, (rid, database) -> new EntityImpl(database, rid));
+    declareRecordType(VertexEntityImpl.RECORD_TYPE,
+        "vertex",
+        VertexEntityImpl.class,
+        (rid, database) -> new VertexEntityImpl(database, rid));
+    declareRecordType(StatefullEdgeEntityImpl.RECORD_TYPE,
+        "statefulEdge",
+        StatefullEdgeEntityImpl.class,
+        (rid, database) -> new StatefullEdgeEntityImpl(database, rid));
     declareRecordType(
-        Blob.RECORD_TYPE, "bytes", Blob.class, (rid, database) -> new RecordBytes(rid));
-    declareRecordType(
-        RecordFlat.RECORD_TYPE,
-        "flat",
-        RecordFlat.class,
-        (rid, database) -> new RecordFlat(rid));
+        Blob.RECORD_TYPE, "blob",
+        Blob.class, (rid, database) -> new RecordBytes(database, rid));
   }
 
   public String getRecordTypeName(final byte iRecordType) {
-    String name = recordTypeNames[iRecordType];
+    var name = recordTypeNames[iRecordType];
     if (name == null) {
       throw new IllegalArgumentException("Unsupported record type: " + iRecordType);
     }
     return name;
   }
 
-  public DBRecord newInstance(RecordId rid, DatabaseSessionInternal database) {
+  public DBRecord newInstance(RecordId rid, DatabaseSessionEmbedded database) {
     try {
       return getFactory(database.getRecordType()).newRecord(rid, database);
     } catch (Exception e) {
@@ -92,7 +84,7 @@ public class RecordFactoryManager {
   }
 
   public RecordAbstract newInstance(
-      final byte iRecordType, RecordId rid, DatabaseSessionInternal database) {
+      final byte iRecordType, RecordId rid, DatabaseSessionEmbedded database) {
     try {
       return (RecordAbstract) getFactory(iRecordType).newRecord(rid, database);
     } catch (Exception e) {
@@ -112,7 +104,7 @@ public class RecordFactoryManager {
   }
 
   protected RecordFactory getFactory(final byte iRecordType) {
-    final RecordFactory factory = recordFactories[iRecordType];
+    final var factory = recordFactories[iRecordType];
     if (factory == null) {
       throw new IllegalArgumentException("Record type '" + iRecordType + "' is not supported");
     }

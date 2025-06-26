@@ -20,7 +20,6 @@
 package com.jetbrains.youtrack.db.internal.core.security.symmetrickey;
 
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Map;
 
 /**
@@ -86,47 +85,45 @@ public class UserSymmetricKeyConfig implements SymmetricKeyConfig {
         && !keystoreKeyAlias.isEmpty();
   }
 
-  public UserSymmetricKeyConfig(final EntityImpl entity) {
-    EntityImpl props = entity.field("properties");
+  public UserSymmetricKeyConfig(final Map<String, Object> config) {
+    @SuppressWarnings("unchecked")
+    var props = (Map<String, Object>) config.get("properties");
 
     if (props == null) {
-      throw new SecurityException("UserSymmetricKeyConfig() OUser properties is null");
+      throw new SecurityException(
+          "UserSymmetricKeyConfig() OUser properties is null");
     }
 
-    this.keyString = props.field("key");
+    this.keyString = (String) props.get("key");
 
     // "keyString" has priority over "keyFile" and "keystore".
     if (this.keyString != null) {
       // If "key" is used, "keyAlgorithm" is also required.
-      this.keyAlgorithm = props.field("keyAlgorithm");
+      this.keyAlgorithm = (String) props.get("keyAlgorithm");
 
       if (this.keyAlgorithm == null) {
-        throw new SecurityException(
-            "UserSymmetricKeyConfig() keyAlgorithm is required with key");
+        throw new SecurityException("UserSymmetricKeyConfig() keyAlgorithm is required with key");
       }
     } else {
-      this.keyFile = props.field("keyFile");
+      this.keyFile = (String) props.get("keyFile");
 
       // "keyFile" has priority over "keyStore".
 
       if (this.keyFile != null) {
         // If "keyFile" is used, "keyAlgorithm" is also required.
-        this.keyAlgorithm = props.field("keyAlgorithm");
+        this.keyAlgorithm = (String) props.get("keyAlgorithm");
 
         if (this.keyAlgorithm == null) {
           throw new SecurityException(
               "UserSymmetricKeyConfig() keyAlgorithm is required with keyFile");
         }
       } else {
-        Map<String, Object> ksMap = props.field("keyStore");
-
-        EntityImpl ksDoc = new EntityImpl();
-        ksDoc.fromMap(ksMap);
-
-        this.keystoreFile = ksDoc.field("file");
-        this.keystorePassword = ksDoc.field("passsword");
-        this.keystoreKeyAlias = ksDoc.field("keyAlias");
-        this.keystoreKeyPassword = ksDoc.field("keyPassword");
+        @SuppressWarnings("unchecked")
+        var ksMap = (Map<String, Object>) props.get("keyStore");
+        this.keystoreFile = (String) ksMap.get("file");
+        this.keystorePassword = (String) ksMap.get("passsword");
+        this.keystoreKeyAlias = (String) ksMap.get("keyAlias");
+        this.keystoreKeyPassword = (String) ksMap.get("keyPassword");
 
         if (this.keystoreFile == null) {
           throw new SecurityException("UserSymmetricKeyConfig() keyStore.file is required");

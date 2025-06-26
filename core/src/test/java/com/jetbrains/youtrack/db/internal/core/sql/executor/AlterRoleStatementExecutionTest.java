@@ -1,8 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicyImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -13,54 +11,59 @@ public class AlterRoleStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testAddPolicy() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    db.command("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person").close();
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    session.execute("ALTER ROLE reader SET POLICY testPolicy ON database.class.Person").close();
+    session.commit();
 
+    session.begin();
     Assert.assertEquals(
         "testPolicy",
         security
-            .getSecurityPolicies(db, security.getRole(db, "reader"))
+            .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
-            .getName(db));
+            .getName());
+    session.commit();
   }
 
   @Test
   public void testRemovePolicy() {
-    SecurityInternal security = db.getSharedContext().getSecurity();
+    var security = session.getSharedContext().getSecurity();
 
-    db.createClass("Person");
+    session.createClass("Person");
 
-    db.begin();
-    SecurityPolicyImpl policy = security.createSecurityPolicy(db, "testPolicy");
-    policy.setActive(db, true);
-    policy.setReadRule(db, "name = 'foo'");
-    security.saveSecurityPolicy(db, policy);
-    security.setSecurityPolicy(db, security.getRole(db, "reader"), "database.class.Person", policy);
-    db.commit();
+    session.begin();
+    var policy = security.createSecurityPolicy(session, "testPolicy");
+    policy.setActive(true);
+    policy.setReadRule("name = 'foo'");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Person", policy);
+    session.commit();
 
+    session.begin();
     Assert.assertEquals(
         "testPolicy",
         security
-            .getSecurityPolicies(db, security.getRole(db, "reader"))
+            .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person")
-            .getName(db));
+            .getName());
 
-    db.begin();
-    db.command("ALTER ROLE reader REMOVE POLICY ON database.class.Person").close();
-    db.commit();
+    session.execute("ALTER ROLE reader REMOVE POLICY ON database.class.Person").close();
+    session.commit();
+    session.begin();
 
     Assert.assertNull(
         security
-            .getSecurityPolicies(db, security.getRole(db, "reader"))
+            .getSecurityPolicies(session, security.getRole(session, "reader"))
             .get("database.class.Person"));
+    session.commit();
   }
 }

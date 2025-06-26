@@ -14,17 +14,21 @@
 package com.jetbrains.youtrack.db.internal.security.password;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.security.InvalidPasswordException;
 import com.jetbrains.youtrack.db.internal.core.security.PasswordValidator;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import java.util.Map;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Provides a default implementation for validating passwords.
  */
 public class DefaultPasswordValidator implements PasswordValidator {
+
+  private static final Logger logger = LoggerFactory.getLogger(DefaultPasswordValidator.class);
 
   private boolean enabled = true;
   private boolean ignoreUUID = true;
@@ -38,35 +42,35 @@ public class DefaultPasswordValidator implements PasswordValidator {
 
   // SecurityComponent
   public void active() {
-    LogManager.instance().debug(this, "DefaultPasswordValidator is active");
+    LogManager.instance().debug(this, "DefaultPasswordValidator is active", logger);
   }
 
   // SecurityComponent
-  public void config(DatabaseSessionInternal session, final EntityImpl jsonConfig,
+  public void config(DatabaseSessionEmbedded session, final Map<String, Object> jsonConfig,
       SecuritySystem security) {
     try {
-      if (jsonConfig.containsField("enabled")) {
-        enabled = jsonConfig.field("enabled");
+      if (jsonConfig.containsKey("enabled")) {
+        enabled = (Boolean) jsonConfig.get("enabled");
       }
 
-      if (jsonConfig.containsField("ignoreUUID")) {
-        ignoreUUID = jsonConfig.field("ignoreUUID");
+      if (jsonConfig.containsKey("ignoreUUID")) {
+        ignoreUUID = (Boolean) jsonConfig.get("ignoreUUID");
       }
 
-      if (jsonConfig.containsField("minimumLength")) {
-        minLength = jsonConfig.field("minimumLength");
+      if (jsonConfig.containsKey("minimumLength")) {
+        minLength = (Integer) jsonConfig.get("minimumLength");
       }
 
-      if (jsonConfig.containsField("numberRegEx")) {
-        hasNumber = Pattern.compile(jsonConfig.field("numberRegEx"));
+      if (jsonConfig.containsKey("numberRegEx")) {
+        hasNumber = Pattern.compile(jsonConfig.get("numberRegEx").toString());
       }
 
-      if (jsonConfig.containsField("specialRegEx")) {
-        hasSpecial = Pattern.compile(jsonConfig.field("specialRegEx"));
+      if (jsonConfig.containsKey("specialRegEx")) {
+        hasSpecial = Pattern.compile(jsonConfig.get("specialRegEx").toString());
       }
 
-      if (jsonConfig.containsField("uppercaseRegEx")) {
-        hasUppercase = Pattern.compile(jsonConfig.field("uppercaseRegEx"));
+      if (jsonConfig.containsKey("uppercaseRegEx")) {
+        hasUppercase = Pattern.compile(jsonConfig.get("uppercaseRegEx").toString());
       }
     } catch (Exception ex) {
       LogManager.instance().error(this, "DefaultPasswordValidator.config()", ex);
@@ -99,7 +103,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
             .debug(
                 this,
                 "DefaultPasswordValidator.validatePassword() Password length (%d) is too short",
-                password.length());
+                logger, password.length());
         throw new InvalidPasswordException(
             "Password length is too short.  Minimum password length is " + minLength);
       }
@@ -109,7 +113,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
             .debug(
                 this,
                 "DefaultPasswordValidator.validatePassword() Password requires a minimum count of"
-                    + " numbers");
+                    + " numbers", logger);
         throw new InvalidPasswordException("Password requires a minimum count of numbers");
       }
 
@@ -118,7 +122,7 @@ public class DefaultPasswordValidator implements PasswordValidator {
             .debug(
                 this,
                 "DefaultPasswordValidator.validatePassword() Password requires a minimum count of"
-                    + " special characters");
+                    + " special characters", logger);
         throw new InvalidPasswordException(
             "Password requires a minimum count of special characters");
       }
@@ -128,19 +132,20 @@ public class DefaultPasswordValidator implements PasswordValidator {
             .debug(
                 this,
                 "DefaultPasswordValidator.validatePassword() Password requires a minimum count of"
-                    + " uppercase characters");
+                    + " uppercase characters", logger);
         throw new InvalidPasswordException(
             "Password requires a minimum count of uppercase characters");
       }
     } else {
       LogManager.instance()
-          .debug(this, "DefaultPasswordValidator.validatePassword() Password is null or empty");
+          .debug(this, "DefaultPasswordValidator.validatePassword() Password is null or empty",
+              logger);
       throw new InvalidPasswordException(
           "DefaultPasswordValidator.validatePassword() Password is null or empty");
     }
   }
 
-  private boolean isValid(final Pattern pattern, final String password) {
+  private static boolean isValid(final Pattern pattern, final String password) {
     return pattern.matcher(password).find();
   }
 

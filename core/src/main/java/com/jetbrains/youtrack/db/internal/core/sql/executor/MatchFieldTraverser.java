@@ -1,8 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Relation;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFieldMatchPathItem;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchPathItem;
@@ -17,10 +18,10 @@ public class MatchFieldTraverser extends MatchEdgeTraverser {
     super(lastUpstreamRecord, item);
   }
 
+  @Override
   protected ExecutionStream traversePatternEdge(
-      Identifiable startingPoint, CommandContext iCommandContext) {
-
-    Object prevCurrent = iCommandContext.getVariable("$current");
+      Result startingPoint, CommandContext iCommandContext) {
+    var prevCurrent = iCommandContext.getVariable("$current");
     iCommandContext.setVariable("$current", startingPoint);
     Object qR;
     try {
@@ -30,16 +31,14 @@ public class MatchFieldTraverser extends MatchEdgeTraverser {
       iCommandContext.setVariable("$current", prevCurrent);
     }
 
-    if (qR == null) {
-      return ExecutionStream.empty();
-    }
-    if (qR instanceof Identifiable) {
-      return ExecutionStream.singleton(new ResultInternal(
-          iCommandContext.getDatabase(), (Identifiable) qR));
-    }
-    if (qR instanceof Iterable) {
-      return ExecutionStream.iterator(((Iterable) qR).iterator());
-    }
-    return ExecutionStream.empty();
+    return switch (qR) {
+      case null -> ExecutionStream.empty();
+      case Identifiable identifiable -> ExecutionStream.singleton(new ResultInternal(
+          iCommandContext.getDatabaseSession(), identifiable));
+      case Relation<?> relation -> ExecutionStream.singleton(
+          new ResultInternal(iCommandContext.getDatabaseSession(), relation));
+      case Iterable<?> iterable -> ExecutionStream.iterator(iterable.iterator());
+      default -> ExecutionStream.empty();
+    };
   }
 }

@@ -2,12 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public class SQLInputParameter extends SimpleNode {
 
@@ -28,47 +29,49 @@ public class SQLInputParameter extends SimpleNode {
     super(p, id);
   }
 
+  @Nullable
   public Object bindFromInputParams(Map<Object, Object> params) {
     return null;
   }
 
+  @Nullable
   public Object getValue(Map<Object, Object> params) {
     return null;
   }
 
   protected Object toParsedTree(Object value) {
     if (value == null) {
-      SQLExpression result = new SQLExpression(-1);
+      var result = new SQLExpression(-1);
       result.isNull = true;
       return result;
     }
     if (value instanceof Boolean) {
-      SQLExpression result = new SQLExpression(-1);
+      var result = new SQLExpression(-1);
       result.booleanValue = (Boolean) value;
       return result;
     }
     if (value instanceof Integer) {
-      SQLInteger result = new SQLInteger(-1);
+      var result = new SQLInteger(-1);
       result.setValue((Integer) value);
       return result;
     }
     if (value instanceof BigDecimal) {
-      SQLExpression result = new SQLExpression(-1);
-      SQLFunctionCall funct = new SQLFunctionCall(-1);
+      var result = new SQLExpression(-1);
+      var funct = new SQLFunctionCall(-1);
       result.mathExpression = new SQLBaseExpression(-1);
-      SQLBaseIdentifier identifier = new SQLBaseIdentifier(-1);
+      var identifier = new SQLBaseIdentifier(-1);
       identifier.levelZero = new SQLLevelZeroIdentifier(-1);
       identifier.levelZero.functionCall = funct;
       ((SQLBaseExpression) result.mathExpression).setIdentifier(identifier);
       funct.name = new SQLIdentifier("decimal");
-      SQLExpression stringExp = new SQLExpression(-1);
+      var stringExp = new SQLExpression(-1);
       stringExp.mathExpression = new SQLBaseExpression(((BigDecimal) value).toPlainString());
       funct.getParams().add(stringExp);
       return result;
     }
 
     if (value instanceof Number) {
-      SQLFloatingPoint result = new SQLFloatingPoint(-1);
+      var result = new SQLFloatingPoint(-1);
       result.sign = ((Number) value).doubleValue() >= 0 ? 1 : -1;
       result.stringValue = value.toString();
       if (result.stringValue.startsWith("-")) {
@@ -82,24 +85,24 @@ public class SQLInputParameter extends SimpleNode {
     if (MultiValue.isMultiValue(value)
         && !(value instanceof byte[])
         && !(value instanceof Byte[])) {
-      SQLCollection coll = new SQLCollection(-1);
+      var coll = new SQLCollection(-1);
       coll.expressions = new ArrayList<SQLExpression>();
       Iterator iterator = MultiValue.getMultiValueIterator(value);
       while (iterator.hasNext()) {
-        Object o = iterator.next();
-        SQLExpression exp = new SQLExpression(-1);
+        var o = iterator.next();
+        var exp = new SQLExpression(-1);
         exp.value = toParsedTree(o);
         coll.expressions.add(exp);
       }
       return coll;
     }
     if (value instanceof Map) {
-      SQLJson json = new SQLJson(-1);
+      var json = new SQLJson(-1);
       json.items = new ArrayList<SQLJsonItem>();
-      for (Object entry : ((Map) value).entrySet()) {
-        SQLJsonItem item = new SQLJsonItem();
+      for (var entry : ((Map) value).entrySet()) {
+        var item = new SQLJsonItem();
         item.leftString = "" + ((Map.Entry) entry).getKey();
-        SQLExpression exp = new SQLExpression(-1);
+        var exp = new SQLExpression(-1);
         exp.value = toParsedTree(((Map.Entry) entry).getValue());
         item.right = exp;
         json.items.add(item);
@@ -108,31 +111,31 @@ public class SQLInputParameter extends SimpleNode {
     }
     if (value instanceof Identifiable) {
       // TODO if invalid build a JSON
-      SQLRid rid = new SQLRid(-1);
-      String stringVal = ((Identifiable) value).getIdentity().toString().substring(1);
-      String[] splitted = stringVal.split(":");
-      SQLInteger c = new SQLInteger(-1);
+      var rid = new SQLRid(-1);
+      var stringVal = ((Identifiable) value).getIdentity().toString().substring(1);
+      var splitted = stringVal.split(":");
+      var c = new SQLInteger(-1);
       c.setValue(Integer.parseInt(splitted[0]));
-      rid.cluster = c;
-      SQLInteger p = new SQLInteger(-1);
+      rid.collection = c;
+      var p = new SQLInteger(-1);
       p.setValue(Integer.parseInt(splitted[1]));
       rid.position = p;
       rid.setLegacy(true);
       return rid;
     }
     if (value instanceof Date) {
-      SQLFunctionCall function = new SQLFunctionCall(-1);
+      var function = new SQLFunctionCall(-1);
       function.name = new SQLIdentifier(-1);
       function.name.value = "date";
 
-      SQLExpression dateExpr = new SQLExpression(-1);
+      var dateExpr = new SQLExpression(-1);
       dateExpr.singleQuotes = true;
       dateExpr.doubleQuotes = false;
-      SimpleDateFormat dateFormat = new SimpleDateFormat(dateFormatString);
+      var dateFormat = new SimpleDateFormat(dateFormatString);
       dateExpr.value = dateFormat.format(value);
       function.getParams().add(dateExpr);
 
-      SQLExpression dateFormatExpr = new SQLExpression(-1);
+      var dateFormatExpr = new SQLExpression(-1);
       dateFormatExpr.singleQuotes = true;
       dateFormatExpr.doubleQuotes = false;
       dateFormatExpr.value = dateFormatString;
@@ -150,16 +153,19 @@ public class SQLInputParameter extends SimpleNode {
     throw new UnsupportedOperationException();
   }
 
+  @Nullable
   public static SQLInputParameter deserializeFromOResult(Result res) {
     try {
-      SQLInputParameter result =
+      var result =
           (SQLInputParameter)
               Class.forName(res.getProperty("__class"))
                   .getConstructor(Integer.class)
                   .newInstance(-1);
       result.deserialize(res);
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(
+          new CommandExecutionException(res.getBoundedToSession(), ""), e,
+          res.getBoundedToSession());
     }
     return null;
   }
@@ -175,7 +181,7 @@ public class SQLInputParameter extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("__class", getClass().getName());
     return result;
   }

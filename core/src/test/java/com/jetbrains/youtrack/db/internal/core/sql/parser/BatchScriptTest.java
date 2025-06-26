@@ -16,7 +16,7 @@ public class BatchScriptTest {
     checkRightSyntax("begin;\nselect from foo;/*foo bar*/ return bar;");
     checkRightSyntax("/*foo bar*/ begin;\nselect from foo;return bar;/*foo bar*/ ");
 
-    String s =
+    var s =
         "begin;"
             + "let $a = select from foo let a = 13 where bar = 'baz';"
             + "let $b = insert into foo set name = 'baz';"
@@ -71,9 +71,9 @@ public class BatchScriptTest {
   }
 
   protected List<SQLStatement> checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
-      List<SQLStatement> result = osql.parseScript();
+      var result = osql.parseScript();
       //      for(SQLStatement stm:result){
       //        System.out.println(stm.toString()+";");
       //      }
@@ -93,7 +93,7 @@ public class BatchScriptTest {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

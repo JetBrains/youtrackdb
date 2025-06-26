@@ -41,9 +41,9 @@ public class SQLCreateSequenceStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    DBSequence seq =
-        db
+    var session = ctx.getDatabaseSession();
+    var seq =
+        session
             .getMetadata()
             .getSequenceLibrary()
             .getSequence(this.name.getStringValue());
@@ -51,20 +51,20 @@ public class SQLCreateSequenceStatement extends SQLSimpleExecStatement {
       if (ifNotExists) {
         return ExecutionStream.empty();
       } else {
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(session,
             "Sequence " + name.getStringValue() + " already exists");
       }
     }
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(session);
     result.setProperty("operation", "create sequence");
     result.setProperty("name", name.getStringValue());
 
     try {
       executeInternal(ctx, result);
     } catch (ExecutionException | InterruptedException exc) {
-      String message = "Unable to execute command: " + exc.getMessage();
+      var message = "Unable to execute command: " + exc.getMessage();
       LogManager.instance().error(this, message, exc, (Object) null);
-      throw new CommandExecutionException(message);
+      throw new CommandExecutionException(session, message);
     }
 
     return ExecutionStream.singleton(result);
@@ -72,53 +72,54 @@ public class SQLCreateSequenceStatement extends SQLSimpleExecStatement {
 
   private void executeInternal(CommandContext ctx, ResultInternal result)
       throws ExecutionException, InterruptedException {
-    DBSequence.CreateParams params = createParams(ctx, result);
-    DBSequence.SEQUENCE_TYPE seqType =
+    var params = createParams(ctx, result);
+    var seqType =
         type == TYPE_CACHED ? DBSequence.SEQUENCE_TYPE.CACHED : DBSequence.SEQUENCE_TYPE.ORDERED;
     result.setProperty("type", seqType.toString());
-    ctx.getDatabase()
+    ctx.getDatabaseSession()
         .getMetadata()
         .getSequenceLibrary()
         .createSequence(this.name.getStringValue(), seqType, params);
   }
 
   private DBSequence.CreateParams createParams(CommandContext ctx, ResultInternal result) {
-    DBSequence.CreateParams params = new DBSequence.CreateParams();
+    var params = new DBSequence.CreateParams();
     if (start != null) {
-      Object o = start.execute((Identifiable) null, ctx);
+      var o = start.execute((Identifiable) null, ctx);
       if (o instanceof Number) {
         params.setStart(((Number) o).longValue());
         result.setProperty("start", o);
       } else {
-        throw new CommandExecutionException("Invalid start value: " + o);
+        throw new CommandExecutionException(ctx.getDatabaseSession(), "Invalid start value: " + o);
       }
     }
     if (increment != null) {
-      Object o = increment.execute((Identifiable) null, ctx);
+      var o = increment.execute((Identifiable) null, ctx);
       if (o instanceof Number) {
         params.setIncrement(((Number) o).intValue());
         result.setProperty("increment", o);
       } else {
-        throw new CommandExecutionException("Invalid increment value: " + o);
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "Invalid increment value: " + o);
       }
     }
     if (cache != null) {
-      Object o = cache.execute((Identifiable) null, ctx);
+      var o = cache.execute((Identifiable) null, ctx);
       if (o instanceof Number) {
         params.setCacheSize(((Number) o).intValue());
         result.setProperty("cacheSize", o);
       } else {
-        throw new CommandExecutionException("Invalid cache value: " + o);
+        throw new CommandExecutionException(ctx.getDatabaseSession(), "Invalid cache value: " + o);
       }
     }
 
     if (limitValue != null) {
-      Object o = limitValue.execute((Identifiable) null, ctx);
+      var o = limitValue.execute((Identifiable) null, ctx);
       if (o instanceof Number) {
         params.setLimitValue(((Number) o).longValue());
         result.setProperty("limitValue", o);
       } else {
-        throw new CommandExecutionException("Invalid limit value: " + o);
+        throw new CommandExecutionException(ctx.getDatabaseSession(), "Invalid limit value: " + o);
       }
     }
 
@@ -223,7 +224,7 @@ public class SQLCreateSequenceStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLCreateSequenceStatement copy() {
-    SQLCreateSequenceStatement result = new SQLCreateSequenceStatement(-1);
+    var result = new SQLCreateSequenceStatement(-1);
     result.name = name == null ? null : name.copy();
     result.ifNotExists = this.ifNotExists;
     result.type = type;
@@ -245,7 +246,7 @@ public class SQLCreateSequenceStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLCreateSequenceStatement that = (SQLCreateSequenceStatement) o;
+    var that = (SQLCreateSequenceStatement) o;
 
     if (ifNotExists != that.ifNotExists) {
       return false;
@@ -276,7 +277,7 @@ public class SQLCreateSequenceStatement extends SQLSimpleExecStatement {
 
   @Override
   public int hashCode() {
-    int result = name != null ? name.hashCode() : 0;
+    var result = name != null ? name.hashCode() : 0;
     result = 31 * result + (ifNotExists ? 1 : 0);
     result = 31 * result + type;
     result = 31 * result + (start != null ? start.hashCode() : 0);

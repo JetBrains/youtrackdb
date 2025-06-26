@@ -22,7 +22,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.internal.server.ServerInfo;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 
 public class ServerCommandGetServer extends ServerCommandGetConnections {
 
@@ -38,12 +38,12 @@ public class ServerCommandGetServer extends ServerCommandGetConnections {
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     checkSyntax(iRequest.getUrl(), 1, "Syntax error: server");
 
     iRequest.getData().commandInfo = "Server status";
 
-    final String result = ServerInfo.getServerInfo(server);
+    final var result = ServerInfo.getServerInfo(server);
 
     iResponse.send(
         HttpUtils.STATUS_OK_CODE,

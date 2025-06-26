@@ -20,166 +20,192 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.exception.ValidationException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
-import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.query.BasicResultInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.SerializableWrapper;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.HelperClasses;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.VarIntSerializer;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
-import java.io.Serializable;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
 import java.util.TimeZone;
+import java.util.function.Supplier;
+import javax.annotation.Nullable;
 
 public class ResultSerializerNetwork {
 
-  private static final String CHARSET_UTF_8 = "UTF-8";
-  private static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.CLUSTER_POS_INVALID);
+  private static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
   private static final long MILLISEC_PER_DAY = 86400000;
 
-  public ResultSerializerNetwork() {
-  }
-
-  public ResultInternal deserialize(DatabaseSessionInternal db, final BytesContainer bytes) {
-    final ResultInternal entity = new ResultInternal(db);
+  public static <T extends BasicResultInternal> T deserialize(final BytesContainer bytes,
+      Supplier<T> resultFactory, final TimeZone databaseTimeZone) {
+    var result = resultFactory.get();
     String fieldName;
-    PropertyType type;
-    int size = VarIntSerializer.readAsInteger(bytes);
+    PropertyTypeInternal type;
+
+    var isIdentifiable = bytes.bytes[bytes.offset++] == 1;
+    if (isIdentifiable) {
+      var rid = readOptimizedLink(bytes);
+      result.setIdentity(rid);
+    }
+
+    var size = VarIntSerializer.readAsInteger(bytes);
     // fields
     while (size-- > 0) {
-      final int len = VarIntSerializer.readAsInteger(bytes);
+      final var len = VarIntSerializer.readAsInteger(bytes);
       // PARSE FIELD NAME
       fieldName = stringFromBytes(bytes.bytes, bytes.offset, len).intern();
       bytes.skip(len);
       type = readOType(bytes);
 
       if (type == null) {
-        entity.setProperty(fieldName, null);
+        result.setProperty(fieldName, null);
       } else {
-        final Object value = deserializeValue(db, bytes, type);
-        entity.setProperty(fieldName, value);
+        final var value = deserializeValue(bytes, type, resultFactory, databaseTimeZone);
+        result.setProperty(fieldName, value);
       }
     }
 
-    int metadataSize = VarIntSerializer.readAsInteger(bytes);
+    var metadataSize = VarIntSerializer.readAsInteger(bytes);
     // metadata
     while (metadataSize-- > 0) {
-      final int len = VarIntSerializer.readAsInteger(bytes);
+      final var len = VarIntSerializer.readAsInteger(bytes);
       // PARSE FIELD NAME
       fieldName = stringFromBytes(bytes.bytes, bytes.offset, len).intern();
       bytes.skip(len);
       type = readOType(bytes);
 
       if (type == null) {
-        entity.setMetadata(fieldName, null);
+        result.setMetadata(fieldName, null);
       } else {
-        final Object value = deserializeValue(db, bytes, type);
-        entity.setMetadata(fieldName, value);
+        final var value = deserializeValue(bytes, type, resultFactory, databaseTimeZone);
+        result.setMetadata(fieldName, value);
       }
     }
 
-    return entity;
+    return result;
   }
 
-  @SuppressWarnings("unchecked")
-  public void serialize(final Result result, final BytesContainer bytes) {
+
+  public static void serialize(final BasicResult result,
+      final BytesContainer bytes, final TimeZone databaseTimeZone) {
     var propertyNames = result.getPropertyNames();
 
+    if (result.isIdentifiable()) {
+      var pos = bytes.alloc(1);
+      bytes.bytes[pos] = 1;
+      writeOptimizedLink(bytes, result.getIdentity());
+    } else {
+      bytes.alloc(1);
+    }
+
     VarIntSerializer.write(bytes, propertyNames.size());
-    for (String property : propertyNames) {
+    for (var property : propertyNames) {
       writeString(bytes, property);
-      Object propertyValue = result.getProperty(property);
+      var propertyValue = result.getProperty(property);
       if (propertyValue != null) {
         if (propertyValue instanceof Result) {
           if (((Result) propertyValue).isEntity()) {
-            Entity elem = ((Result) propertyValue).getEntity().get();
-            writeOType(bytes, bytes.alloc(1), PropertyType.LINK);
-            serializeValue(bytes, elem.getIdentity(), PropertyType.LINK, null);
+            var elem = ((Result) propertyValue).asEntity();
+            if (elem.isEmbedded()) {
+              writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
+              serializeValue(bytes, propertyValue, PropertyTypeInternal.EMBEDDED, databaseTimeZone);
+            } else {
+              writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.LINK);
+              serializeValue(bytes, elem.getIdentity(), PropertyTypeInternal.LINK,
+                  databaseTimeZone);
+            }
           } else {
-            writeOType(bytes, bytes.alloc(1), PropertyType.EMBEDDED);
-            serializeValue(bytes, propertyValue, PropertyType.EMBEDDED, null);
+            writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
+            serializeValue(bytes, propertyValue, PropertyTypeInternal.EMBEDDED, databaseTimeZone);
           }
         } else {
-          final PropertyType type = PropertyType.getTypeByValue(propertyValue);
+          final var type = PropertyTypeInternal.getTypeByValue(propertyValue);
           if (type == null) {
             throw new SerializationException(
                 "Impossible serialize value of type "
                     + propertyValue.getClass()
                     + " with the Result binary serializer");
           }
-          writeOType(bytes, bytes.alloc(1), type);
-          serializeValue(bytes, propertyValue, type, null);
+          if (type != PropertyTypeInternal.LINKBAG) {
+            writeOType(bytes, bytes.alloc(1), type);
+          } else {
+            writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.LINKLIST);
+          }
+
+          serializeValue(bytes, propertyValue, type, databaseTimeZone);
         }
       } else {
         writeOType(bytes, bytes.alloc(1), null);
       }
     }
 
-    Set<String> metadataKeys = result.getMetadataKeys();
-    VarIntSerializer.write(bytes, metadataKeys.size());
+    if (result instanceof ResultInternal resultInternal) {
+      var metadataKeys = resultInternal.getMetadataKeys();
+      VarIntSerializer.write(bytes, metadataKeys.size());
 
-    for (String field : metadataKeys) {
-      writeString(bytes, field);
-      final Object value = result.getMetadata(field);
-      if (value != null) {
-        if (value instanceof Result) {
-          writeOType(bytes, bytes.alloc(1), PropertyType.EMBEDDED);
-          serializeValue(bytes, value, PropertyType.EMBEDDED, null);
-        } else {
-          final PropertyType type = PropertyType.getTypeByValue(value);
-          if (type == null) {
-            throw new SerializationException(
-                "Impossible serialize value of type "
-                    + value.getClass()
-                    + " with the Result binary serializer");
+      for (var field : metadataKeys) {
+        writeString(bytes, field);
+        final var value = resultInternal.getMetadata(field);
+        if (value != null) {
+          if (value instanceof Result) {
+            writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
+            serializeValue(bytes, value, PropertyTypeInternal.EMBEDDED, databaseTimeZone);
+          } else {
+            final var type = PropertyTypeInternal.getTypeByValue(value);
+            if (type == null) {
+              throw new SerializationException(
+                  "Impossible serialize value of type "
+                      + value.getClass()
+                      + " with the Result binary serializer");
+            }
+            writeOType(bytes, bytes.alloc(1), type);
+            serializeValue(bytes, value, type, databaseTimeZone);
           }
-          writeOType(bytes, bytes.alloc(1), type);
-          serializeValue(bytes, value, type, null);
+        } else {
+          writeOType(bytes, bytes.alloc(1), null);
         }
-      } else {
-        writeOType(bytes, bytes.alloc(1), null);
       }
+    } else {
+      VarIntSerializer.write(bytes, 0);
     }
   }
 
-  protected PropertyType readOType(final BytesContainer bytes) {
-    byte val = readByte(bytes);
+  @Nullable
+  protected static PropertyTypeInternal readOType(final BytesContainer bytes) {
+    var val = readByte(bytes);
     if (val == -1) {
       return null;
     }
-    return PropertyType.getById(val);
+    return PropertyTypeInternal.getById(val);
   }
 
-  private void writeOType(BytesContainer bytes, int pos, PropertyType type) {
+  private static void writeOType(BytesContainer bytes, int pos, PropertyTypeInternal type) {
     if (type == null) {
       bytes.bytes[pos] = (byte) -1;
     } else {
@@ -187,8 +213,8 @@ public class ResultSerializerNetwork {
     }
   }
 
-  public Object deserializeValue(DatabaseSessionInternal db, BytesContainer bytes,
-      PropertyType type) {
+  public static Object deserializeValue(BytesContainer bytes, PropertyTypeInternal type,
+      Supplier<? extends BasicResultInternal> resultFactory, final TimeZone databaseTimeZone) {
     Object value = null;
     switch (type) {
       case INTEGER:
@@ -219,20 +245,21 @@ public class ResultSerializerNetwork {
         value = new Date(VarIntSerializer.readAsLong(bytes));
         break;
       case DATE:
-        long savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
+        var savedTime = VarIntSerializer.readAsLong(bytes) * MILLISEC_PER_DAY;
         savedTime =
             convertDayToTimezone(
-                TimeZone.getTimeZone("GMT"), DateHelper.getDatabaseTimeZone(), savedTime);
+                TimeZone.getTimeZone("GMT"), databaseTimeZone, savedTime);
         value = new Date(savedTime);
         break;
       case EMBEDDED:
-        value = deserialize(db, bytes);
+        value = deserialize(bytes, resultFactory, databaseTimeZone);
         break;
       case EMBEDDEDSET:
-        value = readEmbeddedCollection(db, bytes, new LinkedHashSet<>());
+        value = readEmbeddedCollection(bytes, new LinkedHashSet<>(), resultFactory,
+            databaseTimeZone);
         break;
       case EMBEDDEDLIST:
-        value = readEmbeddedCollection(db, bytes, new ArrayList<>());
+        value = readEmbeddedCollection(bytes, new ArrayList<>(), resultFactory, databaseTimeZone);
         break;
       case LINKSET:
         value = readLinkCollection(bytes, new LinkedHashSet<>());
@@ -247,56 +274,38 @@ public class ResultSerializerNetwork {
         value = readOptimizedLink(bytes);
         break;
       case LINKMAP:
-        value = readLinkMap(db, bytes);
+        value = readLinkMap(bytes, resultFactory, databaseTimeZone);
         break;
       case EMBEDDEDMAP:
-        value = readEmbeddedMap(db, bytes);
+        value = readEmbeddedMap(bytes, resultFactory, databaseTimeZone);
         break;
       case DECIMAL:
-        value = DecimalSerializer.INSTANCE.deserialize(bytes.bytes, bytes.offset);
-        bytes.skip(DecimalSerializer.INSTANCE.getObjectSize(bytes.bytes, bytes.offset));
+        value = DecimalSerializer.staticDeserialize(bytes.bytes, bytes.offset);
+        bytes.skip(DecimalSerializer.staticGetObjectSize(bytes.bytes, bytes.offset));
         break;
       case LINKBAG:
         throw new UnsupportedOperationException("LINKBAG should never appear in a projection");
-      case TRANSIENT:
-        break;
-      case CUSTOM:
-        try {
-          String className = readString(bytes);
-          Class<?> clazz = Class.forName(className);
-          SerializableStream stream = (SerializableStream) clazz.newInstance();
-          stream.fromStream(readBinary(bytes));
-          if (stream instanceof SerializableWrapper) {
-            value = ((SerializableWrapper) stream).getSerializable();
-          } else {
-            value = stream;
-          }
-        } catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-        break;
-      case ANY:
-        break;
     }
     return value;
   }
 
-  private byte[] readBinary(BytesContainer bytes) {
-    int n = VarIntSerializer.readAsInteger(bytes);
-    byte[] newValue = new byte[n];
+  private static byte[] readBinary(BytesContainer bytes) {
+    var n = VarIntSerializer.readAsInteger(bytes);
+    var newValue = new byte[n];
     System.arraycopy(bytes.bytes, bytes.offset, newValue, 0, newValue.length);
     bytes.skip(n);
     return newValue;
   }
 
-  private Map<Object, Identifiable> readLinkMap(DatabaseSessionInternal db,
-      final BytesContainer bytes) {
-    int size = VarIntSerializer.readAsInteger(bytes);
+  private static Map<Object, Identifiable> readLinkMap(
+      final BytesContainer bytes,
+      Supplier<? extends BasicResultInternal> resultFactory, final TimeZone databaseTimeZone) {
+    var size = VarIntSerializer.readAsInteger(bytes);
     Map<Object, Identifiable> result = new HashMap<>();
     while ((size--) > 0) {
-      PropertyType keyType = readOType(bytes);
-      Object key = deserializeValue(db, bytes, keyType);
-      RecordId value = readOptimizedLink(bytes);
+      var keyType = readOType(bytes);
+      var key = deserializeValue(bytes, keyType, resultFactory, databaseTimeZone);
+      var value = readOptimizedLink(bytes);
       if (value.equals(NULL_RECORD_ID)) {
         result.put(key, null);
       } else {
@@ -306,33 +315,37 @@ public class ResultSerializerNetwork {
     return result;
   }
 
-  private Map readEmbeddedMap(DatabaseSessionInternal db, final BytesContainer bytes) {
-    int size = VarIntSerializer.readAsInteger(bytes);
-    final Map entity = new LinkedHashMap();
+
+  private static Map<String, Object> readEmbeddedMap(
+      final BytesContainer bytes, Supplier<? extends BasicResultInternal> resultFactory,
+      TimeZone databaseTimeZone) {
+    var size = VarIntSerializer.readAsInteger(bytes);
+    var map = new HashMap<String, Object>();
     String fieldName;
-    PropertyType type;
+    PropertyTypeInternal type;
     while ((size--) > 0) {
-      final int len = VarIntSerializer.readAsInteger(bytes);
+      final var len = VarIntSerializer.readAsInteger(bytes);
       // PARSE FIELD NAME
       fieldName = stringFromBytes(bytes.bytes, bytes.offset, len).intern();
       bytes.skip(len);
       type = readOType(bytes);
 
       if (type == null) {
-        entity.put(fieldName, null);
+        map.put(fieldName, null);
       } else {
-        final Object value = deserializeValue(db, bytes, type);
-        entity.put(fieldName, value);
+        final var value = deserializeValue(bytes, type, resultFactory, databaseTimeZone);
+        map.put(fieldName, value);
       }
     }
-    return entity;
+    return map;
   }
 
-  private Collection<Identifiable> readLinkCollection(
+
+  private static Collection<Identifiable> readLinkCollection(
       BytesContainer bytes, Collection<Identifiable> found) {
-    final int items = VarIntSerializer.readAsInteger(bytes);
-    for (int i = 0; i < items; i++) {
-      RecordId id = readOptimizedLink(bytes);
+    final var items = VarIntSerializer.readAsInteger(bytes);
+    for (var i = 0; i < items; i++) {
+      var id = readOptimizedLink(bytes);
       if (id.equals(NULL_RECORD_ID)) {
         found.add(null);
       } else {
@@ -342,29 +355,31 @@ public class ResultSerializerNetwork {
     return found;
   }
 
-  private RecordId readOptimizedLink(final BytesContainer bytes) {
+  private static RID readOptimizedLink(final BytesContainer bytes) {
     return new RecordId(
         VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
   }
 
-  private Collection<?> readEmbeddedCollection(
-      DatabaseSessionInternal db, final BytesContainer bytes, final Collection<Object> found) {
-    final int items = VarIntSerializer.readAsInteger(bytes);
-    for (int i = 0; i < items; i++) {
-      PropertyType itemType = readOType(bytes);
+  private static Collection<?> readEmbeddedCollection(
+      final BytesContainer bytes,
+      final Collection<Object> found, Supplier<? extends BasicResultInternal> resultFactory,
+      final TimeZone databaseTimeZone) {
+    final var items = VarIntSerializer.readAsInteger(bytes);
+    for (var i = 0; i < items; i++) {
+      var itemType = readOType(bytes);
       if (itemType == null) {
         found.add(null);
       } else {
-        found.add(deserializeValue(db, bytes, itemType));
+        found.add(deserializeValue(bytes, itemType, resultFactory, databaseTimeZone));
       }
     }
     return found;
   }
 
+
   @SuppressWarnings("unchecked")
-  public void serializeValue(
-      final BytesContainer bytes, Object value, final PropertyType type,
-      final PropertyType linkedType) {
+  public static void serializeValue(final BytesContainer bytes, Object value,
+      final PropertyTypeInternal type, final TimeZone databaseTimeZone) {
 
     final int pointer;
     switch (type) {
@@ -377,14 +392,14 @@ public class ResultSerializerNetwork {
         writeString(bytes, value.toString());
         break;
       case DOUBLE:
-        long dg = Double.doubleToLongBits((Double) value);
+        var dg = Double.doubleToLongBits((Double) value);
         pointer = bytes.alloc(LongSerializer.LONG_SIZE);
-        LongSerializer.INSTANCE.serializeLiteral(dg, bytes.bytes, pointer);
+        LongSerializer.serializeLiteral(dg, bytes.bytes, pointer);
         break;
       case FLOAT:
-        int fg = Float.floatToIntBits((Float) value);
+        var fg = Float.floatToIntBits((Float) value);
         pointer = bytes.alloc(IntegerSerializer.INT_SIZE);
-        IntegerSerializer.INSTANCE.serializeLiteral(fg, bytes.bytes, pointer);
+        IntegerSerializer.serializeLiteral(fg, bytes.bytes, pointer);
         break;
       case BYTE:
         pointer = bytes.alloc(1);
@@ -409,43 +424,43 @@ public class ResultSerializerNetwork {
           dateValue = ((Date) value).getTime();
         }
         dateValue =
-            convertDayToTimezone(
-                DateHelper.getDatabaseTimeZone(), TimeZone.getTimeZone("GMT"), dateValue);
+            convertDayToTimezone(databaseTimeZone, TimeZone.getTimeZone("GMT"), dateValue);
         VarIntSerializer.write(bytes, dateValue / MILLISEC_PER_DAY);
         break;
       case EMBEDDED:
         if (!(value instanceof Result)) {
           throw new UnsupportedOperationException();
         }
-        serialize((Result) value, bytes);
+        serialize((Result) value, bytes, databaseTimeZone);
         break;
       case EMBEDDEDSET:
       case EMBEDDEDLIST:
         if (value.getClass().isArray()) {
-          writeEmbeddedCollection(bytes, Arrays.asList(MultiValue.array(value)));
+          writeEmbeddedCollection(bytes, Arrays.asList(MultiValue.array(value)), databaseTimeZone);
         } else {
-          writeEmbeddedCollection(bytes, (Collection<?>) value);
+          writeEmbeddedCollection(bytes, (Collection<?>) value, databaseTimeZone);
         }
         break;
       case DECIMAL:
-        BigDecimal decimalValue = (BigDecimal) value;
-        pointer = bytes.alloc(DecimalSerializer.INSTANCE.getObjectSize(decimalValue));
-        DecimalSerializer.INSTANCE.serialize(decimalValue, bytes.bytes, pointer);
+        var decimalValue = (BigDecimal) value;
+        pointer = bytes.alloc(DecimalSerializer.staticGetObjectSize(decimalValue));
+        DecimalSerializer.staticSerialize(decimalValue, bytes.bytes, pointer);
         break;
       case BINARY:
         writeBinary(bytes, (byte[]) (value));
         break;
       case LINKSET:
       case LINKLIST:
-        Collection<Identifiable> ridCollection = (Collection<Identifiable>) value;
+        var ridCollection = (Collection<Identifiable>) value;
         writeLinkCollection(bytes, ridCollection);
         break;
       case LINK:
         if (value instanceof Result && ((Result) value).isEntity()) {
-          value = ((Result) value).getEntity().get();
+          value = ((Result) value).asEntity();
         }
         if (!(value instanceof Identifiable)) {
-          throw new ValidationException("Value '" + value + "' is not a Identifiable");
+          throw new ValidationException((String) null,
+              "Value '" + value + "' is not a Identifiable");
         }
         writeOptimizedLink(bytes, (Identifiable) value);
         break;
@@ -453,37 +468,28 @@ public class ResultSerializerNetwork {
         writeLinkMap(bytes, (Map<Object, Identifiable>) value);
         break;
       case EMBEDDEDMAP:
-        writeEmbeddedMap(bytes, (Map<Object, Object>) value);
+        writeEmbeddedMap(bytes, (Map<Object, Object>) value, databaseTimeZone);
         break;
       case LINKBAG:
-        throw new UnsupportedOperationException("LINKBAG should never appear in a projection");
-      case CUSTOM:
-        if (!(value instanceof SerializableStream)) {
-          value = new SerializableWrapper((Serializable) value);
+        var copy = new ArrayList<Identifiable>();
+        for (var rid : (LinkBag) value) {
+          copy.add(rid);
         }
-        writeString(bytes, value.getClass().getName());
-        writeBinary(bytes, ((SerializableStream) value).toStream());
-        break;
-      case TRANSIENT:
-        break;
-      case ANY:
+        writeLinkCollection(bytes, copy);
         break;
     }
   }
 
-  private int writeBinary(final BytesContainer bytes, final byte[] valueBytes) {
-    final int pointer = VarIntSerializer.write(bytes, valueBytes.length);
-    final int start = bytes.alloc(valueBytes.length);
-    System.arraycopy(valueBytes, 0, bytes.bytes, start, valueBytes.length);
-    return pointer;
+  private static void writeBinary(final BytesContainer bytes, final byte[] valueBytes) {
+    HelperClasses.writeBinary(bytes, valueBytes);
   }
 
-  private int writeLinkMap(final BytesContainer bytes, final Map<Object, Identifiable> map) {
-    final int fullPos = VarIntSerializer.write(bytes, map.size());
-    for (Entry<Object, Identifiable> entry : map.entrySet()) {
-      // TODO:check skip of complex types
-      // FIXME: changed to support only string key on map
-      final PropertyType type = PropertyType.STRING;
+  private static void writeLinkMap(final BytesContainer bytes,
+      final Map<Object, Identifiable> map) {
+    VarIntSerializer.write(bytes, map.size());
+    for (var entry : map.entrySet()) {
+      final var type = PropertyTypeInternal.STRING;
+
       writeOType(bytes, bytes.alloc(1), type);
       writeString(bytes, entry.getKey().toString());
       if (entry.getValue() == null) {
@@ -492,35 +498,33 @@ public class ResultSerializerNetwork {
         writeOptimizedLink(bytes, entry.getValue());
       }
     }
-    return fullPos;
   }
 
-  @SuppressWarnings("unchecked")
-  private void writeEmbeddedMap(BytesContainer bytes, Map<Object, Object> map) {
-    Set fieldNames = map.keySet();
-
+  private static void writeEmbeddedMap(BytesContainer bytes,
+      Map<Object, Object> map, final TimeZone databaseTimeZone) {
+    var fieldNames = map.keySet();
     VarIntSerializer.write(bytes, map.size());
-    for (Object f : fieldNames) {
+    for (var f : fieldNames) {
       if (!(f instanceof String field)) {
-        throw new SerializationException(
+        throw new SerializationException((String) null,
             "Invalid key type for map: " + f + " (only Strings supported)");
       }
       writeString(bytes, field);
-      final Object value = map.get(field);
+      final var value = map.get(field);
       if (value != null) {
         if (value instanceof Result) {
-          writeOType(bytes, bytes.alloc(1), PropertyType.EMBEDDED);
-          serializeValue(bytes, value, PropertyType.EMBEDDED, null);
+          writeOType(bytes, bytes.alloc(1), PropertyTypeInternal.EMBEDDED);
+          serializeValue(bytes, value, PropertyTypeInternal.EMBEDDED, databaseTimeZone);
         } else {
-          final PropertyType type = PropertyType.getTypeByValue(value);
+          final var type = PropertyTypeInternal.getTypeByValue(value);
           if (type == null) {
-            throw new SerializationException(
+            throw new SerializationException((String) null,
                 "Impossible serialize value of type "
                     + value.getClass()
                     + " with the Result binary serializer");
           }
           writeOType(bytes, bytes.alloc(1), type);
-          serializeValue(bytes, value, type, null);
+          serializeValue(bytes, value, type, databaseTimeZone);
         }
       } else {
         writeOType(bytes, bytes.alloc(1), null);
@@ -528,29 +532,21 @@ public class ResultSerializerNetwork {
     }
   }
 
-  private int writeNullLink(final BytesContainer bytes) {
-    final int pos = VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getClusterPosition());
-    return pos;
+  private static void writeNullLink(final BytesContainer bytes) {
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionId());
+    VarIntSerializer.write(bytes, NULL_RECORD_ID.getIdentity().getCollectionPosition());
   }
 
-  private int writeOptimizedLink(final BytesContainer bytes, Identifiable link) {
-    if (!link.getIdentity().isPersistent()) {
-      try {
-        link = link.getRecord();
-      } catch (RecordNotFoundException rnf) {
-        // IGNORE THIS
-      }
-    }
-    final int pos = VarIntSerializer.write(bytes, link.getIdentity().getClusterId());
-    VarIntSerializer.write(bytes, link.getIdentity().getClusterPosition());
-    return pos;
+  private static void writeOptimizedLink(final BytesContainer bytes,
+      Identifiable link) {
+    HelperClasses.writeLinkOptimized(bytes, link);
   }
 
-  private void writeLinkCollection(
-      final BytesContainer bytes, final Collection<Identifiable> value) {
-    final int pos = VarIntSerializer.write(bytes, value.size());
-    for (Identifiable itemValue : value) {
+  private static void writeLinkCollection(
+      final BytesContainer bytes,
+      final Collection<Identifiable> value) {
+    VarIntSerializer.write(bytes, value.size());
+    for (var itemValue : value) {
       if (itemValue == null) {
         writeNullLink(bytes);
       } else {
@@ -559,19 +555,20 @@ public class ResultSerializerNetwork {
     }
   }
 
-  private void writeEmbeddedCollection(final BytesContainer bytes, final Collection<?> value) {
+  private static void writeEmbeddedCollection(
+      final BytesContainer bytes,
+      final Collection<?> value, final TimeZone databaseTimeZone) {
     VarIntSerializer.write(bytes, value.size());
 
-    for (Object itemValue : value) {
-      // TODO:manage in a better way null entry
+    for (var itemValue : value) {
       if (itemValue == null) {
         writeOType(bytes, bytes.alloc(1), null);
         continue;
       }
-      PropertyType type = getTypeFromValueEmbedded(itemValue);
+      var type = getTypeFromValueEmbedded(itemValue);
       if (type != null) {
         writeOType(bytes, bytes.alloc(1), type);
-        serializeValue(bytes, itemValue, type, null);
+        serializeValue(bytes, itemValue, type, databaseTimeZone);
       } else {
         throw new SerializationException(
             "Impossible serialize value of type "
@@ -581,92 +578,75 @@ public class ResultSerializerNetwork {
     }
   }
 
-  private PropertyType getTypeFromValueEmbedded(final Object fieldValue) {
+  private static PropertyTypeInternal getTypeFromValueEmbedded(final Object fieldValue) {
     if (fieldValue instanceof Result && ((Result) fieldValue).isEntity()) {
-      return PropertyType.LINK;
+      return PropertyTypeInternal.LINK;
     }
-    PropertyType type =
-        fieldValue instanceof Result ? PropertyType.EMBEDDED
-            : PropertyType.getTypeByValue(fieldValue);
-    if (type == PropertyType.LINK
-        && fieldValue instanceof EntityImpl
-        && !((EntityImpl) fieldValue).getIdentity().isValid()) {
-      type = PropertyType.EMBEDDED;
-    }
-    return type;
+    return fieldValue instanceof Result ? PropertyTypeInternal.EMBEDDED
+        : PropertyTypeInternal.getTypeByValue(fieldValue);
   }
 
-  protected String readString(final BytesContainer bytes) {
-    final int len = VarIntSerializer.readAsInteger(bytes);
-    final String res = stringFromBytes(bytes.bytes, bytes.offset, len);
+  protected static String readString(final BytesContainer bytes) {
+    final var len = VarIntSerializer.readAsInteger(bytes);
+    final var res = stringFromBytes(bytes.bytes, bytes.offset, len);
     bytes.skip(len);
     return res;
   }
 
-  protected int readInteger(final BytesContainer container) {
-    final int value =
-        IntegerSerializer.INSTANCE.deserializeLiteral(container.bytes, container.offset);
-    container.offset += IntegerSerializer.INT_SIZE;
-    return value;
+  protected static int readInteger(final BytesContainer container) {
+    return HelperClasses.readInteger(container);
   }
 
-  private byte readByte(final BytesContainer container) {
+  private static byte readByte(final BytesContainer container) {
     return container.bytes[container.offset++];
   }
 
-  private long readLong(final BytesContainer container) {
-    final long value =
-        LongSerializer.INSTANCE.deserializeLiteral(container.bytes, container.offset);
-    container.offset += LongSerializer.LONG_SIZE;
-    return value;
+  private static long readLong(final BytesContainer container) {
+    return HelperClasses.readLong(container);
   }
 
-  private int writeEmptyString(final BytesContainer bytes) {
-    return VarIntSerializer.write(bytes, 0);
-  }
-
-  private int writeString(final BytesContainer bytes, final String toWrite) {
-    final byte[] nameBytes = bytesFromString(toWrite);
-    final int pointer = VarIntSerializer.write(bytes, nameBytes.length);
-    final int start = bytes.alloc(nameBytes.length);
+  private static void writeString(final BytesContainer bytes, final String toWrite) {
+    final var nameBytes = bytesFromString(toWrite);
+    VarIntSerializer.write(bytes, nameBytes.length);
+    final var start = bytes.alloc(nameBytes.length);
     System.arraycopy(nameBytes, 0, bytes.bytes, start, nameBytes.length);
-    return pointer;
   }
 
-  private byte[] bytesFromString(final String toWrite) {
+  private static byte[] bytesFromString(final String toWrite) {
     return toWrite.getBytes(StandardCharsets.UTF_8);
   }
 
-  protected String stringFromBytes(final byte[] bytes, final int offset, final int len) {
+  protected static String stringFromBytes(final byte[] bytes, final int offset, final int len) {
     return new String(bytes, offset, len, StandardCharsets.UTF_8);
   }
 
-  private long convertDayToTimezone(TimeZone from, TimeZone to, long time) {
-    Calendar fromCalendar = Calendar.getInstance(from);
-    fromCalendar.setTimeInMillis(time);
-    Calendar toCalendar = Calendar.getInstance(to);
-    toCalendar.setTimeInMillis(0);
-    toCalendar.set(Calendar.ERA, fromCalendar.get(Calendar.ERA));
-    toCalendar.set(Calendar.YEAR, fromCalendar.get(Calendar.YEAR));
-    toCalendar.set(Calendar.MONTH, fromCalendar.get(Calendar.MONTH));
-    toCalendar.set(Calendar.DAY_OF_MONTH, fromCalendar.get(Calendar.DAY_OF_MONTH));
-    toCalendar.set(Calendar.HOUR_OF_DAY, 0);
-    toCalendar.set(Calendar.MINUTE, 0);
-    toCalendar.set(Calendar.SECOND, 0);
-    toCalendar.set(Calendar.MILLISECOND, 0);
-    return toCalendar.getTimeInMillis();
+  private static long convertDayToTimezone(TimeZone from, TimeZone to, long time) {
+    return HelperClasses.convertDayToTimezone(from, to, time);
   }
 
-  public void toStream(Result item, ChannelDataOutput channel) throws IOException {
-    final BytesContainer bytes = new BytesContainer();
-    this.serialize(item, bytes);
+  public static void toStream(BasicResult item, ChannelDataOutput channel,
+      final TimeZone databaseTimeZone)
+      throws IOException {
+    final var bytes = new BytesContainer();
+    serialize(item, bytes, databaseTimeZone);
     channel.writeBytes(bytes.fitBytes());
   }
 
-  public ResultInternal fromStream(DatabaseSessionInternal db, ChannelDataInput channel)
+  public static RemoteResult fromStream(@Nullable RemoteDatabaseSessionInternal session,
+      ChannelDataInput channel, TimeZone databaseTimeZone)
       throws IOException {
-    BytesContainer bytes = new BytesContainer();
+    var bytes = new BytesContainer();
     bytes.bytes = channel.readBytes();
-    return this.deserialize(db, bytes);
+
+    return deserialize(bytes, () -> new RemoteResultImpl(session), databaseTimeZone);
+  }
+
+  public static ResultInternal fromStream(@Nullable DatabaseSessionEmbedded session,
+      ChannelDataInput channel, TimeZone databaseTimeZone)
+      throws IOException {
+    var bytes = new BytesContainer();
+    bytes.bytes = channel.readBytes();
+
+    return deserialize(bytes, () -> new ResultInternal(session), databaseTimeZone);
   }
 }

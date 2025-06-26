@@ -3,12 +3,11 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsCompareOperator;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsOperator;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInCondition;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -49,20 +48,20 @@ public class IndexSearchDescriptor {
   }
 
   public int cost(CommandContext ctx) {
-    QueryStats stats = QueryStats.get(ctx.getDatabase());
+    var stats = QueryStats.get(ctx.getDatabaseSession());
 
-    String indexName = index.getName();
-    int size = getSubBlocks().size();
-    boolean range = false;
-    SQLBooleanExpression lastOp = getSubBlocks().get(getSubBlocks().size() - 1);
+    var indexName = index.getName();
+    var size = getSubBlocks().size();
+    var range = false;
+    var lastOp = getSubBlocks().get(getSubBlocks().size() - 1);
     if (lastOp instanceof SQLBinaryCondition) {
-      SQLBinaryCompareOperator op = ((SQLBinaryCondition) lastOp).getOperator();
+      var op = ((SQLBinaryCondition) lastOp).getOperator();
       range = op.isRangeOperator();
     }
 
-    long val =
+    var val =
         stats.getIndexStats(
-            indexName, size, range, additionalRangeCondition != null, ctx.getDatabase());
+            indexName, size, range, additionalRangeCondition != null, ctx.getDatabaseSession());
     if (val == -1) {
       // TODO query the index!
     }
@@ -103,12 +102,9 @@ public class IndexSearchDescriptor {
   /**
    * checks whether the condition has CONTAINSANY or similar expressions, that require multiple
    * index evaluations
-   *
-   * @param keyCondition
-   * @return
    */
   public boolean requiresMultipleIndexLookups() {
-    for (SQLBooleanExpression oBooleanExpression : getSubBlocks()) {
+    for (var oBooleanExpression : getSubBlocks()) {
       if (!(oBooleanExpression instanceof SQLBinaryCondition)) {
         return true;
       }
@@ -128,31 +124,29 @@ public class IndexSearchDescriptor {
   }
 
   public boolean fullySorted(List<String> orderItems) {
-    List<SQLBooleanExpression> conditions = getSubBlocks();
-    Index idx = index;
+    var conditions = getSubBlocks();
+    var idx = index;
 
     if (!idx.supportsOrderedIterations()) {
       return false;
     }
     List<String> conditionItems = new ArrayList<>();
 
-    for (int i = 0; i < conditions.size(); i++) {
-      SQLBooleanExpression item = conditions.get(i);
-      if (item instanceof SQLBinaryCondition) {
-        if (((SQLBinaryCondition) item).getOperator() instanceof SQLEqualsCompareOperator) {
-          conditionItems.add(((SQLBinaryCondition) item).getLeft().toString());
-        } else if (i != conditions.size() - 1) {
-          return false;
-        }
-
+    for (var i = 0; i < conditions.size(); i++) {
+      var item = conditions.get(i);
+      if (item instanceof SQLBinaryCondition cond
+          && cond.getOperator() instanceof SQLEqualsOperator) {
+        conditionItems.add(cond.getLeft().toString());
+      } else if (item instanceof SQLInCondition) {
+        return false;
       } else if (i != conditions.size() - 1) {
         return false;
       }
     }
 
     List<String> orderedFields = new ArrayList<>();
-    boolean overlapping = false;
-    for (String s : conditionItems) {
+    var overlapping = false;
+    for (var s : conditionItems) {
       if (orderItems.isEmpty()) {
         return true; // nothing to sort, the conditions completely overlap the ORDER BY
       }
@@ -166,15 +160,15 @@ public class IndexSearchDescriptor {
     }
     orderedFields.addAll(orderItems);
 
-    final IndexDefinition definition = idx.getDefinition();
-    final List<String> fields = definition.getFields();
+    final var definition = idx.getDefinition();
+    final var fields = definition.getProperties();
     if (fields.size() < orderedFields.size()) {
       return false;
     }
 
-    for (int i = 0; i < orderedFields.size(); i++) {
-      final String orderFieldName = orderedFields.get(i);
-      final String indexFieldName = fields.get(i);
+    for (var i = 0; i < orderedFields.size(); i++) {
+      final var orderFieldName = orderedFields.get(i);
+      final var indexFieldName = fields.get(i);
       if (!orderFieldName.equals(indexFieldName)) {
         return false;
       }
@@ -192,12 +186,12 @@ public class IndexSearchDescriptor {
    * @return
    */
   public boolean isPrefixOf(IndexSearchDescriptor other) {
-    List<SQLBooleanExpression> left = getSubBlocks();
-    List<SQLBooleanExpression> right = other.getSubBlocks();
+    var left = getSubBlocks();
+    var right = other.getSubBlocks();
     if (left.size() > right.size()) {
       return false;
     }
-    for (int i = 0; i < left.size(); i++) {
+    for (var i = 0; i < left.size(); i++) {
       if (!left.get(i).equals(right.get(i))) {
         return false;
       }
@@ -209,9 +203,9 @@ public class IndexSearchDescriptor {
     if (blockCount() != desc.blockCount()) {
       return false;
     }
-    List<SQLBooleanExpression> left = getSubBlocks();
-    List<SQLBooleanExpression> right = desc.getSubBlocks();
-    for (int i = 0; i < left.size(); i++) {
+    var left = getSubBlocks();
+    var right = desc.getSubBlocks();
+    for (var i = 0; i < left.size(); i++) {
       if (!left.get(i).equals(right.get(i))) {
         return false;
       }

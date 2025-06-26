@@ -20,11 +20,12 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary;
 
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 
@@ -33,23 +34,24 @@ public interface EntitySerializer {
   void serialize(DatabaseSessionInternal session, EntityImpl entity, BytesContainer bytes);
 
   int serializeValue(
-      DatabaseSessionInternal session, BytesContainer bytes,
+      DatabaseSessionInternal db, BytesContainer bytes,
       Object value,
-      PropertyType type,
-      PropertyType linkedType,
+      PropertyTypeInternal type,
+      PropertyTypeInternal linkedType,
       ImmutableSchema schema,
       PropertyEncryption encryption);
 
-  void deserialize(DatabaseSessionInternal db, EntityImpl entity, BytesContainer bytes);
+  void deserialize(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes);
 
-  void deserializePartial(DatabaseSessionInternal db, EntityImpl entity, BytesContainer bytes,
+  void deserializePartial(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes,
       String[] iFields);
 
-  Object deserializeValue(DatabaseSessionInternal session, BytesContainer bytes, PropertyType type,
+  Object deserializeValue(DatabaseSessionEmbedded db, BytesContainer bytes,
+      PropertyTypeInternal type,
       RecordElement owner);
 
   BinaryField deserializeField(
-      BytesContainer bytes,
+      DatabaseSessionInternal db, BytesContainer bytes,
       SchemaClass iClass,
       String iFieldName,
       boolean embedded,
@@ -61,22 +63,24 @@ public interface EntitySerializer {
   /**
    * Returns the array of field names with no values.
    *
+   * @param session
    * @param reference TODO
    * @param embedded
    */
-  String[] getFieldNames(EntityImpl reference, BytesContainer iBytes, boolean embedded);
+  String[] getFieldNames(DatabaseSessionInternal session, EntityImpl reference,
+      BytesContainer iBytes, boolean embedded);
 
   boolean isSerializingClassNameByDefault();
 
   <RET> RET deserializeFieldTyped(
-      DatabaseSessionInternal session, BytesContainer record,
+      DatabaseSessionEmbedded session, BytesContainer record,
       String iFieldName,
       boolean isEmbedded,
       ImmutableSchema schema,
       PropertyEncryption encryption);
 
   void deserializeDebug(
-      DatabaseSessionInternal db, BytesContainer bytes,
+      DatabaseSessionEmbedded db, BytesContainer bytes,
       RecordSerializationDebug debugInfo,
       ImmutableSchema schema);
 }

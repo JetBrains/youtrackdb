@@ -11,6 +11,8 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionS
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLSimpleExecStatement;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -66,7 +68,7 @@ public class SingleOpExecutionPlan implements InternalExecutionPlan {
   public ExecutionStream executeInternal(BasicCommandContext ctx)
       throws CommandExecutionException {
     if (executed) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Trying to execute a result-set twice. Please use reset()");
     }
     executed = true;
@@ -75,20 +77,20 @@ public class SingleOpExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public List<ExecutionStep> getSteps() {
+  public @Nonnull List<ExecutionStep> getSteps() {
     return Collections.emptyList();
   }
 
   @Override
-  public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    String result = spaces + "+ " + statement.toString();
+  public @Nonnull String prettyPrint(int depth, int indent) {
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = spaces + "+ " + statement.toString();
     return result;
   }
 
   @Override
-  public Result toResult(DatabaseSession db) {
-    ResultInternal result = new ResultInternal((DatabaseSessionInternal) db);
+  public @Nonnull Result toResult(@Nullable DatabaseSession session) {
+    var result = new ResultInternal((DatabaseSessionInternal) session);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty("javaType", getClass().getName());
     result.setProperty("stmText", statement.toString());

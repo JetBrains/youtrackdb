@@ -1,17 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -26,29 +23,29 @@ public class InvalidRemovedFileIdsIT {
 
   @Test
   public void testRemovedFileIds() throws Exception {
-    final String buildDirectory = System.getProperty("buildDirectory", ".");
-    final String dbName = InvalidRemovedFileIdsIT.class.getSimpleName();
-    final String dbPath = buildDirectory + File.separator + dbName;
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
+    final var dbName = InvalidRemovedFileIdsIT.class.getSimpleName();
+    final var dbPath = buildDirectory + File.separator + dbName;
 
     deleteDirectory(new File(dbPath));
 
-    final YouTrackDBConfig config =
+    final var config =
         YouTrackDBConfig.builder()
-            .addAttribute(DatabaseSession.ATTRIBUTES.MINIMUM_CLUSTERS, 1)
+            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    YouTrackDB youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory, config);
+    var youTrackDB = YourTracks.embedded(buildDirectory, config);
     youTrackDB.execute(
-        "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+        "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-    Storage storage = db.getStorage();
-    WriteCache writeCache = ((AbstractPaginatedStorage) storage).getWriteCache();
-    Map<String, Long> files = writeCache.files();
+    var storage = db.getStorage();
+    var writeCache = ((AbstractStorage) storage).getWriteCache();
+    var files = writeCache.files();
 
     Map<String, Integer> filesWithIntIds = new HashMap<>();
 
-    for (Map.Entry<String, Long> file : files.entrySet()) {
+    for (var file : files.entrySet()) {
       filesWithIntIds.put(file.getKey(), writeCache.internalFileId(file.getValue()));
     }
 
@@ -57,9 +54,9 @@ public class InvalidRemovedFileIdsIT {
 
     // create file map of v1 binary format because but with incorrect negative file ids is present
     // only there
-    final RandomAccessFile fileMap = new RandomAccessFile(new File(dbPath, "name_id_map.cm"), "rw");
+    final var fileMap = new RandomAccessFile(new File(dbPath, "name_id_map.cm"), "rw");
     // write all existing files so map will be regenerated on open
-    for (Map.Entry<String, Integer> entry : filesWithIntIds.entrySet()) {
+    for (var entry : filesWithIntIds.entrySet()) {
       writeNameIdEntry(fileMap, entry.getKey(), entry.getValue());
     }
 
@@ -78,7 +75,7 @@ public class InvalidRemovedFileIdsIT {
 
     fileMap.close();
 
-    youTrackDB = new YouTrackDBImpl("plocal:" + buildDirectory, config);
+    youTrackDB = YourTracks.embedded(buildDirectory, config);
     db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     final Schema schema = db.getMetadata().getSchema();
@@ -88,49 +85,49 @@ public class InvalidRemovedFileIdsIT {
     schema.createClass("c4");
 
     storage = db.getStorage();
-    writeCache = ((AbstractPaginatedStorage) storage).getWriteCache();
+    writeCache = ((AbstractStorage) storage).getWriteCache();
 
     files = writeCache.files();
     final Set<Long> ids = new HashSet<>();
 
-    final Long c1_cpm_id = files.get("c1.cpm");
+    final var c1_cpm_id = files.get("c1.cpm");
     Assert.assertNotNull(c1_cpm_id);
     Assert.assertTrue(c1_cpm_id > 0);
     Assert.assertTrue(ids.add(c1_cpm_id));
 
-    final Long c1_pcl_id = files.get("c1.pcl");
+    final var c1_pcl_id = files.get("c1.pcl");
     Assert.assertNotNull(c1_pcl_id);
     Assert.assertTrue(c1_pcl_id > 0);
     Assert.assertTrue(ids.add(c1_pcl_id));
 
-    final Long c2_cpm_id = files.get("c2.cpm");
+    final var c2_cpm_id = files.get("c2.cpm");
     Assert.assertNotNull(c2_cpm_id);
     Assert.assertTrue(ids.add(c2_cpm_id));
     Assert.assertEquals(
         200, writeCache.internalFileId(c2_cpm_id)); // check that updated file map has been read
 
-    final Long c2_pcl_id = files.get("c2.pcl");
+    final var c2_pcl_id = files.get("c2.pcl");
     Assert.assertNotNull(c2_pcl_id);
     Assert.assertTrue(ids.add(c2_pcl_id));
     Assert.assertEquals(
         400, writeCache.internalFileId(c2_pcl_id)); // check that updated file map has been read
 
-    final Long c3_cpm_id = files.get("c3.cpm");
+    final var c3_cpm_id = files.get("c3.cpm");
     Assert.assertNotNull(c3_cpm_id);
     Assert.assertTrue(c3_cpm_id > 0);
     Assert.assertTrue(ids.add(c3_cpm_id));
 
-    final Long c3_pcl_id = files.get("c3.pcl");
+    final var c3_pcl_id = files.get("c3.pcl");
     Assert.assertNotNull(c3_pcl_id);
     Assert.assertTrue(c3_pcl_id > 0);
     Assert.assertTrue(ids.add(c3_pcl_id));
 
-    final Long c4_cpm_id = files.get("c4.cpm");
+    final var c4_cpm_id = files.get("c4.cpm");
     Assert.assertNotNull(c4_cpm_id);
     Assert.assertTrue(c4_cpm_id > 0);
     Assert.assertTrue(ids.add(c4_cpm_id));
 
-    final Long c4_pcl_id = files.get("c4.pcl");
+    final var c4_pcl_id = files.get("c4.pcl");
     Assert.assertNotNull(c4_pcl_id);
     Assert.assertTrue(c1_pcl_id > 0);
     Assert.assertTrue(ids.add(c4_pcl_id));
@@ -141,13 +138,13 @@ public class InvalidRemovedFileIdsIT {
 
   private static void writeNameIdEntry(RandomAccessFile file, String name, int fileId)
       throws IOException {
-    final int nameSize = StringSerializer.INSTANCE.getObjectSize(name);
+    final var nameSize = StringSerializer.staticGetObjectSize(name);
 
-    byte[] serializedRecord =
+    var serializedRecord =
         new byte[IntegerSerializer.INT_SIZE + nameSize + LongSerializer.LONG_SIZE];
-    IntegerSerializer.INSTANCE.serializeLiteral(nameSize, serializedRecord, 0);
-    StringSerializer.INSTANCE.serialize(name, serializedRecord, IntegerSerializer.INT_SIZE);
-    LongSerializer.INSTANCE.serializeLiteral(
+    IntegerSerializer.serializeLiteral(nameSize, serializedRecord, 0);
+    StringSerializer.staticSerialize(name, serializedRecord, IntegerSerializer.INT_SIZE);
+    LongSerializer.serializeLiteral(
         fileId, serializedRecord, IntegerSerializer.INT_SIZE + nameSize);
 
     file.write(serializedRecord);
@@ -155,10 +152,10 @@ public class InvalidRemovedFileIdsIT {
 
   private static void deleteDirectory(final File directory) {
     if (directory.exists()) {
-      final File[] files = directory.listFiles();
+      final var files = directory.listFiles();
 
       if (files != null) {
-        for (File file : files) {
+        for (var file : files) {
           if (file.isDirectory()) {
             deleteDirectory(file);
           } else {

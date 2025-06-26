@@ -9,7 +9,7 @@ public class StorageDoesNotExistException extends StorageException
     super(exception);
   }
 
-  public StorageDoesNotExistException(String string) {
-    super(string);
+  public StorageDoesNotExistException(String dbName, String string) {
+    super(dbName, string);
   }
 }

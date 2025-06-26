@@ -58,7 +58,7 @@ public final class FrequencySketch implements Admittor {
    */
   @SuppressWarnings("NullAway.Init")
   FrequencySketch() {
-    final int seed = ThreadLocalRandom.current().nextInt();
+    final var seed = ThreadLocalRandom.current().nextInt();
     this.randomSeed = ((seed & 1) == 0) ? seed + 1 : seed;
   }
 
@@ -70,7 +70,7 @@ public final class FrequencySketch implements Admittor {
    * @param maximumSize the maximum size of the cache
    */
   public void ensureCapacity(final long maximumSize) {
-    final int maximum = (int) Math.min(maximumSize, Integer.MAX_VALUE >>> 1);
+    final var maximum = (int) Math.min(maximumSize, Integer.MAX_VALUE >>> 1);
     if ((table != null) && (table.length >= maximum)) {
       return;
     }
@@ -93,11 +93,11 @@ public final class FrequencySketch implements Admittor {
   @Override
   public int frequency(int hash) {
     hash = spread(hash);
-    final int start = (hash & 3) << 2;
-    int frequency = Integer.MAX_VALUE;
-    for (int i = 0; i < 4; i++) {
-      final int index = indexOf(hash, i);
-      final int count = (int) ((table[index] >>> ((start + i) << 2)) & 0xfL);
+    final var start = (hash & 3) << 2;
+    var frequency = Integer.MAX_VALUE;
+    for (var i = 0; i < 4; i++) {
+      final var index = indexOf(hash, i);
+      final var count = (int) ((table[index] >>> ((start + i) << 2)) & 0xfL);
       frequency = Math.min(frequency, count);
     }
     return frequency;
@@ -113,15 +113,15 @@ public final class FrequencySketch implements Admittor {
   @Override
   public void increment(int hash) {
     hash = spread(hash);
-    final int start = (hash & 3) << 2;
+    final var start = (hash & 3) << 2;
 
     // Loop unrolling improves throughput by 5m ops/s
-    final int index0 = indexOf(hash, 0);
-    final int index1 = indexOf(hash, 1);
-    final int index2 = indexOf(hash, 2);
-    final int index3 = indexOf(hash, 3);
+    final var index0 = indexOf(hash, 0);
+    final var index1 = indexOf(hash, 1);
+    final var index2 = indexOf(hash, 2);
+    final var index3 = indexOf(hash, 3);
 
-    boolean added = incrementAt(index0, start);
+    var added = incrementAt(index0, start);
     added |= incrementAt(index1, start + 1);
     added |= incrementAt(index2, start + 2);
     added |= incrementAt(index3, start + 3);
@@ -139,8 +139,8 @@ public final class FrequencySketch implements Admittor {
    * @return if incremented
    */
   private boolean incrementAt(final int i, final int j) {
-    final int offset = j << 2;
-    final long mask = (0xfL << offset);
+    final var offset = j << 2;
+    final var mask = (0xfL << offset);
     if ((table[i] & mask) != mask) {
       table[i] += (1L << offset);
       return true;
@@ -152,8 +152,8 @@ public final class FrequencySketch implements Admittor {
    * Reduces every counter by half of its original value.
    */
   private void reset() {
-    int count = 0;
-    for (int i = 0; i < table.length; i++) {
+    var count = 0;
+    for (var i = 0; i < table.length; i++) {
       count += Long.bitCount(table[i] & ONE_MASK);
       table[i] = (table[i] >>> 1) & RESET_MASK;
     }
@@ -168,7 +168,7 @@ public final class FrequencySketch implements Admittor {
    * @return the table index
    */
   private int indexOf(final int item, final int i) {
-    long hash = SEED[i] * item;
+    var hash = SEED[i] * item;
     hash += hash >> 32;
     return ((int) hash) & tableMask;
   }

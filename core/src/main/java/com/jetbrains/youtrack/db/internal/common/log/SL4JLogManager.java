@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.common.log;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,21 +14,15 @@ import org.slf4j.MarkerFactory;
 import org.slf4j.event.Level;
 
 /**
- * Centralized Log Manager used in YouTrackDB. All the log messages are routed through this class. It
- * uses SLF4J as the logging facade. Logging methods are accepting messages formatted as in
+ * Centralized Log Manager used in YouTrackDB. All the log messages are routed through this class.
+ * It uses SLF4J as the logging facade. Logging methods are accepting messages formatted as in
  * {@link String#format(String, Object...)} It is strongly recommended to use specialized logging
  * methods from this class instead of generic
  * {@link #log(Object, Level, String, Throwable, Object...)} method.
  */
 public abstract class SL4JLogManager {
-
   private final ConcurrentHashMap<String, Logger> loggersCache = new ConcurrentHashMap<>();
-
   protected static final String DEFAULT_LOG = "com.jetbrains.youtrack.db";
-  protected boolean debug = false;
-  protected boolean info = true;
-  protected boolean warn = true;
-  protected boolean error = true;
 
   /**
    * Loges a message if provided level of logging is enabled.
@@ -68,12 +62,12 @@ public abstract class SL4JLogManager {
             });
 
     if (log.isEnabledForLevel(level)) {
-      String dbName = fetchDbName(requester);
+      var dbURL = fetchDbName(requester, exception);
 
       Marker dbMarker = null;
-      if (dbName != null) {
-        message = "[" + dbName + "] " + message;
-        dbMarker = MarkerFactory.getMarker("youtrackdb:" + dbName);
+      if (dbURL != null) {
+        message = "[" + dbURL + "] " + message;
+        dbMarker = MarkerFactory.getMarker("youtrackdb:" + dbURL);
       }
 
       // USE THE LOG
@@ -101,19 +95,15 @@ public abstract class SL4JLogManager {
     }
   }
 
-  private static String fetchDbName(Object requester) {
+  private static String fetchDbName(@Nullable Object requester, @Nullable Throwable exception) {
     String dbName = null;
     try {
       if (requester instanceof Storage) {
         dbName = ((Storage) requester).getName();
-      } else {
-        var dbInstance = DatabaseRecordThreadLocal.getInstanceIfDefined();
-        if (dbInstance != null) {
-          var db = dbInstance.getIfDefined();
-          if (db != null && db.getStorage() != null) {
-            dbName = db.getStorage().getName();
-          }
-        }
+      } else if (requester instanceof BasicDatabaseSession<?, ?> databaseSession) {
+        dbName = databaseSession.getDatabaseName();
+      } else if (exception instanceof BaseException baseException) {
+        dbName = baseException.getDbName();
       }
     } catch (Exception ignore) {
     }
@@ -127,13 +117,14 @@ public abstract class SL4JLogManager {
    * @param requester      the object that requested the log
    * @param message        the message to log, accepts format provided in
    *                       {@link String#format(String, Object...)}
+   * @param logger
    * @param additionalArgs additional arguments to format the message
    */
   public void debug(
       @Nonnull final Object requester,
       @Nonnull final String message,
-      @Nullable final Object... additionalArgs) {
-    debug(requester, message, null, additionalArgs);
+      Logger logger, @Nullable final Object... additionalArgs) {
+    debug(requester, message, logger, null, additionalArgs);
   }
 
   /**
@@ -142,15 +133,16 @@ public abstract class SL4JLogManager {
    * @param requester      the object that requested the log
    * @param message        the message to log, accepts format provided in
    *                       {@link String#format(String, Object...)}
+   * @param logger
    * @param exception      the exception to log
    * @param additionalArgs additional arguments to format the message
    */
   public void debug(
       @Nonnull final Object requester,
       @Nonnull final String message,
-      @Nullable final Throwable exception,
+      Logger logger, @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
-    if (debug) {
+    if (logger.isDebugEnabled()) {
       log(requester, Level.DEBUG, message, exception, additionalArgs);
     }
   }
@@ -184,9 +176,7 @@ public abstract class SL4JLogManager {
       final @Nonnull String message,
       final @Nullable Throwable exception,
       final @Nullable Object... additionalArgs) {
-    if (info) {
-      log(requester, Level.INFO, message, exception, additionalArgs);
-    }
+    log(requester, Level.INFO, message, exception, additionalArgs);
   }
 
   /**
@@ -218,9 +208,7 @@ public abstract class SL4JLogManager {
       @Nonnull final String message,
       @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
-    if (warn) {
-      log(requester, Level.WARN, message, exception, additionalArgs);
-    }
+    log(requester, Level.WARN, message, exception, additionalArgs);
   }
 
   /**
@@ -236,37 +224,6 @@ public abstract class SL4JLogManager {
       @Nonnull final String message,
       @Nullable final Throwable exception,
       @Nullable final Object... additionalArgs) {
-    if (error) {
-      log(requester, Level.ERROR, message, exception, additionalArgs);
-    }
-  }
-
-  public boolean isWarn() {
-    return warn;
-  }
-
-  public CommandOutputListener getCommandOutputListener(
-      final Object requester, final Level level) {
-    return text -> log(requester, level, text, null);
-  }
-
-  public boolean isDebugEnabled() {
-    return debug;
-  }
-
-  public boolean isInfoEnabled() {
-    return info;
-  }
-
-  public boolean isWarnEnabled() {
-    return warn;
-  }
-
-  public boolean isErrorEnabled() {
-    return error;
-  }
-
-  public void setErrorEnabled(boolean error) {
-    this.error = error;
+    log(requester, Level.ERROR, message, exception, additionalArgs);
   }
 }

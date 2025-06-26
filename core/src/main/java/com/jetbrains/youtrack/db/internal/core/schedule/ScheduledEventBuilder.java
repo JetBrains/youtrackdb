@@ -16,13 +16,11 @@
 
 package com.jetbrains.youtrack.db.internal.core.schedule;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.type.EntityWrapper;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -30,56 +28,49 @@ import java.util.Map;
  *
  * @since v2.2
  */
-public class ScheduledEventBuilder extends EntityWrapper {
+public class ScheduledEventBuilder {
+
+  public Map<String, Object> properties = new HashMap<>();
 
   public ScheduledEventBuilder() {
-    super(new EntityImpl(ScheduledEvent.CLASS_NAME));
   }
 
-  /**
-   * Creates a scheduled event object from a configuration.
-   */
-  public ScheduledEventBuilder(final EntityImpl entity) {
-    super(entity);
-  }
-
-  public ScheduledEventBuilder setFunction(DatabaseSession session, final Function function) {
-    getDocument(session).field(ScheduledEvent.PROP_FUNC, function);
+  public ScheduledEventBuilder setFunction(final Function function) {
+    properties.put(ScheduledEvent.PROP_FUNC, function);
     return this;
   }
 
-  public ScheduledEventBuilder setRule(DatabaseSession session, final String rule) {
-    getDocument(session).field(ScheduledEvent.PROP_RULE, rule);
+  public ScheduledEventBuilder setRule(final String rule) {
+    properties.put(ScheduledEvent.PROP_RULE, rule);
     return this;
   }
 
-  public ScheduledEventBuilder setArguments(DatabaseSession session,
-      final Map<Object, Object> arguments) {
-    getDocument(session).field(ScheduledEvent.PROP_ARGUMENTS, arguments);
+  public ScheduledEventBuilder setArguments(final Map<Object, Object> arguments) {
+    properties.put(ScheduledEvent.PROP_ARGUMENTS, arguments);
     return this;
   }
 
-  public ScheduledEventBuilder setStartTime(DatabaseSession session, final Date startTime) {
-    getDocument(session).field(ScheduledEvent.PROP_STARTTIME, startTime);
+  public ScheduledEventBuilder setStartTime(final Date startTime) {
+    properties.put(ScheduledEvent.PROP_STARTTIME, startTime);
+    return this;
+  }
+
+  public ScheduledEventBuilder setName(final String name) {
+    properties.put(ScheduledEvent.PROP_NAME, name);
     return this;
   }
 
   public ScheduledEvent build(DatabaseSessionInternal session) {
-    var event = new ScheduledEvent(getDocument(session), session);
-    event.save(session);
-    return event;
+    var entity = (EntityImpl) session.newEntity(ScheduledEvent.CLASS_NAME);
+    entity.updateFromMap(properties);
+
+    return new ScheduledEvent(entity, session);
   }
 
+  @Override
   public String toString() {
-    var db = DatabaseRecordThreadLocal.instance().getIfDefined();
-    if (db != null) {
-      return getDocument(db).toString();
-    }
-    return super.toString();
-  }
-
-  public ScheduledEventBuilder setName(DatabaseSession session, final String name) {
-    getDocument(session).field(ScheduledEvent.PROP_NAME, name);
-    return this;
+    return "ScheduledEventBuilder{" +
+        "properties=" + properties +
+        '}';
   }
 }

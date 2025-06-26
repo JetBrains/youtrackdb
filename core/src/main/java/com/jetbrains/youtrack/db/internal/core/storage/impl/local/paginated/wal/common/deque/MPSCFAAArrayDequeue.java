@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal
 import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.common.deque.Node.BUFFER_SIZE;
 
 import java.util.concurrent.atomic.AtomicReference;
+import javax.annotation.Nullable;
 
 public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
 
@@ -10,7 +11,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
   private static final Object taken = new Object();
 
   public MPSCFAAArrayDequeue() {
-    final Node<T> dummyNode = new Node<>();
+    final var dummyNode = new Node<T>();
     dummyNode.enqidx.set(0);
 
     set(dummyNode);
@@ -19,16 +20,16 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
 
   public void offer(T record) {
     while (true) {
-      final Node<T> tail = get();
-      final int idx = tail.enqidx.getAndIncrement();
+      final var tail = get();
+      final var idx = tail.enqidx.getAndIncrement();
 
       if (idx > BUFFER_SIZE - 1) { // This node is full
         if (tail != get()) {
           continue;
         }
-        final Node<T> next = tail.getNext();
+        final var next = tail.getNext();
         if (next == null) {
-          final Node<T> newNode = new Node<>(record, tail);
+          final var newNode = new Node<T>(record, tail);
 
           if (tail.casNext(null, newNode)) {
             compareAndSet(tail, newNode);
@@ -46,12 +47,13 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public T poll() {
     while (true) {
-      Node<T> head = this.head;
+      var head = this.head;
 
-      final int deqidx = head.deqidx;
-      final int enqidx = head.enqidx.get();
+      final var deqidx = head.deqidx;
+      final var enqidx = head.enqidx.get();
 
       if ((deqidx >= enqidx || deqidx >= BUFFER_SIZE) && head.getNext() == null) {
         return null;
@@ -64,9 +66,9 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
         continue;
       }
 
-      final int idx = head.deqidx++;
+      final var idx = head.deqidx++;
 
-      @SuppressWarnings("unchecked") final T item = head.items.getAndSet(idx, (T) taken);
+      @SuppressWarnings("unchecked") final var item = head.items.getAndSet(idx, (T) taken);
       if (item == null) {
         continue;
       }
@@ -75,12 +77,13 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public T peek() {
-    Node<T> head = this.head;
+    var head = this.head;
 
     while (true) {
-      final int deqidx = head.deqidx;
-      final int enqidx = head.enqidx.get();
+      final var deqidx = head.deqidx;
+      final var enqidx = head.enqidx.get();
 
       if (deqidx >= enqidx || deqidx >= BUFFER_SIZE) {
         if (head.getNext() == null) {
@@ -91,8 +94,8 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
         continue;
       }
 
-      final int idx = deqidx;
-      final T item = head.items.get(idx);
+      final var idx = deqidx;
+      final var item = head.items.get(idx);
 
       if (item == null || item == taken) {
         continue;
@@ -102,12 +105,13 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public Cursor<T> peekFirst() {
-    Node<T> head = this.head;
+    var head = this.head;
 
     while (true) {
-      final int deqidx = head.deqidx;
-      final int enqidx = head.enqidx.get();
+      final var deqidx = head.deqidx;
+      final var enqidx = head.enqidx.get();
 
       if (deqidx >= enqidx || deqidx >= BUFFER_SIZE) {
         if (head.getNext() == null) {
@@ -118,8 +122,8 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
         continue;
       }
 
-      final int idx = deqidx;
-      final T item = head.items.get(idx);
+      final var idx = deqidx;
+      final var item = head.items.get(idx);
       if (item == null || item == taken) {
         continue;
       }
@@ -128,16 +132,17 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public static <T> Cursor<T> next(Cursor<T> cursor) {
     if (cursor == null) {
       return null;
     }
 
-    Node<T> node = cursor.node;
-    int idx = cursor.itemIndex + 1;
+    var node = cursor.node;
+    var idx = cursor.itemIndex + 1;
 
     while (node != null) {
-      int enqidx = node.enqidx.get();
+      var enqidx = node.enqidx.get();
 
       if (idx >= enqidx || idx >= BUFFER_SIZE) {
         if (enqidx < BUFFER_SIZE) {
@@ -149,7 +154,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
         }
       }
 
-      final T item = node.items.get(idx);
+      final var item = node.items.get(idx);
       if (item == null) {
         continue; // counters may be updated but item itslef is not updated yet
       }
@@ -163,18 +168,19 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     return null;
   }
 
+  @Nullable
   public Cursor<T> peekLast() {
     while (true) {
-      Node<T> tail = get();
+      var tail = get();
 
-      final int enqidx = tail.enqidx.get();
-      final int deqidx = tail.deqidx;
+      final var enqidx = tail.enqidx.get();
+      final var deqidx = tail.deqidx;
       if (deqidx >= enqidx || deqidx >= BUFFER_SIZE) {
         return null; // we remove only from the head, so if tail is empty it means that queue is
         // empty
       }
 
-      int idx = enqidx;
+      var idx = enqidx;
       if (idx >= BUFFER_SIZE) {
         idx = BUFFER_SIZE;
       }
@@ -183,7 +189,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
         return null; // No more items in the node
       }
 
-      final T item = tail.items.get(idx - 1);
+      final var item = tail.items.get(idx - 1);
       if (item == null || item == taken) {
         continue; // concurrent modification
       }
@@ -192,16 +198,17 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
     }
   }
 
+  @Nullable
   public static <T> Cursor<T> prev(Cursor<T> cursor) {
     if (cursor == null) {
       return null;
     }
 
-    Node<T> node = cursor.node;
-    int idx = cursor.itemIndex - 1;
+    var node = cursor.node;
+    var idx = cursor.itemIndex - 1;
 
     while (node != null) {
-      int deqidx = node.deqidx;
+      var deqidx = node.deqidx;
 
       if (deqidx > idx
           || deqidx >= BUFFER_SIZE) { // idx == enqidx -1, that is why we use >, but not >=
@@ -214,7 +221,7 @@ public final class MPSCFAAArrayDequeue<T> extends AtomicReference<Node<T>> {
         }
       }
 
-      final T item = node.items.get(idx); // reached end of the queue
+      final var item = node.items.get(idx); // reached end of the queue
       if (item == null) {
         continue; // counters may be updated but values are still not updated
       }

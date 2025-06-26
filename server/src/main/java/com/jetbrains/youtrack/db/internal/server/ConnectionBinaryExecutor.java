@@ -1,85 +1,30 @@
 package com.jetbrains.youtrack.db.internal.server;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.exception.OfflineClusterException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Blob;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.AddClusterResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BeginTransactionResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryProtocolHelper;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CeilingPhysicalPositionsResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CleanOutRecordResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseQueryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CloseRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommandResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit37Response;
-import com.jetbrains.youtrack.db.internal.client.remote.message.Commit38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommitRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CommitResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Connect37Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ConnectResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CountRecordsResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CountRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CountResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.CreateDatabaseResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CreateRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.CreateRecordResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DistributedConnectRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DistributedConnectResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DistributedStatusRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DistributedStatusResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.DropClusterResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.DropDatabaseResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ExistsDatabaseResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Request;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransaction38Response;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FetchTransactionResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.FloorPhysicalPositionsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.FreezeDatabaseResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetClusterDataRangeResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.GetGlobalConfigurationResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetRecordMetadataResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetSizeRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.GetSizeResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.HigherPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.HigherPhysicalPositionsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ImportRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ImportResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.IncrementalBackupRequest;
@@ -88,41 +33,17 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.ListDatabasesReq
 import com.jetbrains.youtrack.db.internal.client.remote.message.ListDatabasesResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ListGlobalConfigurationsRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ListGlobalConfigurationsResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.LowerPhysicalPositionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.LowerPhysicalPositionsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Open37Request;
 import com.jetbrains.youtrack.db.internal.client.remote.message.Open37Response;
-import com.jetbrains.youtrack.db.internal.client.remote.message.OpenRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.OpenResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryNextPageRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.QueryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReadRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReadRecordResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RecordExistsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RecordExistsResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReleaseDatabaseResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadRequest37;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.ReloadResponse37;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ReopenResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackTransactionRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackTransactionResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTCreateTreeRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTCreateTreeResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTFetchEntriesMajorRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTFetchEntriesMajorResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTFirstKeyRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTFirstKeyResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTGetRealBagSizeRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTGetRealBagSizeResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTGetRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SBTGetResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SendTransactionStateRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SendTransactionStateResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackActiveTxRequest;
+import com.jetbrains.youtrack.db.internal.client.remote.message.RollbackActiveTxResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerInfoResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ServerQueryRequest;
@@ -131,128 +52,47 @@ import com.jetbrains.youtrack.db.internal.client.remote.message.SetGlobalConfigu
 import com.jetbrains.youtrack.db.internal.client.remote.message.SetGlobalConfigurationResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ShutdownRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.ShutdownResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeDistributedConfigurationRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeDistributedConfigurationResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeFunctionsRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeFunctionsResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeIndexManagerRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeIndexManagerResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeLiveQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeLiveQueryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeSchemaRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeSchemaResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeSequencesRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeSequencesResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeStorageConfigurationRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.SubscribeStorageConfigurationResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribLiveQueryResponse;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeLiveQueryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.UnsubscribeResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.UpdateRecordRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.message.UpdateRecordResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.message.tx.RecordOperationRequest;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.BinarySerializer;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.NullSerializer;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
-import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
-import com.jetbrains.youtrack.db.internal.core.fetch.FetchContext;
-import com.jetbrains.youtrack.db.internal.core.fetch.FetchHelper;
-import com.jetbrains.youtrack.db.internal.core.fetch.FetchListener;
-import com.jetbrains.youtrack.db.internal.core.fetch.FetchPlan;
-import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchContext;
-import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchListener;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLAsynchQuery;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
-import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
-import com.jetbrains.youtrack.db.internal.core.storage.config.ClusterBasedStorageConfiguration;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
-import com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.TreeInternal;
-import com.jetbrains.youtrack.db.internal.core.storage.index.sbtreebonsai.local.SBTreeBonsai;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.BonsaiCollectionPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionOptimistic;
-import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
-import com.jetbrains.youtrack.db.internal.server.distributed.DistributedConfiguration;
-import com.jetbrains.youtrack.db.internal.server.distributed.ODistributedServerManager;
-import com.jetbrains.youtrack.db.internal.server.distributed.RemoteServerController;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.AbstractCommandResultListener;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.AsyncCommandResultListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.HandshakeInfo;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.LiveCommandResultListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.SyncCommandResultListener;
-import com.jetbrains.youtrack.db.internal.server.plugin.ServerPlugin;
-import com.jetbrains.youtrack.db.internal.server.tx.TransactionOptimisticServer;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
+
+  private static final Logger logger = LoggerFactory.getLogger(ConnectionBinaryExecutor.class);
 
   private final ClientConnection connection;
   private final YouTrackDBServer server;
   private final HandshakeInfo handshakeInfo;
-
-  public ConnectionBinaryExecutor(ClientConnection connection, YouTrackDBServer server) {
-    this(connection, server, null);
-  }
 
   public ConnectionBinaryExecutor(
       ClientConnection connection, YouTrackDBServer server, HandshakeInfo handshakeInfo) {
     this.connection = connection;
     this.server = server;
     this.handshakeInfo = handshakeInfo;
-  }
-
-  @Override
-  public ListDatabasesResponse executeListDatabases(ListDatabasesRequest request) {
-
-    Set<String> dbs = server.listDatabases();
-    String listener =
-        server.getListenerByProtocol(NetworkProtocolBinary.class).getInboundAddr().toString();
-    Map<String, String> toSend = new HashMap<>();
-    for (String dbName : dbs) {
-      toSend.put(dbName, "remote:" + listener + "/" + dbName);
-    }
-    return new ListDatabasesResponse(toSend);
   }
 
   @Override
@@ -265,44 +105,13 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   }
 
   @Override
-  public BinaryResponse executeDBReload(ReloadRequest request) {
-    final DatabaseSessionInternal db = connection.getDatabase();
-    final Collection<String> clusters = db.getClusterNames();
-
-    String[] clusterNames = new String[clusters.size()];
-    int[] clusterIds = new int[clusterNames.length];
-
-    int counter = 0;
-    for (final String name : clusters) {
-      final int clusterId = db.getClusterIdByName(name);
-      if (clusterId >= 0) {
-        clusterNames[counter] = name;
-        clusterIds[counter] = clusterId;
-        counter++;
-      }
-    }
-
-    if (counter < clusters.size()) {
-      clusterNames = Arrays.copyOf(clusterNames, counter);
-      clusterIds = Arrays.copyOf(clusterIds, counter);
-    }
-
-    return new ReloadResponse(clusterNames, clusterIds);
-  }
-
-  @Override
-  public BinaryResponse executeDBReload(ReloadRequest37 request) {
-    return new ReloadResponse37(connection.getDatabase().getStorage().getConfiguration());
-  }
-
-  @Override
   public BinaryResponse executeCreateDatabase(CreateDatabaseRequest request) {
 
     if (server.existsDatabase(request.getDatabaseName())) {
       throw new DatabaseException(
           "Database named '" + request.getDatabaseName() + "' already exists");
     }
-    if (request.getBackupPath() != null && !"".equals(request.getBackupPath().trim())) {
+    if (request.getBackupPath() != null && !request.getBackupPath().trim().isEmpty()) {
       server.restore(request.getDatabaseName(), request.getBackupPath());
     } else {
       server.createDatabase(
@@ -318,7 +127,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
             request.getStorageMode());
 
     // TODO: it should be here an additional check for open with the right user
-    connection.setDatabase(
+    connection.setSession(
         server
             .getDatabases()
             .openNoAuthenticate(request.getDatabaseName(),
@@ -327,6 +136,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     return new CreateDatabaseResponse();
   }
 
+  @Nullable
   @Override
   public BinaryResponse executeClose(CloseRequest request) {
     server.getClientConnectionManager().disconnect(connection);
@@ -335,7 +145,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
   @Override
   public BinaryResponse executeExistDatabase(ExistsDatabaseRequest request) {
-    boolean result = server.existsDatabase(request.getDatabaseName());
+    var result = server.existsDatabase(request.getDatabaseName());
     return new ExistsDatabaseResponse(result);
   }
 
@@ -349,461 +159,16 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   }
 
   @Override
-  public BinaryResponse executeGetSize(GetSizeRequest request) {
-    var db = connection.getDatabase();
-    return new GetSizeResponse(db.getStorage().getSize(db));
-  }
-
-  @Override
-  public BinaryResponse executeCountRecords(CountRecordsRequest request) {
-    var db = connection.getDatabase();
-    return new CountRecordsResponse(db.getStorage().countRecords(db));
-  }
-
-  @Override
-  public BinaryResponse executeDistributedStatus(DistributedStatusRequest request) {
-    final EntityImpl req = request.getStatus();
-    EntityImpl clusterConfig = new EntityImpl();
-
-    final String operation = req.field("operation");
-    if (operation == null) {
-      throw new IllegalArgumentException("Cluster operation is null");
-    }
-
-    if (operation.equals("status")) {
-      final ServerPlugin plugin = server.getPlugin("cluster");
-      if (plugin != null && plugin instanceof ODistributedServerManager) {
-        clusterConfig = ((ODistributedServerManager) plugin).getClusterConfiguration();
-      }
-    } else {
-      throw new IllegalArgumentException("Cluster operation '" + operation + "' is not supported");
-    }
-
-    return new DistributedStatusResponse(clusterConfig);
-  }
-
-  @Override
-  public BinaryResponse executeCountCluster(CountRequest request) {
-    final long count =
-        connection
-            .getDatabase()
-            .countClusterElements(request.getClusterIds(), request.isCountTombstones());
-    return new CountResponse(count);
-  }
-
-  @Override
-  public BinaryResponse executeClusterDataRange(GetClusterDataRangeRequest request) {
-    final long[] pos = connection.getDatabase().getClusterDataRange(request.getClusterId());
-    return new GetClusterDataRangeResponse(pos);
-  }
-
-  @Override
-  public BinaryResponse executeAddCluster(AddClusterRequest request) {
-    final int num;
-    if (request.getRequestedId() < 0) {
-      num = connection.getDatabase().addCluster(request.getClusterName());
-    } else {
-      num = connection.getDatabase().addCluster(request.getClusterName(), request.getRequestedId());
-    }
-
-    return new AddClusterResponse(num);
-  }
-
-  @Override
-  public BinaryResponse executeDropCluster(DropClusterRequest request) {
-    final String clusterName = connection.getDatabase().getClusterNameById(request.getClusterId());
-    if (clusterName == null) {
-      throw new IllegalArgumentException(
-          "Cluster "
-              + request.getClusterId()
-              + " does not exist anymore. Refresh the db structure or just reconnect to the"
-              + " database");
-    }
-
-    boolean result = connection.getDatabase().dropCluster(clusterName);
-    return new DropClusterResponse(result);
-  }
-
-  @Override
-  public BinaryResponse executeGetRecordMetadata(GetRecordMetadataRequest request) {
-    final RecordMetadata metadata = connection.getDatabase().getRecordMetadata(request.getRid());
-    if (metadata != null) {
-      return new GetRecordMetadataResponse(metadata);
-    } else {
-      throw new DatabaseException(
-          String.format("Record metadata for RID: %s, Not found", request.getRid()));
-    }
-  }
-
-  @Override
-  public BinaryResponse executeReadRecord(ReadRecordRequest request) {
-    final RecordId rid = request.getRid();
-    final String fetchPlanString = request.getFetchPlan();
-    boolean ignoreCache = false;
-    ignoreCache = request.isIgnoreCache();
-
-    boolean loadTombstones = false;
-    loadTombstones = request.isLoadTumbstone();
-    ReadRecordResponse response;
-    if (rid.getClusterId() == 0 && rid.getClusterPosition() == 0) {
-      // @COMPATIBILITY 0.9.25
-      // SEND THE DB CONFIGURATION INSTEAD SINCE IT WAS ON RECORD 0:0
-      FetchHelper.checkFetchPlanValid(fetchPlanString);
-
-      final byte[] record =
-          ((ClusterBasedStorageConfiguration)
-              connection.getDatabase().getStorageInfo().getConfiguration())
-              .toStream(connection.getData().protocolVersion, StandardCharsets.UTF_8);
-
-      response = new ReadRecordResponse(Blob.RECORD_TYPE, 0, record, new HashSet<>());
-
-    } else {
-      try {
-        final RecordAbstract record = connection.getDatabase().load(rid);
-        assert !record.isUnloaded();
-        byte[] bytes = getRecordBytes(connection, record);
-        final Set<RecordAbstract> recordsToSend = new HashSet<>();
-        if (!fetchPlanString.isEmpty()) {
-          // BUILD THE SERVER SIDE RECORD TO ACCES TO THE FETCH
-          // PLAN
-          if (record instanceof EntityImpl entity) {
-            final FetchPlan fetchPlan = FetchHelper.buildFetchPlan(fetchPlanString);
-
-            final FetchListener listener =
-                new RemoteFetchListener() {
-                  @Override
-                  protected void sendRecord(RecordAbstract iLinked) {
-                    recordsToSend.add(iLinked);
-                  }
-                };
-            final FetchContext context = new RemoteFetchContext();
-            FetchHelper.fetch(entity, entity, fetchPlan, listener, context, "");
-          }
-        }
-        response =
-            new ReadRecordResponse(
-                RecordInternal.getRecordType(record), record.getVersion(), bytes, recordsToSend);
-      } catch (RecordNotFoundException e) {
-        response = new ReadRecordResponse((byte) 0, 0, null, null);
-      }
-    }
-    return response;
-  }
-
-  @Override
-  public BinaryResponse executeRecordExists(RecordExistsRequest request) {
-    final RID rid = request.getRecordId();
-    final boolean recordExists = connection.getDatabase().exists(rid);
-    return new RecordExistsResponse(recordExists);
-  }
-
-  @Override
-  public BinaryResponse executeCreateRecord(CreateRecordRequest request) {
-
-    final DBRecord record = request.getContent();
-    RecordInternal.setIdentity(record, request.getRid());
-    RecordInternal.setVersion(record, 0);
-    if (record instanceof EntityImpl) {
-      // Force conversion of value to class for trigger default values.
-      EntityInternalUtils.autoConvertValueToClass(connection.getDatabase(), (EntityImpl) record);
-    }
-    connection.getDatabase().save(record);
-
-    if (request.getMode() < 2) {
-      Map<UUID, BonsaiCollectionPointer> changedIds;
-      SBTreeCollectionManager collectionManager =
-          connection.getDatabase().getSbTreeCollectionManager();
-      if (collectionManager != null) {
-        changedIds = new HashMap<>(collectionManager.changedIds());
-        collectionManager.clearChangedIds();
-      } else {
-        changedIds = new HashMap<>();
-      }
-
-      return new CreateRecordResponse(
-          (RecordId) record.getIdentity(), record.getVersion(), changedIds);
-    }
-    return null;
-  }
-
-  @Override
-  public BinaryResponse executeUpdateRecord(UpdateRecordRequest request) {
-
-    DatabaseSessionInternal database = connection.getDatabase();
-    final DBRecord newRecord = request.getContent();
-    RecordInternal.setIdentity(newRecord, request.getRid());
-    RecordInternal.setVersion(newRecord, request.getVersion());
-
-    RecordInternal.setContentChanged(newRecord, request.isUpdateContent());
-    RecordInternal.getDirtyManager(newRecord).clearForSave();
-    DBRecord currentRecord = null;
-    if (newRecord instanceof EntityImpl) {
-      try {
-        currentRecord = database.load(request.getRid());
-      } catch (RecordNotFoundException e) {
-        // MAINTAIN COHERENT THE BEHAVIOR FOR ALL THE STORAGE TYPES
-        if (e.getCause() instanceof OfflineClusterException)
-        //noinspection ThrowInsideCatchBlockWhichIgnoresCaughtException
-        {
-          throw (OfflineClusterException) e.getCause();
-        }
-      }
-
-      if (currentRecord == null) {
-        throw new RecordNotFoundException(request.getRid());
-      }
-
-      ((EntityImpl) currentRecord).merge((EntityImpl) newRecord, false, false);
-      if (request.isUpdateContent()) {
-        ((EntityImpl) currentRecord).setDirty();
-      }
-    } else {
-      currentRecord = newRecord;
-    }
-
-    RecordInternal.setVersion(currentRecord, request.getVersion());
-
-    database.save(currentRecord);
-
-    if (currentRecord
-        .getIdentity()
-        .toString()
-        .equals(database.getStorageInfo().getConfiguration().getIndexMgrRecordId())) {
-      // FORCE INDEX MANAGER UPDATE. THIS HAPPENS FOR DIRECT CHANGES FROM REMOTE LIKE IN GRAPH
-      database.getMetadata().getIndexManagerInternal().reload(connection.getDatabase());
-    }
-    final int newVersion = currentRecord.getVersion();
-
-    if (request.getMode() < 2) {
-      Map<UUID, BonsaiCollectionPointer> changedIds;
-      SBTreeCollectionManager collectionManager =
-          connection.getDatabase().getSbTreeCollectionManager();
-      if (collectionManager != null) {
-        changedIds = new HashMap<>(collectionManager.changedIds());
-        collectionManager.clearChangedIds();
-      } else {
-        changedIds = new HashMap<>();
-      }
-
-      return new UpdateRecordResponse(newVersion, changedIds);
-    }
-    return null;
-  }
-
-  @Override
-  public BinaryResponse executeHigherPosition(HigherPhysicalPositionsRequest request) {
-    var db = connection.getDatabase();
-    PhysicalPosition[] nextPositions =
-        db
-            .getStorage()
-            .higherPhysicalPositions(db, request.getClusterId(), request.getClusterPosition());
-    return new HigherPhysicalPositionsResponse(nextPositions);
-  }
-
-  @Override
-  public BinaryResponse executeCeilingPosition(CeilingPhysicalPositionsRequest request) {
-    var db = connection.getDatabase();
-    final PhysicalPosition[] previousPositions =
-        db.getStorage()
-            .ceilingPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition());
-    return new CeilingPhysicalPositionsResponse(previousPositions);
-  }
-
-  @Override
-  public BinaryResponse executeLowerPosition(LowerPhysicalPositionsRequest request) {
-    var db = connection.getDatabase();
-    final PhysicalPosition[] previousPositions =
-        db
-            .getStorage()
-            .lowerPhysicalPositions(db, request.getiClusterId(), request.getPhysicalPosition());
-    return new LowerPhysicalPositionsResponse(previousPositions);
-  }
-
-  @Override
-  public BinaryResponse executeFloorPosition(FloorPhysicalPositionsRequest request) {
-    var db = connection.getDatabase();
-    final PhysicalPosition[] previousPositions =
-        db
-            .getStorage()
-            .floorPhysicalPositions(db, request.getClusterId(), request.getPhysicalPosition());
-    return new FloorPhysicalPositionsResponse(previousPositions);
-  }
-
-  @Override
-  public BinaryResponse executeCommand(CommandRequest request) {
-    final boolean live = request.isLive();
-    final boolean asynch = request.isAsynch();
-
-    CommandRequestText command = request.getQuery();
-
-    final Map<Object, Object> params = command.getParameters();
-
-    if (asynch && command instanceof SQLSynchQuery) {
-      // CONVERT IT IN ASYNCHRONOUS QUERY
-      final SQLAsynchQuery asynchQuery = new SQLAsynchQuery(command.getText());
-      asynchQuery.setFetchPlan(command.getFetchPlan());
-      asynchQuery.setLimit(command.getLimit());
-      asynchQuery.setTimeout(command.getTimeoutTime(), command.getTimeoutStrategy());
-      asynchQuery.setUseCache(((SQLSynchQuery) command).isUseCache());
-      command = asynchQuery;
-    }
-
-    connection.getData().commandDetail = command.getText();
-
-    connection.getData().command = command;
-    AbstractCommandResultListener listener = null;
-    LiveCommandResultListener liveListener = null;
-
-    CommandResultListener cmdResultListener = command.getResultListener();
-
-    if (live) {
-      liveListener = new LiveCommandResultListener(server, connection, cmdResultListener);
-      listener = new SyncCommandResultListener(null);
-      command.setResultListener(liveListener);
-    } else {
-      if (asynch) {
-        listener = new AsyncCommandResultListener(connection, cmdResultListener);
-        command.setResultListener(listener);
-      } else {
-        listener = new SyncCommandResultListener(null);
-      }
-    }
-
-    final long serverTimeout =
-        connection
-            .getDatabase()
-            .getConfiguration()
-            .getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
-
-    if (serverTimeout > 0 && command.getTimeoutTime() > serverTimeout)
-    // FORCE THE SERVER'S TIMEOUT
-    {
-      command.setTimeout(serverTimeout, command.getTimeoutStrategy());
-    }
-
-    // REQUEST CAN'T MODIFY THE RESULT, SO IT'S CACHEABLE
-    command.setCacheableResult(true);
-
-    // ASSIGNED THE PARSED FETCHPLAN
-    var db = connection.getDatabase();
-    final CommandRequestText commandRequest = db.command(command);
-    listener.setFetchPlan(commandRequest.getFetchPlan());
-    CommandResponse response;
-    if (asynch) {
-      // In case of async it execute the request during the write of the response
-      response =
-          new CommandResponse(
-              null, listener, false, asynch, connection.getDatabase(), command, params);
-    } else {
-      // SYNCHRONOUS
-      final Object result;
-      if (params == null) {
-        result = commandRequest.execute(db);
-      } else {
-        result = commandRequest.execute(db, params);
-      }
-
-      // FETCHPLAN HAS TO BE ASSIGNED AGAIN, because it can be changed by SQL statement
-      listener.setFetchPlan(commandRequest.getFetchPlan());
-      boolean isRecordResultSet = true;
-      isRecordResultSet = command.isRecordResultSet();
-      response =
-          new CommandResponse(
-              result,
-              listener,
-              isRecordResultSet,
-              asynch,
-              connection.getDatabase(),
-              command,
-              params);
-    }
-    return response;
-  }
-
-  @Override
-  public BinaryResponse executeCommit(final CommitRequest request) {
-    var recordOperations = request.getOperations();
-    var indexChanges = request.getIndexChanges();
-
-    if (!indexChanges.isEmpty()) {
-      throw new DatabaseException("Manual indexes are not supported");
-    }
-
-    var database = connection.getDatabase();
-    var tx = database.getTransaction();
-
-    if (!tx.isActive()) {
-      throw new DatabaseException("There is no active transaction on server.");
-    }
-    if (tx.getId() != request.getTxId()) {
-      throw new DatabaseException(
-          "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
-    }
-
-    if (!(tx instanceof TransactionOptimisticServer serverTransaction)) {
-      throw new DatabaseException(
-          "Invalid transaction type,"
-              + " expected TransactionOptimisticServer but found "
-              + tx.getClass().getName());
-    }
-
-    try {
-      try {
-        serverTransaction.mergeReceivedTransaction(recordOperations);
-      } catch (final RecordNotFoundException e) {
-        throw e.getCause() instanceof OfflineClusterException
-            ? (OfflineClusterException) e.getCause()
-            : e;
-      }
-      try {
-        try {
-          serverTransaction.commit();
-        } catch (final RecordNotFoundException e) {
-          throw e.getCause() instanceof OfflineClusterException
-              ? (OfflineClusterException) e.getCause()
-              : e;
-        }
-        final SBTreeCollectionManager collectionManager =
-            connection.getDatabase().getSbTreeCollectionManager();
-        Map<UUID, BonsaiCollectionPointer> changedIds = null;
-        if (collectionManager != null) {
-          changedIds = collectionManager.changedIds();
-        }
-
-        return new CommitResponse(serverTransaction.getTxGeneratedRealRecordIdMap(), changedIds);
-      } catch (final RuntimeException e) {
-        if (serverTransaction.isActive()) {
-          database.rollback(true);
-        }
-
-        final SBTreeCollectionManager collectionManager =
-            connection.getDatabase().getSbTreeCollectionManager();
-        if (collectionManager != null) {
-          collectionManager.clearChangedIds();
-        }
-
-        throw e;
-      }
-    } catch (final RuntimeException e) {
-      // Error during TX initialization, possibly index constraints violation.
-      if (serverTransaction.isActive()) {
-        database.rollback(true);
-      }
-      throw e;
-    }
-  }
-
-  @Override
   public BinaryResponse executeGetGlobalConfiguration(GetGlobalConfigurationRequest request) {
-    final GlobalConfiguration cfg = GlobalConfiguration.findByKey(request.getKey());
-    String cfgValue = cfg != null ? cfg.isHidden() ? "<hidden>" : cfg.getValueAsString() : "";
+    final var cfg = GlobalConfiguration.findByKey(request.getKey());
+    var cfgValue = cfg != null ? cfg.isHidden() ? "<hidden>" : cfg.getValueAsString() : "";
     return new GetGlobalConfigurationResponse(cfgValue);
   }
 
   @Override
   public BinaryResponse executeListGlobalConfigurations(ListGlobalConfigurationsRequest request) {
     Map<String, String> configs = new HashMap<>();
-    for (GlobalConfiguration cfg : GlobalConfiguration.values()) {
+    for (var cfg : GlobalConfiguration.values()) {
       String key;
       try {
         key = cfg.getKey();
@@ -816,7 +181,7 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         value = "<hidden>";
       } else {
         try {
-          ContextConfiguration config =
+          var config =
               connection.getProtocol().getServer().getContextConfiguration();
           value = config.getValueAsString(cfg) != null ? config.getValueAsString(cfg) : "";
         } catch (Exception e) {
@@ -830,159 +195,38 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
   @Override
   public BinaryResponse executeFreezeDatabase(FreezeDatabaseRequest request) {
-    DatabaseSessionInternal database =
+    var database =
         server
             .getDatabases()
             .openNoAuthenticate(request.getName(), connection.getServerUser().getName(null));
-    connection.setDatabase(database);
+    connection.setSession(database);
 
-    LogManager.instance().info(this, "Freezing database '%s'", connection.getDatabase().getURL());
+    LogManager.instance()
+        .info(this, "Freezing database '%s'", connection.getDatabaseSession().getURL());
 
-    connection.getDatabase().freeze(true);
+    connection.getDatabaseSession().freeze(true);
     return new FreezeDatabaseResponse();
   }
 
   @Override
   public BinaryResponse executeReleaseDatabase(ReleaseDatabaseRequest request) {
-    DatabaseSessionInternal database =
+    var database =
         server
             .getDatabases()
             .openNoAuthenticate(request.getName(), connection.getServerUser().getName(null));
 
-    connection.setDatabase(database);
+    connection.setSession(database);
 
-    LogManager.instance().info(this, "Realising database '%s'", connection.getDatabase().getURL());
+    LogManager.instance()
+        .info(this, "Realising database '%s'", connection.getDatabaseSession().getURL());
 
-    connection.getDatabase().release();
+    connection.getDatabaseSession().release();
     return new ReleaseDatabaseResponse();
   }
 
   @Override
-  public BinaryResponse executeCleanOutRecord(CleanOutRecordRequest request) {
-    connection.getDatabase().cleanOutRecord(request.getRecordId(), request.getRecordVersion());
-
-    if (request.getMode() < 2) {
-      return new CleanOutRecordResponse(true);
-    }
-    return null;
-  }
-
-  @Override
-  public BinaryResponse executeSBTreeCreate(SBTCreateTreeRequest request) {
-    BonsaiCollectionPointer collectionPointer = null;
-    try {
-      final DatabaseSessionInternal database = connection.getDatabase();
-      final AbstractPaginatedStorage storage = (AbstractPaginatedStorage) database.getStorage();
-      final AtomicOperationsManager atomicOperationsManager = storage.getAtomicOperationsManager();
-      collectionPointer =
-          atomicOperationsManager.calculateInsideAtomicOperation(
-              null,
-              atomicOperation ->
-                  connection
-                      .getDatabase()
-                      .getSbTreeCollectionManager()
-                      .createSBTree(request.getClusterId(), atomicOperation, null));
-    } catch (IOException e) {
-      throw BaseException.wrapException(new DatabaseException("Error during ridbag creation"), e);
-    }
-
-    return new SBTCreateTreeResponse(collectionPointer);
-  }
-
-  @Override
-  public BinaryResponse executeSBTGet(SBTGetRequest request) {
-    final SBTreeCollectionManager sbTreeCollectionManager =
-        connection.getDatabase().getSbTreeCollectionManager();
-    final SBTreeBonsai<Identifiable, Integer> tree =
-        sbTreeCollectionManager.loadSBTree(request.getCollectionPointer());
-    try {
-      final Identifiable key = tree.getKeySerializer().deserialize(request.getKeyStream(), 0);
-
-      Integer result = tree.get(key);
-      final BinarySerializer<? super Integer> valueSerializer;
-      if (result == null) {
-        valueSerializer = NullSerializer.INSTANCE;
-      } else {
-        valueSerializer = tree.getValueSerializer();
-      }
-
-      byte[] stream = new byte[ByteSerializer.BYTE_SIZE + valueSerializer.getObjectSize(result)];
-      ByteSerializer.INSTANCE.serialize(valueSerializer.getId(), stream, 0);
-      valueSerializer.serialize(result, stream, ByteSerializer.BYTE_SIZE);
-      return new SBTGetResponse(stream);
-    } finally {
-      sbTreeCollectionManager.releaseSBTree(request.getCollectionPointer());
-    }
-  }
-
-  @Override
-  public BinaryResponse executeSBTFirstKey(SBTFirstKeyRequest request) {
-
-    final SBTreeCollectionManager sbTreeCollectionManager =
-        connection.getDatabase().getSbTreeCollectionManager();
-    final SBTreeBonsai<Identifiable, Integer> tree =
-        sbTreeCollectionManager.loadSBTree(request.getCollectionPointer());
-    byte[] stream;
-    try {
-
-      Identifiable result = tree.firstKey();
-      final BinarySerializer<? super Identifiable> keySerializer;
-      if (result == null) {
-        keySerializer = NullSerializer.INSTANCE;
-      } else {
-        keySerializer = tree.getKeySerializer();
-      }
-
-      stream = new byte[ByteSerializer.BYTE_SIZE + keySerializer.getObjectSize(result)];
-      ByteSerializer.INSTANCE.serialize(keySerializer.getId(), stream, 0);
-      keySerializer.serialize(result, stream, ByteSerializer.BYTE_SIZE);
-      return new SBTFirstKeyResponse(stream);
-    } finally {
-      sbTreeCollectionManager.releaseSBTree(request.getCollectionPointer());
-    }
-  }
-
-  @Override
-  public BinaryResponse executeSBTFetchEntriesMajor(
-      @SuppressWarnings("rawtypes") SBTFetchEntriesMajorRequest request) {
-
-    final SBTreeCollectionManager sbTreeCollectionManager =
-        connection.getDatabase().getSbTreeCollectionManager();
-    final SBTreeBonsai<Identifiable, Integer> tree =
-        sbTreeCollectionManager.loadSBTree(request.getPointer());
-    try {
-      final BinarySerializer<Identifiable> keySerializer = tree.getKeySerializer();
-      Identifiable key = keySerializer.deserialize(request.getKeyStream(), 0);
-
-      final BinarySerializer<Integer> valueSerializer = tree.getValueSerializer();
-
-      TreeInternal.AccumulativeListener<Identifiable, Integer> listener =
-          new TreeInternal.AccumulativeListener<>(request.getPageSize());
-      tree.loadEntriesMajor(key, request.isInclusive(), true, listener);
-      List<Entry<Identifiable, Integer>> result = listener.getResult();
-      return new SBTFetchEntriesMajorResponse<>(keySerializer, valueSerializer, result);
-    } finally {
-      sbTreeCollectionManager.releaseSBTree(request.getPointer());
-    }
-  }
-
-  @Override
-  public BinaryResponse executeSBTGetRealSize(SBTGetRealBagSizeRequest request) {
-    final SBTreeCollectionManager sbTreeCollectionManager =
-        connection.getDatabase().getSbTreeCollectionManager();
-    final SBTreeBonsai<Identifiable, Integer> tree =
-        sbTreeCollectionManager.loadSBTree(request.getCollectionPointer());
-    try {
-      int realSize = tree.getRealBagSize(request.getChanges());
-      return new SBTGetRealBagSizeResponse(realSize);
-    } finally {
-      sbTreeCollectionManager.releaseSBTree(request.getCollectionPointer());
-    }
-  }
-
-  @Override
   public BinaryResponse executeIncrementalBackup(IncrementalBackupRequest request) {
-    String fileName = connection.getDatabase()
+    var fileName = connection.getDatabaseSession()
         .incrementalBackup(Path.of(request.getBackupDirectory()));
     return new IncrementalBackupResponse(fileName);
   }
@@ -992,16 +236,15 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     List<String> result = new ArrayList<>();
     LogManager.instance().info(this, "Starting database import");
     DatabaseImport imp;
+    var session = connection.getDatabaseSession();
     try {
       imp =
           new DatabaseImport(
-              connection.getDatabase(),
+              session,
               request.getImporPath(),
               iText -> {
-                LogManager.instance().debug(ConnectionBinaryExecutor.this, iText);
-                if (iText != null) {
-                  result.add(iText);
-                }
+                LogManager.instance().debug(ConnectionBinaryExecutor.this, iText, logger);
+                result.add(iText);
               });
       imp.setOptions(request.getOptions());
       imp.importDatabase();
@@ -1009,61 +252,10 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
       new File(request.getImporPath()).delete();
 
     } catch (IOException e) {
-      throw BaseException.wrapException(new DatabaseException("error on import"), e);
+      throw BaseException.wrapException(new DatabaseException(session, "error on import"), e,
+          session);
     }
     return new ImportResponse(result);
-  }
-
-  @Override
-  public BinaryResponse executeConnect(ConnectRequest request) {
-    BinaryProtocolHelper.checkProtocolVersion(this, request.getProtocolVersion());
-    if (request.getProtocolVersion() > 36) {
-      throw new ConfigurationException(
-          "You can use connect as first operation only for protocol  < 37 please use handshake for"
-              + " protocol >= 37");
-    }
-    connection.getData().driverName = request.getDriverName();
-    connection.getData().driverVersion = request.getDriverVersion();
-    connection.getData().protocolVersion = request.getProtocolVersion();
-    connection.getData().clientId = request.getClientId();
-    connection.getData().setSerializationImpl(request.getRecordFormat());
-
-    connection.setTokenBased(request.isTokenBased());
-    connection.getData().supportsLegacyPushMessages = request.isSupportPush();
-    connection.getData().collectStats = request.isCollectStats();
-
-    if (!request.isTokenBased()
-        && !GlobalConfiguration.NETWORK_BINARY_ALLOW_NO_TOKEN.getValueAsBoolean()) {
-      LogManager.instance()
-          .warn(
-              this,
-              "Session open with token flag false is not supported anymore please use token based"
-                  + " sessions");
-      throw new ConfigurationException(
-          "Session open with token flag false is not supported anymore please use token based"
-              + " sessions");
-    }
-
-    connection.setServerUser(
-        server.authenticateUser(request.getUsername(), request.getPassword(), "server.connect"));
-
-    if (connection.getServerUser() == null) {
-      throw new SecurityAccessException(
-          "Wrong user/password to [connect] to the remote YouTrackDB Server instance");
-    }
-    byte[] token = null;
-    if (connection.getData().protocolVersion > ChannelBinaryProtocol.PROTOCOL_VERSION_26) {
-      connection.getData().serverUsername = connection.getServerUser().getName(null);
-      connection.getData().serverUser = true;
-
-      if (Boolean.TRUE.equals(connection.getTokenBased())) {
-        token = server.getTokenHandler().getSignedBinaryToken(null, null, connection.getData());
-      } else {
-        token = CommonConst.EMPTY_BYTE_ARRAY;
-      }
-    }
-
-    return new ConnectResponse(connection.getId(), token);
   }
 
   @Override
@@ -1071,7 +263,6 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     connection.getData().driverName = handshakeInfo.getDriverName();
     connection.getData().driverVersion = handshakeInfo.getDriverVersion();
     connection.getData().protocolVersion = handshakeInfo.getProtocolVersion();
-    connection.getData().setSerializer(handshakeInfo.getSerializer());
 
     connection.setTokenBased(true);
     connection.getData().supportsLegacyPushMessages = false;
@@ -1085,125 +276,17 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           "Wrong user/password to [connect] to the remote YouTrackDB Server instance");
     }
 
-    byte[] token = null;
-    if (connection.getData().protocolVersion > ChannelBinaryProtocol.PROTOCOL_VERSION_26) {
-      connection.getData().serverUsername = connection.getServerUser().getName(null);
-      connection.getData().serverUser = true;
+    byte[] token;
+    connection.getData().serverUsername = connection.getServerUser().getName(null);
+    connection.getData().serverUser = true;
 
-      if (Boolean.TRUE.equals(connection.getTokenBased())) {
-        token = server.getTokenHandler().getSignedBinaryToken(null, null, connection.getData());
-      } else {
-        token = CommonConst.EMPTY_BYTE_ARRAY;
-      }
+    if (Boolean.TRUE.equals(connection.getTokenBased())) {
+      token = server.getTokenHandler().getSignedBinaryToken(null, null, connection.getData());
+    } else {
+      token = CommonConst.EMPTY_BYTE_ARRAY;
     }
 
     return new ConnectResponse(connection.getId(), token);
-  }
-
-  @Override
-  public BinaryResponse executeDatabaseOpen(OpenRequest request) {
-    BinaryProtocolHelper.checkProtocolVersion(this, request.getProtocolVersion());
-    if (request.getProtocolVersion() > 36) {
-      throw new ConfigurationException(
-          "You can use open as first operation only for protocol  < 37 please use handshake for"
-              + " protocol >= 37");
-    }
-    connection.getData().driverName = request.getDriverName();
-    connection.getData().driverVersion = request.getDriverVersion();
-    connection.getData().protocolVersion = request.getProtocolVersion();
-    connection.getData().clientId = request.getClientId();
-    connection.getData().setSerializationImpl(request.getRecordFormat());
-    if (!request.isUseToken()
-        && !GlobalConfiguration.NETWORK_BINARY_ALLOW_NO_TOKEN.getValueAsBoolean()) {
-      LogManager.instance()
-          .warn(
-              this,
-              "Session open with token flag false is not supported anymore please use token based"
-                  + " sessions");
-      throw new ConfigurationException(
-          "Session open with token flag false is not supported anymore please use token based"
-              + " sessions");
-    }
-    connection.setTokenBased(request.isUseToken());
-    connection.getData().supportsLegacyPushMessages = request.isSupportsPush();
-    connection.getData().collectStats = request.isCollectStats();
-
-    try {
-      connection.setDatabase(
-          server.openDatabase(
-              request.getDatabaseName(),
-              request.getUserName(),
-              request.getUserPassword(),
-              connection.getData()));
-    } catch (BaseException e) {
-      server.getClientConnectionManager().disconnect(connection);
-      throw e;
-    }
-
-    byte[] token = null;
-
-    if (Boolean.TRUE.equals(connection.getTokenBased())) {
-      token =
-          server
-              .getTokenHandler()
-              .getSignedBinaryToken(
-                  connection.getDatabase(),
-                  connection.getDatabase().geCurrentUser(),
-                  connection.getData());
-      // TODO: do not use the parse split getSignedBinaryToken in two methods.
-      server.getClientConnectionManager().connect(connection.getProtocol(), connection, token);
-    }
-
-    DatabaseSessionInternal db = connection.getDatabase();
-    final Collection<String> clusters = db.getClusterNames();
-    final byte[] tokenToSend;
-    if (Boolean.TRUE.equals(connection.getTokenBased())) {
-      tokenToSend = token;
-    } else {
-      tokenToSend = CommonConst.EMPTY_BYTE_ARRAY;
-    }
-
-    final ServerPlugin plugin = server.getPlugin("cluster");
-    byte[] distriConf = null;
-    EntityImpl distributedCfg;
-    if (plugin instanceof ODistributedServerManager) {
-      distributedCfg = ((ODistributedServerManager) plugin).getClusterConfiguration();
-
-      final DistributedConfiguration dbCfg =
-          ((ODistributedServerManager) plugin)
-              .getDatabaseConfiguration(connection.getDatabase().getName());
-      if (dbCfg != null) {
-        // ENHANCE SERVER CFG WITH DATABASE CFG
-        distributedCfg.field("database", dbCfg.getDocument(), PropertyType.EMBEDDED);
-      }
-      distriConf = getRecordBytes(connection, distributedCfg);
-    }
-
-    String[] clusterNames = new String[clusters.size()];
-    int[] clusterIds = new int[clusters.size()];
-
-    int counter = 0;
-    for (String name : clusters) {
-      final int clusterId = db.getClusterIdByName(name);
-      if (clusterId >= 0) {
-        clusterNames[counter] = name;
-        clusterIds[counter] = clusterId;
-        counter++;
-      }
-    }
-
-    if (counter < clusters.size()) {
-      clusterNames = Arrays.copyOf(clusterNames, counter);
-      clusterIds = Arrays.copyOf(clusterIds, counter);
-    }
-
-    return new OpenResponse(
-        connection.getId(),
-        tokenToSend,
-        clusterIds,
-        clusterNames,
-        distriConf,
-        YouTrackDBConstants.getVersion());
   }
 
   @Override
@@ -1214,31 +297,31 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     connection.getData().driverName = handshakeInfo.getDriverName();
     connection.getData().driverVersion = handshakeInfo.getDriverVersion();
     connection.getData().protocolVersion = handshakeInfo.getProtocolVersion();
-    connection.getData().setSerializer(handshakeInfo.getSerializer());
+
+    var session =
+        server.openSession(
+            request.getDatabaseName(),
+            request.getUserName(),
+            request.getUserPassword(),
+            connection.getData());
     try {
-      connection.setDatabase(
-          server.openDatabase(
-              request.getDatabaseName(),
-              request.getUserName(),
-              request.getUserPassword(),
-              connection.getData()));
+      connection.setSession(session);
     } catch (BaseException e) {
       server.getClientConnectionManager().disconnect(connection);
       throw e;
     }
 
-    byte[] token = null;
-
-    token =
+    var token =
         server
             .getTokenHandler()
             .getSignedBinaryToken(
-                connection.getDatabase(), connection.getDatabase().geCurrentUser(),
+                connection.getDatabaseSession(), connection.getDatabaseSession().getCurrentUser(),
                 connection.getData());
     // TODO: do not use the parse split getSignedBinaryToken in two methods.
     server.getClientConnectionManager().connect(connection.getProtocol(), connection, token);
 
-    return new Open37Response(connection.getId(), token);
+    return new Open37Response(connection.getId(), token,
+        session.getStorageInfo().getConfiguration().getTimeZone());
   }
 
   @Override
@@ -1246,8 +329,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
     LogManager.instance().info(this, "Received shutdown command from the remote client ");
 
-    final String user = request.getRootUser();
-    final String passwd = request.getRootPassword();
+    final var user = request.getRootUser();
+    final var passwd = request.getRootPassword();
 
     if (server.authenticate(user, passwd, "server.shutdown")) {
       LogManager.instance()
@@ -1265,8 +348,9 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   }
 
   private void runShutdownInNonDaemonThread() {
-    Thread shutdownThread =
+    var shutdownThread =
         new Thread("YouTrackDB server shutdown thread") {
+          @Override
           public void run() {
             server.shutdown();
           }
@@ -1277,13 +361,14 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
   @Override
   public BinaryResponse executeReopen(ReopenRequest request) {
-    return new ReopenResponse(connection.getId());
+    return new ReopenResponse(connection.getId(),
+        connection.getDatabaseSession().getStorageInfo().getConfiguration().getTimeZone());
   }
 
   @Override
   public BinaryResponse executeSetGlobalConfig(SetGlobalConfigurationRequest request) {
 
-    final GlobalConfiguration cfg = GlobalConfiguration.findByKey(request.getKey());
+    final var cfg = GlobalConfiguration.findByKey(request.getKey());
 
     if (cfg != null) {
       cfg.setValue(request.getValue());
@@ -1301,25 +386,9 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     return new SetGlobalConfigurationResponse();
   }
 
-  public static byte[] getRecordBytes(ClientConnection connection,
-      final RecordAbstract iRecord) {
-    var db = connection.getDatabase();
-    final byte[] stream;
-    String name = connection.getData().getSerializationImpl();
-    if (RecordInternal.getRecordType(iRecord) == EntityImpl.RECORD_TYPE) {
-      ((EntityImpl) iRecord).deserializeFields();
-      RecordSerializer ser = RecordSerializerFactory.instance().getFormat(name);
-      stream = ser.toStream(db, iRecord);
-    } else {
-      stream = iRecord.toStream();
-    }
-
-    return stream;
-  }
-
   @Override
   public BinaryResponse executeServerQuery(ServerQueryRequest request) {
-    YouTrackDB youTrackDB = server.getContext();
+    var youTrackDB = server.getContext();
 
     ResultSet rs;
 
@@ -1330,87 +399,73 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
     }
 
     // copy the result-set to make sure that the execution is successful
-    List<Result> rsCopy = rs.stream().collect(Collectors.toList());
+    var rsCopy = rs.stream().collect(Collectors.<Result>toList());
 
     return new ServerQueryResponse(
         ((LocalResultSetLifecycleDecorator) rs).getQueryId(),
-        false,
         rsCopy,
-        rs.getExecutionPlan(),
-        false,
-        rs.getQueryStats(),
-        false);
+        false
+    );
   }
 
   @Override
   public BinaryResponse executeQuery(QueryRequest request) {
-    DatabaseSessionInternal database = connection.getDatabase();
-    QueryMetadataUpdateListener metadataListener = new QueryMetadataUpdateListener();
-    database.getSharedContext().registerListener(metadataListener);
-    if (database.getTransaction().isActive()) {
-      ((TransactionOptimistic) database.getTransaction()).resetChangesTracking();
-    }
+    var session = connection.getDatabaseSession();
+    var metadataListener = new QueryMetadataUpdateListener();
+    session.getSharedContext().registerListener(metadataListener);
     ResultSet rs;
     if (QueryRequest.QUERY == request.getOperationType()) {
       // TODO Assert is sql.
       if (request.isNamedParams()) {
-        rs = database.query(request.getStatement(), request.getNamedParameters(database));
+        rs = session.query(request.getStatement(), request.getNamedParameters());
       } else {
-        rs = database.query(request.getStatement(), request.getPositionalParameters(database));
+        rs = session.query(request.getStatement(), request.getPositionalParameters());
       }
     } else {
       if (QueryRequest.COMMAND == request.getOperationType()) {
         if (request.isNamedParams()) {
-          rs = database.command(request.getStatement(), request.getNamedParameters(database));
+          rs = session.execute(request.getStatement(), request.getNamedParameters());
         } else {
-          rs = database.command(request.getStatement(), request.getPositionalParameters(database));
+          rs = session.execute(request.getStatement(), request.getPositionalParameters());
         }
       } else {
         if (request.isNamedParams()) {
+          //noinspection unchecked
           rs =
-              database.execute(
+              session.computeScript(
                   request.getLanguage(), request.getStatement(),
-                  request.getNamedParameters(database));
+                  request.getNamedParameters());
         } else {
           rs =
-              database.execute(
+              session.computeScript(
                   request.getLanguage(), request.getStatement(),
-                  request.getPositionalParameters(database));
+                  request.getPositionalParameters());
         }
       }
     }
 
     // copy the result-set to make sure that the execution is successful
-    Stream<Result> stream = rs.stream();
-    if (database
+    var stream = rs.stream();
+    if (session
         .getActiveQueries()
         .containsKey(((LocalResultSetLifecycleDecorator) rs).getQueryId())) {
       stream = stream.limit(request.getRecordsPerPage());
     }
-    List<Result> rsCopy = stream.collect(Collectors.toList());
+    var rsCopy = stream.collect(Collectors.toList());
 
-    boolean hasNext = rs.hasNext();
-    boolean txChanges = false;
-    if (database.getTransaction().isActive()) {
-      txChanges = ((TransactionOptimistic) database.getTransaction()).isChanged();
-    }
-    database.getSharedContext().unregisterListener(metadataListener);
+    var hasNext = rs.hasNext();
+    session.getSharedContext().unregisterListener(metadataListener);
 
     return new QueryResponse(
-        ((LocalResultSetLifecycleDecorator) rs).getQueryId(),
-        txChanges,
-        rsCopy,
-        rs.getExecutionPlan(),
-        hasNext,
-        rs.getQueryStats(),
-        metadataListener.isUpdated());
+        ((LocalResultSetLifecycleDecorator) rs).getQueryId(), rsCopy, hasNext,
+        session.isTxActive());
   }
 
   @Override
   public BinaryResponse closeQuery(CloseQueryRequest oQueryRequest) {
-    String queryId = oQueryRequest.getQueryId();
-    DatabaseSessionInternal db = connection.getDatabase();
-    ResultSet query = db.getActiveQuery(queryId);
+    var queryId = oQueryRequest.getQueryId();
+    var db = connection.getDatabaseSession();
+    var query = db.getActiveQuery(queryId);
     if (query != null) {
       query.close();
     }
@@ -1418,23 +473,33 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   }
 
   @Override
+  public BinaryResponse executeRollbackActiveTx(RollbackActiveTxRequest request) {
+    var session = connection.getDatabaseSession();
+    if (session.isTxActive()) {
+      session.rollback();
+    }
+
+    return new RollbackActiveTxResponse();
+  }
+
+  @Override
   public BinaryResponse executeQueryNextPage(QueryNextPageRequest request) {
-    DatabaseSessionInternal database = connection.getDatabase();
-    YouTrackDBInternal orientDB = database.getSharedContext().getYouTrackDB();
-    LocalResultSetLifecycleDecorator rs =
-        (LocalResultSetLifecycleDecorator) database.getActiveQuery(request.getQueryId());
+    var session = connection.getDatabaseSession();
+    var youTrackDB = session.getSharedContext().getYouTrackDB();
+    var rs =
+        (LocalResultSetLifecycleDecorator) session.getActiveQuery(request.getQueryId());
 
     if (rs == null) {
-      throw new DatabaseException(
+      throw new DatabaseException(session,
           String.format(
               "No query with id '%s' found probably expired session", request.getQueryId()));
     }
 
     try {
-      orientDB.startCommand(Optional.empty());
+      youTrackDB.startCommand(null);
       // copy the result-set to make sure that the execution is successful
-      List<Result> rsCopy = new ArrayList<>(request.getRecordsPerPage());
-      int i = 0;
+      var rsCopy = new ArrayList<Result>(request.getRecordsPerPage());
+      var i = 0;
       // if it's InternalResultSet it means that it's a Command, not a Query, so the result has to
       // be
       // sent as it is, not streamed
@@ -1442,350 +507,14 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
         rsCopy.add(rs.next());
         i++;
       }
-      boolean hasNext = rs.hasNext();
+      var hasNext = rs.hasNext();
       return new QueryResponse(
           rs.getQueryId(),
-          false,
           rsCopy,
-          rs.getExecutionPlan(),
-          hasNext,
-          rs.getQueryStats(),
-          false);
+          hasNext, session.isTxActive());
     } finally {
-      orientDB.endCommand();
+      youTrackDB.endCommand();
     }
-  }
-
-  @Override
-  public BinaryResponse executeBeginTransaction(BeginTransactionRequest request) {
-    var database = connection.getDatabase();
-    var tx = database.getTransaction();
-
-    var recordOperations = request.getOperations();
-    var indexChanges = request.getIndexChanges();
-
-    if (!indexChanges.isEmpty()) {
-      throw new DatabaseException("Manual indexes are not supported.");
-    }
-
-    if (tx.isActive()) {
-      if (!(tx instanceof TransactionOptimisticServer serverTransaction)) {
-        throw new DatabaseException("Non-server based transaction is active");
-      }
-      if (tx.getId() != request.getTxId()) {
-        throw new DatabaseException(
-            "Transaction id mismatch, expected " + tx.getId() + " but got " + request.getTxId());
-      }
-
-      try {
-        serverTransaction.mergeReceivedTransaction(recordOperations);
-      } catch (final RecordNotFoundException e) {
-        throw e.getCause() instanceof OfflineClusterException
-            ? (OfflineClusterException) e.getCause()
-            : e;
-      }
-
-      return new BeginTransactionResponse(
-          tx.getId(), serverTransaction.getTxGeneratedRealRecordIdMap());
-    }
-
-    database.begin(new TransactionOptimisticServer(database, request.getTxId()));
-    var serverTransaction = (TransactionOptimisticServer) database.getTransaction();
-
-    try {
-      serverTransaction.mergeReceivedTransaction(recordOperations);
-    } catch (final RecordNotFoundException e) {
-      throw e.getCause() instanceof OfflineClusterException
-          ? (OfflineClusterException) e.getCause()
-          : e;
-    }
-
-    return new BeginTransactionResponse(
-        tx.getId(), serverTransaction.getTxGeneratedRealRecordIdMap());
-  }
-
-  @Override
-  public BinaryResponse executeBeginTransaction38(BeginTransaction38Request request) {
-    var database = connection.getDatabase();
-    var recordOperations = request.getOperations();
-
-    var indexChanges = request.getIndexChanges();
-    if (!indexChanges.isEmpty()) {
-      throw new DatabaseException("Manual indexes are not supported");
-    }
-
-    var tx = database.getTransaction();
-
-    if (tx.isActive()) {
-      throw new DatabaseException("Transaction is already started on server");
-    }
-
-    var serverTransaction =
-        doExecuteBeginTransaction(request.getTxId(), database, recordOperations);
-    return new BeginTransactionResponse(
-        tx.getId(), serverTransaction.getTxGeneratedRealRecordIdMap());
-  }
-
-  private static TransactionOptimisticServer doExecuteBeginTransaction(
-      long txId, DatabaseSessionInternal database,
-      List<RecordOperationRequest> recordOperations) {
-    assert database.activeTxCount() == 0;
-
-    database.begin(new TransactionOptimisticServer(database, txId));
-    var serverTransaction = (TransactionOptimisticServer) database.getTransaction();
-
-    try {
-      serverTransaction.mergeReceivedTransaction(recordOperations);
-    } catch (final RecordNotFoundException e) {
-      throw e.getCause() instanceof OfflineClusterException
-          ? (OfflineClusterException) e.getCause()
-          : e;
-    }
-
-    return serverTransaction;
-  }
-
-  @Override
-  public BinaryResponse executeSendTransactionState(SendTransactionStateRequest request) {
-    var database = connection.getDatabase();
-    var recordOperations = request.getOperations();
-
-    var tx = database.getTransaction();
-
-    if (!tx.isActive()) {
-      throw new DatabaseException(
-          "Transaction with id " + request.getTxId() + " is not active on server.");
-    }
-
-    if (!(tx instanceof TransactionOptimisticServer serverTransaction)) {
-      throw new DatabaseException(
-          "Invalid transaction type,"
-              + " expected TransactionOptimisticServer but found "
-              + tx.getClass().getName());
-    }
-
-    try {
-      serverTransaction.mergeReceivedTransaction(recordOperations);
-    } catch (final RecordNotFoundException e) {
-      throw e.getCause() instanceof OfflineClusterException
-          ? (OfflineClusterException) e.getCause()
-          : e;
-    }
-
-    return new SendTransactionStateResponse(
-        tx.getId(), serverTransaction.getTxGeneratedRealRecordIdMap());
-  }
-
-  @Override
-  public BinaryResponse executeCommit38(Commit38Request request) {
-    var recordOperations = request.getOperations();
-    var indexChanges = request.getIndexChanges();
-
-    if (!indexChanges.isEmpty()) {
-      throw new DatabaseException("Manual indexes are not supported");
-    }
-
-    var database = connection.getDatabase();
-    var tx = database.getTransaction();
-
-    var started = tx.isActive();
-    if (!started) {
-      //case when transaction was sent during commit.
-      tx = doExecuteBeginTransaction(request.getTxId(), database, recordOperations);
-    }
-
-    if (tx.getId() != request.getTxId()) {
-      throw new DatabaseException(
-          "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
-    }
-
-    if (!(tx instanceof TransactionOptimisticServer serverTransaction)) {
-      throw new DatabaseException(
-          "Invalid transaction type,"
-              + " expected TransactionOptimisticServer but found "
-              + tx.getClass().getName());
-    }
-
-    try {
-      try {
-        if (started) {
-          serverTransaction.mergeReceivedTransaction(recordOperations);
-        }
-      } catch (final RecordNotFoundException e) {
-        throw e.getCause() instanceof OfflineClusterException
-            ? (OfflineClusterException) e.getCause()
-            : e;
-      }
-
-      if (serverTransaction.getTxStartCounter() != 1) {
-        throw new DatabaseException("Transaction can be started only once on server");
-      }
-
-      try {
-        try {
-          database.commit();
-        } catch (final RecordNotFoundException e) {
-          throw e.getCause() instanceof OfflineClusterException
-              ? (OfflineClusterException) e.getCause()
-              : e;
-        }
-        final SBTreeCollectionManager collectionManager =
-            connection.getDatabase().getSbTreeCollectionManager();
-        Map<UUID, BonsaiCollectionPointer> changedIds = null;
-
-        if (collectionManager != null) {
-          changedIds = collectionManager.changedIds();
-        }
-
-        return new Commit37Response(serverTransaction.getTxGeneratedRealRecordIdMap(), changedIds);
-      } catch (final RuntimeException e) {
-        if (serverTransaction.isActive()) {
-          database.rollback(true);
-        }
-
-        final SBTreeCollectionManager collectionManager =
-            connection.getDatabase().getSbTreeCollectionManager();
-        if (collectionManager != null) {
-          collectionManager.clearChangedIds();
-        }
-
-        throw e;
-      }
-    } catch (final RuntimeException e) {
-      // Error during TX initialization, possibly index constraints violation.
-      if (serverTransaction.isActive()) {
-        database.rollback(true);
-      }
-      throw e;
-    }
-  }
-
-  @Override
-  public BinaryResponse executeCommit37(Commit37Request request) {
-    var recordOperations = request.getOperations();
-    var indexChanges = request.getIndexChanges();
-
-    if (indexChanges != null && !indexChanges.isEmpty()) {
-      throw new DatabaseException("Manual indexes are not supported");
-    }
-
-    var database = connection.getDatabase();
-    var tx = database.getTransaction();
-
-    if (!tx.isActive()) {
-      tx = doExecuteBeginTransaction(request.getTxId(), database, recordOperations);
-    }
-
-    if (tx.getId() != request.getTxId()) {
-      throw new DatabaseException(
-          "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
-    }
-
-    if (!(tx instanceof TransactionOptimisticServer serverTransaction)) {
-      throw new DatabaseException(
-          "Invalid transaction type,"
-              + " expected TransactionOptimisticServer but found "
-              + tx.getClass().getName());
-    }
-
-    if (serverTransaction.getTxStartCounter() != 1) {
-      throw new DatabaseException("Transaction can be started only once on server");
-    }
-
-    try {
-      try {
-        serverTransaction.mergeReceivedTransaction(recordOperations);
-      } catch (final RecordNotFoundException e) {
-        throw e.getCause() instanceof OfflineClusterException
-            ? (OfflineClusterException) e.getCause()
-            : e;
-      }
-      try {
-        try {
-          database.commit();
-        } catch (final RecordNotFoundException e) {
-          throw e.getCause() instanceof OfflineClusterException
-              ? (OfflineClusterException) e.getCause()
-              : e;
-        }
-        final SBTreeCollectionManager collectionManager =
-            connection.getDatabase().getSbTreeCollectionManager();
-        Map<UUID, BonsaiCollectionPointer> changedIds = null;
-
-        if (collectionManager != null) {
-          changedIds = collectionManager.changedIds();
-        }
-
-        return new Commit37Response(serverTransaction.getTxGeneratedRealRecordIdMap(), changedIds);
-      } catch (final RuntimeException e) {
-        if (serverTransaction.isActive()) {
-          database.rollback(true);
-        }
-
-        final SBTreeCollectionManager collectionManager =
-            connection.getDatabase().getSbTreeCollectionManager();
-        if (collectionManager != null) {
-          collectionManager.clearChangedIds();
-        }
-
-        throw e;
-      }
-    } catch (final RuntimeException e) {
-      // Error during TX initialization, possibly index constraints violation.
-      if (serverTransaction.isActive()) {
-        database.rollback(true);
-      }
-      throw e;
-    }
-  }
-
-  @Override
-  public BinaryResponse executeFetchTransaction(FetchTransactionRequest request) {
-    DatabaseSessionInternal database = connection.getDatabase();
-    if (!database.getTransaction().isActive()) {
-      throw new DatabaseException("No Transaction Active");
-    }
-
-    TransactionOptimistic tx = (TransactionOptimistic) database.getTransaction();
-    if (tx.getId() != request.getTxId()) {
-      throw new DatabaseException(
-          "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
-    }
-
-    return new FetchTransactionResponse(database,
-        tx.getId(),
-        tx.getRecordOperations(),
-        tx.getIndexOperations(),
-        tx.getTxGeneratedRealRecordIdMap());
-  }
-
-  @Override
-  public BinaryResponse executeFetchTransaction38(FetchTransaction38Request request) {
-    DatabaseSessionInternal database = connection.getDatabase();
-    if (!database.getTransaction().isActive()) {
-      throw new DatabaseException("No Transaction Active");
-    }
-    TransactionOptimistic tx = (TransactionOptimistic) database.getTransaction();
-    if (tx.getId() != request.getTxId()) {
-      throw new DatabaseException(
-          "Invalid transaction id, expected " + tx.getId() + " but received " + request.getTxId());
-    }
-
-    return new FetchTransaction38Response(database,
-        tx.getId(),
-        tx.getRecordOperations(),
-        Collections.emptyMap(),
-        tx.getTxGeneratedRealRecordIdMap(),
-        database);
-  }
-
-  @Override
-  public BinaryResponse executeRollback(RollbackTransactionRequest request) {
-    DatabaseSessionInternal database = connection.getDatabase();
-    if (database.getTransaction().isActive()) {
-      database.rollback(true);
-    }
-    return new RollbackTransactionResponse();
   }
 
   @Override
@@ -1799,130 +528,38 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
   }
 
   @Override
-  public BinaryResponse executeSubscribeDistributedConfiguration(
-      SubscribeDistributedConfigurationRequest request) {
-    PushManager manager = server.getPushManager();
-    manager.subscribeDistributeConfig((NetworkProtocolBinary) connection.getProtocol());
-
-    YouTrackDBInternal databases = server.getDatabases();
-    Set<String> dbs = databases.listLodadedDatabases();
-    ODistributedServerManager plugin = server.getPlugin("cluster");
-    if (plugin != null) {
-      databases.execute(
-          () -> {
-            for (String db : dbs) {
-              plugin.notifyClients(db);
-            }
-          });
-    }
-    return new SubscribeDistributedConfigurationResponse();
-  }
-
-  @Override
-  public BinaryResponse executeSubscribeStorageConfiguration(
-      SubscribeStorageConfigurationRequest request) {
-    PushManager manager = server.getPushManager();
-    manager.subscribeStorageConfiguration(
-        connection.getDatabase(), (NetworkProtocolBinary) connection.getProtocol());
-    return new SubscribeStorageConfigurationResponse();
-  }
-
-  @Override
-  public BinaryResponse executeSubscribeSchema(SubscribeSchemaRequest request) {
-    PushManager manager = server.getPushManager();
-    manager.subscribeSchema(
-        connection.getDatabase(), (NetworkProtocolBinary) connection.getProtocol());
-    return new SubscribeSchemaResponse();
-  }
-
-  @Override
-  public BinaryResponse executeSubscribeIndexManager(SubscribeIndexManagerRequest request) {
-    PushManager manager = server.getPushManager();
-    manager.subscribeIndexManager(
-        connection.getDatabase(), (NetworkProtocolBinary) connection.getProtocol());
-    return new SubscribeIndexManagerResponse();
-  }
-
-  @Override
-  public BinaryResponse executeSubscribeFunctions(SubscribeFunctionsRequest request) {
-    PushManager manager = server.getPushManager();
-    manager.subscribeFunctions(
-        connection.getDatabase(), (NetworkProtocolBinary) connection.getProtocol());
-    return new SubscribeFunctionsResponse();
-  }
-
-  @Override
-  public BinaryResponse executeSubscribeSequences(SubscribeSequencesRequest request) {
-    PushManager manager = server.getPushManager();
-    manager.subscribeSequences(
-        connection.getDatabase(), (NetworkProtocolBinary) connection.getProtocol());
-    return new SubscribeSequencesResponse();
-  }
-
-  @Override
   public BinaryResponse executeUnsubscribeLiveQuery(UnsubscribeLiveQueryRequest request) {
-    DatabaseSessionInternal database = connection.getDatabase();
+    var database = connection.getDatabaseSession();
     LiveQueryHookV2.unsubscribe(request.getMonitorId(), database);
     return new UnsubscribLiveQueryResponse();
   }
 
   @Override
   public BinaryResponse executeSubscribeLiveQuery(SubscribeLiveQueryRequest request) {
-    NetworkProtocolBinary protocol = (NetworkProtocolBinary) connection.getProtocol();
-    ServerLiveQueryResultListener listener =
-        new ServerLiveQueryResultListener(protocol, connection.getDatabase().getSharedContext());
-    LiveQueryMonitor monitor =
-        connection.getDatabase().live(request.getQuery(), listener, request.getParams());
+    var protocol = (NetworkProtocolBinary) connection.getProtocol();
+    var listener =
+        new ServerLiveQueryResultListener(protocol,
+            connection.getDatabaseSession().getSharedContext());
+
+    var session = connection.getDatabaseSession();
+    var monitor = session.live(request.getQuery(), listener, request.getParams());
     listener.setMonitorId(monitor.getMonitorId());
+
     return new SubscribeLiveQueryResponse(monitor.getMonitorId());
   }
 
   @Override
-  public BinaryResponse executeDistributedConnect(DistributedConnectRequest request) {
-    HandshakeInfo handshakeInfo =
-        new HandshakeInfo(
-            (short) ChannelBinaryProtocol.PROTOCOL_VERSION_38,
-            "YouTrackDB Distributed",
-            "",
-            (byte) 0,
-            ChannelBinaryProtocol.ERROR_MESSAGE_JAVA);
-    ((NetworkProtocolBinary) connection.getProtocol()).setHandshakeInfo(handshakeInfo);
+  public ListDatabasesResponse executeListDatabases(ListDatabasesRequest request) {
+    var dbs = server.listDatabases();
 
-    // TODO:check auth type
-    SecurityUser serverUser =
-        server.authenticateUser(request.getUsername(), request.getPassword(), "server.connect");
+    var listener =
+        server.getListenerByProtocol(NetworkProtocolBinary.class).getInboundAddr().toString();
 
-    if (serverUser == null) {
-      throw new SecurityAccessException(
-          "Wrong user/password to [connect] to the remote YouTrackDB Server instance");
+    Map<String, String> toSend = new HashMap<>();
+    for (var dbName : dbs) {
+      toSend.put(dbName, "remote:" + listener + "/" + dbName);
     }
 
-    connection.getData().driverName = "YouTrackDB Distributed";
-    connection.getData().clientId = "YouTrackDB Distributed";
-    connection.getData().setSerializer(RecordSerializerNetworkV37.INSTANCE);
-    connection.setTokenBased(true);
-    connection.getData().supportsLegacyPushMessages = false;
-    connection.getData().collectStats = false;
-    int chosenProtocolVersion =
-        Math.min(
-            request.getDistributedProtocolVersion(),
-            RemoteServerController.CURRENT_PROTOCOL_VERSION);
-    if (chosenProtocolVersion < RemoteServerController.MIN_SUPPORTED_PROTOCOL_VERSION) {
-      LogManager.instance()
-          .error(
-              this,
-              "Rejected distributed connection from '%s' too old not supported",
-              null,
-              connection.getRemoteAddress());
-      throw new DatabaseException("protocol version too old rejected connection");
-    } else {
-      connection.setServerUser(serverUser);
-      connection.getData().serverUsername = serverUser.getName(null);
-      connection.getData().serverUser = true;
-      byte[] token =
-          server.getTokenHandler().getSignedBinaryToken(null, null, connection.getData());
-
-      return new DistributedConnectResponse(connection.getId(), token, chosenProtocolVersion);
-    }
+    return new ListDatabasesResponse(toSend);
   }
 }

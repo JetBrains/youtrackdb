@@ -1,15 +1,15 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkFactory;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.Map;
+import java.util.TimeZone;
 
 public class ListDatabasesResponse implements BinaryResponse {
 
@@ -23,22 +23,21 @@ public class ListDatabasesResponse implements BinaryResponse {
   }
 
   @Override
-  public void write(DatabaseSessionInternal session, ChannelDataOutput channel,
-      int protocolVersion, RecordSerializer serializer)
+  public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel,
+      int protocolVersion)
       throws IOException {
-    final EntityImpl result = new EntityImpl();
-    result.field("databases", databases);
-    byte[] toSend = serializer.toStream(session, result);
-    channel.writeBytes(toSend);
+    final var result = new ResultInternal(null);
+    result.setProperty("databases", databases);
+    MessageHelper.writeResult(result, channel,
+        session != null ? session.getDatabaseTimeZone() : TimeZone.getDefault());
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput network,
-      StorageRemoteSession session) throws IOException {
-    RecordSerializer serializer = RecordSerializerNetworkFactory.INSTANCE.current();
-    final EntityImpl result = new EntityImpl();
-    serializer.fromStream(db, network.readBytes(), result, null);
-    databases = result.field("databases");
+  public void read(RemoteDatabaseSessionInternal databaseSession, ChannelDataInput network,
+      BinaryProtocolSession session) throws IOException {
+    final var result = MessageHelper.readResult((RemoteDatabaseSessionInternal) null, network,
+        TimeZone.getDefault());
+    databases = result.getProperty("databases");
   }
 
   public Map<String, String> getDatabases() {

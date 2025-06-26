@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -19,10 +19,10 @@ public class ReturnMatchPathElementsStep extends AbstractUnrollStep {
   @Override
   protected Collection<Result> unroll(Result res, CommandContext iContext) {
     List<Result> result = new ArrayList<>();
-    for (String s : res.getPropertyNames()) {
-      Object elem = res.getProperty(s);
+    for (var s : res.getPropertyNames()) {
+      var elem = res.getProperty(s);
       if (elem instanceof Identifiable) {
-        ResultInternal newelem = new ResultInternal(iContext.getDatabase(),
+        var newelem = new ResultInternal(iContext.getDatabaseSession(),
             (Identifiable) elem);
         elem = newelem;
       }
@@ -36,7 +36,7 @@ public class ReturnMatchPathElementsStep extends AbstractUnrollStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ UNROLL $pathElements";
   }
 }

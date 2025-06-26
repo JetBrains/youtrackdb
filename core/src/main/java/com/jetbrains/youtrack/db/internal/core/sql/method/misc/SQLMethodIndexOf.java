@@ -16,9 +16,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method.misc;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -31,15 +32,16 @@ public class SQLMethodIndexOf extends AbstractSQLMethod {
     super(NAME, 1, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    final String toFind = IOUtils.getStringContent(iParams[0].toString());
-    int startIndex = iParams.length > 1 ? Integer.parseInt(iParams[1].toString()) : 0;
+    final var toFind = IOUtils.getStringContent(iParams[0].toString());
+    var startIndex = iParams.length > 1 ? Integer.parseInt(iParams[1].toString()) : 0;
 
     return iThis != null ? iThis.toString().indexOf(toFind, startIndex) : null;
   }

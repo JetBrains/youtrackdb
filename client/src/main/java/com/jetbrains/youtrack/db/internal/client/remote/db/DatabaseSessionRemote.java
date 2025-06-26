@@ -20,869 +20,254 @@
 
 package com.jetbrains.youtrack.db.internal.client.remote.db;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.session.SessionListener;
-import com.jetbrains.youtrack.db.internal.client.remote.LiveQueryClientListener;
-import com.jetbrains.youtrack.db.internal.client.remote.RemoteQueryResult;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.client.remote.message.RemoteResultSet;
-import com.jetbrains.youtrack.db.internal.client.remote.metadata.schema.SchemaRemote;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
+import com.jetbrains.youtrack.db.internal.client.remote.message.PaginatedResultSet;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
-import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionAbstract;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.HookReplacedRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.SharedContext;
+import com.jetbrains.youtrack.db.internal.core.cache.WeakValueHashMap;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.index.ClassIndexManager;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerRemote;
-import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCluster;
-import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaProxy;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
-import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceAction;
-import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeEntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
-import com.jetbrains.youtrack.db.internal.core.record.impl.VertexInternal;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
-import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
-import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionAbstract;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx.NonTxReadMode;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Iterator;
+import java.util.ArrayList;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.concurrent.ExecutionException;
+import java.util.TimeZone;
+import javax.annotation.Nullable;
 
-/**
- *
- */
-public class DatabaseSessionRemote extends DatabaseSessionAbstract {
+public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
-  protected StorageRemoteSession sessionMetadata;
-  private YouTrackDBConfigImpl config;
-  private StorageRemote storage;
-  private FrontendTransactionNoTx.NonTxReadMode nonTxReadMode;
+  private final ThreadLocal<DatabaseSessionRemote> activeSession = new ThreadLocal<>();
 
-  public DatabaseSessionRemote(final StorageRemote storage, SharedContext sharedContext) {
+  private final Map<String, RemoteResultSet> activeQueries =
+      new WeakValueHashMap<>(true, this::closeRemoteQuery);
+
+  private String url;
+  protected STATUS status;
+
+  private String userName;
+
+  private boolean initialized = false;
+
+  private BinaryProtocolSession sessionMetadata;
+  private final RemoteCommandsDispatcherImpl commandsOrchestrator;
+  private int resultSetReportThreshold = 10;
+
+  @Nullable
+  private TimeZone serverTimeZone;
+
+  public DatabaseSessionRemote(final RemoteCommandsDispatcherImpl commandsOrchestrator) {
     activateOnCurrentThread();
-
     try {
       status = STATUS.CLOSED;
 
       // OVERWRITE THE URL
-      url = storage.getURL();
-      this.storage = storage;
-      this.sharedContext = sharedContext;
-      this.componentsFactory = storage.getComponentsFactory();
-
-      unmodifiableHooks = Collections.unmodifiableMap(hooks);
-
-      localCache = new LocalRecordCache();
-
-      try {
-        var cfg = storage.getConfiguration();
-        if (cfg != null) {
-          var ctx = cfg.getContextConfiguration();
-          if (ctx != null) {
-            nonTxReadMode =
-                FrontendTransactionNoTx.NonTxReadMode.valueOf(
-                    ctx.getValueAsString(GlobalConfiguration.NON_TX_READS_WARNING_MODE));
-          } else {
-            nonTxReadMode = NonTxReadMode.WARN;
-          }
-        } else {
-          nonTxReadMode = NonTxReadMode.WARN;
-        }
-      } catch (Exception e) {
-        LogManager.instance()
-            .warn(
-                this,
-                "Invalid value for %s, using %s",
-                e,
-                GlobalConfiguration.NON_TX_READS_WARNING_MODE.getKey(),
-                NonTxReadMode.WARN);
-        nonTxReadMode = NonTxReadMode.WARN;
-      }
-
-      init();
-
-      databaseOwner = this;
+      url = commandsOrchestrator.getURL();
+      this.commandsOrchestrator = commandsOrchestrator;
     } catch (Exception t) {
-      DatabaseRecordThreadLocal.instance().remove();
+      activeSession.remove();
 
-      throw BaseException.wrapException(new DatabaseException("Error on opening database "), t);
+      throw BaseException.wrapException(
+          new DatabaseException(url, "Error on opening database "), t, this);
     }
-  }
-
-  public DatabaseSession open(final String iUserName, final String iUserPassword) {
-    throw new UnsupportedOperationException("Use YouTrackDB");
-  }
-
-  @Deprecated
-  public DatabaseSession open(final Token iToken) {
-    throw new UnsupportedOperationException("Deprecated Method");
-  }
-
-  @Override
-  public DatabaseSession create() {
-    throw new UnsupportedOperationException("Deprecated Method");
-  }
-
-  @Override
-  public DatabaseSession create(String incrementalBackupPath) {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
-  public DatabaseSession create(final Map<GlobalConfiguration, Object> iInitialSettings) {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
-  public void drop() {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
-  public void set(ATTRIBUTES iAttribute, Object iValue) {
-    String query = "alter database " + iAttribute.name() + " ? ";
-    // Bypass the database command for avoid transaction management
-    RemoteQueryResult result = storage.command(this, query, new Object[]{iValue});
-    result.getResult().close();
-    storage.reload(this);
-  }
-
-  @Override
-  public void set(ATTRIBUTES_INTERNAL attribute, Object value) {
-    String query = "alter database " + attribute.name() + " ? ";
-    // Bypass the database command for avoid transaction management
-    RemoteQueryResult result = storage.command(this, query, new Object[]{value});
-    result.getResult().close();
-    storage.reload(this);
-  }
-
-  @Override
-  public DatabaseSession setCustom(String name, Object iValue) {
-    if ("clear".equals(name) && iValue == null) {
-      String query = "alter database CUSTOM 'clear'";
-      // Bypass the database command for avoid transaction management
-      RemoteQueryResult result = storage.command(this, query, new Object[]{});
-      result.getResult().close();
-    } else {
-      String query = "alter database CUSTOM  " + name + " = ?";
-      // Bypass the database command for avoid transaction management
-      RemoteQueryResult result = storage.command(this, query, new Object[]{iValue});
-      result.getResult().close();
-      storage.reload(this);
-    }
-    return this;
-  }
-
-  public DatabaseSessionInternal copy() {
-    DatabaseSessionRemote database = new DatabaseSessionRemote(storage, this.sharedContext);
-    database.storage = storage.copy(this, database);
-    database.storage.addUser();
-    database.status = STATUS.OPEN;
-    database.applyAttributes(config);
-    database.initAtFirstOpen();
-    database.user = this.user;
-    this.activateOnCurrentThread();
-    return database;
-  }
-
-  @Override
-  public boolean exists() {
-    throw new UnsupportedOperationException("use YouTrackDB");
   }
 
   public void internalOpen(String user, String password, YouTrackDBConfigImpl config) {
-    this.config = config;
-    applyAttributes(config);
-    applyListeners(config);
     try {
-
-      storage.open(this, user, password, config.getConfiguration());
-
+      serverTimeZone = commandsOrchestrator.open(this, user, password, config.getConfiguration());
       status = STATUS.OPEN;
 
       initAtFirstOpen();
-      this.user =
-          new ImmutableUser(this,
-              -1,
-              new SecurityUserIml(this, user, password)); // .addRole(new Role("passthrough", null,
-      // Role.ALLOW_MODES.ALLOW_ALL_BUT)));
 
-      // WAKE UP LISTENERS
-      callOnOpenListeners();
+      this.resultSetReportThreshold = config.getConfiguration().getValueAsInteger(
+          GlobalConfiguration.QUERY_RESULT_SET_OPEN_WARNING_THRESHOLD);
 
+      this.userName = user;
     } catch (BaseException e) {
       close();
-      DatabaseRecordThreadLocal.instance().remove();
+      activeSession.remove();
       throw e;
     } catch (Exception e) {
       close();
-      DatabaseRecordThreadLocal.instance().remove();
+      activeSession.remove();
       throw BaseException.wrapException(
-          new DatabaseException("Cannot open database url=" + getURL()), e);
+          new DatabaseException(url, "Cannot open database url=" + url), e,
+          this);
     }
   }
 
-  private void applyAttributes(YouTrackDBConfigImpl config) {
-    for (Entry<ATTRIBUTES, Object> attrs : config.getAttributes().entrySet()) {
-      this.set(attrs.getKey(), attrs.getValue());
-    }
-  }
 
   private void initAtFirstOpen() {
     if (initialized) {
       return;
     }
 
-    RecordSerializerFactory serializerFactory = RecordSerializerFactory.instance();
-    serializer = serializerFactory.getFormat(RecordSerializerNetworkV37Client.NAME);
-    localCache.startup();
-    componentsFactory = storage.getComponentsFactory();
-    user = null;
-
-    loadMetadata();
+    this.userName = null;
 
     initialized = true;
   }
 
-  @Override
-  protected void loadMetadata() {
-    metadata = new MetadataDefault(this);
-    metadata.init(sharedContext);
-    sharedContext.load(this);
-  }
 
-  private void applyListeners(YouTrackDBConfigImpl config) {
-    for (SessionListener listener : config.getListeners()) {
-      registerListener(listener);
+  private void checkOpenness() {
+    if (status == STATUS.CLOSED) {
+      throw new DatabaseException(url, "Database '" + url + "' is closed");
     }
   }
 
-  public StorageRemoteSession getSessionMetadata() {
+
+  public BinaryProtocolSession getSessionMetadata() {
     return sessionMetadata;
   }
 
-  public void setSessionMetadata(StorageRemoteSession sessionMetadata) {
+  public void setSessionMetadata(BinaryProtocolSession sessionMetadata) {
+    assert assertIfNotActive();
     this.sessionMetadata = sessionMetadata;
   }
 
-  @Override
-  public Storage getStorage() {
-    return storage;
-  }
-
-  public StorageRemote getStorageRemote() {
-    return storage;
+  public void activateOnCurrentThread() {
+    activeSession.set(this);
   }
 
   @Override
-  public StorageInfo getStorageInfo() {
-    return storage;
-  }
+  public boolean assertIfNotActive() {
+    var currentDatabase = activeSession.get();
 
-  @Override
-  public void replaceStorage(Storage iNewStorage) {
-    throw new UnsupportedOperationException("unsupported replace of storage for remote database");
-  }
-
-  private void checkAndSendTransaction() {
-
-    if (this.currentTx.isActive() && ((TransactionOptimistic) this.currentTx).isChanged()) {
-      var optimistic = (TransactionOptimistic) this.currentTx;
-
-      if (((TransactionOptimistic) this.getTransaction()).isStartedOnServer()) {
-        storage.sendTransactionState(optimistic);
-      } else {
-        storage.beginTransaction(optimistic);
-      }
-
-      optimistic.resetChangesTracking();
-      optimistic.setSentToServer(true);
-    }
-  }
-
-  @Override
-  public ResultSet query(String query, Object... args) {
-    checkOpenness();
-    checkAndSendTransaction();
-
-    RemoteQueryResult result = storage.query(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
+    if (currentDatabase != this) {
+      throw new SessionNotActivatedException(url);
     }
 
-    return result.getResult();
-  }
-
-  @Override
-  public ResultSet query(String query, Map args) {
-    checkOpenness();
-    checkAndSendTransaction();
-
-    RemoteQueryResult result = storage.query(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
-    }
-
-    return result.getResult();
-  }
-
-  @Override
-  public ResultSet indexQuery(String indexName, String query, Object... args) {
-    checkOpenness();
-
-    if (getTransaction().isActive()) {
-      FrontendTransactionIndexChanges changes = getTransaction().getIndexChanges(indexName);
-      Set<String> changedIndexes =
-          ((TransactionOptimisticClient) getTransaction()).getIndexChanged();
-      if (changedIndexes.contains(indexName) || changes != null) {
-        checkAndSendTransaction();
-      }
-    }
-
-    RemoteQueryResult result = storage.command(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
-    }
-
-    return result.getResult();
-  }
-
-  @Override
-  public ResultSet command(String query, Object... args) {
-    checkOpenness();
-    checkAndSendTransaction();
-
-    RemoteQueryResult result = storage.command(this, query, args);
-    if (result.isReloadMetadata()) {
-      reload();
-    }
-
-    return result.getResult();
-  }
-
-  @Override
-  public ResultSet command(String query, Map args) {
-    checkOpenness();
-    checkAndSendTransaction();
-
-    RemoteQueryResult result = storage.command(this, query, args);
-
-    if (result.isReloadMetadata()) {
-      reload();
-    }
-
-    return result.getResult();
-  }
-
-  @Override
-  protected TransactionOptimistic newTxInstance() {
-    return new TransactionOptimisticClient(this);
-  }
-
-  @Override
-  public ResultSet execute(String language, String script, Object... args)
-      throws CommandExecutionException, CommandScriptException {
-    checkOpenness();
-    checkAndSendTransaction();
-    RemoteQueryResult result = storage.execute(this, language, script, args);
-
-    if (result.isReloadMetadata()) {
-      reload();
-    }
-
-    return result.getResult();
-  }
-
-  @Override
-  public ResultSet execute(String language, String script, Map<String, ?> args)
-      throws CommandExecutionException, CommandScriptException {
-    checkOpenness();
-    checkAndSendTransaction();
-
-    RemoteQueryResult result = storage.execute(this, language, script, args);
-
-    if (result.isReloadMetadata()) {
-      reload();
-    }
-
-    return result.getResult();
-  }
-
-  public void closeQuery(String queryId) {
-    storage.closeQuery(this, queryId);
-    queryClosed(queryId);
-  }
-
-  public void fetchNextPage(RemoteResultSet rs) {
-    checkOpenness();
-    checkAndSendTransaction();
-    storage.fetchNextPage(this, rs);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
-    return storage.liveQuery(
-        this, query, new LiveQueryClientListener(this.copy(), listener), args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(
-      String query, LiveQueryResultListener listener, Map<String, ?> args) {
-    return storage.liveQuery(
-        this, query, new LiveQueryClientListener(this.copy(), listener), args);
-  }
-
-  @Override
-  public void recycle(DBRecord record) {
-    throw new UnsupportedOperationException();
-  }
-
-  public static void updateSchema(StorageRemote storage,
-      EntityImpl schema) {
-    //    storage.get
-    SharedContext shared = storage.getSharedContext();
-    if (shared != null) {
-      ((SchemaRemote) shared.getSchema()).update(null, schema);
-    }
-  }
-
-  public static void updateIndexManager(StorageRemote storage, EntityImpl indexManager) {
-    SharedContext shared = storage.getSharedContext();
-    if (shared != null) {
-      ((IndexManagerRemote) shared.getIndexManager()).update(indexManager);
-    }
-  }
-
-  public static void updateFunction(StorageRemote storage) {
-    SharedContext shared = storage.getSharedContext();
-    if (shared != null) {
-      (shared.getFunctionLibrary()).update();
-    }
-  }
-
-  public static void updateSequences(StorageRemote storage) {
-    SharedContext shared = storage.getSharedContext();
-    if (shared != null) {
-      (shared.getSequenceLibrary()).update();
-    }
-  }
-
-  @Override
-  public int addBlobCluster(final String iClusterName, final Object... iParameters) {
-    int id;
-    try (ResultSet resultSet = command("create blob cluster :1", iClusterName)) {
-      assert resultSet.hasNext();
-      Result result = resultSet.next();
-      assert result.getProperty("value") != null;
-      id = result.getProperty("value");
-      return id;
-    }
-  }
-
-  @Override
-  public Identifiable beforeCreateOperations(Identifiable id, String iClusterName) {
-    checkSecurity(Role.PERMISSION_CREATE, id, iClusterName);
-    RecordHook.RESULT res = callbackHooks(RecordHook.TYPE.BEFORE_CREATE, id);
-    if (res == RecordHook.RESULT.RECORD_CHANGED) {
-      if (id instanceof EntityImpl) {
-        ((EntityImpl) id).validate();
-      }
-      return id;
-    } else {
-      if (res == RecordHook.RESULT.RECORD_REPLACED) {
-        DBRecord replaced = HookReplacedRecordThreadLocal.INSTANCE.get();
-        if (replaced instanceof EntityImpl) {
-          ((EntityImpl) replaced).validate();
-        }
-        return replaced;
-      }
-    }
-    return null;
-  }
-
-  @Override
-  public Identifiable beforeUpdateOperations(Identifiable id, String iClusterName) {
-    checkSecurity(Role.PERMISSION_UPDATE, id, iClusterName);
-    RecordHook.RESULT res = callbackHooks(RecordHook.TYPE.BEFORE_UPDATE, id);
-    if (res == RecordHook.RESULT.RECORD_CHANGED) {
-      if (id instanceof EntityImpl) {
-        ((EntityImpl) id).validate();
-      }
-      return id;
-    } else {
-      if (res == RecordHook.RESULT.RECORD_REPLACED) {
-        DBRecord replaced = HookReplacedRecordThreadLocal.INSTANCE.get();
-        if (replaced instanceof EntityImpl) {
-          ((EntityImpl) replaced).validate();
-        }
-        return replaced;
-      }
-    }
-    return null;
-  }
-
-  @Override
-  public void beforeDeleteOperations(Identifiable id, String iClusterName) {
-    checkSecurity(Role.PERMISSION_DELETE, id, iClusterName);
-    callbackHooks(RecordHook.TYPE.BEFORE_DELETE, id);
-  }
-
-  public void afterUpdateOperations(final Identifiable id) {
-    callbackHooks(RecordHook.TYPE.AFTER_UPDATE, id);
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = EntityInternalUtils.getImmutableSchemaClass(this, entity);
-      if (clazz != null && getTransaction().isActive()) {
-        ClassIndexManager.processIndexOnUpdate(this, entity);
-      }
-    }
-  }
-
-  public void afterCreateOperations(final Identifiable id) {
-    callbackHooks(RecordHook.TYPE.AFTER_CREATE, id);
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = EntityInternalUtils.getImmutableSchemaClass(this, entity);
-      if (clazz != null && getTransaction().isActive()) {
-        ClassIndexManager.processIndexOnCreate(this, entity);
-      }
-    }
-  }
-
-  public void afterDeleteOperations(final Identifiable id) {
-    callbackHooks(RecordHook.TYPE.AFTER_DELETE, id);
-    if (id instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = EntityInternalUtils.getImmutableSchemaClass(this, entity);
-      if (clazz != null && getTransaction().isActive()) {
-        ClassIndexManager.processIndexOnDelete(this, entity);
-      }
-    }
-  }
-
-  @Override
-  public boolean beforeReadOperations(Identifiable identifiable) {
-    return callbackHooks(RecordHook.TYPE.BEFORE_READ, identifiable) == RecordHook.RESULT.SKIP;
-  }
-
-  @Override
-  public void afterReadOperations(Identifiable identifiable) {
-    callbackHooks(RecordHook.TYPE.AFTER_READ, identifiable);
-  }
-
-  @Override
-  public boolean executeExists(RID rid) {
-    checkOpenness();
-    checkIfActive();
-
-    try {
-      DBRecord record = getTransaction().getRecord(rid);
-      if (record == FrontendTransactionAbstract.DELETED_RECORD) {
-        return false;
-      }
-      if (record != null) {
-        return true;
-      }
-
-      if (!rid.isPersistent()) {
-        return false;
-      }
-
-      if (localCache.findRecord(rid) != null) {
-        return true;
-      }
-
-      return storage.recordExists(this, rid);
-    } catch (Exception t) {
-      throw BaseException.wrapException(
-          new DatabaseException(
-              "Error on retrieving record "
-                  + rid
-                  + " (cluster: "
-                  + getStorage().getPhysicalClusterNameById(rid.getClusterId())
-                  + ")"),
-          t);
-    }
-  }
-
-  public String getClusterName(final DBRecord record) {
-    // DON'T ASSIGN CLUSTER WITH REMOTE: SERVER KNOWS THE RIGHT CLUSTER BASED ON LOCALITY
-    return null;
-  }
-
-  @Override
-  public <T> T sendSequenceAction(SequenceAction action)
-      throws ExecutionException, InterruptedException {
-    throw new UnsupportedOperationException(
-        "Not supported yet."); // To change body of generated methods, choose Tools | Templates.
-  }
-
-  public void delete(final DBRecord record) {
-    checkOpenness();
-    if (record == null) {
-      throw new DatabaseException("Cannot delete null entity");
-    }
-    if (record instanceof Vertex) {
-      VertexInternal.deleteLinks((Vertex) record);
-    } else {
-      if (record instanceof Edge) {
-        EdgeEntityImpl.deleteLinks((Edge) record);
-      }
-    }
-
-    try {
-      currentTx.deleteRecord((RecordAbstract) record);
-    } catch (BaseException e) {
-      throw e;
-    } catch (Exception e) {
-      if (record instanceof EntityImpl) {
-        throw BaseException.wrapException(
-            new DatabaseException(
-                "Error on deleting record "
-                    + record.getIdentity()
-                    + " of class '"
-                    + ((EntityImpl) record).getClassName()
-                    + "'"),
-            e);
-      } else {
-        throw BaseException.wrapException(
-            new DatabaseException("Error on deleting record " + record.getIdentity()), e);
-      }
-    }
-  }
-
-  @Override
-  public int addCluster(final String iClusterName, final Object... iParameters) {
-    checkIfActive();
-    return storage.addCluster(this, iClusterName, iParameters);
-  }
-
-  @Override
-  public int addCluster(final String iClusterName, final int iRequestedId) {
-    checkIfActive();
-    return storage.addCluster(this, iClusterName, iRequestedId);
-  }
-
-  public RecordConflictStrategy getConflictStrategy() {
-    checkIfActive();
-    return getStorageInfo().getRecordConflictStrategy();
-  }
-
-  public DatabaseSessionAbstract setConflictStrategy(final String iStrategyName) {
-    checkIfActive();
-    storage.setConflictStrategy(
-        YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getStrategy(iStrategyName));
-    return this;
-  }
-
-  public DatabaseSessionAbstract setConflictStrategy(final RecordConflictStrategy iResolver) {
-    checkIfActive();
-    storage.setConflictStrategy(iResolver);
-    return this;
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public long countClusterElements(int iClusterId, boolean countTombstones) {
-    checkIfActive();
-    return storage.count(this, iClusterId, countTombstones);
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public long countClusterElements(int[] iClusterIds, boolean countTombstones) {
-    checkIfActive();
-    return storage.count(this, iClusterIds, countTombstones);
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public long countClusterElements(final String iClusterName) {
-    checkIfActive();
-
-    final int clusterId = getClusterIdByName(iClusterName);
-    if (clusterId < 0) {
-      throw new IllegalArgumentException("Cluster '" + iClusterName + "' was not found");
-    }
-    return storage.count(this, clusterId);
-  }
-
-  @Override
-  public long getClusterRecordSizeByName(final String clusterName) {
-    checkIfActive();
-    try {
-      return storage.getClusterRecordsSizeByName(clusterName);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(
-              "Error on reading records size for cluster '" + clusterName + "'"),
-          e);
-    }
-  }
-
-  @Override
-  public boolean dropCluster(final String iClusterName) {
-    checkIfActive();
-    final int clusterId = getClusterIdByName(iClusterName);
-    SchemaProxy schema = metadata.getSchema();
-    SchemaClass clazz = schema.getClassByClusterId(clusterId);
-    if (clazz != null) {
-      clazz.removeClusterId(this, clusterId);
-    }
-    if (schema.getBlobClusters().contains(clusterId)) {
-      schema.removeBlobCluster(iClusterName);
-    }
-    getLocalCache().freeCluster(clusterId);
-    checkForClusterPermissions(iClusterName);
-    return storage.dropCluster(this, iClusterName);
-  }
-
-  @Override
-  public boolean dropCluster(final int clusterId) {
-    checkIfActive();
-
-    SchemaProxy schema = metadata.getSchema();
-    final SchemaClass clazz = schema.getClassByClusterId(clusterId);
-    if (clazz != null) {
-      clazz.removeClusterId(this, clusterId);
-    }
-    getLocalCache().freeCluster(clusterId);
-    if (schema.getBlobClusters().contains(clusterId)) {
-      schema.removeBlobCluster(getClusterNameById(clusterId));
-    }
-
-    checkForClusterPermissions(getClusterNameById(clusterId));
-
-    final String clusterName = getClusterNameById(clusterId);
-    if (clusterName == null) {
-      return false;
-    }
-
-    final RecordIteratorCluster<DBRecord> iteratorCluster = browseCluster(clusterName);
-    if (iteratorCluster == null) {
-      return false;
-    }
-
-    executeInTxBatches((Iterator<DBRecord>) iteratorCluster,
-        (session, record) -> record.delete());
-
-    return storage.dropCluster(this, clusterId);
-  }
-
-  public boolean dropClusterInternal(int clusterId) {
-    return storage.dropCluster(this, clusterId);
-  }
-
-  @Override
-  public long getClusterRecordSizeById(final int clusterId) {
-    checkIfActive();
-    try {
-      return storage.getClusterRecordsSizeById(clusterId);
-    } catch (Exception e) {
-      throw BaseException.wrapException(
-          new DatabaseException(
-              "Error on reading records size for cluster with id '" + clusterId + "'"),
-          e);
-    }
-  }
-
-  @Override
-  public long getSize() {
-    checkIfActive();
-    return storage.getSize(this);
-  }
-
-  @Override
-  public void checkSecurity(
-      Rule.ResourceGeneric resourceGeneric, String resourceSpecific, int iOperation) {
-  }
-
-  @Override
-  public void checkSecurity(
-      Rule.ResourceGeneric iResourceGeneric, int iOperation, Object iResourceSpecific) {
-  }
-
-  @Override
-  public void checkSecurity(
-      Rule.ResourceGeneric iResourceGeneric, int iOperation, Object... iResourcesSpecific) {
-  }
-
-  @Override
-  public void checkSecurity(String iResource, int iOperation) {
-  }
-
-  @Override
-  public void checkSecurity(String iResourceGeneric, int iOperation, Object iResourceSpecific) {
-  }
-
-  @Override
-  public void checkSecurity(
-      String iResourceGeneric, int iOperation, Object... iResourcesSpecific) {
-  }
-
-  @Override
-  public boolean isRemote() {
     return true;
   }
 
   @Override
-  public String incrementalBackup(final Path path) throws UnsupportedOperationException {
-    checkOpenness();
-    checkIfActive();
-    checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
-
-    return storage.incrementalBackup(this, path.toAbsolutePath().toString(), null);
+  public RemoteCommandsDispatcherImpl getCommandOrchestrator() {
+    return commandsOrchestrator;
   }
 
   @Override
-  public RecordMetadata getRecordMetadata(final RID rid) {
-    checkIfActive();
-    return storage.getRecordMetadata(this, rid);
+  public RemoteResultSet query(String query,
+      Object... args) {
+    checkOpenness();
+    assert assertIfNotActive();
+
+    var result = commandsOrchestrator.query(this, query, args);
+    return result.getResult();
+  }
+
+  @Override
+  public RemoteResultSet query(String query, @SuppressWarnings("rawtypes") Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    checkOpenness();
+    assert assertIfNotActive();
+
+    var result = commandsOrchestrator.query(this, query, args);
+    return result.getResult();
+  }
+
+  @Override
+  public RemoteResultSet execute(String query, Object... args) {
+    checkOpenness();
+    assert assertIfNotActive();
+
+    var result = commandsOrchestrator.command(this, query, args);
+    return result.getResult();
+  }
+
+  @Override
+  public RemoteResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
+    checkOpenness();
+    assert assertIfNotActive();
+
+    var result = commandsOrchestrator.command(this, query, args);
+    return result.getResult();
+  }
+
+
+  @Override
+  public RemoteResultSet computeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    checkOpenness();
+    assert assertIfNotActive();
+
+    var result = commandsOrchestrator.execute(this, language, script, args);
+    return result.getResult();
+  }
+
+  @Override
+  public RemoteResultSet computeScript(String language, String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    checkOpenness();
+    assert assertIfNotActive();
+
+    var result = commandsOrchestrator.execute(this, language, script, args);
+    return result.getResult();
+  }
+
+  public synchronized void queryStarted(String id, RemoteResultSet resultSet) {
+    assert assertIfNotActive();
+
+    final var activeQueriesSize = activeQueries.size();
+
+    if (resultSetReportThreshold > 0 &&
+        activeQueriesSize > 1 &&
+        activeQueriesSize % resultSetReportThreshold == 0) {
+      var msg =
+          "This database instance has "
+              + activeQueriesSize
+              + " open command/query result sets, please make sure you close them with"
+              + " ResultSet.close()";
+      LogManager.instance().warn(this, msg);
+    }
+
+    this.activeQueries.put(id, resultSet);
+  }
+
+  public void closeQuery(String queryId) {
+    assert assertIfNotActive();
+    closeRemoteQuery(queryId);
+    queryClosed(queryId);
+  }
+
+  private void closeRemoteQuery(String queryId) {
+    commandsOrchestrator.closeQuery(this, queryId);
+  }
+
+  public void rollbackActiveTx() {
+    assert assertIfNotActive();
+    commandsOrchestrator.rollbackActiveTx(this);
+  }
+
+  public void queryClosed(String id) {
+    assert assertIfNotActive();
+    this.activeQueries.remove(id);
+  }
+
+  public void fetchNextPage(PaginatedResultSet rs) {
+    checkOpenness();
+    assert assertIfNotActive();
+
+    commandsOrchestrator.fetchNextPage(this, rs);
+  }
+
+
+  @Override
+  public String incrementalBackup(final Path path) throws UnsupportedOperationException {
+    checkOpenness();
+    assert assertIfNotActive();
+
+    return commandsOrchestrator.incrementalBackup(this, path.toAbsolutePath().toString());
+  }
+
+  @Nullable
+  @Override
+  public TimeZone getDatabaseTimeZone() {
+    return serverTimeZone;
   }
 
   /**
@@ -897,6 +282,12 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
             "Only local paginated storage supports freeze. If you are using remote client please"
                 + " use YouTrackDB instance instead",
             null);
+  }
+
+  @Nullable
+  @Override
+  public String getCurrentUserName() {
+    return userName;
   }
 
   /**
@@ -921,32 +312,34 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
             null);
   }
 
-  /**
-   * {@inheritDoc}
-   */
-  public SBTreeCollectionManager getSbTreeCollectionManager() {
-    return storage.getSBtreeCollectionManager();
+  @Override
+  public boolean isPooled() {
+    return false;
   }
 
   @Override
-  public void reload() {
-    checkIfActive();
-
-    if (this.isClosed()) {
-      throw new DatabaseException("Cannot reload a closed db");
-    }
-    metadata.reload();
-    storage.reload(this);
+  public void close() {
+    internalClose(false);
   }
 
   @Override
-  public void internalCommit(TransactionOptimistic transaction) {
-    this.storage.commit(transaction);
+  public STATUS getStatus() {
+    return status;
+  }
+
+  @Override
+  public String getURL() {
+    return url;
+  }
+
+  @Override
+  public String getDatabaseName() {
+    return url;
   }
 
   @Override
   public boolean isClosed() {
-    return status == STATUS.CLOSED || storage.isClosed(this);
+    return status == STATUS.CLOSED || commandsOrchestrator.isClosed(this);
   }
 
   public void internalClose(boolean recycle) {
@@ -954,113 +347,32 @@ public class DatabaseSessionRemote extends DatabaseSessionAbstract {
       return;
     }
 
-    checkIfActive();
-
     try {
       closeActiveQueries();
-      localCache.shutdown();
+      rollbackActiveTx();
 
       if (isClosed()) {
         status = STATUS.CLOSED;
         return;
       }
 
-      try {
-        rollback(true);
-      } catch (Exception e) {
-        LogManager.instance().error(this, "Exception during rollback of active transaction", e);
-      }
-
-      callOnCloseListeners();
-
       status = STATUS.CLOSED;
       if (!recycle) {
-        sharedContext = null;
 
-        if (storage != null) {
-          storage.close(this);
+        if (commandsOrchestrator != null) {
+          commandsOrchestrator.close(this);
         }
       }
 
     } finally {
       // ALWAYS RESET TL
-      DatabaseRecordThreadLocal.instance().remove();
+      activeSession.remove();
     }
   }
 
-  @Override
-  public long[] getClusterDataRange(int currentClusterId) {
-    return storage.getClusterDataRange(this, currentClusterId);
-  }
-
-  @Override
-  public void setDefaultClusterId(int addCluster) {
-    storage.setDefaultClusterId(addCluster);
-  }
-
-  @Override
-  public long getLastClusterPosition(int clusterId) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public String getClusterRecordConflictStrategy(int clusterId) {
-    throw new UnsupportedOperationException();
-  }
-
-  public TransactionOptimisticClient getActiveTx() {
-    if (currentTx.isActive()) {
-      return (TransactionOptimisticClient) currentTx;
-    } else {
-      throw new DatabaseException("No active transaction found");
+  public synchronized void closeActiveQueries() {
+    for (var rs : new ArrayList<>(activeQueries.values())) {
+      rs.close();
     }
-  }
-
-  @Override
-  public int[] getClustersIds(Set<String> filterClusters) {
-    checkIfActive();
-    return filterClusters.stream().map((c) -> getClusterIdByName(c)).mapToInt(i -> i).toArray();
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void truncateCluster(String clusterName) {
-    command("truncate cluster " + clusterName).close();
-  }
-
-  @Override
-  public void truncateClass(String name) {
-    command("truncate class " + name).close();
-  }
-
-  @Override
-  public long truncateClusterInternal(String name) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public long truncateClass(String name, boolean polimorfic) {
-    long count = 0;
-    if (polimorfic) {
-      try (ResultSet result = command("truncate class " + name + " polymorphic ")) {
-        while (result.hasNext()) {
-          count += result.next().<Long>getProperty("count");
-        }
-      }
-    } else {
-      try (ResultSet result = command("truncate class " + name)) {
-        while (result.hasNext()) {
-          count += result.next().<Long>getProperty("count");
-        }
-      }
-    }
-    return count;
-  }
-
-  @Override
-  public NonTxReadMode getNonTxReadMode() {
-    return nonTxReadMode;
   }
 }

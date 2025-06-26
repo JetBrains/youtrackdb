@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import javax.annotation.Nullable;
 
 /**
  * @since 05.08.13
@@ -98,9 +99,9 @@ public final class CachePointer {
   }
 
   public void incrementReadersReferrer() {
-    long readersWriters = READERS_WRITERS_REFERRER_UPDATER.get(this);
-    int readers = getReaders(readersWriters);
-    int writers = getWriters(readersWriters);
+    var readersWriters = READERS_WRITERS_REFERRER_UPDATER.get(this);
+    var readers = getReaders(readersWriters);
+    var writers = getWriters(readersWriters);
     readers++;
 
     while (!READERS_WRITERS_REFERRER_UPDATER.compareAndSet(
@@ -111,7 +112,7 @@ public final class CachePointer {
       readers++;
     }
 
-    final WritersListener wl = writersListener;
+    final var wl = writersListener;
     if (wl != null) {
       if (writers > 0 && readers == 1) {
         wl.removeOnlyWriters(fileId, pageIndex);
@@ -122,9 +123,9 @@ public final class CachePointer {
   }
 
   public void decrementReadersReferrer() {
-    long readersWriters = READERS_WRITERS_REFERRER_UPDATER.get(this);
-    int readers = getReaders(readersWriters);
-    int writers = getWriters(readersWriters);
+    var readersWriters = READERS_WRITERS_REFERRER_UPDATER.get(this);
+    var readers = getReaders(readersWriters);
+    var writers = getWriters(readersWriters);
     readers--;
 
     assert readers >= 0;
@@ -144,7 +145,7 @@ public final class CachePointer {
       assert readers >= 0;
     }
 
-    final WritersListener wl = writersListener;
+    final var wl = writersListener;
     if (wl != null) {
       if (writers > 0 && readers == 0) {
         wl.addOnlyWriters(fileId, pageIndex);
@@ -155,9 +156,9 @@ public final class CachePointer {
   }
 
   public void incrementWritersReferrer() {
-    long readersWriters = READERS_WRITERS_REFERRER_UPDATER.get(this);
-    int readers = getReaders(readersWriters);
-    int writers = getWriters(readersWriters);
+    var readersWriters = READERS_WRITERS_REFERRER_UPDATER.get(this);
+    var readers = getReaders(readersWriters);
+    var writers = getWriters(readersWriters);
     writers++;
 
     while (!READERS_WRITERS_REFERRER_UPDATER.compareAndSet(
@@ -172,9 +173,9 @@ public final class CachePointer {
   }
 
   public void decrementWritersReferrer() {
-    long readersWriters = READERS_WRITERS_REFERRER_UPDATER.get(this);
-    int readers = getReaders(readersWriters);
-    int writers = getWriters(readersWriters);
+    var readersWriters = READERS_WRITERS_REFERRER_UPDATER.get(this);
+    var readers = getReaders(readersWriters);
+    var writers = getWriters(readersWriters);
     writers--;
 
     assert writers >= 0;
@@ -195,7 +196,7 @@ public final class CachePointer {
       assert writers >= 0;
     }
 
-    final WritersListener wl = writersListener;
+    final var wl = writersListener;
     if (wl != null) {
       if (readers == 0 && writers == 0) {
         wl.removeOnlyWriters(fileId, pageIndex);
@@ -219,7 +220,7 @@ public final class CachePointer {
   }
 
   public void decrementReferrer() {
-    final int rf = REFERRERS_COUNT_UPDATER.decrementAndGet(this);
+    final var rf = REFERRERS_COUNT_UPDATER.decrementAndGet(this);
     if (rf == 0 && pointer != null) {
       bufferPool.release(pointer);
     }
@@ -230,6 +231,7 @@ public final class CachePointer {
     }
   }
 
+  @Nullable
   public ByteBuffer getBuffer() {
     if (pointer == null) {
       return null;
@@ -276,7 +278,7 @@ public final class CachePointer {
       return false;
     }
 
-    CachePointer that = (CachePointer) o;
+    var that = (CachePointer) o;
 
     if (fileId != that.fileId) {
       return false;
@@ -290,7 +292,7 @@ public final class CachePointer {
       return hash;
     }
 
-    int result = (int) (fileId ^ (fileId >>> 32));
+    var result = (int) (fileId ^ (fileId >>> 32));
     result = 31 * result + pageIndex;
 
     hash = result;

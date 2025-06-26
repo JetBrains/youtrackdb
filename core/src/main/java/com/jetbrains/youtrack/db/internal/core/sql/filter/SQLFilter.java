@@ -20,9 +20,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandPredicate;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.exception.QueryParsingException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Locale;
@@ -34,7 +34,7 @@ import javax.annotation.Nonnull;
 public class SQLFilter extends SQLPredicate implements CommandPredicate {
 
   public SQLFilter(
-      final String iText, @Nonnull final CommandContext iContext, final String iFilterKeyword) {
+      final String iText, @Nonnull final CommandContext iContext) {
     super(iContext);
 
     if (iText == null) {
@@ -45,11 +45,11 @@ public class SQLFilter extends SQLPredicate implements CommandPredicate {
     parserTextUpperCase = iText.toUpperCase(Locale.ENGLISH);
 
     try {
-      final int lastPos = parserGetCurrentPosition();
-      final String lastText = parserText;
-      final String lastTextUpperCase = parserTextUpperCase;
+      final var lastPos = parserGetCurrentPosition();
+      final var lastText = parserText;
+      final var lastTextUpperCase = parserTextUpperCase;
 
-      text(iContext.getDatabase(), parserText.substring(lastPos));
+      text(iContext.getDatabaseSession(), parserText.substring(lastPos));
 
       parserText = lastText;
       parserTextUpperCase = lastTextUpperCase;
@@ -60,37 +60,37 @@ public class SQLFilter extends SQLPredicate implements CommandPredicate {
       // QUERY EXCEPTION BUT WITHOUT TEXT: NEST IT
       {
         throw BaseException.wrapException(
-            new QueryParsingException(
+            new QueryParsingException(iContext.getDatabaseSession().getDatabaseName(),
                 "Error on parsing query", parserText, parserGetCurrentPosition()),
-            e);
+            e, context.getDatabaseSession());
       }
 
       throw e;
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new QueryParsingException(
+          new QueryParsingException(iContext.getDatabaseSession().getDatabaseName(),
               "Error on parsing query", parserText, parserGetCurrentPosition()),
-          e);
+          e, iContext.getDatabaseSession());
     }
 
     this.rootCondition = resetOperatorPrecedence(rootCondition);
   }
 
-  private SQLFilterCondition resetOperatorPrecedence(SQLFilterCondition iCondition) {
+  private static SQLFilterCondition resetOperatorPrecedence(SQLFilterCondition iCondition) {
     if (iCondition == null) {
       return iCondition;
     }
-    if (iCondition.left != null && iCondition.left instanceof SQLFilterCondition) {
+    if (iCondition.left instanceof SQLFilterCondition) {
       iCondition.left = resetOperatorPrecedence((SQLFilterCondition) iCondition.left);
     }
 
-    if (iCondition.right != null && iCondition.right instanceof SQLFilterCondition right) {
+    if (iCondition.right instanceof SQLFilterCondition right) {
       iCondition.right = resetOperatorPrecedence(right);
       if (iCondition.operator != null) {
         if (!right.inBraces
             && right.operator != null
             && right.operator.precedence < iCondition.operator.precedence) {
-          SQLFilterCondition newLeft =
+          var newLeft =
               new SQLFilterCondition(iCondition.left, iCondition.operator, right.left);
           right.setLeft(newLeft);
           resetOperatorPrecedence(right);
@@ -102,25 +102,14 @@ public class SQLFilter extends SQLPredicate implements CommandPredicate {
     return iCondition;
   }
 
+  @Override
   public Object evaluate(
-      final Identifiable iRecord, final EntityImpl iCurrentResult,
+      final Result iRecord, final EntityImpl iCurrentResult,
       final CommandContext iContext) {
     if (rootCondition == null) {
       return true;
     }
 
     return rootCondition.evaluate(iRecord, iCurrentResult, iContext);
-  }
-
-  public SQLFilterCondition getRootCondition() {
-    return rootCondition;
-  }
-
-  @Override
-  public String toString() {
-    if (rootCondition != null) {
-      return "Parsed: " + rootCondition;
-    }
-    return "Unparsed: " + parserText;
   }
 }

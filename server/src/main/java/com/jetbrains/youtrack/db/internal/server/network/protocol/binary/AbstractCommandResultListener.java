@@ -22,11 +22,13 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.binary;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.client.remote.SimpleValueFetchPlanCommandListener;
 import com.jetbrains.youtrack.db.internal.core.command.CommandResultListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchContext;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchHelper;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchListener;
 import com.jetbrains.youtrack.db.internal.core.fetch.FetchPlan;
 import com.jetbrains.youtrack.db.internal.core.fetch.remote.RemoteFetchContext;
+import javax.annotation.Nonnull;
 
 /**
  * Abstract class to manage command results.
@@ -45,9 +47,9 @@ public abstract class AbstractCommandResultListener
   public abstract boolean isEmpty();
 
   @Override
-  public void end() {
+  public void end(@Nonnull DatabaseSessionInternal session) {
     if (wrappedResultListener != null) {
-      wrappedResultListener.end();
+      wrappedResultListener.end(session);
     }
   }
 
@@ -55,12 +57,13 @@ public abstract class AbstractCommandResultListener
     fetchPlan = FetchHelper.buildFetchPlan(iText);
   }
 
-  protected void fetchRecord(final Object iRecord, final FetchListener iFetchListener) {
+  protected void fetchRecord(DatabaseSessionInternal db, final Object iRecord,
+      final FetchListener iFetchListener) {
     if (fetchPlan != null
         && fetchPlan != FetchHelper.DEFAULT_FETCHPLAN
         && iRecord instanceof DBRecord record) {
       final FetchContext context = new RemoteFetchContext();
-      FetchHelper.fetch(record, record, fetchPlan, iFetchListener, context, "");
+      FetchHelper.fetch(db, record, record, fetchPlan, iFetchListener, context, "");
     }
   }
 

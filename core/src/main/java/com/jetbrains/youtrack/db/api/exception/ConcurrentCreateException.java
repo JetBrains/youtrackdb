@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
-import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import java.util.Objects;
 
 /**
@@ -29,8 +29,6 @@ import java.util.Objects;
  */
 public class ConcurrentCreateException extends NeedRetryException implements
     HighLevelException {
-
-  private static final long serialVersionUID = 1L;
 
   private RID expectedRid;
   private RID actualRid;
@@ -42,12 +40,12 @@ public class ConcurrentCreateException extends NeedRetryException implements
     this.actualRid = exception.actualRid;
   }
 
-  protected ConcurrentCreateException(final String message) {
-    super(message);
+  protected ConcurrentCreateException(String dbName, final String message) {
+    super(dbName, message);
   }
 
-  public ConcurrentCreateException(final RID expectedRID, final RID actualRid) {
-    super(makeMessage(expectedRID, actualRid));
+  public ConcurrentCreateException(String dbName, final RID expectedRID, final RID actualRid) {
+    super(dbName, makeMessage(expectedRID, actualRid));
 
     this.expectedRid = expectedRID;
     this.actualRid = actualRid;
@@ -76,7 +74,7 @@ public class ConcurrentCreateException extends NeedRetryException implements
   }
 
   private static String makeMessage(RID expectedRid, RID actualRid) {
-    String sb =
+    var sb =
         "Cannot create the record "
             + expectedRid
             + " because the assigned RID was "

@@ -2,8 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -22,6 +22,7 @@ public class SQLLetItem extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     varName.toString(params, builder);
     builder.append(" = ");
@@ -34,6 +35,7 @@ public class SQLLetItem extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     varName.toGenericStatement(builder);
     builder.append(" = ");
@@ -46,8 +48,9 @@ public class SQLLetItem extends SimpleNode {
     }
   }
 
+  @Override
   public SQLLetItem copy() {
-    SQLLetItem result = new SQLLetItem(-1);
+    var result = new SQLLetItem(-1);
     result.varName = varName.copy();
     result.expression = expression == null ? null : expression.copy();
     result.query = query == null ? null : query.copy();
@@ -75,7 +78,7 @@ public class SQLLetItem extends SimpleNode {
       return false;
     }
 
-    SQLLetItem oLetItem = (SQLLetItem) o;
+    var oLetItem = (SQLLetItem) o;
 
     if (!Objects.equals(varName, oLetItem.varName)) {
       return false;
@@ -88,7 +91,7 @@ public class SQLLetItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = varName != null ? varName.hashCode() : 0;
+    var result = varName != null ? varName.hashCode() : 0;
     result = 31 * result + (expression != null ? expression.hashCode() : 0);
     result = 31 * result + (query != null ? query.hashCode() : 0);
     return result;
@@ -121,16 +124,16 @@ public class SQLLetItem extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (varName != null) {
-      result.setProperty("varName", varName.serialize(db));
+      result.setProperty("varName", varName.serialize(session));
     }
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     if (query != null) {
-      result.setProperty("query", query.serialize(db));
+      result.setProperty("query", query.serialize(session));
     }
 
     return result;
@@ -149,7 +152,7 @@ public class SQLLetItem extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (expression != null) {
       return expression.isCacheable(session);
     }

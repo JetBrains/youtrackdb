@@ -3,12 +3,13 @@ package com.jetbrains.youtrack.db.internal.core.db.hook;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.hook.DocumentHookAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.UUID;
 import org.junit.Test;
@@ -22,115 +23,111 @@ public class CheckHookCallCountTest extends DbTestBase {
 
   @Test
   public void testMultipleCallHook() {
-    SchemaClass aClass = db.getMetadata().getSchema().createClass(CLASS_NAME);
-    aClass.createProperty(db, FIELD_ID, PropertyType.STRING);
-    aClass.createProperty(db, FIELD_STATUS, PropertyType.STRING);
-    aClass.createIndex(db, "IDX", SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_ID);
-    TestHook hook = new TestHook();
-    db.registerHook(hook);
+    var aClass = session.getMetadata().getSchema().createClass(CLASS_NAME);
+    aClass.createProperty(FIELD_ID, PropertyType.STRING);
+    aClass.createProperty(FIELD_STATUS, PropertyType.STRING);
+    aClass.createIndex("IDX", SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_ID);
+    var hook = new TestHook(session);
+    session.registerHook(hook);
 
-    String id = UUID.randomUUID().toString();
-    db.begin();
-    EntityImpl first = new EntityImpl(CLASS_NAME);
-    first.field(FIELD_ID, id);
-    first.field(FIELD_STATUS, STATUS);
-    db.save(first);
-    db.commit();
+    var id = UUID.randomUUID().toString();
+    session.begin();
+    var first = (EntityImpl) session.newEntity(CLASS_NAME);
+    first.setProperty(FIELD_ID, id);
+    first.setProperty(FIELD_STATUS, STATUS);
+    session.commit();
 
-    db
+    session.begin();
+    session
         .query("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD_STATUS + " = '" + STATUS + "'")
         .stream()
         .count();
-    //      assertEquals(hook.readCount, 1); //TODO
     hook.readCount = 0;
-    db.query("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD_ID + " = '" + id + "'").stream()
+    session.query("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD_ID + " = '" + id + "'").stream()
         .count();
-    //      assertEquals(hook.readCount, 1); //TODO
+    session.commit();
   }
 
   @Test
   public void testInHook() throws Exception {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass oClass = schema.createClass("TestInHook");
-    oClass.createProperty(db, "a", PropertyType.INTEGER);
-    oClass.createProperty(db, "b", PropertyType.INTEGER);
-    oClass.createProperty(db, "c", PropertyType.INTEGER);
+    Schema schema = session.getMetadata().getSchema();
+    var oClass = schema.createClass("TestInHook");
+    oClass.createProperty("a", PropertyType.INTEGER);
+    oClass.createProperty("b", PropertyType.INTEGER);
+    oClass.createProperty("c", PropertyType.INTEGER);
 
-    db.begin();
-    EntityImpl doc = new EntityImpl(oClass);
-    doc.field("a", 2);
-    doc.field("b", 2);
-    doc.save();
-    db.commit();
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(oClass);
+    doc.setProperty("a", 2);
+    doc.setProperty("b", 2);
 
-    db.begin();
-    doc = db.bindToSession(doc);
-    assertEquals(Integer.valueOf(2), doc.field("a"));
-    assertEquals(Integer.valueOf(2), doc.field("b"));
-    assertNull(doc.field("c"));
-    db.rollback();
+    session.commit();
 
-    db.registerHook(
-        new DocumentHookAbstract(db) {
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    doc = activeTx2.load(doc);
+    assertEquals(Integer.valueOf(2), doc.getProperty("a"));
+    assertEquals(Integer.valueOf(2), doc.getProperty("b"));
+    assertNull(doc.getProperty("c"));
+    session.rollback();
+
+    session.registerHook(
+        new EntityHookAbstract() {
 
           {
             setIncludeClasses("TestInHook");
           }
 
           @Override
-          public void onRecordAfterCreate(EntityImpl entity) {
-            onRecordAfterRead(entity);
+          public void onAfterEntityCreate(Entity entity) {
+            onEntityRead(entity);
           }
 
           @Override
-          public void onRecordAfterRead(EntityImpl entity) {
-            String script = "select sum(a, b) as value from " + entity.getIdentity();
-            try (ResultSet calculated = database.query(script)) {
+          public void onEntityRead(Entity entity) {
+            var script = "select sum(a, b) as value from " + entity.getIdentity();
+            try (var calculated = session.getActiveTransaction().query(script)) {
               if (calculated.hasNext()) {
-                entity.field("c", calculated.next().<Object>getProperty("value"));
+                entity.setProperty("c", calculated.next().getProperty("value"));
               }
             }
           }
-
-          @Override
-          public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-            return DISTRIBUTED_EXECUTION_MODE.SOURCE_NODE;
-          }
         });
 
-    db.begin();
-    doc = db.bindToSession(doc);
-    assertEquals(Integer.valueOf(2), doc.field("a"));
-    assertEquals(Integer.valueOf(2), doc.field("b"));
-    assertEquals(Integer.valueOf(4), doc.field("c"));
-    db.rollback();
+    session.begin();
+    var activeTx1 = session.getActiveTransaction();
+    doc = activeTx1.load(doc);
+    assertEquals(Integer.valueOf(2), doc.getProperty("a"));
+    assertEquals(Integer.valueOf(2), doc.getProperty("b"));
+    assertEquals(Integer.valueOf(4), doc.getProperty("c"));
+    session.rollback();
 
-    db.begin();
-    doc = new EntityImpl(oClass);
-    doc.field("a", 3);
-    doc.field("b", 3);
-    doc.save();
-    db.commit();
+    session.begin();
+    doc = (EntityImpl) session.newEntity(oClass);
+    doc.setProperty("a", 3);
+    doc.setProperty("b", 3);
 
-    db.begin();
-    doc = db.bindToSession(doc);
-    assertEquals(Integer.valueOf(3), doc.field("a"));
-    assertEquals(Integer.valueOf(3), doc.field("b"));
-    assertEquals(Integer.valueOf(6), doc.field("c"));
-    db.rollback();
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    assertEquals(Integer.valueOf(3), doc.getProperty("a"));
+    assertEquals(Integer.valueOf(3), doc.getProperty("b"));
+    assertEquals(Integer.valueOf(6), doc.getProperty("c"));
+    session.rollback();
   }
 
-  public class TestHook extends DocumentHookAbstract {
+  public class TestHook extends EntityHookAbstract {
 
     public int readCount;
 
-    @Override
-    public DISTRIBUTED_EXECUTION_MODE getDistributedExecutionMode() {
-      return DISTRIBUTED_EXECUTION_MODE.BOTH;
+    public TestHook(BasicDatabaseSession session) {
+      super();
     }
 
     @Override
-    public void onRecordAfterRead(EntityImpl entity) {
+    public void onEntityRead(Entity entity) {
       readCount++;
     }
   }

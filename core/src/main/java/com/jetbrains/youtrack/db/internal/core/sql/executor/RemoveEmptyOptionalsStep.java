@@ -18,12 +18,12 @@ public class RemoveEmptyOptionalsStep extends AbstractExecutionStep {
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
 
-    ExecutionStream upstream = prev.start(ctx);
+    var upstream = prev.start(ctx);
     return upstream.map(this::mapResult);
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
-    for (String s : result.getPropertyNames()) {
+    for (var s : result.getPropertyNames()) {
       if (OptionalMatchEdgeTraverser.isEmptyOptional(result.getProperty(s))) {
         ((ResultInternal) result).setProperty(s, null);
       }
@@ -33,7 +33,7 @@ public class RemoveEmptyOptionalsStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ REMOVE EMPTY OPTIONALS";
   }
 }

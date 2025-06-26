@@ -32,7 +32,7 @@ public class AggregateProjectionSplit {
   protected List<SQLProjectionItem> aggregate = new ArrayList<>();
 
   public SQLIdentifier getNextAlias() {
-    SQLIdentifier result = new SQLIdentifier(GENERATED_ALIAS_PREFIX + (nextAliasId++));
+    var result = new SQLIdentifier(GENERATED_ALIAS_PREFIX + (nextAliasId++));
     result.internalAlias = true;
     return result;
   }

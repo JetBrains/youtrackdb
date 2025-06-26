@@ -6,7 +6,7 @@ public class AcquireTimeoutException extends BaseException {
     super(message);
   }
 
-  public AcquireTimeoutException(BaseException exception) {
+  public AcquireTimeoutException(AcquireTimeoutException exception) {
     super(exception);
   }
 }

@@ -13,17 +13,18 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.functions;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderDistanceSphere;
 import java.util.Map;
+import javax.annotation.Nullable;
 import org.locationtech.spatial4j.distance.DistanceUtils;
-import org.locationtech.spatial4j.shape.Shape;
 
 /**
  *
@@ -37,10 +38,11 @@ public class STDistanceSphereFunction extends SpatialFunctionAbstractIndexable {
     super(NAME, 2, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
@@ -49,20 +51,21 @@ public class STDistanceSphereFunction extends SpatialFunctionAbstractIndexable {
       return null;
     }
 
-    Shape shape = toShape(iParams[0]);
-    Shape shape1 = toShape(iParams[1]);
+    var shape = toShape(iParams[0]);
+    var shape1 = toShape(iParams[1]);
 
     if (shape == null || shape1 == null) {
       return null;
     }
 
-    double distance =
+    var distance =
         factory.context().getDistCalc().distance(shape.getCenter(), shape1.getCenter());
-    final double docDistInKM =
+    final var docDistInKM =
         DistanceUtils.degrees2Dist(distance, DistanceUtils.EARTH_EQUATORIAL_RADIUS_KM);
     return docDistInKM * 1000;
   }
 
+  @Nullable
   @Override
   public String getSyntax(DatabaseSession session) {
     return null;
@@ -102,7 +105,7 @@ public class STDistanceSphereFunction extends SpatialFunctionAbstractIndexable {
   protected void onAfterParsing(
       Map<String, Object> params, SQLExpression[] args, CommandContext ctx, Object rightValue) {
 
-    Number parsedNumber = (Number) rightValue;
+    var parsedNumber = (Number) rightValue;
 
     params.put("distance", parsedNumber.doubleValue());
   }

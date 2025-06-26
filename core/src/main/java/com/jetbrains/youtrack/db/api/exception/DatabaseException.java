@@ -19,17 +19,24 @@
  */
 package com.jetbrains.youtrack.db.api.exception;
 
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 
 public class DatabaseException extends CoreException {
-
-  private static final long serialVersionUID = -2655748565531836968L;
 
   public DatabaseException(DatabaseException exception) {
     super(exception);
   }
 
-  public DatabaseException(String string) {
-    super(string);
+  public DatabaseException(String dbName, String message) {
+    super(dbName, message);
+  }
+
+  public DatabaseException(BasicDatabaseSession<?, ?> session, String message) {
+    super(session, message);
+  }
+
+  public DatabaseException(String message) {
+    super(message);
   }
 }

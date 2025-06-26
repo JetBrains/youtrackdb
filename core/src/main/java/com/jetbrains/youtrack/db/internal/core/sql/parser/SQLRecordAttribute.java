@@ -4,19 +4,18 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.RecordInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 public class SQLRecordAttribute extends SimpleNode {
 
@@ -40,7 +39,7 @@ public class SQLRecordAttribute extends SimpleNode {
   }
 
   public SQLRecordAttribute copy() {
-    SQLRecordAttribute result = new SQLRecordAttribute(-1);
+    var result = new SQLRecordAttribute(-1);
     result.name = name;
     return result;
   }
@@ -54,7 +53,7 @@ public class SQLRecordAttribute extends SimpleNode {
       return false;
     }
 
-    SQLRecordAttribute that = (SQLRecordAttribute) o;
+    var that = (SQLRecordAttribute) o;
 
     return Objects.equals(name, that.name);
   }
@@ -73,7 +72,7 @@ public class SQLRecordAttribute extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("name", name);
     return result;
   }
@@ -82,61 +81,82 @@ public class SQLRecordAttribute extends SimpleNode {
     name = fromResult.getProperty("name");
   }
 
-  public Object evaluate(Result iCurrentRecord, CommandContext ctx) {
+  @Nullable
+  public Object evaluate(Result iCurrentResult, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     if (name.equalsIgnoreCase("@rid")) {
-      RID identity = iCurrentRecord.getIdentity().orElse(null);
+      var identity = iCurrentResult.getIdentity();
       if (identity == null) {
-        identity = iCurrentRecord.getProperty(name);
+        identity = iCurrentResult.getProperty(name);
       }
       return identity;
     } else if (name.equalsIgnoreCase("@class")) {
-      var element = iCurrentRecord.toEntity();
-      if (element != null) {
-        return element.getSchemaType().map(SchemaClass::getName).orElse(null);
+      if (iCurrentResult.isEntity()) {
+        var schemaClass = ((EntityImpl) iCurrentResult.asEntity()).getImmutableSchemaClass(
+            session);
+        if (schemaClass != null) {
+          return schemaClass.getName();
+        }
       }
-      return null;
+
+      return iCurrentResult.getString(name);
     } else if (name.equalsIgnoreCase("@version")) {
-      return iCurrentRecord.getRecord().map(DBRecord::getVersion).orElse(null);
+      if (iCurrentResult.isIdentifiable()) {
+        return iCurrentResult.asRecord().getVersion();
+      }
+      return iCurrentResult.getProperty(name);
     } else if (name.equals("@type")) {
-      return iCurrentRecord
-          .getRecord()
-          .map(
-              r -> {
-                var recordType = RecordInternal.getRecordType(r);
-                if (recordType == EntityImpl.RECORD_TYPE) {
-                  return "document";
-                } else if (recordType == RecordBytes.RECORD_TYPE) {
-                  return "bytes";
-                } else {
-                  return "unknown";
-                }
-              })
-          .orElse(null);
+      if (iCurrentResult.isIdentifiable()) {
+        var r = iCurrentResult.asRecord();
+        ctx.getDatabaseSession();
+        var recordType = ((RecordAbstract) r).getRecordType();
+        if (recordType == EntityImpl.RECORD_TYPE) {
+          return "entity";
+        } else if (recordType == RecordBytes.RECORD_TYPE) {
+          return "blob";
+        } else if (recordType == VertexEntityImpl.RECORD_TYPE) {
+          return "vertex";
+        } else if (recordType == StatefullEdgeEntityImpl.RECORD_TYPE) {
+          return "edge";
+        } else {
+          return "unknown";
+        }
+      }
+      return iCurrentResult.getString(name);
     } else if (name.equals("@size")) {
-      return iCurrentRecord
-          .getRecord()
-          .map(r -> ((RecordAbstract) r).toStream().length)
-          .orElse(null);
+      if (iCurrentResult.isIdentifiable()) {
+        return ((RecordAbstract) iCurrentResult.asRecord()).toStream().length;
+      }
+      return iCurrentResult.getProperty(name);
     } else if (name.equals("@raw")) {
-      return iCurrentRecord.getRecord().map(r -> ((RecordAbstract) r).toStream()).orElse(null);
+      if (iCurrentResult.isIdentifiable()) {
+        return ((RecordAbstract) iCurrentResult.asRecord()).toStream();
+      }
+      return iCurrentResult.getProperty(name);
     } else if (name.equals("@rid")) {
-      return iCurrentRecord.getIdentity().orElse(null);
+      if (iCurrentResult.isIdentifiable()) {
+        return iCurrentResult.getIdentity();
+      }
+      return iCurrentResult.getProperty(name);
     }
 
     return null;
   }
 
+  @Nullable
   public Object evaluate(Entity iCurrentRecord, CommandContext ctx) {
     if (iCurrentRecord == null) {
       return null;
     }
+    var session = ctx.getDatabaseSession();
     if (name.equalsIgnoreCase("@rid")) {
       return iCurrentRecord.getIdentity();
     } else if (name.equalsIgnoreCase("@class")) {
-      return iCurrentRecord.getSchemaType().map(SchemaClass::getName).orElse(null);
+      return iCurrentRecord.getSchemaClassName();
     } else if (name.equalsIgnoreCase("@version")) {
       try {
-        DBRecord record = iCurrentRecord.getRecord();
+        var transaction = session.getActiveTransaction();
+        var record = transaction.load(iCurrentRecord);
         return record.getVersion();
       } catch (RecordNotFoundException e) {
         return null;

@@ -22,11 +22,12 @@ public class EmptyStep extends AbstractExecutionStep {
     return ExecutionStream.empty();
   }
 
+  @Override
   public boolean canBeCached() {
     return false;
     // DON'T TOUCH!
     // This step is there most of the cases because the query was early optimized based on DATA, eg.
-    // an empty cluster,
+    // an empty collection,
     // so this execution plan cannot be cached!!!
   }
 }

@@ -1,15 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -20,30 +16,30 @@ public class CreateDatabaseStatementExecutionTest {
 
   @Test
   public void testPlain() {
-    final String dbName = "OCreateDatabaseStatementExecutionTest_testPlain";
+    final var dbName = "OCreateDatabaseStatementExecutionTest_testPlain";
 
-    final YouTrackDB youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+    final var youTrackDb =
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
-    try (ResultSet result =
+    try (var result =
         youTrackDb.execute(
             "create database "
                 + dbName
-                + " plocal"
+                + " disk"
                 + " users ( admin identified by '"
                 + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
                 + "' role admin)")) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertEquals(true, item.getProperty("created"));
     }
     Assert.assertTrue(youTrackDb.exists(dbName));
 
     try {
-      final DatabaseSession session =
+      final var session =
           youTrackDb.open(dbName, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
       session.close();
     } finally {
@@ -54,22 +50,22 @@ public class CreateDatabaseStatementExecutionTest {
 
   @Test
   public void testNoDefaultUsers() {
-    String dbName = "OCreateDatabaseStatementExecutionTest_testNoDefaultUsers";
-    YouTrackDB youTrackDb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    var dbName = "OCreateDatabaseStatementExecutionTest_testNoDefaultUsers";
+    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
-    try (ResultSet result =
+    try (var result =
         youTrackDb.execute(
             "create database "
                 + dbName
-                + " plocal {'config':{'security.createDefaultUsers': false}}")) {
+                + " disk {'config':{'youtrackdb.security.createDefaultUsers': false}}")) {
       Assert.assertTrue(result.hasNext());
-      Result item = result.next();
+      var item = result.next();
       Assert.assertEquals(true, item.getProperty("created"));
     }
     Assert.assertTrue(youTrackDb.exists(dbName));
 
     try {
-      DatabaseSession session =
+      var session =
           youTrackDb.open(dbName, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
       Assert.fail();
     } catch (SecurityAccessException e) {

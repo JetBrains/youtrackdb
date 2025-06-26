@@ -5,7 +5,6 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public class RequiredIndexCanditate implements IndexCandidate {
 
@@ -21,17 +20,17 @@ public class RequiredIndexCanditate implements IndexCandidate {
 
   @Override
   public String getName() {
-    String name = "";
-    for (IndexCandidate indexCandidate : canditates) {
+    var name = "";
+    for (var indexCandidate : canditates) {
       name = indexCandidate.getName() + "|";
     }
     return name;
   }
 
   @Override
-  public Optional<IndexCandidate> invert() {
+  public IndexCandidate invert() {
     // TODO: when handling operator invert it
-    return Optional.of(this);
+    return this;
   }
 
   @Override
@@ -40,23 +39,23 @@ public class RequiredIndexCanditate implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> normalize(CommandContext ctx) {
-    RequiredIndexCanditate newCanditates = new RequiredIndexCanditate();
-    for (IndexCandidate candidate : canditates) {
-      Optional<IndexCandidate> result = candidate.normalize(ctx);
-      if (result.isPresent()) {
-        newCanditates.addCanditate(result.get());
+  public IndexCandidate normalize(CommandContext ctx) {
+    var newCanditates = new RequiredIndexCanditate();
+    for (var candidate : canditates) {
+      var result = candidate.normalize(ctx);
+      if (result != null) {
+        newCanditates.addCanditate(result);
       } else {
-        return Optional.empty();
+        return null;
       }
     }
-    return Optional.of(newCanditates);
+    return newCanditates;
   }
 
   @Override
   public List<SchemaProperty> properties() {
     List<SchemaProperty> props = new ArrayList<>();
-    for (IndexCandidate cand : this.canditates) {
+    for (var cand : this.canditates) {
       props.addAll(cand.properties());
     }
     return props;

@@ -19,10 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.security;
 
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
+import java.util.Map;
 
 /**
  * Provides an interface the auditing service.
@@ -31,10 +30,10 @@ public interface AuditingService extends SecurityComponent {
 
   void changeConfig(DatabaseSessionInternal session, SecurityUser user,
       final String databaseName,
-      final EntityImpl cfg)
+      final Map<String, Object> cfg)
       throws IOException;
 
-  EntityImpl getConfig(final String databaseName);
+  Map<String, Object> getConfig(final String databaseName);
 
   void log(DatabaseSessionInternal session, final AuditingOperation operation,
       final String message);

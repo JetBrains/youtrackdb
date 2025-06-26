@@ -9,13 +9,11 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -26,6 +24,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
 
@@ -51,8 +50,8 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    Object total = execute(ctx);
-    ResultInternal result = new ResultInternal(ctx.getDatabase());
+    var total = execute(ctx);
+    var result = new ResultInternal(ctx.getDatabaseSession());
     result.setProperty("operation", "create link");
     result.setProperty("name", name.getValue());
     result.setProperty("count", total);
@@ -66,61 +65,59 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
    */
   private Object execute(CommandContext ctx) {
     if (destField == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot execute the command because it has not been parsed yet");
     }
 
-    final DatabaseSessionInternal database = ctx.getDatabase();
-    if (database.getDatabaseOwner() == null) {
-      throw new CommandSQLParsingException(
+    final var session = ctx.getDatabaseSession();
+    if (session == null) {
+      throw new CommandSQLParsingException("",
           "This command supports only the database type DatabaseDocumentTx and type '"
-              + database.getClass()
+              + session.getClass()
               + "' was found");
     }
 
-    final DatabaseSessionInternal db = database.getDatabaseOwner();
-
-    SchemaClass sourceClass =
-        database
+    var sourceClass =
+        session
             .getMetadata()
             .getImmutableSchemaSnapshot()
             .getClass(this.sourceClass.getStringValue());
     if (sourceClass == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Source class '" + this.sourceClass.getStringValue() + "' not found");
     }
 
-    SchemaClass destClass =
-        database
+    var destClass =
+        session
             .getMetadata()
             .getImmutableSchemaSnapshot()
             .getClass(this.destClass.getStringValue());
     if (destClass == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Destination class '" + this.destClass.getStringValue() + "' not found");
     }
 
-    String cmd = "select from ";
-    if (destField != null && !DocumentHelper.ATTRIBUTE_RID.equals(destField.value)) {
+    var cmd = "select from ";
+    if (destField != null && !EntityHelper.ATTRIBUTE_RID.equals(destField.value)) {
       cmd = "select from " + this.destClass + " where " + destField + " = ";
     }
 
-    long[] total = new long[1];
+    var total = new long[1];
 
-    String linkName = name == null ? sourceField.getStringValue() : name.getStringValue();
+    var linkName = name == null ? sourceField.getStringValue() : name.getStringValue();
 
     var documentSourceClass = sourceClass;
     var txCmd = cmd;
     try {
-      final boolean[] multipleRelationship = new boolean[1];
+      final var multipleRelationship = new boolean[1];
 
-      PropertyType linkType = PropertyType.valueOf(
+      var linkType = PropertyTypeInternal.valueOf(
           type.getStringValue().toUpperCase(Locale.ENGLISH));
       if (linkType != null)
       // DETERMINE BASED ON FORCED TYPE
       {
         multipleRelationship[0] =
-            linkType == PropertyType.LINKSET || linkType == PropertyType.LINKLIST;
+            linkType == PropertyTypeInternal.LINKSET || linkType == PropertyTypeInternal.LINKLIST;
       } else {
         multipleRelationship[0] = false;
       }
@@ -133,11 +130,10 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
       EntityImpl target;
 
       // BROWSE ALL THE RECORDS OF THE SOURCE CLASS
-      for (EntityImpl entity : db.browseClass(documentSourceClass.getName())) {
-        if (breakExec) {
-          break;
-        }
-        Object value = entity.getProperty(sourceField.getStringValue());
+      var iterator = session.browseClass(documentSourceClass.getName());
+      while (iterator.hasNext() && !breakExec) {
+        var entity = iterator.next();
+        var value = entity.getProperty(sourceField.getStringValue());
 
         if (value != null) {
           if (value instanceof EntityImpl || value instanceof RID) {
@@ -149,7 +145,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
             target = null;
 
             if (destField != null
-                && !DocumentHelper.ATTRIBUTE_RID.equals(destField.value)
+                && !EntityHelper.ATTRIBUTE_RID.equals(destField.value)
                 && value instanceof String) {
               if (((String) value).length() == 0) {
                 value = null;
@@ -158,14 +154,14 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
               }
             }
 
-            try (ResultSet rs = database.query(txCmd + value)) {
+            try (var rs = session.query(txCmd + value)) {
               result = toList(rs);
             }
 
             if (result == null || result.size() == 0) {
               value = null;
             } else if (result.size() > 1) {
-              throw new CommandExecutionException(
+              throw new CommandExecutionException(ctx.getDatabaseSession(),
                   "Cannot create link because multiple records was found in class '"
                       + txDestClass.getName()
                       + "' with value "
@@ -201,12 +197,12 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
                 coll.add(entity);
               } else {
                 if (txLinkType != null) {
-                  if (txLinkType == PropertyType.LINKSET) {
-                    value = new LinkSet(target);
+                  if (txLinkType == PropertyTypeInternal.LINKSET) {
+                    value = new EntityLinkSetImpl(target);
                     ((Set<Identifiable>) value).add(entity);
-                  } else if (txLinkType == PropertyType.LINKLIST) {
-                    value = new LinkList(target);
-                    ((LinkList) value).add(entity);
+                  } else if (txLinkType == PropertyTypeInternal.LINKLIST) {
+                    value = new EntityLinkListImpl(target);
+                    ((EntityLinkListImpl) value).add(entity);
                   } else
                   // IGNORE THE TYPE, SET IT AS LINK
                   {
@@ -218,13 +214,12 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
 
                 target.setProperty(linkName, value);
               }
-              target.save();
 
             } else {
 
               // SET THE REFERENCE
               entity.setProperty(linkName, value);
-              entity.save();
+
             }
 
             total[0]++;
@@ -235,11 +230,11 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
       if (total[0] > 0) {
         if (inverse) {
           // REMOVE THE OLD PROPERTY IF ANY
-          SchemaProperty prop = destClass.getProperty(linkName);
-          destClass = db.getMetadata().getSchema().getClass(this.destClass.getStringValue());
+          var prop = destClass.getProperty(linkName);
+          destClass = session.getMetadata().getSchema().getClass(this.destClass.getStringValue());
           if (prop != null) {
-            if (linkType != prop.getType()) {
-              throw new CommandExecutionException(
+            if (linkType != PropertyTypeInternal.convertFromPublicType(prop.getType())) {
+              throw new CommandExecutionException(session,
                   "Cannot create the link because the property '"
                       + linkName
                       + "' already exists for class "
@@ -250,7 +245,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
                       + linkType);
             }
           } else {
-            throw new CommandExecutionException(
+            throw new CommandExecutionException(session,
                 "Cannot create the link because the property '"
                     + linkName
                     + "' does not exist in class '"
@@ -259,11 +254,11 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
           }
         } else {
           // REMOVE THE OLD PROPERTY IF ANY
-          SchemaProperty prop = sourceClass.getProperty(linkName);
-          sourceClass = db.getMetadata().getSchema().getClass(this.destClass.getStringValue());
+          var prop = sourceClass.getProperty(linkName);
+          sourceClass = session.getMetadata().getSchema().getClass(this.destClass.getStringValue());
           if (prop != null) {
             if (prop.getType() != PropertyType.LINK) {
-              throw new CommandExecutionException(
+              throw new CommandExecutionException(session,
                   "Cannot create the link because the property '"
                       + linkName
                       + "' already exists for class "
@@ -271,10 +266,10 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
                       + " and has a different type - actual: "
                       + prop.getType()
                       + " expected: "
-                      + PropertyType.LINK);
+                      + PropertyTypeInternal.LINK);
             }
           } else {
-            throw new CommandExecutionException(
+            throw new CommandExecutionException(session,
                 "Cannot create the link because the property '"
                     + linkName
                     + "' does not exist in class '"
@@ -286,18 +281,19 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
 
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new CommandExecutionException("Error on creation of links"), e);
+          new CommandExecutionException(session, "Error on creation of links"), e, session);
     }
     return total[0];
   }
 
+  @Nullable
   private List<EntityImpl> toList(ResultSet rs) {
     if (!rs.hasNext()) {
       return null;
     }
     List<EntityImpl> result = new ArrayList<>();
     while (rs.hasNext()) {
-      result.add((EntityImpl) rs.next().getEntity().orElse(null));
+      result.add((EntityImpl) rs.next().asEntityOrNull());
     }
     return result;
   }
@@ -358,7 +354,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLCreateLinkStatement copy() {
-    SQLCreateLinkStatement result = new SQLCreateLinkStatement(-1);
+    var result = new SQLCreateLinkStatement(-1);
     result.name = name == null ? null : name.copy();
     result.type = type == null ? null : type.copy();
     result.sourceClass = sourceClass == null ? null : sourceClass.copy();
@@ -380,7 +376,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
       return false;
     }
 
-    SQLCreateLinkStatement that = (SQLCreateLinkStatement) o;
+    var that = (SQLCreateLinkStatement) o;
 
     if (inverse != that.inverse) {
       return false;
@@ -411,7 +407,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
 
   @Override
   public int hashCode() {
-    int result = name != null ? name.hashCode() : 0;
+    var result = name != null ? name.hashCode() : 0;
     result = 31 * result + (type != null ? type.hashCode() : 0);
     result = 31 * result + (sourceClass != null ? sourceClass.hashCode() : 0);
     result = 31 * result + (sourceField != null ? sourceField.hashCode() : 0);

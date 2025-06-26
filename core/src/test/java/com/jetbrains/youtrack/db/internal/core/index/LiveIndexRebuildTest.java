@@ -1,15 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
-import com.jetbrains.youtrack.db.internal.core.db.PartitionedDatabasePool;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -18,9 +18,6 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 public class LiveIndexRebuildTest {
-
-  private final PartitionedDatabasePool pool =
-      new PartitionedDatabasePool("memory:liveIndexRebuild", "admin", "admin");
 
   private final String indexName = "liveIndex";
   private final String className = "liveIndexClass";
@@ -32,76 +29,91 @@ public class LiveIndexRebuildTest {
   @Test
   @Ignore
   public void testLiveIndexRebuild() throws Exception {
-    final DatabaseDocumentTx database = new DatabaseDocumentTx(databaseURL);
-    database.create();
+    try (var youTrackDb = YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(LiveIndexRebuildTest.class))) {
+      if (youTrackDb.exists(LiveIndexRebuildTest.class.getSimpleName())) {
+        youTrackDb.drop(LiveIndexRebuildTest.class.getSimpleName());
+      }
+      youTrackDb.create(LiveIndexRebuildTest.class.getSimpleName(), DatabaseType.DISK, "admin",
+          "admin", "admin");
+      try (var db = youTrackDb.open(LiveIndexRebuildTest.class.getSimpleName(), "admin", "admin")) {
+        db.executeInTx(transaction -> {
+          final var clazz = db.getSchema().createClass(className);
+          clazz.createProperty(propertyName, PropertyType.INTEGER);
+          clazz.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, propertyName);
 
-    final SchemaClass clazz = database.getMetadata().getSchema().createClass(className);
-    clazz.createProperty(database, propertyName, PropertyType.INTEGER);
+          for (var i = 0; i < 1000000; i++) {
+            var document = transaction.newEntity(className);
+            document.setProperty(propertyName, i);
+          }
+        });
+      }
 
-    clazz.createIndex(database, indexName, SchemaClass.INDEX_TYPE.UNIQUE, propertyName);
+      try (var pool = youTrackDb.cachedPool(LiveIndexRebuildTest.class.getSimpleName(), "admin",
+          "admin")) {
+        var executorService = Executors.newFixedThreadPool(6);
+        List<Future<?>> futures = new ArrayList<Future<?>>();
 
-    for (int i = 0; i < 1000000; i++) {
-      EntityImpl document = new EntityImpl(className);
-      document.field(propertyName, i);
-      document.save();
-    }
-
-    ExecutorService executorService = Executors.newFixedThreadPool(6);
-    List<Future<?>> futures = new ArrayList<Future<?>>();
-
-    for (int i = 0; i < 5; i++) {
-      futures.add(executorService.submit(new Reader()));
-    }
-
-    futures.add(executorService.submit(new Writer()));
-
-    Thread.sleep(60 * 60 * 1000);
-
-    stop.set(true);
-    executorService.shutdown();
-
-    long minInterval = Long.MAX_VALUE;
-    long maxInterval = Long.MIN_VALUE;
-
-    for (Future<?> future : futures) {
-      Object result = future.get();
-      if (result instanceof long[] results) {
-        if (results[0] < minInterval) {
-          minInterval = results[0];
+        for (var i = 0; i < 5; i++) {
+          futures.add(executorService.submit(new Reader(pool)));
         }
 
-        if (results[1] > maxInterval) {
-          maxInterval = results[1];
+        futures.add(executorService.submit(new Writer(pool)));
+
+        Thread.sleep(60 * 60 * 1000);
+
+        stop.set(true);
+        executorService.shutdown();
+
+        var minInterval = Long.MAX_VALUE;
+        var maxInterval = Long.MIN_VALUE;
+
+        for (var future : futures) {
+          var result = future.get();
+          if (result instanceof long[] results) {
+            if (results[0] < minInterval) {
+              minInterval = results[0];
+            }
+
+            if (results[1] > maxInterval) {
+              maxInterval = results[1];
+            }
+          }
         }
+
+        System.out.println(
+            "Min interval "
+                + (minInterval / 1000000)
+                + ", max interval "
+                + (maxInterval / 1000000)
+                + " ms");
       }
     }
-
-    System.out.println(
-        "Min interval "
-            + (minInterval / 1000000)
-            + ", max interval "
-            + (maxInterval / 1000000)
-            + " ms");
   }
 
   private final class Writer implements Callable<Void> {
 
+    private final SessionPool<DatabaseSession> pool;
+
+    private Writer(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
+
     @Override
     public Void call() throws Exception {
       try {
-        long rebuildInterval = 0;
-        long rebuildCount = 0;
+        var rebuildInterval = new long[1];
+        var rebuildCount = new long[1];
         while (!stop.get()) {
-          for (int i = 0; i < 10; i++) {
-            final DatabaseDocumentTx database = pool.acquire();
-            try {
-              long start = System.nanoTime();
-              database.command("rebuild index " + indexName).close();
-              long end = System.nanoTime();
-              rebuildInterval += (end - start);
-              rebuildCount++;
-            } finally {
-              database.close();
+          for (var i = 0; i < 10; i++) {
+            try (var database = pool.acquire()) {
+              database.executeInTx(transaction -> {
+                var start = System.nanoTime();
+                transaction.execute("rebuild index " + indexName).close();
+                var end = System.nanoTime();
+                rebuildInterval[0] += (end - start);
+                rebuildCount[0]++;
+              });
             }
 
             if (stop.get()) {
@@ -109,11 +121,13 @@ public class LiveIndexRebuildTest {
             }
           }
 
+          //noinspection BusyWait
           Thread.sleep(5 * 60 * 1000);
         }
 
         System.out.println(
-            "Average rebuild interval " + ((rebuildInterval / rebuildCount) / 1000000) + ", ms");
+            "Average rebuild interval " + ((rebuildInterval[0] / rebuildCount[0]) / 1000000)
+                + ", ms");
       } catch (Exception e) {
         e.printStackTrace();
         throw e;
@@ -124,42 +138,45 @@ public class LiveIndexRebuildTest {
 
   private final class Reader implements Callable<long[]> {
 
+    private final SessionPool<DatabaseSession> pool;
+
+    private Reader(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
+
     @Override
     public long[] call() throws Exception {
-      long minInterval = Long.MAX_VALUE;
-      long maxInterval = Long.MIN_VALUE;
+      var minInterval = new long[]{Long.MAX_VALUE};
+      var maxInterval = new long[]{Long.MIN_VALUE};
 
       try {
-
         while (!stop.get()) {
-          DatabaseDocumentTx database = pool.acquire();
-          try {
-            long start = System.nanoTime();
+          try (var database = pool.acquire()) {
+            database.executeInTx(transaction -> {
+              var start = System.nanoTime();
+              final var result =
+                  transaction.query(
+                      "select from "
+                          + className
+                          + " where "
+                          + propertyName
+                          + " >= 100 and "
+                          + propertyName
+                          + "< 200");
 
-            final ResultSet result =
-                database.query(
-                    "select from "
-                        + className
-                        + " where "
-                        + propertyName
-                        + " >= 100 and "
-                        + propertyName
-                        + "< 200");
+              var end = System.nanoTime();
+              var interval = end - start;
 
-            long end = System.nanoTime();
-            long interval = end - start;
+              if (interval > maxInterval[0]) {
+                maxInterval[0] = interval;
+              }
 
-            if (interval > maxInterval) {
-              maxInterval = interval;
-            }
+              if (interval < minInterval[0]) {
+                minInterval[0] = interval;
+              }
 
-            if (interval < minInterval) {
-              minInterval = interval;
-            }
-
-            Assert.assertEquals(result.stream().count(), 100);
-          } finally {
-            database.close();
+              Assert.assertEquals(100, result.stream().count());
+            });
           }
         }
 
@@ -168,7 +185,7 @@ public class LiveIndexRebuildTest {
         throw e;
       }
 
-      return new long[]{minInterval, maxInterval};
+      return new long[]{minInterval[0], maxInterval[0]};
     }
   }
 }

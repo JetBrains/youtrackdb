@@ -21,11 +21,14 @@ package com.jetbrains.youtrack.db.internal.core.command.script;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
 import com.jetbrains.youtrack.db.internal.core.command.CommandRequestTextAbstract;
-import com.jetbrains.youtrack.db.internal.core.command.CommandDistributedReplicateRequest;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.MemoryStream;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
+import java.util.List;
+import javax.annotation.Nonnull;
 import javax.script.CompiledScript;
 
 /**
@@ -39,9 +42,6 @@ public class CommandScript extends CommandRequestTextAbstract {
 
   private String language;
   private CompiledScript compiledScript;
-
-  private CommandDistributedReplicateRequest.DISTRIBUTED_EXECUTION_MODE executionMode =
-      CommandDistributedReplicateRequest.DISTRIBUTED_EXECUTION_MODE.LOCAL;
 
   public CommandScript() {
     useCache = true;
@@ -57,6 +57,12 @@ public class CommandScript extends CommandRequestTextAbstract {
     this("sql", iText);
   }
 
+  @Override
+  public List<EntityImpl> execute(@Nonnull DatabaseSessionInternal querySession, Object... iArgs) {
+    return List.of();
+  }
+
+  @Override
   public boolean isIdempotent() {
     return false;
   }
@@ -73,31 +79,22 @@ public class CommandScript extends CommandRequestTextAbstract {
     return this;
   }
 
-  public CommandRequestText fromStream(DatabaseSessionInternal db, byte[] iStream,
-      RecordSerializer serializer)
+  @Override
+  public CommandRequestText fromStream(DatabaseSessionEmbedded session, byte[] iStream,
+      RecordSerializerNetwork serializer)
       throws SerializationException {
-    final MemoryStream buffer = new MemoryStream(iStream);
+    final var buffer = new MemoryStream(iStream);
     language = buffer.getAsString();
-
-    // FIX TO HANDLE USAGE OF EXECUTION MODE STARTING FROM v2.1.3
-    final int currPosition = buffer.getPosition();
-    final String value = buffer.getAsString();
-    try {
-      executionMode = CommandDistributedReplicateRequest.DISTRIBUTED_EXECUTION_MODE.valueOf(value);
-    } catch (IllegalArgumentException ignore) {
-      // OLD VERSION: RESET TO THE OLD POSITION
-      buffer.setPosition(currPosition);
-    }
-
-    fromStream(db, buffer, serializer);
+    fromStream(session, buffer, serializer);
     return this;
   }
 
-  public byte[] toStream() throws SerializationException {
-    final MemoryStream buffer = new MemoryStream();
+  @Override
+  public byte[] toStream(DatabaseSessionInternal session, RecordSerializerNetwork serializer)
+      throws SerializationException {
+    final var buffer = new MemoryStream();
     buffer.setUtf8(language);
-    buffer.setUtf8(executionMode.name());
-    return toStream(buffer);
+    return toStream(buffer, session);
   }
 
   public CompiledScript getCompiledScript() {
@@ -114,15 +111,5 @@ public class CommandScript extends CommandRequestTextAbstract {
       return language + "." + text;
     }
     return "script." + text;
-  }
-
-  public CommandDistributedReplicateRequest.DISTRIBUTED_EXECUTION_MODE getExecutionMode() {
-    return executionMode;
-  }
-
-  public CommandScript setExecutionMode(
-      CommandDistributedReplicateRequest.DISTRIBUTED_EXECUTION_MODE executionMode) {
-    this.executionMode = executionMode;
-    return this;
   }
 }

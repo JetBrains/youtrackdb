@@ -96,7 +96,7 @@ public class IndexSearchResult {
 
   private IndexSearchResult mergeFields(
       IndexSearchResult mainSearchResult, IndexSearchResult searchResult) {
-    IndexSearchResult result =
+    var result =
         new IndexSearchResult(
             mainSearchResult.lastOperator, mainSearchResult.lastField, mainSearchResult.lastValue);
     result.fieldValuePairs.putAll(searchResult.fieldValuePairs);
@@ -141,12 +141,12 @@ public class IndexSearchResult {
       return false;
     }
 
-    IndexSearchResult that = (IndexSearchResult) o;
+    var that = (IndexSearchResult) o;
 
     if (containsNullValues != that.containsNullValues) {
       return false;
     }
-    for (Map.Entry<String, Object> entry : fieldValuePairs.entrySet()) {
+    for (var entry : fieldValuePairs.entrySet()) {
       if (!that.fieldValuePairs.get(entry.getKey()).equals(entry.getValue())) {
         return false;
       }
@@ -163,9 +163,9 @@ public class IndexSearchResult {
 
   @Override
   public int hashCode() {
-    int result = lastOperator.hashCode();
+    var result = lastOperator.hashCode();
 
-    for (Map.Entry<String, Object> entry : fieldValuePairs.entrySet()) {
+    for (var entry : fieldValuePairs.entrySet()) {
       if (entry.getKey() != null) {
         result = 31 * result + entry.getKey().hashCode();
       }

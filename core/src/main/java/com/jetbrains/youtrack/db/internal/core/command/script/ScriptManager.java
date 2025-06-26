@@ -19,7 +19,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.command.script;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
+import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.StringParser;
 import com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper;
@@ -34,10 +37,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.formatter.SQLScrip
 import com.jetbrains.youtrack.db.internal.core.command.script.formatter.ScriptFormatter;
 import com.jetbrains.youtrack.db.internal.core.command.script.js.JSScriptEngineFactory;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformerImpl;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionUtilWrapper;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLScriptEngine;
@@ -45,14 +45,13 @@ import com.jetbrains.youtrack.db.internal.core.sql.SQLScriptEngineFactory;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 import javax.script.Bindings;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineFactory;
@@ -84,7 +83,7 @@ public class ScriptManager {
   public ScriptManager() {
     scriptEngineManager = new ScriptEngineManager();
 
-    final boolean useGraal = GlobalConfiguration.SCRIPT_POLYGLOT_USE_GRAAL.getValueAsBoolean();
+    final var useGraal = GlobalConfiguration.SCRIPT_POLYGLOT_USE_GRAAL.getValueAsBoolean();
     executorsFactories.put(
         "javascript",
         (lang) ->
@@ -98,7 +97,7 @@ public class ScriptManager {
                 ? new PolyglotScriptExecutor(lang, new ScriptTransformerImpl())
                 : new Jsr223ScriptExecutor(lang, new ScriptTransformerImpl()));
 
-    for (ScriptEngineFactory f : scriptEngineManager.getEngineFactories()) {
+    for (var f : scriptEngineManager.getEngineFactories()) {
       registerEngine(f.getLanguageName().toLowerCase(Locale.ENGLISH), f);
 
       if (defaultLanguage == null) {
@@ -108,7 +107,7 @@ public class ScriptManager {
 
     if (!existsEngine(DEF_LANGUAGE)) {
       // if graal is disabled, try to load nashorn manually
-      ScriptEngine defEngine =
+      var defEngine =
           scriptEngineManager.getEngineByName(useGraal ? DEF_LANGUAGE : "nashorn");
       if (defEngine == null) {
         // no nashorn engine, use the default
@@ -129,8 +128,8 @@ public class ScriptManager {
     registerFormatter(DEF_LANGUAGE, new JSScriptFormatter());
     registerFormatter("ruby", new RubyScriptFormatter());
     registerFormatter("groovy", new GroovyScriptFormatter());
-    for (String lang : engines.keySet()) {
-      java.util.function.Function<String, ScriptExecutor> factory = executorsFactories.get(lang);
+    for (var lang : engines.keySet()) {
+      var factory = executorsFactories.get(lang);
       ScriptExecutor executor = null;
       if (factory != null) {
         executor = factory.apply(lang);
@@ -143,18 +142,18 @@ public class ScriptManager {
     // Registring sql script engine after for not fight with the basic engine
     registerEngine(SQLScriptEngine.NAME, new SQLScriptEngineFactory());
 
-    Iterator<ScriptExecutorRegister> customExecutors =
+    var customExecutors =
         ClassLoaderHelper.lookupProviderWithYouTrackDBClassLoader(ScriptExecutorRegister.class);
 
     customExecutors.forEachRemaining(e -> e.registerExecutor(this, commandManager));
   }
 
   public String getFunctionDefinition(DatabaseSession session, final Function iFunction) {
-    final ScriptFormatter formatter =
-        formatters.get(iFunction.getLanguage(session).toLowerCase(Locale.ENGLISH));
+    final var formatter =
+        formatters.get(iFunction.getLanguage().toLowerCase(Locale.ENGLISH));
     if (formatter == null) {
       throw new IllegalArgumentException(
-          "Cannot find script formatter for the language '" + iFunction.getLanguage(session) + "'");
+          "Cannot find script formatter for the language '" + iFunction.getLanguage() + "'");
     }
 
     return formatter.getFunctionDefinition((DatabaseSessionInternal) session, iFunction);
@@ -162,11 +161,11 @@ public class ScriptManager {
 
   public String getFunctionInvoke(DatabaseSessionInternal session, final Function iFunction,
       final Object[] iArgs) {
-    final ScriptFormatter formatter =
-        formatters.get(iFunction.getLanguage(session).toLowerCase(Locale.ENGLISH));
+    final var formatter =
+        formatters.get(iFunction.getLanguage().toLowerCase(Locale.ENGLISH));
     if (formatter == null) {
       throw new IllegalArgumentException(
-          "Cannot find script formatter for the language '" + iFunction.getLanguage(session) + "'");
+          "Cannot find script formatter for the language '" + iFunction.getLanguage() + "'");
     }
 
     return formatter.getFunctionInvoke(session, iFunction, iArgs);
@@ -175,29 +174,31 @@ public class ScriptManager {
   /**
    * Formats the library of functions for a language.
    *
-   * @param db        Current database instance
+   * @param session        Current database instance
    * @param iLanguage Language as filter
    * @return String containing all the functions
    */
-  public String getLibrary(final DatabaseSessionInternal db, final String iLanguage) {
-    if (db == null)
+  @Nullable
+  public String getLibrary(final DatabaseSessionInternal session, final String iLanguage) {
+    if (session == null)
     // NO DB = NO LIBRARY
     {
       return null;
     }
 
-    final StringBuilder code = new StringBuilder();
+    final var code = new StringBuilder();
 
-    final Set<String> functions = db.getMetadata().getFunctionLibrary().getFunctionNames();
-    for (String fName : functions) {
-      final Function f = db.getMetadata().getFunctionLibrary().getFunction(fName);
+    final var functions = session.getMetadata().getFunctionLibrary().getFunctionNames();
+    for (var fName : functions) {
+      final var f = session.getMetadata().getFunctionLibrary().getFunction(session, fName);
 
-      if (f.getLanguage(db) == null) {
-        throw new ConfigurationException("Database function '" + fName + "' has no language");
+      if (f.getLanguage() == null) {
+        throw new ConfigurationException(session.getDatabaseName(),
+            "Database function '" + fName + "' has no language");
       }
 
-      if (f.getLanguage(db).equalsIgnoreCase(iLanguage)) {
-        final String def = getFunctionDefinition(db, f);
+      if (f.getLanguage().equalsIgnoreCase(iLanguage)) {
+        final var def = getFunctionDefinition(session, f);
         if (def != null) {
           code.append(def);
           code.append("\n");
@@ -217,16 +218,16 @@ public class ScriptManager {
     return engines.containsKey(iLanguage);
   }
 
-  public ScriptEngine getEngine(final String iLanguage) {
+  public ScriptEngine getEngine(String dbName, final String iLanguage) {
     if (iLanguage == null) {
-      throw new CommandScriptException("No language was specified");
+      throw new CommandScriptException(dbName, "No language was specified");
     }
 
-    final String lang = iLanguage.toLowerCase(Locale.ENGLISH);
+    final var lang = iLanguage.toLowerCase(Locale.ENGLISH);
 
-    final ScriptEngineFactory scriptEngineFactory = engines.get(lang);
+    final var scriptEngineFactory = engines.get(lang);
     if (scriptEngineFactory == null) {
-      throw new CommandScriptException(
+      throw new CommandScriptException(dbName,
           "Unsupported language: "
               + iLanguage
               + ". Supported languages are: "
@@ -240,17 +241,18 @@ public class ScriptManager {
    * Acquires a database engine from the pool. Once finished using it, the instance MUST be returned
    * in the pool by calling the method #releaseDatabaseEngine(String, ScriptEngine).
    *
-   * @param databaseName Database name
-   * @param language     Script language
+   * @param db       Database instance
+   * @param language Script language
    * @return ScriptEngine instance with the function library already parsed
    * @see #releaseDatabaseEngine(String, String, ScriptEngine)
    */
-  public ScriptEngine acquireDatabaseEngine(final String databaseName, final String language) {
-    DatabaseScriptManager dbManager = dbManagers.get(databaseName);
+  public ScriptEngine acquireDatabaseEngine(final DatabaseSessionInternal db,
+      final String language) {
+    var dbManager = dbManagers.get(db.getDatabaseName());
     if (dbManager == null) {
       // CREATE A NEW DATABASE SCRIPT MANAGER
-      dbManager = new DatabaseScriptManager(this, databaseName);
-      final DatabaseScriptManager prev = dbManagers.putIfAbsent(databaseName, dbManager);
+      dbManager = new DatabaseScriptManager(this, db.getDatabaseName());
+      final var prev = dbManagers.putIfAbsent(db.getDatabaseName(), dbManager);
       if (prev != null) {
         dbManager.close();
         // GET PREVIOUS ONE
@@ -258,7 +260,7 @@ public class ScriptManager {
       }
     }
 
-    return dbManager.acquireEngine(language);
+    return dbManager.acquireEngine(db, language);
   }
 
   /**
@@ -268,11 +270,11 @@ public class ScriptManager {
    * @param iLanguage     Script language
    * @param iDatabaseName Database name
    * @param poolEntry     Pool entry to free
-   * @see #acquireDatabaseEngine(String, String)
+   * @see #acquireDatabaseEngine(DatabaseSessionInternal, String)
    */
   public void releaseDatabaseEngine(
       final String iLanguage, final String iDatabaseName, final ScriptEngine poolEntry) {
-    final DatabaseScriptManager dbManager = dbManagers.get(iDatabaseName);
+    final var dbManager = dbManagers.get(iDatabaseName);
     // We check if there is still a valid pool because it could be removed by the function reload
     if (dbManager != null) {
       dbManager.releaseEngine(iLanguage, poolEntry);
@@ -280,7 +282,7 @@ public class ScriptManager {
   }
 
   public Iterable<String> getSupportedLanguages() {
-    final HashSet<String> result = new HashSet<String>();
+    final var result = new HashSet<String>();
     result.addAll(engines.keySet());
     return result;
   }
@@ -325,7 +327,7 @@ public class ScriptManager {
   }
 
   private void bindInjectors(ScriptEngine engine, Bindings binding, DatabaseSession database) {
-    for (ScriptInjection i : injections) {
+    for (var i : injections) {
       i.bind(engine, binding, database);
     }
   }
@@ -334,7 +336,7 @@ public class ScriptManager {
     // BIND CONTEXT VARIABLE INTO THE SCRIPT
     if (iContext != null) {
       binding.put("ctx", iContext);
-      for (Entry<String, Object> a : iContext.getVariables().entrySet()) {
+      for (var a : iContext.getVariables().entrySet()) {
         binding.put(a.getKey(), a.getValue());
       }
     }
@@ -358,7 +360,7 @@ public class ScriptManager {
   private void bindParameters(Bindings binding, Map<Object, Object> iArgs) {
     // BIND PARAMETERS INTO THE SCRIPT
     if (iArgs != null) {
-      for (Entry<Object, Object> a : iArgs.entrySet()) {
+      for (var a : iArgs.entrySet()) {
         binding.put(a.getKey().toString(), a.getValue());
       }
 
@@ -368,39 +370,39 @@ public class ScriptManager {
     }
   }
 
-  public String throwErrorMessage(final ScriptException e, final String lib) {
-    int errorLineNumber = e.getLineNumber();
+  public String throwErrorMessage(String dbName, final ScriptException e, final String lib) {
+    var errorLineNumber = e.getLineNumber();
 
     if (errorLineNumber <= 0) {
       // FIX TO RHINO: SOMETIMES HAS THE LINE NUMBER INSIDE THE TEXT :-(
-      final String excMessage = e.toString();
-      final int pos = excMessage.indexOf("<Unknown Source>#");
+      final var excMessage = e.toString();
+      final var pos = excMessage.indexOf("<Unknown Source>#");
       if (pos > -1) {
-        final int end = excMessage.indexOf(')', pos + "<Unknown Source>#".length());
-        String lineNumberAsString = excMessage.substring(pos + "<Unknown Source>#".length(), end);
+        final var end = excMessage.indexOf(')', pos + "<Unknown Source>#".length());
+        var lineNumberAsString = excMessage.substring(pos + "<Unknown Source>#".length(), end);
         errorLineNumber = Integer.parseInt(lineNumberAsString);
       }
     }
 
     if (errorLineNumber <= 0) {
-      throw new CommandScriptException(
+      throw new CommandScriptException(dbName,
           "Error on evaluation of the script library. Error: "
               + e.getMessage()
               + "\nScript library was:\n"
               + lib);
     } else {
-      final StringBuilder code = new StringBuilder();
-      final Scanner scanner = new Scanner(lib);
+      final var code = new StringBuilder();
+      final var scanner = new Scanner(lib);
       try {
         scanner.useDelimiter("\n");
         String currentLine = null;
-        String lastFunctionName = "unknown";
+        var lastFunctionName = "unknown";
 
-        for (int currentLineNumber = 1; scanner.hasNext(); currentLineNumber++) {
+        for (var currentLineNumber = 1; scanner.hasNext(); currentLineNumber++) {
           currentLine = scanner.next();
-          int pos = currentLine.indexOf("function");
+          var pos = currentLine.indexOf("function");
           if (pos > -1) {
-            final String[] words =
+            final var words =
                 StringParser.getWords(
                     currentLine.substring(
                         Math.min(pos + "function".length() + 1, currentLine.length())),
@@ -430,21 +432,19 @@ public class ScriptManager {
         scanner.close();
       }
 
-      throw new CommandScriptException(code.toString());
+      throw new CommandScriptException(dbName, code.toString());
     }
   }
 
   /**
    * Unbinds variables
-   *
-   * @param binding
    */
   public void unbind(
       ScriptEngine scriptEngine,
       final Bindings binding,
       final CommandContext iContext,
       final Map<Object, Object> iArgs) {
-    for (ScriptInjection i : injections) {
+    for (var i : injections) {
       i.unbind(scriptEngine, binding);
     }
 
@@ -455,13 +455,13 @@ public class ScriptManager {
 
     binding.put("ctx", null);
     if (iContext != null) {
-      for (Entry<String, Object> a : iContext.getVariables().entrySet()) {
+      for (var a : iContext.getVariables().entrySet()) {
         binding.put(a.getKey(), null);
       }
     }
 
     if (iArgs != null) {
-      for (Entry<Object, Object> a : iArgs.entrySet()) {
+      for (var a : iArgs.entrySet()) {
         binding.put(a.getKey().toString(), null);
       }
     }
@@ -543,7 +543,7 @@ public class ScriptManager {
       ScriptEngine engine,
       Bindings binding,
       DatabaseSession database) {
-    ScriptResultHandler handler = handlers.get(language);
+    var handler = handlers.get(language);
     if (handler != null) {
       return handler.handle(result, engine, binding, database);
     } else {
@@ -561,13 +561,13 @@ public class ScriptManager {
   }
 
   /**
-   * Closes the pool for a database. This is called at YouTrackDB shutdown and in case a function has
-   * been updated.
+   * Closes the pool for a database. This is called at YouTrackDB shutdown and in case a function
+   * has been updated.
    *
    * @param iDatabaseName
    */
   public void close(final String iDatabaseName) {
-    final DatabaseScriptManager dbPool = dbManagers.remove(iDatabaseName);
+    final var dbPool = dbManagers.remove(iDatabaseName);
     if (dbPool != null) {
       dbPool.close();
     }

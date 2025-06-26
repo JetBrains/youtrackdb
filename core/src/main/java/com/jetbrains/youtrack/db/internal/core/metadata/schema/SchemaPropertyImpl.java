@@ -19,22 +19,19 @@
  */
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty.ATTRIBUTES;
 import com.jetbrains.youtrack.db.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
@@ -50,15 +47,19 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 
 /**
  * Contains the description of a persistent class property.
  */
-public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
+public abstract class SchemaPropertyImpl {
 
+  private static final Pattern DOUBLE_SLASH_PATTERN = Pattern.compile("\\\\");
+  private static final Pattern QUOTATION_PATTERN = Pattern.compile("\"");
   protected final SchemaClassImpl owner;
-  protected PropertyType linkedType;
-  protected SchemaClass linkedClass;
+  protected PropertyTypeInternal linkedType;
+  protected SchemaClassImpl linkedClass;
   private transient String linkedClassName;
 
   protected String description;
@@ -71,15 +72,13 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
   protected boolean readonly;
   protected Map<String, String> customFields;
   protected Collate collate = new DefaultCollate();
-  protected GlobalProperty globalRef;
-
-  private volatile int hashCode;
+  protected GlobalPropertyImpl globalRef;
 
   public SchemaPropertyImpl(final SchemaClassImpl owner) {
     this.owner = owner;
   }
 
-  public SchemaPropertyImpl(SchemaClassImpl oClassImpl, GlobalProperty global) {
+  public SchemaPropertyImpl(SchemaClassImpl oClassImpl, GlobalPropertyImpl global) {
     this(oClassImpl);
     this.globalRef = global;
   }
@@ -93,7 +92,7 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public String getFullName() {
+  public String getFullName(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       return owner.getName() + "." + globalRef.getName();
@@ -102,7 +101,7 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public String getFullNameQuoted() {
+  public String getFullNameQuoted(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       return "`" + owner.getName() + "`.`" + globalRef.getName() + "`";
@@ -120,10 +119,10 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public int compareTo(final SchemaProperty o) {
+  public PropertyTypeInternal getTypeInternal() {
     acquireSchemaReadLock();
     try {
-      return globalRef.getName().compareTo(o.getName());
+      return globalRef.getTypeInternal();
     } finally {
       releaseSchemaReadLock();
     }
@@ -141,8 +140,7 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
    *                <li>FULLTEXT: Indexes single word for full text search
    *              </ul>
    */
-  @Override
-  public String createIndex(DatabaseSession session, final INDEX_TYPE iType) {
+  public String createIndex(DatabaseSessionEmbedded session, final INDEX_TYPE iType) {
     return createIndex(session, iType.toString());
   }
 
@@ -153,11 +151,10 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
    *
    * @return the index name
    */
-  @Override
-  public String createIndex(DatabaseSession session, final String iType) {
+  public String createIndex(DatabaseSessionEmbedded session, final String iType) {
     acquireSchemaReadLock();
     try {
-      var indexName = getFullName();
+      var indexName = getFullName(session);
       owner.createIndex(session, indexName, iType, globalRef.getName());
       return indexName;
     } finally {
@@ -165,15 +162,17 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  @Override
-  public String createIndex(DatabaseSession session, INDEX_TYPE iType, Map<String, ?> metadata) {
+
+  public String createIndex(DatabaseSessionEmbedded session, INDEX_TYPE iType,
+      Map<String, Object> metadata) {
     return createIndex(session, iType.name(), metadata);
   }
 
-  public String createIndex(DatabaseSession session, String iType, Map<String, ?> metadata) {
+  public String createIndex(DatabaseSessionEmbedded session, String iType,
+      Map<String, Object> metadata) {
     acquireSchemaReadLock();
     try {
-      var indexName = getFullName();
+      var indexName = getFullName(session);
       owner.createIndex(session,
           indexName, iType, null, metadata, new String[]{globalRef.getName()});
       return indexName;
@@ -188,19 +187,19 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
    * @deprecated Use SQL command instead.
    */
   @Deprecated
-  public SchemaPropertyImpl dropIndexes(DatabaseSessionInternal session) {
+  public void dropIndexes(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
 
     acquireSchemaReadLock();
     try {
-      final IndexManagerAbstract indexManager = session.getMetadata().getIndexManagerInternal();
+      final var indexManager = session.getSharedContext().getIndexManager();
 
-      final ArrayList<Index> relatedIndexes = new ArrayList<Index>();
-      for (final Index index : indexManager.getClassIndexes(session, owner.getName())) {
-        final IndexDefinition definition = index.getDefinition();
+      final var relatedIndexes = new ArrayList<Index>();
+      for (final var index : indexManager.getClassIndexes(session, owner.getName())) {
+        final var definition = index.getDefinition();
 
         if (Collections.indexOf(
-            definition.getFields(), globalRef.getName(), new CaseInsentiveComparator())
+            definition.getProperties(), globalRef.getName(), new CaseInsentiveComparator())
             > -1) {
           if (definition instanceof PropertyIndexDefinition) {
             relatedIndexes.add(index);
@@ -214,11 +213,10 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
         }
       }
 
-      for (final Index index : relatedIndexes) {
-        session.getMetadata().getIndexManagerInternal().dropIndex(session, index.getName());
+      for (final var index : relatedIndexes) {
+        session.getSharedContext().getIndexManager()
+            .dropIndex(session, index.getName());
       }
-
-      return this;
     } finally {
       releaseSchemaReadLock();
     }
@@ -234,11 +232,8 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     dropIndexes(session);
   }
 
-  /**
-   * @deprecated Use {@link SchemaClass#areIndexed(DatabaseSession, String...)} instead.
-   */
   @Deprecated
-  public boolean isIndexed(DatabaseSession session) {
+  public boolean isIndexed(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       return owner.areIndexed(session, globalRef.getName());
@@ -247,17 +242,15 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public SchemaClass getOwnerClass() {
+  public SchemaClassImpl getOwnerClass() {
     return owner;
   }
 
   /**
    * Returns the linked class in lazy mode because while unmarshalling the class could be not loaded
    * yet.
-   *
-   * @return
    */
-  public SchemaClass getLinkedClass() {
+  public SchemaClassImpl getLinkedClass(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       if (linkedClass == null && linkedClassName != null) {
@@ -269,21 +262,21 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public static void checkSupportLinkedClass(PropertyType type) {
-    if (type != PropertyType.LINK
-        && type != PropertyType.LINKSET
-        && type != PropertyType.LINKLIST
-        && type != PropertyType.LINKMAP
-        && type != PropertyType.EMBEDDED
-        && type != PropertyType.EMBEDDEDSET
-        && type != PropertyType.EMBEDDEDLIST
-        && type != PropertyType.EMBEDDEDMAP
-        && type != PropertyType.LINKBAG) {
+  public static void checkSupportLinkedClass(PropertyTypeInternal type) {
+    if (type != PropertyTypeInternal.LINK
+        && type != PropertyTypeInternal.LINKSET
+        && type != PropertyTypeInternal.LINKLIST
+        && type != PropertyTypeInternal.LINKMAP
+        && type != PropertyTypeInternal.EMBEDDED
+        && type != PropertyTypeInternal.EMBEDDEDSET
+        && type != PropertyTypeInternal.EMBEDDEDLIST
+        && type != PropertyTypeInternal.EMBEDDEDMAP
+        && type != PropertyTypeInternal.LINKBAG) {
       throw new SchemaException("Linked class is not supported for type: " + type);
     }
   }
 
-  public PropertyType getLinkedType() {
+  public PropertyTypeInternal getLinkedType() {
     acquireSchemaReadLock();
     try {
       return linkedType;
@@ -292,9 +285,9 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public static void checkLinkTypeSupport(PropertyType type) {
-    if (type != PropertyType.EMBEDDEDSET && type != PropertyType.EMBEDDEDLIST
-        && type != PropertyType.EMBEDDEDMAP) {
+  public static void checkLinkTypeSupport(PropertyTypeInternal type) {
+    if (type != PropertyTypeInternal.EMBEDDEDSET && type != PropertyTypeInternal.EMBEDDEDLIST
+        && type != PropertyTypeInternal.EMBEDDEDMAP) {
       throw new SchemaException("Linked type is not supported for type: " + type);
     }
   }
@@ -348,8 +341,8 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     if (s == null) {
       return "null";
     }
-    String result = "\"" + (s.replaceAll("\\\\", "\\\\\\\\").replaceAll("\"", "\\\\\"")) + "\"";
-    return result;
+    return "\"" + (QUOTATION_PATTERN.matcher(DOUBLE_SLASH_PATTERN.matcher(s).replaceAll("\\\\\\\\"))
+        .replaceAll("\\\\\"")) + "\"";
   }
 
   public String getDefaultValue() {
@@ -370,6 +363,7 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
+  @Nullable
   public String getCustom(final String iName) {
     acquireSchemaReadLock();
     try {
@@ -383,6 +377,7 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
+  @Nullable
   public Map<String, String> getCustomInternal() {
     acquireSchemaReadLock();
     try {
@@ -395,9 +390,12 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public void removeCustom(DatabaseSession session, final String iName) {
+  public void removeCustom(DatabaseSessionInternal session, final String iName) {
     setCustom(session, iName, null);
   }
+
+  public abstract void setCustom(DatabaseSessionInternal session, final String iName,
+      final String iValue);
 
   public Set<String> getCustomKeys() {
     acquireSchemaReadLock();
@@ -406,66 +404,53 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
         return customFields.keySet();
       }
 
-      return new HashSet<String>();
+      return new HashSet<>();
     } finally {
       releaseSchemaReadLock();
     }
   }
 
-  public Object get(final ATTRIBUTES attribute) {
+  public Object get(DatabaseSessionInternal db, final ATTRIBUTES attribute) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
-    switch (attribute) {
-      case LINKEDCLASS:
-        return getLinkedClass();
-      case LINKEDTYPE:
-        return getLinkedType();
-      case MIN:
-        return getMin();
-      case MANDATORY:
-        return isMandatory();
-      case READONLY:
-        return isReadonly();
-      case MAX:
-        return getMax();
-      case DEFAULT:
-        return getDefaultValue();
-      case NAME:
-        return getName();
-      case NOTNULL:
-        return isNotNull();
-      case REGEXP:
-        return getRegexp();
-      case TYPE:
-        return getType();
-      case COLLATE:
-        return getCollate();
-      case DESCRIPTION:
-        return getDescription();
-    }
-
-    throw new IllegalArgumentException("Cannot find attribute '" + attribute + "'");
+    return switch (attribute) {
+      case LINKEDCLASS -> getLinkedClass(db);
+      case LINKEDTYPE -> getLinkedType();
+      case MIN -> getMin();
+      case MANDATORY -> isMandatory();
+      case READONLY -> isReadonly();
+      case MAX -> getMax();
+      case DEFAULT -> getDefaultValue();
+      case NAME -> getName();
+      case NOTNULL -> isNotNull();
+      case REGEXP -> getRegexp();
+      case TYPE -> getType();
+      case COLLATE -> getCollate();
+      case DESCRIPTION -> getDescription();
+      default -> throw new IllegalArgumentException("Cannot find attribute '" + attribute + "'");
+    };
   }
 
-  public void set(DatabaseSession session, final ATTRIBUTES attribute, final Object iValue) {
+  public void set(DatabaseSessionEmbedded session, final ATTRIBUTES attribute,
+      final Object iValue) {
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
     }
 
-    final String stringValue = iValue != null ? iValue.toString() : null;
-    var sessionInternal = (DatabaseSessionInternal) session;
+    final var stringValue = iValue != null ? iValue.toString() : null;
 
     switch (attribute) {
       case LINKEDCLASS:
-        setLinkedClass(session, sessionInternal.getMetadata().getSchema().getClass(stringValue));
+        setLinkedClass(session,
+            session.getSharedContext().getSchema().getClass(stringValue));
         break;
       case LINKEDTYPE:
         if (stringValue == null) {
           setLinkedType(session, null);
         } else {
-          setLinkedType(session, PropertyType.valueOf(stringValue));
+          setLinkedType(session, PropertyTypeInternal.valueOf(stringValue));
         }
         break;
       case MIN:
@@ -493,13 +478,13 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
         setRegexp(session, stringValue);
         break;
       case TYPE:
-        setType(session, PropertyType.valueOf(stringValue.toUpperCase(Locale.ENGLISH)));
+        setType(session, PropertyTypeInternal.valueOf(stringValue.toUpperCase(Locale.ENGLISH)));
         break;
       case COLLATE:
         setCollate(session, stringValue);
         break;
       case CUSTOM:
-        int indx = stringValue != null ? stringValue.indexOf('=') : -1;
+        var indx = stringValue != null ? stringValue.indexOf('=') : -1;
         if (indx < 0) {
           if ("clear".equalsIgnoreCase(stringValue)) {
             clearCustom(session);
@@ -508,8 +493,8 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
                 "Syntax error: expected <name> = <value> or clear, instead found: " + iValue);
           }
         } else {
-          String customName = stringValue.substring(0, indx).trim();
-          String customValue = stringValue.substring(indx + 1).trim();
+          var customName = stringValue.substring(0, indx).trim();
+          var customValue = stringValue.substring(indx + 1).trim();
           if (isQuoted(customValue)) {
             customValue = removeQuotes(customValue);
           }
@@ -526,20 +511,46 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  private String removeQuotes(String s) {
+  public abstract void setLinkedClass(DatabaseSessionInternal session, SchemaClassImpl oClass);
+
+  public abstract void setLinkedType(DatabaseSessionInternal session, PropertyTypeInternal type);
+
+  public abstract void setMin(DatabaseSessionInternal session, String min);
+
+  public abstract void setMandatory(DatabaseSessionInternal session, boolean mandatory);
+
+  public abstract void setReadonly(DatabaseSessionInternal session, boolean iReadonly);
+
+  public abstract void setMax(DatabaseSessionInternal session, String max);
+
+  public abstract void setDefaultValue(DatabaseSessionInternal session, String defaultValue);
+
+  public abstract void setName(DatabaseSessionInternal session, String iName);
+
+  public abstract void setNotNull(DatabaseSessionInternal session, boolean iNotNull);
+
+  public abstract void setRegexp(DatabaseSessionInternal session, String regexp);
+
+  public abstract void setType(DatabaseSessionInternal session, final PropertyTypeInternal iType);
+
+  public abstract void setDescription(DatabaseSessionInternal session, String iDescription);
+
+  public abstract void setCollate(DatabaseSessionEmbedded session, String iCollateName);
+
+  private static String removeQuotes(String s) {
     s = s.trim();
     return s.substring(1, s.length() - 1);
   }
 
-  private boolean isQuoted(String s) {
+  private static boolean isQuoted(String s) {
     s = s.trim();
-    if (s.startsWith("\"") && s.endsWith("\"")) {
+    if (!s.isEmpty() && s.charAt(0) == '\"' && s.charAt(s.length() - 1) == '\"') {
       return true;
     }
-    if (s.startsWith("'") && s.endsWith("'")) {
+    if (!s.isEmpty() && s.charAt(0) == '\'' && s.charAt(s.length() - 1) == '\'') {
       return true;
     }
-    return s.startsWith("`") && s.endsWith("`");
+    return !s.isEmpty() && s.charAt(0) == '`' && s.charAt(s.length() - 1) == '`';
   }
 
   public Collate getCollate() {
@@ -551,12 +562,10 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public SchemaProperty setCollate(DatabaseSession session, final Collate collate) {
+  public void setCollate(DatabaseSessionEmbedded session, final Collate collate) {
     setCollate(session, collate.getName());
-    return this;
   }
 
-  @Override
   public String getDescription() {
     acquireSchemaReadLock();
     try {
@@ -566,124 +575,99 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  @Override
-  public String toString() {
-    acquireSchemaReadLock();
-    try {
-      return globalRef.getName() + " (type=" + globalRef.getType() + ")";
-    } finally {
-      releaseSchemaReadLock();
-    }
-  }
-
-  @Override
-  public int hashCode() {
-    int sh = hashCode;
-    if (sh != 0) {
-      return sh;
-    }
-
-    acquireSchemaReadLock();
-    try {
-      sh = hashCode;
-      if (sh != 0) {
-        return sh;
-      }
-
-      calculateHashCode();
-      return hashCode;
-    } finally {
-      releaseSchemaReadLock();
-    }
-  }
-
-  private void calculateHashCode() {
-    final int prime = 31;
-    int result = super.hashCode();
-    result = prime * result + ((owner == null) ? 0 : owner.hashCode());
-    hashCode = result;
-  }
-
-  @Override
-  public boolean equals(final Object obj) {
-    acquireSchemaReadLock();
-    try {
-      if (this == obj) {
-        return true;
-      }
-      if (obj == null || !SchemaProperty.class.isAssignableFrom(obj.getClass())) {
-        return false;
-      }
-      SchemaProperty other = (SchemaProperty) obj;
-      if (owner == null) {
-        if (other.getOwnerClass() != null) {
-          return false;
-        }
-      } else if (!owner.equals(other.getOwnerClass())) {
-        return false;
-      }
-      return this.getName().equals(other.getName());
-    } finally {
-      releaseSchemaReadLock();
-    }
-  }
-
   public void fromStream(EntityImpl entity) {
-    String name = entity.field("name");
-    PropertyType type = null;
-    if (entity.field("type") != null) {
-      type = PropertyType.getById(((Integer) entity.field("type")).byteValue());
+    String name = entity.getProperty("name");
+    PropertyTypeInternal type = null;
+    if (entity.getProperty("type") != null) {
+      type = PropertyTypeInternal.getById(((Integer) entity.getProperty("type")).byteValue());
     }
-    Integer globalId = entity.field("globalId");
+    Integer globalId = entity.getProperty("globalId");
     if (globalId != null) {
       globalRef = owner.owner.getGlobalPropertyById(globalId);
     } else {
       if (type == null) {
-        type = PropertyType.ANY;
+        throw new UnsupportedOperationException("Type is not defined for property " + name);
       }
       globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
     }
 
-    mandatory = entity.containsField("mandatory") ? (Boolean) entity.field("mandatory") : false;
-    readonly = entity.containsField("readonly") ? (Boolean) entity.field("readonly") : false;
-    notNull = entity.containsField("notNull") ? (Boolean) entity.field("notNull") : false;
-    defaultValue = entity.containsField("defaultValue") ? entity.field("defaultValue") : null;
-    if (entity.containsField("collate")) {
-      collate = SQLEngine.getCollate(entity.field("collate"));
+    if (entity.hasProperty("mandatory")) {
+      mandatory = entity.getProperty("mandatory");
+    } else {
+      mandatory = false;
+    }
+    if (entity.hasProperty("readonly")) {
+      readonly = entity.getProperty("readonly");
+    } else {
+      readonly = false;
+    }
+    if (entity.hasProperty("notNull")) {
+      notNull = entity.getProperty("notNull");
+    } else {
+      notNull = false;
+    }
+    if (entity.hasProperty("defaultValue")) {
+      defaultValue = entity.getProperty("defaultValue");
+    } else {
+      defaultValue = null;
+    }
+    if (entity.hasProperty("collate")) {
+      collate = SQLEngine.getCollate(entity.getProperty("collate"));
     }
 
-    min = entity.containsField("min") ? entity.field("min") : null;
-    max = entity.containsField("max") ? entity.field("max") : null;
-    regexp = entity.containsField("regexp") ? entity.field("regexp") : null;
-    linkedClassName = entity.containsField("linkedClass") ? entity.field("linkedClass") : null;
-    linkedType =
-        entity.field("linkedType") != null
-            ? PropertyType.getById(((Integer) entity.field("linkedType")).byteValue())
-            : null;
-    if (entity.containsField("customFields")) {
-      customFields = entity.field("customFields", PropertyType.EMBEDDEDMAP);
+    if (entity.hasProperty("min")) {
+      min = entity.getProperty("min");
+    } else {
+      min = null;
+    }
+    if (entity.hasProperty("max")) {
+      max = entity.getProperty("max");
+    } else {
+      max = null;
+    }
+    if (entity.hasProperty("regexp")) {
+      regexp = entity.getProperty("regexp");
+    } else {
+      regexp = null;
+    }
+    if (entity.hasProperty("linkedClass")) {
+      linkedClassName = entity.getProperty("linkedClass");
+    } else {
+      linkedClassName = null;
+    }
+    if (entity.getProperty("linkedType") != null) {
+      linkedType =
+          PropertyTypeInternal.getById(((Integer) entity.getProperty("linkedType")).byteValue());
+    } else {
+      linkedType =
+          null;
+    }
+    if (entity.hasProperty("customFields")) {
+      customFields = entity.getProperty("customFields");
     } else {
       customFields = null;
     }
-    description = entity.containsField("description") ? entity.field("description") : null;
+    if (entity.hasProperty("description")) {
+      description = entity.getProperty("description");
+    } else {
+      description = null;
+    }
   }
 
-  @Override
-  public Collection<String> getAllIndexes(DatabaseSession session) {
+  public Collection<String> getAllIndexes(DatabaseSessionInternal session) {
     return getAllIndexesInternal(session).stream().map(Index::getName).toList();
   }
 
-  @Override
-  public Collection<Index> getAllIndexesInternal(DatabaseSession session) {
+  public Collection<Index> getAllIndexesInternal(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
-      final Set<Index> indexes = new HashSet<Index>();
+      final Set<Index> indexes = new HashSet<>();
       owner.getIndexesInternal(session, indexes);
 
-      final List<Index> indexList = new LinkedList<Index>();
-      for (final Index index : indexes) {
-        final IndexDefinition indexDefinition = index.getDefinition();
-        if (indexDefinition.getFields().contains(globalRef.getName())) {
+      final List<Index> indexList = new LinkedList<>();
+      for (final var index : indexes) {
+        final var indexDefinition = index.getDefinition();
+        if (indexDefinition.getProperties().contains(globalRef.getName())) {
           indexList.add(index);
         }
       }
@@ -694,38 +678,44 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
     }
   }
 
-  public EntityImpl toStream() {
-    EntityImpl entity = new EntityImpl();
-    entity.field("name", getName());
-    entity.field("type", getType().getId());
-    entity.field("globalId", globalRef.getId());
-    entity.field("mandatory", mandatory);
-    entity.field("readonly", readonly);
-    entity.field("notNull", notNull);
-    entity.field("defaultValue", defaultValue);
+  public Entity toStream(DatabaseSessionInternal session) {
+    var entity = session.newEmbeddedEntity();
+    entity.setProperty("name", getName());
+    entity.setProperty("type",
+        PropertyTypeInternal.convertFromPublicType(getType()).getId());
+    entity.setProperty("globalId", globalRef.getId());
+    entity.setProperty("mandatory", mandatory);
+    entity.setProperty("readonly", readonly);
+    entity.setProperty("notNull", notNull);
+    entity.setProperty("defaultValue", defaultValue);
 
-    entity.field("min", min);
-    entity.field("max", max);
+    entity.setProperty("min", min);
+    entity.setProperty("max", max);
     if (regexp != null) {
-      entity.field("regexp", regexp);
-    } else {
-      entity.removeField("regexp");
+      entity.setProperty("regexp", regexp);
     }
+
     if (linkedType != null) {
-      entity.field("linkedType", linkedType.getId());
+      entity.setProperty("linkedType", linkedType.getId());
     }
     if (linkedClass != null || linkedClassName != null) {
-      entity.field("linkedClass", linkedClass != null ? linkedClass.getName() : linkedClassName);
+      entity.setProperty("linkedClass",
+          linkedClass != null ? linkedClass.getName() : linkedClassName);
     }
 
-    entity.field(
-        "customFields",
-        customFields != null && customFields.size() > 0 ? customFields : null,
-        PropertyType.EMBEDDEDMAP);
-    if (collate != null) {
-      entity.field("collate", collate.getName());
+    if (customFields != null && customFields.isEmpty()) {
+      var storedCustomFields = entity.getOrCreateEmbeddedMap("customFields");
+      storedCustomFields.clear();
+      storedCustomFields.putAll(customFields);
+    } else {
+      entity.removeProperty("customFields");
     }
-    entity.field("description", description);
+
+    if (collate != null) {
+      entity.setProperty("collate", collate.getName());
+    }
+
+    entity.setProperty("description", description);
     return entity;
   }
 
@@ -742,15 +732,11 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
   }
 
   public void releaseSchemaWriteLock(DatabaseSessionInternal session) {
-    calculateHashCode();
     owner.releaseSchemaWriteLock(session);
   }
 
   public static void checkEmbedded(DatabaseSessionInternal session) {
-    if (session.isRemote()) {
-      throw new SchemaException(
-          "'Internal' schema modification methods can be used only inside of embedded database");
-    }
+
   }
 
   protected void checkForDateFormat(DatabaseSessionInternal session, final String iDateAsString) {
@@ -760,62 +746,26 @@ public abstract class SchemaPropertyImpl implements SchemaPropertyInternal {
           DateHelper.getDateFormatInstance(session).parse(iDateAsString);
         } catch (ParseException e) {
           throw BaseException.wrapException(
-              new SchemaException(
+              new SchemaException(session.getDatabaseName(),
                   "Invalid date format while formatting date '" + iDateAsString + "'"),
-              e);
+              e, session.getDatabaseName());
         }
       } else if (globalRef.getType() == PropertyType.DATETIME) {
         try {
           DateHelper.getDateTimeFormatInstance(session).parse(iDateAsString);
         } catch (ParseException e) {
           throw BaseException.wrapException(
-              new SchemaException(
+              new SchemaException(session.getDatabaseName(),
                   "Invalid datetime format while formatting date '" + iDateAsString + "'"),
-              e);
+              e, session.getDatabaseName());
         }
       }
     }
   }
 
-  @Override
+  public abstract void clearCustom(DatabaseSessionInternal session);
+
   public Integer getId() {
     return globalRef.getId();
-  }
-
-  public EntityImpl toNetworkStream() {
-    EntityImpl entity = new EntityImpl();
-    entity.setTrackingChanges(false);
-    entity.field("name", getName());
-    entity.field("type", getType().getId());
-    entity.field("globalId", globalRef.getId());
-    entity.field("mandatory", mandatory);
-    entity.field("readonly", readonly);
-    entity.field("notNull", notNull);
-    entity.field("defaultValue", defaultValue);
-
-    entity.field("min", min);
-    entity.field("max", max);
-    if (regexp != null) {
-      entity.field("regexp", regexp);
-    } else {
-      entity.removeField("regexp");
-    }
-    if (linkedType != null) {
-      entity.field("linkedType", linkedType.getId());
-    }
-    if (linkedClass != null || linkedClassName != null) {
-      entity.field("linkedClass", linkedClass != null ? linkedClass.getName() : linkedClassName);
-    }
-
-    entity.field(
-        "customFields",
-        customFields != null && customFields.size() > 0 ? customFields : null,
-        PropertyType.EMBEDDEDMAP);
-    if (collate != null) {
-      entity.field("collate", collate.getName());
-    }
-    entity.field("description", description);
-
-    return entity;
   }
 }

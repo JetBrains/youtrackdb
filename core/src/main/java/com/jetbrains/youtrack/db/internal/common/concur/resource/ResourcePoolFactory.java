@@ -56,14 +56,14 @@ public class ResourcePoolFactory<K, T> extends YouTrackDBListenerAbstract {
   public ResourcePool<K, T> get(final K key) {
     checkForClose();
 
-    ResourcePool<K, T> pool = poolStore.get(key);
+    var pool = poolStore.get(key);
     if (pool != null) {
       return pool;
     }
 
     pool = new ResourcePool<K, T>(maxPoolSize, objectFactoryFactory.create(key));
 
-    final ResourcePool<K, T> oldPool = poolStore.putIfAbsent(key, pool);
+    final var oldPool = poolStore.putIfAbsent(key, pool);
     if (oldPool != null) {
       pool.close();
       return oldPool;
@@ -94,10 +94,10 @@ public class ResourcePoolFactory<K, T> extends YouTrackDBListenerAbstract {
     closed = true;
 
     while (!poolStore.isEmpty()) {
-      final Iterator<ResourcePool<K, T>> poolIterator = poolStore.values().iterator();
+      final var poolIterator = poolStore.values().iterator();
 
       while (poolIterator.hasNext()) {
-        final ResourcePool<K, T> pool = poolIterator.next();
+        final var pool = poolIterator.next();
 
         try {
           pool.close();
@@ -109,7 +109,7 @@ public class ResourcePoolFactory<K, T> extends YouTrackDBListenerAbstract {
       }
     }
 
-    for (ResourcePool<K, T> pool : poolStore.values()) {
+    for (var pool : poolStore.values()) {
       pool.close();
     }
 

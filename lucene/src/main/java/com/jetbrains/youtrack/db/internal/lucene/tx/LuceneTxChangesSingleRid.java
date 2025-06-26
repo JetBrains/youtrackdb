@@ -19,8 +19,10 @@
 package com.jetbrains.youtrack.db.internal.lucene.tx;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.lucene.builder.LuceneIndexType;
 import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngine;
 import com.jetbrains.youtrack.db.internal.lucene.exception.LuceneIndexException;
@@ -54,7 +56,7 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
       writer.addDocument(doc);
     } catch (IOException e) {
       throw BaseException.wrapException(
-          new LuceneIndexException("unable to add entity to changes index"), e);
+          new LuceneIndexException("unable to add entity to changes index"), e, (String) null);
     }
   }
 
@@ -62,12 +64,12 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
       final Identifiable value) {
     try {
       if (value == null) {
-        writer.deleteDocuments(engine.deleteQuery(key, value));
-      } else if (value.getIdentity().isTemporary()) {
-        writer.deleteDocuments(engine.deleteQuery(key, value));
+        writer.deleteDocuments(engine.deleteQuery(session.getStorage(), key, value));
+      } else if (((RecordId) value.getIdentity()).isTemporary()) {
+        writer.deleteDocuments(engine.deleteQuery(session.getStorage(), key, value));
       } else {
         deleted.add(value.getIdentity().toString());
-        Document doc = engine.buildDocument(session, key, value);
+        var doc = engine.buildDocument(session, key, value);
         deletedDocs.add(doc);
         deletedIdx.addDocument(doc);
       }
@@ -75,7 +77,7 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
       throw BaseException.wrapException(
           new LuceneIndexException(
               "Error while deleting entities in transaction from lucene index"),
-          e);
+          e, (String) null);
     }
   }
 
@@ -87,7 +89,7 @@ public class LuceneTxChangesSingleRid extends LuceneTxChangesAbstract {
     return deletedDocs;
   }
 
-  public boolean isDeleted(Document document, Object key, Identifiable value) {
+  public boolean isDeleted(Storage storage, Document document, Object key, Identifiable value) {
     return deleted.contains(value.getIdentity().toString());
   }
 

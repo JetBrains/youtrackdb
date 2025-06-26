@@ -19,16 +19,18 @@ package com.jetbrains.youtrack.db.internal.lucene.engine;
 import static com.jetbrains.youtrack.db.internal.lucene.builder.LuceneQueryBuilder.EMPTY_METADATA;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
+import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
+import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrack.db.internal.core.index.IndexMetadata;
-import com.jetbrains.youtrack.db.internal.core.index.IndexEngineException;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ParseException;
@@ -46,7 +48,6 @@ import com.jetbrains.youtrack.db.internal.lucene.tx.LuceneTxChanges;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
@@ -54,14 +55,15 @@ import java.util.stream.Stream;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.SortField;
-import org.apache.lucene.search.highlight.TextFragment;
 import org.apache.lucene.store.Directory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(LuceneFullTextIndexEngine.class);
 
   private final LuceneDocumentBuilder builder;
   private LuceneQueryBuilder queryBuilder;
@@ -73,17 +75,17 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   }
 
   @Override
-  public void init(IndexMetadata im) {
-    super.init(im);
+  public void init(DatabaseSessionInternal session, IndexMetadata im) {
+    super.init(session, im);
     queryBuilder = new LuceneQueryBuilder(im.getMetadata());
   }
 
   @Override
   public IndexWriter createIndexWriter(Directory directory) throws IOException {
 
-    LuceneIndexWriterFactory fc = new LuceneIndexWriterFactory();
+    var fc = new LuceneIndexWriterFactory();
 
-    LogManager.instance().debug(this, "Creating Lucene index in '%s'...", directory);
+    LogManager.instance().debug(this, "Creating Lucene index in '%s'...", logger, directory);
 
     return fc.createIndexWriter(directory, metadata, indexAnalyzer());
   }
@@ -94,13 +96,13 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
       final ContextualRecordId recordId,
       final Document ret,
       final ScoreDoc score) {
-    HashMap<String, Object> data = new HashMap<String, Object>();
+    var data = new HashMap<String, Object>();
 
-    final Map<String, TextFragment[]> frag = queryContext.getFragments();
+    final var frag = queryContext.getFragments();
     frag.forEach(
         (key, fragments) -> {
-          final StringBuilder hlField = new StringBuilder();
-          for (final TextFragment fragment : fragments) {
+          final var hlField = new StringBuilder();
+          for (final var fragment : fragments) {
             if ((fragment != null) && (fragment.getScore() > 0)) {
               hlField.append(fragment);
             }
@@ -113,29 +115,30 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   }
 
   @Override
-  public boolean remove(final AtomicOperation atomicOperation, final Object key) {
-    return remove(key);
+  public boolean remove(Storage storage, final AtomicOperation atomicOperation,
+      final Object key) {
+    return remove(storage, key);
   }
 
   @Override
-  public Object get(DatabaseSessionInternal session, final Object key) {
-    return getInTx(session, key, null);
+  public Object get(DatabaseSessionEmbedded db, final Object key) {
+    return getInTx(db, key, null);
   }
 
   @Override
   public void update(
-      DatabaseSessionInternal session, final AtomicOperation atomicOperation,
+      DatabaseSessionInternal db, final AtomicOperation atomicOperation,
       final Object key,
       final IndexKeyUpdater<Object> updater) {
-    put(session, atomicOperation, key, updater.update(null, bonsayFileId).getValue());
+    put(db, atomicOperation, key, updater.update(null, bonsayFileId).getValue());
   }
 
   @Override
-  public void put(DatabaseSessionInternal session, final AtomicOperation atomicOperation,
+  public void put(DatabaseSessionInternal db, final AtomicOperation atomicOperation,
       final Object key, final Object value) {
     updateLastAccess();
-    openIfClosed();
-    final Document doc = buildDocument(session, key, (Identifiable) value);
+    openIfClosed(db.getStorage());
+    final var doc = buildDocument(db, key, (Identifiable) value);
     addDocument(doc);
   }
 
@@ -151,13 +154,13 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
 
   @Override
   public Stream<RawPair<Object, com.jetbrains.youtrack.db.api.record.RID>> iterateEntriesBetween(
-      DatabaseSessionInternal session, Object rangeFrom,
+      DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer) {
-    return LuceneIndexTransformer.transformToStream((LuceneResultSet) get(session, rangeFrom),
+    return LuceneIndexTransformer.transformToStream((LuceneResultSet) get(db, rangeFrom),
         rangeFrom);
   }
 
@@ -167,11 +170,12 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
       final LuceneTxChanges changes,
       final Map<String, ?> metadata) {
     // sort
-    final List<SortField> fields = LuceneIndexEngineUtils.buildSortFields(metadata);
-    final IndexSearcher luceneSearcher = searcher();
-    final LuceneQueryContext queryContext =
+    final var fields = LuceneIndexEngineUtils.buildSortFields(metadata);
+    var db = context.getDatabaseSession();
+    final var luceneSearcher = searcher(db.getStorage());
+    final var queryContext =
         new LuceneQueryContext(context, luceneSearcher, query, fields).withChanges(changes);
-    return new LuceneResultSet(this, queryContext, metadata);
+    return new LuceneResultSet(db, this, queryContext, metadata);
   }
 
   @Override
@@ -180,7 +184,7 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer) {
-    return null;
+    return Stream.empty();
   }
 
   @Override
@@ -189,22 +193,12 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer) {
-    return null;
+    return Stream.empty();
   }
 
   @Override
   public boolean hasRangeQuerySupport() {
     return false;
-  }
-
-  @Override
-  public void updateUniqueIndexVersion(Object key) {
-    // not implemented
-  }
-
-  @Override
-  public int getUniqueIndexVersion(Object key) {
-    return 0; // not implemented
   }
 
   @Override
@@ -220,25 +214,25 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   }
 
   private static Document putInManualindex(Object key, Identifiable oIdentifiable) {
-    Document doc = new Document();
+    var doc = new Document();
     doc.add(LuceneIndexType.createOldIdField(oIdentifiable));
     doc.add(LuceneIndexType.createIdField(oIdentifiable, key));
 
     if (key instanceof CompositeKey) {
 
-      List<Object> keys = ((CompositeKey) key).getKeys();
+      var keys = ((CompositeKey) key).getKeys();
 
-      int k = 0;
-      for (Object o : keys) {
+      var k = 0;
+      for (var o : keys) {
         doc.add(LuceneIndexType.createField("k" + k, o, Field.Store.YES));
         k++;
       }
     } else if (key instanceof Collection) {
       @SuppressWarnings("unchecked")
-      Collection<Object> keys = (Collection<Object>) key;
+      var keys = (Collection<Object>) key;
 
-      int k = 0;
-      for (Object o : keys) {
+      var k = 0;
+      for (var o : keys) {
         doc.add(LuceneIndexType.createField("k" + k, o, Field.Store.YES));
         k++;
       }
@@ -249,44 +243,51 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   }
 
   @Override
-  public Query buildQuery(final Object maybeQuery) {
+  public Query buildQuery(final Object maybeQuery, DatabaseSessionInternal session) {
     try {
       if (maybeQuery instanceof String) {
         return queryBuilder.query(indexDefinition, maybeQuery, EMPTY_METADATA,
-            queryAnalyzer());
+            queryAnalyzer(), session);
       } else {
-        LuceneKeyAndMetadata q = (LuceneKeyAndMetadata) maybeQuery;
-        return queryBuilder.query(indexDefinition, q.key, q.metadata, queryAnalyzer());
+        var q = (LuceneKeyAndMetadata) maybeQuery;
+        return queryBuilder.query(indexDefinition, q.key, q.metadata, queryAnalyzer(), session);
       }
     } catch (final ParseException e) {
-      throw BaseException.wrapException(new IndexEngineException("Error parsing query"), e);
+      throw BaseException.wrapException(new IndexEngineException(null, "Error parsing query"), e,
+          (String) null);
     }
   }
 
   @Override
-  public Set<Identifiable> getInTx(DatabaseSessionInternal session, Object key,
+  public Set<Identifiable> getInTx(DatabaseSessionEmbedded session, Object key,
       LuceneTxChanges changes) {
     updateLastAccess();
-    openIfClosed();
+    openIfClosed(session.getStorage());
     try {
       if (key instanceof LuceneKeyAndMetadata q) {
-        Query query = queryBuilder.query(indexDefinition, q.key, q.metadata, queryAnalyzer());
+        var query = queryBuilder.query(indexDefinition, q.key, q.metadata, queryAnalyzer(),
+            session);
 
-        CommandContext commandContext = q.key.getContext();
+        var commandContext = q.key.getContext();
         return getResults(query, commandContext, changes, q.metadata);
 
       } else {
-        Query query = queryBuilder.query(indexDefinition, key, EMPTY_METADATA,
-            queryAnalyzer());
+        var query = queryBuilder.query(indexDefinition, key, EMPTY_METADATA,
+            queryAnalyzer(), session);
 
         CommandContext commandContext = null;
         if (key instanceof LuceneCompositeKey) {
           commandContext = ((LuceneCompositeKey) key).getContext();
+        } else {
+          commandContext = new BasicCommandContext();
+          commandContext.setDatabaseSession(session);
         }
         return getResults(query, commandContext, changes, EMPTY_METADATA);
       }
     } catch (ParseException e) {
-      throw BaseException.wrapException(new IndexEngineException("Error parsing lucene query"), e);
+      throw BaseException.wrapException(
+          new IndexEngineException(session.getDatabaseName(), "Error parsing lucene query"),
+          e, session);
     }
   }
 }

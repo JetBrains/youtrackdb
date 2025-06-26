@@ -1,26 +1,24 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.Collection;
 import java.util.Collections;
-import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  *
  */
-public class SQLFunctionOut extends SQLFunctionMoveFiltered {
+public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphNavigationFunction {
 
   public static final String NAME = "out";
 
@@ -30,12 +28,20 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
 
   @Override
   protected Object move(
-      final DatabaseSession graph, final Identifiable iRecord, final String[] iLabels) {
-    return v2v(graph, iRecord, Direction.OUT, iLabels);
+      final DatabaseSessionEmbedded graph, final Identifiable record, final String[] labels) {
+    return v2v(graph, record, Direction.OUT, labels);
   }
 
+  @Override
+  protected Object move(DatabaseSessionEmbedded db,
+      Relation<?> bidirectionalRelation, String[] labels) {
+    throw new UnsupportedOperationException(
+        "Function 'out' is not supported for bidirectional links");
+  }
+
+  @Override
   protected Object move(
-      final DatabaseSession graph,
+      final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final String[] iLabels,
       Iterable<Identifiable> iPossibleResults) {
@@ -47,11 +53,11 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
       return Collections.emptyList();
     }
 
-    Object edges = v2e(graph, iRecord, Direction.OUT, iLabels);
-    if (edges instanceof Sizeable) {
-      int size = ((Sizeable) edges).size();
+    var edges = v2e(graph, iRecord, Direction.OUT, iLabels);
+    if (edges instanceof Sizeable sizeable && sizeable.isSizeable()) {
+      var size = sizeable.size();
       if (size > supernodeThreshold) {
-        Object result = fetchFromIndex(graph, iRecord, iPossibleResults, iLabels);
+        var result = fetchFromIndex(graph, iRecord, iPossibleResults, iLabels);
         if (result != null) {
           return result;
         }
@@ -61,8 +67,9 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
     return v2v(graph, iRecord, Direction.OUT, iLabels);
   }
 
-  private Object fetchFromIndex(
-      DatabaseSession graph,
+  @Nullable
+  private static Object fetchFromIndex(
+      DatabaseSessionEmbedded session,
       Identifiable iFrom,
       Iterable<Identifiable> iTo,
       String[] iEdgeTypes) {
@@ -74,32 +81,46 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered {
     } else {
       return null;
     }
-    SchemaClassInternal edgeClass =
-        ((DatabaseSessionInternal) graph)
+    var edgeClass =
+        session
             .getMetadata()
             .getImmutableSchemaSnapshot()
             .getClassInternal(edgeClassName);
     if (edgeClass == null) {
       return null;
     }
-    Set<Index> indexes = edgeClass.getInvolvedIndexesInternal(graph, "out", "in");
+    var indexes = edgeClass.getInvolvedIndexesInternal(session, "out", "in");
     if (indexes == null || indexes.isEmpty()) {
       return null;
     }
-    Index index = indexes.iterator().next();
+    var index = indexes.iterator().next();
 
-    MultiCollectionIterator<Vertex> result = new MultiCollectionIterator<Vertex>();
-    for (Identifiable to : iTo) {
-      final CompositeKey key = new CompositeKey(iFrom, to);
-      try (Stream<RID> stream = index.getInternal()
-          .getRids((DatabaseSessionInternal) graph, key)) {
+    var result = new MultiCollectionIterator<Vertex>();
+    for (var to : iTo) {
+      final var key = new CompositeKey(iFrom, to);
+      try (var stream = index
+          .getRids(session, key)) {
         result.add(
             stream
-                .map((rid) -> ((EntityImpl) rid.getRecord()).rawField("in"))
+                .map((rid) -> {
+                  var transaction = session.getActiveTransaction();
+                  EntityImpl entity = transaction.load(rid);
+                  return entity.getProperty("in");
+                })
                 .collect(Collectors.toSet()));
       }
     }
 
     return result;
+  }
+
+  @Nullable
+  @Override
+  public Collection<String> propertyNamesForIndexCandidates(String[] labels,
+      SchemaClass schemaClass,
+      boolean polymorphic, DatabaseSessionEmbedded session) {
+    return SQLGraphNavigationFunction.propertiesForV2VNavigation(schemaClass, session,
+        Direction.OUT,
+        labels);
   }
 }

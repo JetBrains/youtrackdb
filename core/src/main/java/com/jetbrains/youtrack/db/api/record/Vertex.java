@@ -19,10 +19,9 @@
  */
 package com.jetbrains.youtrack.db.api.record;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.util.Set;
-import javax.annotation.Nullable;
 
 /**
  * Vertex interface represents a vertex in a graph database. Unlike non-typed record it treats some
@@ -30,6 +29,7 @@ import javax.annotation.Nullable;
  * {@code #DIRECTION_IN_PREFIX} and {@code #DIRECTION_OUT_PREFIX} are considered as booked and
  * should not be used by users directly.
  */
+@SuppressWarnings({"UnusedReturnValue", "unused"})
 public interface Vertex extends Entity {
 
   /**
@@ -46,83 +46,6 @@ public interface Vertex extends Entity {
    * A constant variable representing the prefix used for inbound edges in a graph.
    */
   String DIRECTION_IN_PREFIX = "in_";
-
-  /**
-   * Returns the names of defined properties except of properties used to manage edges.
-   *
-   * @return all the names of defined properties
-   */
-  Set<String> getPropertyNames();
-
-  /**
-   * Gets a property given its name. if the property name starts with {@link #DIRECTION_IN_PREFIX}
-   * or {@link #DIRECTION_OUT_PREFIX} method throws {@link IllegalArgumentException}. Those names
-   * are used to manage edges.
-   *
-   * @param name the property name
-   * @return Returns the property value
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  <RET> RET getProperty(String name);
-
-  /**
-   * This method similar to {@link #getProperty(String)} bun unlike before mentioned method it does
-   * not load link automatically. if the property name starts with {@link #DIRECTION_IN_PREFIX} or
-   * {@link #DIRECTION_OUT_PREFIX} method throws {@link IllegalArgumentException}. Those names are
-   * used to manage edges.
-   *
-   * @param name the name of the link property
-   * @return the link property value, or null if the property does not exist
-   * @throws IllegalArgumentException if booked property name is used or requested property is not a
-   *                                  link.
-   * @see #getProperty(String)
-   */
-  @Nullable
-  @Override
-  Identifiable getLinkProperty(String name);
-
-  /**
-   * Check if a property exists in the Element. if the property name starts with
-   * {@link #DIRECTION_IN_PREFIX} or {@link #DIRECTION_OUT_PREFIX} method throws
-   * {@link IllegalArgumentException}. Those names are used to manage edges.
-   *
-   * @param propertyName Name of the property to check.
-   * @return true if exists otherwise false.
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  boolean hasProperty(final String propertyName);
-
-  /**
-   * Sets a property value, if the property name starts with {@link #DIRECTION_IN_PREFIX} or
-   * {@link #DIRECTION_OUT_PREFIX} update of such property is aborted. Those names are used to
-   *
-   * @param name  the property name
-   * @param value the property value
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  void setProperty(String name, Object value);
-
-  /**
-   * Sets a property value, if the property name starts with {@link #DIRECTION_IN_PREFIX} or
-   * {@link #DIRECTION_OUT_PREFIX} update of such property is aborted. Those names are used to
-   * manage edges.
-   *
-   * @param name      the property name
-   * @param value     the property value
-   * @param fieldType Forced type (not auto-determined)
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  void setProperty(String name, Object value, PropertyType... fieldType);
-
-  /**
-   * Remove a property, if the property name starts with {@link #DIRECTION_IN_PREFIX} or
-   * {@link #DIRECTION_OUT_PREFIX} removal of such property is aborted. Those names are used to
-   * manage edges.
-   *
-   * @param name the property name
-   * @throws IllegalArgumentException if booked property name is used.
-   */
-  <RET> RET removeProperty(String name);
 
   /**
    * Returns the names of the edges connected to the vertex in both directions. It is identical to
@@ -197,41 +120,39 @@ public interface Vertex extends Entity {
   Iterable<Vertex> getVertices(Direction direction, SchemaClass... label);
 
   /**
-   * Adds a regular edge between the current vertex and the specified vertex. Edge will be created
+   * Adds a stateful edge between the current vertex and the specified vertex. Edge will be created
    * without any specific label. It is recommended to use labeled edges instead.
    *
    * @param to the vertex to which the edge is connected
    * @return the created edge
-   *
-   * @see com.jetbrains.youtrack.db.api.DatabaseSession#createEdgeClass(String)
+   * @see Schema#createEdgeClass(String)
    */
-  Edge addRegularEdge(Vertex to);
+  StatefulEdge addStateFulEdge(Vertex to);
 
 
   /**
    * Adds an edge between the current vertex and the specified vertex. If label of this edge is
-   * related to abstract class it will be created as lightweight edge, otherwise as regular edge.
+   * related to abstract class it will be created as lightweight edge, otherwise as stateful edge.
    *
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge (optional)
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.DatabaseSession#createEdgeClass(String)
-   * @see com.jetbrains.youtrack.db.api.DatabaseSession#createLightweightEdgeClass(String)
+   * @see Schema#createEdgeClass(String)
+   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addEdge(Vertex to, String label);
 
   /**
-   * Adds a regular edge between the current vertex and the specified vertex with the given label.
+   * Adds a stateful edge between the current vertex and the specified vertex with the given label.
    * Label of this edge should be related to  non-abstract class (class with given name should
    * exist).
    *
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge
    * @return the created edge
-   *
-   * @see com.jetbrains.youtrack.db.api.DatabaseSession#createEdgeClass(String)
+   * @see Schema#createEdgeClass(String)
    */
-  Edge addRegularEdge(Vertex to, String label);
+  StatefulEdge addStateFulEdge(Vertex to, String label);
 
   /**
    * Adds a lightweight edge (one that does not require associated record) between the current
@@ -241,25 +162,25 @@ public interface Vertex extends Entity {
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge (optional)
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.DatabaseSession#createLightweightEdgeClass(String)
+   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addLightWeightEdge(Vertex to, String label);
 
   /**
    * Adds an edge between the current vertex and the specified vertex with the given label. If label
    * of this edge is related to abstract class it will be created as lightweight edge, otherwise as
-   * regular edge.
+   * stateful edge.
    *
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.DatabaseSession#createEdgeClass(String)
-   * @see com.jetbrains.youtrack.db.api.DatabaseSession#createLightweightEdgeClass(String)
+   * @see Schema#createEdgeClass(String)
+   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addEdge(Vertex to, SchemaClass label);
 
   /**
-   * Adds a regular edge between the current vertex and the specified vertex with the given label.
+   * Adds a stateful edge between the current vertex and the specified vertex with the given label.
    * Label of this edge should be related to non-abstract class (class with given name should
    * exist).
    *
@@ -267,7 +188,7 @@ public interface Vertex extends Entity {
    * @param label the label of the edge
    * @return the created edge
    */
-  Edge addRegularEdge(Vertex to, SchemaClass label);
+  StatefulEdge addStateFulEdge(Vertex to, SchemaClass label);
 
   /**
    * Adds a lightweight edge (one that does not require associated record) between the current
@@ -277,18 +198,9 @@ public interface Vertex extends Entity {
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.DatabaseSession#createLightweightEdgeClass(String)
+   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addLightWeightEdge(Vertex to, SchemaClass label);
-
-  /**
-   * Moves the vertex to the specified class and cluster.
-   *
-   * @param className   the name of the class to move the vertex to
-   * @param clusterName the name of the cluster to move the vertex to
-   * @return the new RecordID of the moved vertex
-   */
-  RID moveTo(final String className, final String clusterName);
 
   /**
    * Removes all edges connected to the vertex in the given direction.
@@ -321,22 +233,9 @@ public interface Vertex extends Entity {
   /**
    * Deletes the current vertex.
    */
+  @Override
   void delete();
 
-  /**
-   * Creates a copy of the current vertex.
-   *
-   * @return a copy of the current vertex
-   */
-  Vertex copy();
-
-  /**
-   * @return reference to current instance.
-   */
-  @Override
-  default Vertex toVertex() {
-    return this;
-  }
 
   /**
    * Returns the name of the field used to store the link to the edge record.
@@ -351,7 +250,7 @@ public interface Vertex extends Entity {
     }
 
     // PREFIX "out_" or "in_" TO THE FIELD NAME
-    final String prefix = direction == Direction.OUT ? DIRECTION_OUT_PREFIX : DIRECTION_IN_PREFIX;
+    final var prefix = direction == Direction.OUT ? DIRECTION_OUT_PREFIX : DIRECTION_IN_PREFIX;
     if (className == null || className.isEmpty() || className.equals(Edge.CLASS_NAME)) {
       return prefix;
     }

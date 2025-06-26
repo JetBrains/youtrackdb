@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
@@ -55,7 +55,7 @@ public abstract class QueryOperatorEqualityNotNulls extends QueryOperatorEqualit
 
   @Override
   public Object evaluateRecord(
-      final Identifiable iRecord,
+      final Result iRecord,
       EntityImpl iCurrentResult,
       final SQLFilterCondition iCondition,
       final Object iLeft,

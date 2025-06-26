@@ -21,29 +21,29 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command;
 
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import java.util.Map;
 
 public abstract class ServerCommandDocumentAbstract extends ServerCommandAuthenticatedDbAbstract {
 
   protected String bindToFields(
-      final OHttpRequest iRequest, final Map<String, String> iFields, final RecordId iRid)
+      final HttpRequest iRequest, final Map<String, String> iFields, final RecordId iRid)
       throws Exception {
     if (iRequest.getContent() == null) {
       throw new IllegalArgumentException("HTTP Request content is empty");
     }
 
-    final String req = iRequest.getContent();
+    final var req = iRequest.getContent();
 
     // PARSE PARAMETERS
     String className = null;
 
-    final String[] params = req.split("&");
+    final var params = req.split("&");
     String value;
 
-    for (String p : params) {
+    for (var p : params) {
       if (StringSerializerHelper.contains(p, '=')) {
-        String[] pairs = p.split("=");
+        var pairs = p.split("=");
         value = pairs.length == 1 ? null : pairs[1];
 
         if ("0".equals(pairs[0]) && iRid != null) {

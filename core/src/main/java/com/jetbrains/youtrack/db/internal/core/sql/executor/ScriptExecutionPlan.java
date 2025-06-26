@@ -12,6 +12,8 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionS
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -44,6 +46,10 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
 
   @Override
   public void close() {
+    for (var step : steps) {
+      step.close();
+    }
+
     lastStep.close();
   }
 
@@ -58,7 +64,7 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
       executeUntilReturn();
       executed = true;
       List<Result> collected = new ArrayList<>();
-      ExecutionStream results = lastStep.start(ctx);
+      var results = lastStep.start(ctx);
       while (results.hasNext(ctx)) {
         collected.add(results.next(ctx));
       }
@@ -71,9 +77,9 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public String prettyPrint(int depth, int indent) {
-    StringBuilder result = new StringBuilder();
-    for (int i = 0; i < steps.size(); i++) {
+  public @Nonnull String prettyPrint(int depth, int indent) {
+    var result = new StringBuilder();
+    for (var i = 0; i < steps.size(); i++) {
       ExecutionStepInternal step = steps.get(i);
       result.append(step.prettyPrint(depth, indent));
       if (i < steps.size() - 1) {
@@ -84,8 +90,8 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
   }
 
   public void chain(InternalExecutionPlan nextPlan, boolean profilingEnabled) {
-    ScriptLineStep lastStep = steps.size() == 0 ? null : steps.get(steps.size() - 1);
-    ScriptLineStep nextStep = new ScriptLineStep(nextPlan, ctx, profilingEnabled);
+    var lastStep = steps.size() == 0 ? null : steps.get(steps.size() - 1);
+    var nextStep = new ScriptLineStep(nextPlan, ctx, profilingEnabled);
     if (lastStep != null) {
       lastStep.setNext(nextStep);
       nextStep.setPrevious(lastStep);
@@ -95,7 +101,7 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public List<ExecutionStep> getSteps() {
+  public @Nonnull List<ExecutionStep> getSteps() {
     // TODO do a copy of the steps
     return (List) steps;
   }
@@ -105,9 +111,8 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public Result toResult(DatabaseSession db) {
-    var session = (DatabaseSessionInternal) db;
-    ResultInternal result = new ResultInternal(session);
+  public @Nonnull Result toResult(@Nullable DatabaseSession session) {
+    var result = new ResultInternal((DatabaseSessionInternal) session);
 
     result.setProperty("type", "ScriptExecutionPlan");
     result.setProperty("javaType", getClass().getName());
@@ -153,16 +158,16 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
     if (steps.size() > 0) {
       lastStep = steps.get(steps.size() - 1);
     }
-    for (int i = 0; i < steps.size() - 1; i++) {
-      ScriptLineStep step = steps.get(i);
+    for (var i = 0; i < steps.size() - 1; i++) {
+      var step = steps.get(i);
       if (step.containsReturn()) {
-        ExecutionStepInternal returnStep = step.executeUntilReturn(ctx);
+        var returnStep = step.executeUntilReturn(ctx);
         if (returnStep != null) {
           lastStep = returnStep;
           return lastStep;
         }
       }
-      ExecutionStream lastResult = step.start(ctx);
+      var lastResult = step.start(ctx);
 
       while (lastResult.hasNext(ctx)) {
         lastResult.next(ctx);
@@ -179,16 +184,17 @@ public class ScriptExecutionPlan implements InternalExecutionPlan {
    *
    * @return
    */
+  @Nullable
   public ExecutionStepInternal executeFull() {
-    for (int i = 0; i < steps.size(); i++) {
-      ScriptLineStep step = steps.get(i);
+    for (var i = 0; i < steps.size(); i++) {
+      var step = steps.get(i);
       if (step.containsReturn()) {
-        ExecutionStepInternal returnStep = step.executeUntilReturn(ctx);
+        var returnStep = step.executeUntilReturn(ctx);
         if (returnStep != null) {
           return returnStep;
         }
       }
-      ExecutionStream lastResult = step.start(ctx);
+      var lastResult = step.start(ctx);
 
       while (lastResult.hasNext(ctx)) {
         lastResult.next(ctx);

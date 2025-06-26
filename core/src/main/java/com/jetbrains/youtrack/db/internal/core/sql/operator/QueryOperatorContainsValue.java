@@ -20,25 +20,23 @@
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
-import com.jetbrains.youtrack.db.internal.core.index.IndexInternal;
 import com.jetbrains.youtrack.db.internal.core.index.PropertyMapIndexDefinition;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
 /**
  * CONTAINS KEY operator.
@@ -58,17 +56,18 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public Stream<RawPair<Object, RID>> executeIndexQuery(
       CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    final IndexDefinition indexDefinition = index.getDefinition();
+    final var indexDefinition = index.getDefinition();
 
-    final IndexInternal internalIndex = index.getInternal();
     Stream<RawPair<Object, RID>> stream;
-    if (!internalIndex.canBeUsedInEqualityOperators()) {
+    if (!index.canBeUsedInEqualityOperators()) {
       return null;
     }
 
+    var transaction = iContext.getDatabaseSession().getActiveTransaction();
     if (indexDefinition.getParamCount() == 1) {
       if (!((indexDefinition instanceof PropertyMapIndexDefinition)
           && ((PropertyMapIndexDefinition) indexDefinition).getIndexBy()
@@ -76,20 +75,20 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
         return null;
       }
 
-      final Object key =
+      final var key =
           ((IndexDefinitionMultiValue) indexDefinition)
-              .createSingleValue(iContext.getDatabase(), keyParams.get(0));
+              .createSingleValue(transaction, keyParams.getFirst());
 
       if (key == null) {
         return null;
       }
 
-      stream = index.getInternal().getRids(iContext.getDatabase(), key)
+      stream = index.getRids(iContext.getDatabaseSession(), key)
           .map((rid) -> new RawPair<>(key, rid));
     } else {
       // in case of composite keys several items can be returned in case of we perform search
       // using part of composite key stored in index.
-      final CompositeIndexDefinition compositeIndexDefinition =
+      final var compositeIndexDefinition =
           (CompositeIndexDefinition) indexDefinition;
 
       if (!((compositeIndexDefinition.getMultiValueDefinition()
@@ -101,22 +100,22 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
       }
 
       final Object keyOne =
-          compositeIndexDefinition.createSingleValue(iContext.getDatabase(), keyParams);
+          compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
       if (keyOne == null) {
         return null;
       }
 
-      if (internalIndex.hasRangeQuerySupport()) {
+      if (index.hasRangeQuerySupport()) {
         final Object keyTwo =
-            compositeIndexDefinition.createSingleValue(iContext.getDatabase(), keyParams);
+            compositeIndexDefinition.createSingleValue(transaction, keyParams);
 
-        stream = index.getInternal()
-            .streamEntriesBetween(iContext.getDatabase(), keyOne, true, keyTwo, true,
+        stream = index
+            .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
                 ascSortOrder);
       } else {
         if (indexDefinition.getParamCount() == keyParams.size()) {
-          stream = index.getInternal().getRids(iContext.getDatabase(), keyOne)
+          stream = index.getRids(iContext.getDatabaseSession(), keyOne)
               .map((rid) -> new RawPair<>(keyOne, rid));
         } else {
           return null;
@@ -124,15 +123,17 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
       }
     }
 
-    updateProfiler(iContext, index, keyParams, indexDefinition);
+    updateProfiler(iContext, index, keyParams);
     return stream;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
@@ -141,7 +142,7 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
   @Override
   @SuppressWarnings("unchecked")
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       Object iRight,
@@ -155,49 +156,53 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
       condition = null;
     }
 
-    PropertyType type = null;
+    var session = iContext.getDatabaseSession();
+    PropertyTypeInternal type = null;
     if (iCondition.getLeft() instanceof SQLFilterItemField
         && ((SQLFilterItemField) iCondition.getLeft()).isFieldChain()
         && ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemCount() == 1) {
-      String fieldName =
+      var fieldName =
           ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemName(0);
       if (fieldName != null) {
-        Object record = iRecord.getRecord();
-        if (record instanceof EntityImpl) {
-          SchemaProperty property =
-              EntityInternalUtils.getImmutableSchemaClass(((EntityImpl) record))
+        if (iRecord.isEntity()) {
+          SchemaImmutableClass result;
+          var entity = iRecord.asEntity();
+          result = ((EntityImpl) entity).getImmutableSchemaClass(session);
+          var property =
+              result
                   .getProperty(fieldName);
-          if (property != null && property.getType().isMultiValue()) {
-            type = property.getLinkedType();
+          if (property != null && PropertyTypeInternal.convertFromPublicType(property.getType())
+              .isMultiValue()) {
+            type = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
           }
         }
       }
     }
 
     if (type != null) {
-      iRight = PropertyType.convert(iContext.getDatabase(), iRight, type.getDefaultJavaType());
+      iRight = type.convert(iRight, null, null, iContext.getDatabaseSession());
     }
 
     if (iLeft instanceof Map<?, ?>) {
-      final Map<String, ?> map = (Map<String, ?>) iLeft;
+      final var map = (Map<String, ?>) iLeft;
 
       if (condition != null) {
         // CHECK AGAINST A CONDITION
-        for (Object o : map.values()) {
+        for (var o : map.values()) {
           if ((Boolean) condition.evaluate((EntityImpl) o, null, iContext)) {
             return true;
           }
         }
       } else {
-        for (Object val : map.values()) {
-          Object convertedRight = iRight;
+        for (var val : map.values()) {
+          var convertedRight = iRight;
           if (val instanceof EntityImpl && iRight instanceof Map) {
             val = ((EntityImpl) val).toMap();
           }
           if (val instanceof Map && iRight instanceof EntityImpl) {
             convertedRight = ((EntityImpl) iRight).toMap();
           }
-          if (QueryOperatorEquals.equals(iContext.getDatabase(), val, convertedRight)) {
+          if (QueryOperatorEquals.equals(iContext.getDatabaseSession(), val, convertedRight)) {
             return true;
           }
         }
@@ -205,12 +210,12 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
       }
 
     } else if (iRight instanceof Map<?, ?>) {
-      final Map<String, ?> map = (Map<String, ?>) iRight;
+      final var map = (Map<String, ?>) iRight;
 
       if (condition != null)
       // CHECK AGAINST A CONDITION
       {
-        for (Object o : map.values()) {
+        for (var o : map.values()) {
           if ((Boolean) condition.evaluate((EntityImpl) o, null, iContext)) {
             return true;
           } else {

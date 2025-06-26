@@ -17,6 +17,7 @@
 package com.jetbrains.youtrack.db.internal.core.schedule;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 import java.util.Map;
@@ -29,7 +30,7 @@ import java.util.Map;
 public class SchedulerProxy extends ProxedResource<SchedulerImpl> implements Scheduler {
 
   public SchedulerProxy(final SchedulerImpl iDelegate,
-      final DatabaseSessionInternal iDatabase) {
+      final DatabaseSessionEmbedded iDatabase) {
     super(iDelegate, iDatabase);
   }
 
@@ -60,7 +61,7 @@ public class SchedulerProxy extends ProxedResource<SchedulerImpl> implements Sch
 
   @Override
   public void load() {
-    delegate.load(database);
+    delegate.load(session);
   }
 
   @Override
@@ -70,6 +71,6 @@ public class SchedulerProxy extends ProxedResource<SchedulerImpl> implements Sch
 
   @Override
   public void create() {
-    SchedulerImpl.create(database);
+    SchedulerImpl.create(session);
   }
 }

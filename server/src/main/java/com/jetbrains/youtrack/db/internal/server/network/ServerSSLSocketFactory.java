@@ -18,7 +18,7 @@ package com.jetbrains.youtrack.db.internal.server.network;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -60,7 +60,7 @@ public class ServerSSLSocketFactory extends ServerSocketFactory {
   public void config(String name, final ServerParameterConfiguration[] iParameters) {
 
     super.config(name, iParameters);
-    for (ServerParameterConfiguration param : iParameters) {
+    for (var param : iParameters) {
       if (param.name.equalsIgnoreCase(PARAM_NETWORK_SSL_CLIENT_AUTH)) {
         clientAuth = Boolean.parseBoolean(param.value);
       } else if (param.name.equalsIgnoreCase(PARAM_NETWORK_SSL_KEYSTORE)) {
@@ -121,14 +121,14 @@ public class ServerSSLSocketFactory extends ServerSocketFactory {
   protected SSLContext getSSLContext() {
 
     try {
-      SSLContext context = SSLContext.getInstance("TLS");
+      var context = SSLContext.getInstance("TLS");
 
-      KeyManagerFactory kmf =
+      var kmf =
           KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
 
-      KeyStore keyStore = KeyStore.getInstance(keyStoreType);
-      char[] keyStorePass = keyStorePassword.toCharArray();
-      ServerSSLCertificateManager serverSSLCertificateManager =
+      var keyStore = KeyStore.getInstance(keyStoreType);
+      var keyStorePass = keyStorePassword.toCharArray();
+      var serverSSLCertificateManager =
           ServerSSLCertificateManager.getInstance(this, keyStore, keyStoreFile, keyStorePass);
       serverSSLCertificateManager.loadKeyStoreForSSLSocket();
       kmf.init(keyStore, keyStorePass);
@@ -136,8 +136,8 @@ public class ServerSSLSocketFactory extends ServerSocketFactory {
       TrustManagerFactory tmf = null;
       if (trustStoreFile != null) {
         tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-        KeyStore trustStore = KeyStore.getInstance(trustStoreType);
-        char[] trustStorePass = trustStorePassword.toCharArray();
+        var trustStore = KeyStore.getInstance(trustStoreType);
+        var trustStorePass = trustStorePassword.toCharArray();
         serverSSLCertificateManager.loadTrustStoreForSSLSocket(
             trustStore, trustStoreFile, trustStorePass);
         tmf.init(trustStore);
@@ -149,7 +149,7 @@ public class ServerSSLSocketFactory extends ServerSocketFactory {
 
     } catch (Exception e) {
       throw BaseException.wrapException(
-          new ConfigurationException("Failed to create SSL context"), e);
+          new ConfigurationException("Failed to create SSL context"), e, (String) null);
     }
   }
 

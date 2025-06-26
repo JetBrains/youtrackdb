@@ -19,7 +19,7 @@
 
 options {
 	  TRACK_TOKENS = true;
-  	JDK_VERSION = "1.8";
+  	JDK_VERSION = "21";
   	MULTI=true;
   	VISITOR=true;
   	STATIC=false;
@@ -96,8 +96,6 @@ MORE :
 TOKEN:
 {
 	< SELECT: ( "s" | "S" ) ( "e" | "E" ) ( "l" | "L" ) ( "e" | "E" ) ( "c" | "C" ) ( "t" | "T" ) >
-	|
-	< TRAVERSE: ( "t" | "T") ( "r" | "R") ( "a" | "A") ( "v" | "V") ( "e" | "E") ( "r" | "R") ( "s" | "S") ( "e" | "E") >
 	|
 	< MATCH: ( "m" | "M" ) ( "a" | "A" ) ( "t" | "T" ) ( "c" | "C" ) ( "h" | "H" ) >
 	|
@@ -245,13 +243,7 @@ TOKEN:
 	|
 	< POLYMORPHIC: ( "p" | "P" ) ( "o" | "O" ) ( "l" | "L" ) ( "y" | "Y" ) ( "m" | "M" ) ( "o" | "O" ) ( "r" | "R" ) ( "p" | "P" ) ( "h" | "H" ) ( "i" | "I" ) ( "c" | "C" ) >
 	|
-	< FIND: ( "f" | "F" ) ( "i" | "I" ) ( "n" | "N" ) ( "d" | "D" ) >
-	|
-	< REFERENCES: ( "r" | "R" ) ( "e" | "E" ) ( "f" | "F" ) ( "e" | "E" ) ( "r" | "R" ) ( "e" | "E" ) ( "n" | "N" ) ( "c" | "C" ) ( "e" | "E" ) ( "s" | "S" ) >
-	|
 	< EXTENDS: ( "e" | "E" ) ( "x" | "X" ) ( "t" | "T" ) ( "e" | "E" ) ( "n" | "N" ) ( "d" | "D" ) ( "s" | "S" ) >
-	|
-	< CLUSTERS: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) ( "S" | "s" ) >
 	|
 	< ABSTRACT: ( "a" | "A" ) ( "b" | "B" ) ( "s" | "S" ) ( "T" | "t" ) ( "R" | "r" ) ( "a" | "A" ) ( "C" | "c" ) ( "T" | "t" ) >
 	|
@@ -259,17 +251,9 @@ TOKEN:
 	|
 	< NAME: ("n" | "N") ( "a" | "A" ) ( "m" | "M" ) ( "e" | "E" ) >
 	|
-	< SHORTNAME: ( "s" | "S" ) ( "h" | "H" ) ( "o" | "O" ) ( "r" | "R" ) ( "t" | "T" ) ("n" | "N") ( "a" | "A" ) ( "m" | "M" ) ( "e" | "E" ) >
-	|
 	< STRICT_MODE: ( "s" | "S" ) ( "t" | "T" ) ( "r" | "R" ) ( "i" | "I" ) ( "C" | "c" ) ( "T" | "t" ) ("_") ( "m" | "M" ) ( "o" | "O" ) ( "d" | "D" ) ( "e" | "E" ) >
 	|
-	< ADD_CLUSTER: ( "a" | "A" ) ( "d" | "D" ) ( "d" | "D" ) ("_") ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) >
-	|
-	< REMOVE_CLUSTER: ( "r" | "R" ) ( "e" | "E" ) ( "m" | "M" ) ( "o" | "O" ) ( "v" | "V" ) ( "e" | "E" ) ("_") ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) >
-	|
 	< CUSTOM: ( "c" | "C" ) ( "u" | "U" ) ( "s" | "S" ) ( "t" | "T" ) ( "o" | "O" ) ( "m" | "M" ) >
-	|
-	< CLUSTER_SELECTION: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) ("_") ( "s" | "S" ) ( "e" | "E" ) ( "l" | "L" ) ( "e" | "E" ) ( "c" | "C" ) ( "t" | "T" ) ( "i" | "I" ) ( "o" | "O" ) ( "n" | "N" ) >
 	|
 	< DESCRIPTION: ( "d" | "D" ) ( "E" | "e" )  ( "s" | "S" ) ( "c" | "C" ) ( "r" | "R" ) ( "i" | "I" ) ( "p" | "P" ) ( "t" | "T" ) ( "i" | "I" ) ( "o" | "O" ) ( "n" | "N" ) >
 	|
@@ -368,8 +352,6 @@ TOKEN:
 	< EXISTS: ( "E" | "e" ) ( "X" | "x" ) ( "i" | "I" ) ( "s" | "S" ) ( "t" | "T" ) ( "s" | "S" ) >
 	|
 	< FOREACH: ( "F" | "f" ) ( "O" | "o" ) ( "R" | "r" ) ( "E" | "e" ) ( "A" | "a" ) ( "C" | "c" ) ( "H" | "h" ) >
-	|
-	< MOVE: ( "m" | "M" ) ( "o" | "O" ) ( "v" | "V" ) ( "e" | "E" ) >
 	|
 	< DEPTH_ALIAS: ( "d" | "D" ) ( "e" | "E" ) ( "p" | "P" ) ( "t" | "T" ) ( "h" | "H" ) ( "a" | "A" ) ( "l" | "L" ) ( "i" | "I" ) ( "a" | "A" ) ( "s" | "S" )>
 	|
@@ -589,7 +571,6 @@ TOKEN :
 | < MATCHES: ( "M" | "m") ( "A" | "a") ( "T" | "t") ( "C" | "c") ( "H" | "h") ( "E" | "e") ( "S" | "s") >
 | < KEY: ( "K" | "k") ( "E" | "e") ( "Y" | "y") >
 | < INSTANCEOF: ( "I" | "i" ) ( "N" | "n" ) ( "S" | "s" ) ( "T" | "t" ) ( "A" | "a" ) ( "N" | "n" ) ( "C" | "c" ) ( "E" | "e" ) ( "O" | "o" ) ( "F" | "f" ) >
-| < CLUSTER: ( "C" | "c" ) ( "L" | "l" ) ( "U" | "u" ) ( "S" | "s" ) ( "T" | "t" ) ( "E" | "e" ) ( "R" | "r" ) >
 }
 
 
@@ -599,18 +580,6 @@ TOKEN :
   < IDENTIFIER: ( ((<DOLLAR>) | <LETTER>) (<PART_LETTER>)* ) >
 |
   < QUOTED_IDENTIFIER: ( "`" (~["`"] | "\\`") (~["`"] | "\\`")*  "`") >
-|
-  < INDEX_COLON: <INDEX> ":" >
-|
-  < INDEXVALUES_IDENTIFIER: ( "I" | "i") ( "N" | "n") ( "D" | "d") ( "E" | "e") ( "X" | "x") ( "V" | "v") ( "A" | "a") ( "L" | "l") ( "U" | "u") ( "E" | "e") ( "S" | "s") ":" ( "__@recordmap@___" )? <IDENTIFIER> ( ( <DOT> | <MINUS> ) <IDENTIFIER> )* >
-|
-  < INDEXVALUESASC_IDENTIFIER:( "I" | "i") ( "N" | "n") ( "D" | "d") ( "E" | "e") ( "X" | "x") ( "V" | "v") ( "A" | "a") ( "L" | "l") ( "U" | "u") ( "E" | "e") ( "S" | "s") ( "A" | "a") ( "S" | "s") ( "C" | "c") ":" ( "__@recordmap@___" )? <IDENTIFIER> ( ( <DOT> | <MINUS> ) <IDENTIFIER> )* >
-|
-  < INDEXVALUESDESC_IDENTIFIER: ( "I" | "i") ( "N" | "n") ( "D" | "d") ( "E" | "e") ( "X" | "x") ( "V" | "v") ( "A" | "a") ( "L" | "l") ( "U" | "u") ( "E" | "e") ( "S" | "s") ( "D" | "d") ( "E" | "e") ( "S" | "s") ( "C" | "c") ":" ( "__@recordmap@___" )? <IDENTIFIER> ( ( <DOT> | <MINUS> ) <IDENTIFIER> )* >
-|
-  < CLUSTER_IDENTIFIER: <CLUSTER> <COLON> <IDENTIFIER>  >
-|
-  < CLUSTER_NUMBER_IDENTIFIER: <CLUSTER> <COLON> <INTEGER_LITERAL>  >
 |
   < METADATA_IDENTIFIER: "metadata:" <IDENTIFIER>  >
 |
@@ -636,13 +605,13 @@ SQLRid Rid():
     (
 	     LOOKAHEAD(4)
 	     (
-	       "#" jjtThis.cluster = Integer() <COLON> jjtThis.position = Integer()
+	       "#" jjtThis.collection = Integer() <COLON> jjtThis.position = Integer()
 	       { jjtThis.legacy = true; }
 	     )
     	 |
     	 LOOKAHEAD(3)
     	 (
-    	   jjtThis.cluster = Integer() <COLON> jjtThis.position = Integer()
+    	   jjtThis.collection = Integer() <COLON> jjtThis.position = Integer()
     	   { jjtThis.legacy = true; }
     	 )
     	 |
@@ -781,14 +750,8 @@ SQLIdentifier Identifier():
     token = <OFF>
     |
     token = <TRUNCATE>
-    |
-    token = <FIND>
-	|
-	token = <REFERENCES>
 	|
 	token = <EXTENDS>
-	|
-	token = <CLUSTERS>
 	|
 	token = <ABSTRACT>
 	|
@@ -796,21 +759,13 @@ SQLIdentifier Identifier():
 	|
 	token = <NAME>
 	|
-	token = <SHORTNAME>
-	|
 	token = <SUPERCLASS>
 	|
 	token = <SUPERCLASSES>
 	|
 	token = <STRICT_MODE>
 	|
-	token = <ADD_CLUSTER>
-	|
-	token = <REMOVE_CLUSTER>
-	|
 	token = <CUSTOM>
-	|
-	token = <CLUSTER_SELECTION>
 	|
 	token = <DESCRIPTION>
 	|
@@ -913,8 +868,6 @@ SQLIdentifier Identifier():
     token = <SYNC>
     |
     token = <EXISTS>
-    |
-    token = <MOVE>
     |
     token = <DEPTH_ALIAS>
     |
@@ -1077,9 +1030,6 @@ SQLStatement StatementInternal():
                 result = CreateIndexStatement()
                 |
                 LOOKAHEAD(2)
-                result = CreateClusterStatement()
-                |
-                LOOKAHEAD(2)
                 result = CreateLinkStatement()
                 |
                 LOOKAHEAD(2)
@@ -1121,16 +1071,11 @@ SQLStatement StatementInternal():
                 LOOKAHEAD(UpdateStatement())
                 result = UpdateStatement()
                 |
-                result = MoveVertexStatement()
-                |
                 LOOKAHEAD(ProfileStorageStatement())
                 result = ProfileStorageStatement()
                 |
                 LOOKAHEAD(TruncateClassStatement())
                 result = TruncateClassStatement()
-                |
-                LOOKAHEAD(TruncateClusterStatement())
-                result = TruncateClusterStatement()
                 |
                 LOOKAHEAD(2)
                 result = AlterSequenceStatement()
@@ -1155,12 +1100,6 @@ SQLStatement StatementInternal():
                 LOOKAHEAD(2)
                 result = DropIndexStatement()
                 |
-                LOOKAHEAD(AlterClusterStatement())
-                result = AlterClusterStatement()
-                |
-                LOOKAHEAD(2)
-                result = DropClusterStatement()
-                |
                 LOOKAHEAD(2)
                 result = AlterDatabaseStatement()
                 |
@@ -1183,21 +1122,6 @@ SQLStatement StatementInternal():
                 result = ConsoleStatement()
                 |
                 result = IfStatement()
-                |
-                LOOKAHEAD(HaRemoveServerStatement())
-                result = HaRemoveServerStatement()
-                |
-                LOOKAHEAD(HaStatusStatement())
-                result = HaStatusStatement()
-                |
-                LOOKAHEAD(HaSyncDatabaseStatement())
-                result = HaSyncDatabaseStatement()
-                |
-                LOOKAHEAD(HaSyncClusterStatement())
-                result = HaSyncClusterStatement()
-                |
-                LOOKAHEAD(HaSetStatement())
-                result = HaSetStatement()
             )
         )
         |
@@ -1234,12 +1158,7 @@ SQLStatement QueryStatement():
         |
         result = SelectWithoutTargetStatement()
         |
-        result = TraverseStatement()
-        |
         result = MatchStatement()
-        |
-        LOOKAHEAD( FindReferencesStatement() )
-        result = FindReferencesStatement()
     ){ return result; }
 }
 
@@ -1298,31 +1217,6 @@ SQLSelectStatement SelectStatement():
         jjtThis.validate();
         return jjtThis;
     }
-}
-
-SQLTraverseStatement TraverseStatement():
-{ SQLTraverseProjectionItem lastProjection;}
-{
-    (
-    	<TRAVERSE>
-    	[
-    	    lastProjection = TraverseProjectionItem() { jjtThis.addProjection(lastProjection); }
-    	    ( <COMMA> lastProjection = TraverseProjectionItem()  { jjtThis.addProjection(lastProjection); } )*
-    	]
-    	<FROM>
-    	jjtThis.target = FromClause()
-    	[ <MAXDEPTH> jjtThis.maxDepth = Integer() ]
-    	[ <WHILE> jjtThis.whileClause = WhereClause() ]
-        [ jjtThis.limit = Limit() ]
-        [ <STRATEGY>
-            (
-                <DEPTH_FIRST> { jjtThis.strategy = SQLTraverseStatement.Strategy.DEPTH_FIRST; }
-                |
-                <BREADTH_FIRST> { jjtThis.strategy = SQLTraverseStatement.Strategy.BREADTH_FIRST; }
-            )
-        ]
-    )
-    {return jjtThis;}
 }
 
 SQLMatchStatement MatchStatement():
@@ -1729,13 +1623,7 @@ SQLInsertStatement InsertStatement():
 	<INSERT>
 	<INTO>
 	(
-	    LOOKAHEAD(IndexIdentifier())
-    	jjtThis.targetIndex = IndexIdentifier()
-    	|
-	    jjtThis.targetClass = Identifier() [<CLUSTER> jjtThis.targetClusterName = Identifier()]
-	    |
-	    jjtThis.targetCluster = Cluster()
-
+	   jjtThis.targetClass = Identifier()
 	)
     [ LOOKAHEAD(InsertBody()) jjtThis.insertBody = InsertBody() ]
     [ <RETURN> jjtThis.returnStatement = Projection() ]
@@ -1869,25 +1757,12 @@ SQLCreateVertexStatementEmptyNoTarget CreateVertexStatementEmptyNoTarget():
 SQLCreateVertexStatement CreateVertexStatement():
 {}
 {
-(
 	<CREATE>
 	<VERTEX>
-	(
-	    LOOKAHEAD( Identifier() )
-	    (
-	        jjtThis.targetClass = Identifier()
-	        [
-	            <CLUSTER>
-	            jjtThis.targetClusterName = Identifier()
-	        ]
-	    )
-	    |
-	    LOOKAHEAD( Cluster() )
-	    jjtThis.targetCluster = Cluster()
-	)
+	jjtThis.targetClass = Identifier()
 	[ <RETURN> jjtThis.returnStatement = Projection() ]
 	[ LOOKAHEAD(InsertBody()) jjtThis.insertBody = InsertBody() ]
-) {return jjtThis;}
+  {return jjtThis;}
 }
 
 
@@ -1901,27 +1776,6 @@ SQLCreateVertexStatementNoTarget CreateVertexStatementNoTarget():
 ) {return jjtThis;}
 }
 
-SQLMoveVertexStatement MoveVertexStatement():
-{ SQLExpression lastSetExpr; }
-{
-  (
-     <MOVE> <VERTEX>
-     jjtThis.source = FromItem()
-     <TO>
-     (
-        jjtThis.targetCluster = Cluster()
-        |
-        (
-          <CLASS>
-          <COLON>
-          jjtThis.targetClass = Identifier()
-        )
-     )
-     [ jjtThis.updateOperations = UpdateOperations() ]
-     [ jjtThis.batch = Batch() ]
-  ){ return jjtThis; }
-}
-
 
 SQLCreateEdgeStatement CreateEdgeStatement():
 {
@@ -1931,7 +1785,7 @@ SQLCreateEdgeStatement CreateEdgeStatement():
 (
 	<CREATE>
 	<EDGE>
-	[ jjtThis.targetClass = Identifier() [<CLUSTER> jjtThis.targetClusterName = Identifier()]]
+	[ jjtThis.targetClass = Identifier()]
 	[ <UPSERT> { jjtThis.upsert = true; } ]
 	<FROM>
 	(
@@ -2562,15 +2416,8 @@ SQLFromItem FromItem():
                 lastParam = NamedParameter() { jjtThis.addInputParam(lastParam); }
             )* <RBRACKET>
         )
-    	|
-    	jjtThis.cluster = Cluster()
-    	|
-    	jjtThis.clusterList = ClusterList()
-    	|
-    	LOOKAHEAD(IndexIdentifier())
-    	jjtThis.index = IndexIdentifier()
-    	|
-        jjtThis.metadata = MetadataIdentifier()
+      |
+    	jjtThis.metadata = MetadataIdentifier()
     	|
     	(
     	    <LPAREN> jjtThis.statement = QueryStatement() <RPAREN>
@@ -2600,32 +2447,6 @@ SQLFromItem FromItem():
         )
 
     )
-    { return jjtThis; }
-}
-
-SQLCluster Cluster():
-{ Token cName; }
-{
-    (
-	    cName = <CLUSTER_IDENTIFIER> {jjtThis.clusterName = cName.image.split(":")[1];}
-		|
-	    cName = <CLUSTER_NUMBER_IDENTIFIER> {jjtThis.clusterNumber = Integer.parseInt(cName.image.split(":")[1]);}
-
-	)
-    { return jjtThis; }
-}
-
-SQLClusterList ClusterList():
-{ SQLIdentifier lastIdentifier; }
-{
-    (
-	     <CLUSTER> <COLON> <LBRACKET>
-	     [
-	        lastIdentifier = Identifier() { jjtThis.addCluster(lastIdentifier); }
-	        ( <COMMA> lastIdentifier = Identifier() { jjtThis.addCluster(lastIdentifier); } )*
-	     ]
-	     <RBRACKET>
-	)
     { return jjtThis; }
 }
 
@@ -2662,34 +2483,6 @@ SQLIndexName IndexName():
         jjtThis.value = builder.toString();
         return jjtThis;
     }
-}
-
-
-SQLIndexIdentifier IndexIdentifier():
-{
-    Token token;
-}
-{
-    (
-        (
-            <INDEX_COLON>
-            jjtThis.indexName = IndexName() { jjtThis.type = SQLIndexIdentifier.Type.INDEX; }
-        )
-        |
-        (
-            (
-                token = <INDEXVALUES_IDENTIFIER> { jjtThis.type = SQLIndexIdentifier.Type.VALUES; }
-                |
-                token = <INDEXVALUESASC_IDENTIFIER> { jjtThis.type = SQLIndexIdentifier.Type.VALUESASC; }
-                |
-                token = <INDEXVALUESDESC_IDENTIFIER> { jjtThis.type = SQLIndexIdentifier.Type.VALUESDESC; }
-            )
-            {
-                jjtThis.indexNameString = token.image.split(":")[1];
-            }
-        )
-    )
-    { return jjtThis; }
 }
 
 SQLWhereClause WhereClause():
@@ -3491,18 +3284,6 @@ SQLFetchPlanItem FetchPlanItem():
     { return jjtThis; }
 }
 
-
-
-SQLTraverseProjectionItem TraverseProjectionItem():
-{}
-{
-    (
-        jjtThis.base = BaseIdentifier()
-        [ LOOKAHEAD( Modifier() ) jjtThis.modifier = Modifier() ]
-    )
-    { return jjtThis; }
-}
-
 SQLJson Json():
 {
     SQLJsonItem lastItem;
@@ -3682,23 +3463,6 @@ SQLMatchFilterItem MatchFilterItem():
         |
         (
             <CLASSES> <COLON> jjtThis.classNames = Expression()
-        )
-        |
-        (
-            <CLUSTER> <COLON>
-            (
-               jjtThis.clusterName = Identifier()
-               |
-               jjtThis.clusterId = Integer()
-            )
-        )
-        |
-        (
-            (
-                lastToken = <CLUSTER_IDENTIFIER> {jjtThis.clusterName = new SQLIdentifier(lastToken.image.split(":")[1]);}
-                |
-                lastToken = <CLUSTER_NUMBER_IDENTIFIER> {jjtThis.clusterId = new SQLInteger(-1); jjtThis.clusterId.setValue(Integer.parseInt(lastToken.image.split(":")[1]));}
-            )
         )
         |
         (
@@ -3902,52 +3666,6 @@ SQLTruncateClassStatement TruncateClassStatement():
 	{ return jjtThis; }
 }
 
-SQLTruncateClusterStatement TruncateClusterStatement():
-{}
-{
-	<TRUNCATE> <CLUSTER>
-	(
-		jjtThis.clusterName = Identifier()
-		|
-		jjtThis.clusterNumber = Integer()
-	)
-	[ <UNSAFE> {jjtThis.unsafe = true;} ]
-	{ return jjtThis; }
-}
-
-SQLFindReferencesStatement FindReferencesStatement():
-{ SimpleNode lastTarget; }
-{
-    <FIND> <REFERENCES>
-    (
-        jjtThis.rid = Rid()
-        |
-        (
-            <LPAREN>
-            jjtThis.subQuery = StatementInternal()
-            <RPAREN>
-        )
-    )
-    [
-    	<LBRACKET> { jjtThis.targets = new ArrayList<SimpleNode>(); }
-    	(
-    	    lastTarget = Identifier()
-            |
-            lastTarget = Cluster()
-    	){ jjtThis.addTarget(lastTarget); }
-    	(
-    		<COMMA>
-    		(
-				lastTarget = Identifier()
-				|
-				lastTarget = Cluster()
-			){ jjtThis.addTarget(lastTarget); }
-    	)*
-    	<RBRACKET>
-    ]
-    { return jjtThis; }
-}
-
 SQLCreateClassStatement CreateClassStatement():
 {
 	SQLIdentifier lastIdentifier;
@@ -3965,14 +3683,6 @@ SQLCreateClassStatement CreateClassStatement():
 			 	lastIdentifier = Identifier() { jjtThis.addSuperclass(lastIdentifier); }
 			 )*
 		]
-		[
-			<CLUSTER> lastInteger = Integer() { jjtThis.clusters = new ArrayList<SQLInteger>(); jjtThis.addCluster(lastInteger); }
-		 	(
-				<COMMA>
-				lastInteger = Integer() { jjtThis.addCluster(lastInteger); }
-		 	)*
-		]
-		[ <CLUSTERS> jjtThis.totalClusterNo = Integer() ]
 		[ <ABSTRACT> { jjtThis.abstractClass = true; } ]
 	)
 	{ return jjtThis; }
@@ -3992,33 +3702,6 @@ SQLAlterClassStatement AlterClassStatement():
 		(
 			<NAME> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.NAME; }
 			jjtThis.identifierValue = Identifier()
-		)
-		|
-		(
-			<SHORTNAME> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.SHORTNAME; }
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-            	<NULL>
-            )
-		)
-		|
-		(
-			<SUPERCLASS> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.SUPERCLASS; }
-			[
-				(
-					<PLUS> {jjtThis.add = true;}
-				)
-				|
-				(
-					<MINUS> {jjtThis.remove = true;}
-				)
-			]
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-				<NULL> { jjtThis.identifierValue = null; }
-			)
 		)
 		|
 		(
@@ -4053,24 +3736,6 @@ SQLAlterClassStatement AlterClassStatement():
 		)
 		|
 		(
-			<ADD_CLUSTER> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.ADD_CLUSTER; }
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-				jjtThis.numberValue = Integer()
-			)
-		)
-		|
-		(
-			<REMOVE_CLUSTER> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.REMOVE_CLUSTER; }
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-				jjtThis.numberValue = Integer()
-			)
-		)
-		|
-		(
 			<CUSTOM> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.CUSTOM; }
 			jjtThis.customKey = Identifier()
 			<EQ>
@@ -4087,17 +3752,6 @@ SQLAlterClassStatement AlterClassStatement():
 				(
 					<FALSE> { jjtThis.booleanValue = false; }
 				)
-			)
-		)
-		|
-		(
-			<CLUSTER_SELECTION> { jjtThis.property = com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES.CLUSTER_SELECTION; }
-			(
-				jjtThis.identifierValue = Identifier()
-				|
-				"round-robin" { jjtThis.customString = "round-robin"; }
-				|
-				( jjtThis.customString = String() { jjtThis.customString = jjtThis.customString.substring(1, jjtThis.customString.length() - 1); } )
 			)
 		)
 		|
@@ -4366,50 +4020,6 @@ SQLDropIndexStatement DropIndexStatement():
         )
         [ <IF> <EXISTS> { jjtThis.ifExists = true; }]
 	)
-	{ return jjtThis; }
-}
-
-
-SQLCreateClusterStatement CreateClusterStatement():
-{}
-{
-    (
-        <CREATE>
-        (
-            ( <CLUSTER> )
-            |
-            ( <BLOB> <CLUSTER> { jjtThis.blob = true; } )
-        )
-        jjtThis.name = Identifier()
-        [ <IF> <NOT> <EXISTS> { jjtThis.ifNotExists = true; } ]
-        [ <ID> jjtThis.id = Integer() ]
-	)
-	{ return jjtThis; }
-}
-
-SQLAlterClusterStatement AlterClusterStatement():
-{}
-{
-	<ALTER> <CLUSTER>
-	(
-		jjtThis.name = Identifier()
-	)
-	[ <STAR> { jjtThis.starred = true; }]
-	jjtThis.attributeName = Identifier()
-	jjtThis.attributeValue = Expression()
-	{ return jjtThis; }
-}
-
-SQLDropClusterStatement DropClusterStatement():
-{}
-{
-	<DROP> <CLUSTER>
-	(
-		jjtThis.name = Identifier()
-		|
-		jjtThis.id = Integer()
-	)
-	[ <IF> <EXISTS> { jjtThis.ifExists = true; } ]
 	{ return jjtThis; }
 }
 
@@ -5001,97 +4611,6 @@ SQLDropSequenceStatement DropSequenceStatement():
     { return jjtThis; }
 }
 
-
-SQLHaStatusStatement HaStatusStatement():
-{
- Token token;
-}
-{
-    (
-        <HA> <STATUS>
-        (
-            token = "-servers" { jjtThis.servers = true; }
-            |
-            token = "-db" { jjtThis.db = true; }
-            |
-            token = "-latency" { jjtThis.latency = true; }
-            |
-            token = "-messages" { jjtThis.messages = true; }
-            |
-            token = "-locks" { jjtThis.locks = true; }
-            |
-            token = "-all" {
-                jjtThis.servers = true;
-                jjtThis.db = true;
-                jjtThis.latency = true;
-                jjtThis.messages = true;
-                jjtThis.locks = true;
-            }
-            |
-            token = "-output=text" { jjtThis.outputText = true; }
-        )*
-    )
-    { return jjtThis; }
-}
-
-SQLHaRemoveServerStatement HaRemoveServerStatement():
-{}
-{
-    (
-        <HA> <REMOVE> <SERVER>
-        jjtThis.serverName = Identifier()
-    )
-    { return jjtThis; }
-}
-
-SQLHaSyncDatabaseStatement HaSyncDatabaseStatement():
-{}
-{
-    (
-        <HA> <SYNC> <DATABASE>
-        (
-          ("-force" { jjtThis.force = true; } )
-          |
-          ( "-full" { jjtThis.full = true; } )
-        )*
-    )
-    { return jjtThis; }
-}
-
-SQLHaSyncClusterStatement HaSyncClusterStatement():
-{}
-{
-    (
-        <HA> <SYNC> <CLUSTER>
-        jjtThis.clusterName = Identifier()
-        [
-            (
-                "-full_replace" {jjtThis.modeFull = true;}
-            )
-            |
-            (
-                "-merge" {jjtThis.modeMerge = true;}
-            )
-        ]
-    )
-    { return jjtThis; }
-}
-
-SQLHaSetStatement HaSetStatement():
-{
- Token token;
-}
-{
-    (
-        <HA> <SET>
-        jjtThis.operation = Identifier()
-        jjtThis.key = Expression()
-        <EQ>
-        jjtThis.value = Expression()
-    )
-    { return jjtThis; }
-}
-
 SQLForEachBlock ForEachBlock():
 {
     SQLStatement lastStatement;
@@ -5154,8 +4673,6 @@ SQLSecurityResourceSegment SecurityResourceSegment():
             <STAR> { jjtThis.star = true; }
             |
             identifier = Identifier() {jjtThis.setIdentifier(identifier); }
-            |
-            token = <CLUSTER> { jjtThis.setIdentifier( new SQLIdentifier(token.image)); }
             |
             token = <CREATE> { jjtThis.setIdentifier(new SQLIdentifier(token.image)); }
             |

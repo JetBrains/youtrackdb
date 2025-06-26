@@ -19,19 +19,22 @@
  */
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.Map;
+import java.util.TimeZone;
+import javax.annotation.Nullable;
 
 public final class ServerQueryRequest implements BinaryRequest<ServerQueryResponse> {
 
@@ -45,7 +48,6 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
   private String statement;
   private byte operationType;
   private Map<String, Object> params;
-  private byte[] paramsBytes;
   private boolean namedParams;
 
   public ServerQueryRequest(
@@ -53,39 +55,32 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
       String iCommand,
       Object[] positionalParams,
       byte operationType,
-      RecordSerializer serializer,
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
-    params = StorageRemote.paramsArrayToParamsMap(positionalParams);
+    params = RemoteCommandsDispatcherImpl.paramsArrayToParamsMap(positionalParams);
     namedParams = false;
-    this.serializer = serializer;
     this.operationType = operationType;
-    EntityImpl parms = new EntityImpl();
-    parms.field("params", this.params);
-
-    paramsBytes = MessageHelper.getRecordBytes(null, parms, serializer);
+    if (this.recordsPerPage <= 0) {
+      this.recordsPerPage = 100;
+    }
+    this.recordsPerPage = recordsPerPage;
   }
 
   public ServerQueryRequest(String language,
       String iCommand,
       Map<String, Object> namedParams,
       byte operationType,
-      RecordSerializer serializer,
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
-    this.params = namedParams;
-    EntityImpl parms = new EntityImpl();
-    parms.field("params", this.params);
-
-    paramsBytes = MessageHelper.getRecordBytes(null, parms, serializer);
+    this.params = namedParams != null ? namedParams : Map.of();
     this.namedParams = true;
-    this.serializer = serializer;
     this.recordsPerPage = recordsPerPage;
     if (this.recordsPerPage <= 0) {
       this.recordsPerPage = 100;
     }
+
     this.operationType = operationType;
   }
 
@@ -93,8 +88,8 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
   }
 
   @Override
-  public void write(DatabaseSessionInternal database, ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException {
+  public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
+      BinaryProtocolSession session) throws IOException {
     network.writeString(language);
     network.writeString(statement);
     network.writeByte(operationType);
@@ -103,12 +98,17 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     network.writeString(null);
 
     // params
-    network.writeBytes(paramsBytes);
+    var paramsResult = new RemoteResultImpl(null);
+    paramsResult.setProperty("params", params);
+
+    MessageHelper.writeResult(paramsResult, network, TimeZone.getDefault());
+
     network.writeBoolean(namedParams);
   }
 
-  public void read(DatabaseSessionInternal db, ChannelDataInput channel, int protocolVersion,
-      RecordSerializer serializer)
+  @Override
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
       throws IOException {
     this.language = channel.readString();
     this.statement = channel.readString();
@@ -117,7 +117,10 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     // THIS IS FOR POSSIBLE FUTURE FETCH PLAN
     channel.readString();
 
-    this.paramsBytes = channel.readBytes();
+    var paramsResult = MessageHelper.readResult((DatabaseSessionEmbedded) null, channel,
+        TimeZone.getDefault());
+    this.params = paramsResult.getProperty("params");
+
     this.namedParams = channel.readBoolean();
     this.serializer = serializer;
   }
@@ -147,13 +150,6 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
   }
 
   public Map<String, Object> getParams() {
-    if (params == null && this.paramsBytes != null) {
-      // params
-      EntityImpl paramsEntity = new EntityImpl();
-      paramsEntity.setTrackingChanges(false);
-      serializer.fromStream(null, this.paramsBytes, paramsEntity, null);
-      this.params = paramsEntity.field("params");
-    }
     return params;
   }
 
@@ -166,15 +162,16 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
   }
 
   public Map<String, Object> getNamedParameters() {
-    return getParams();
+    return params;
   }
 
+  @Nullable
   public Object[] getPositionalParameters() {
-    Map<String, Object> params = getParams();
+    var params = this.params;
     if (params == null) {
       return null;
     }
-    Object[] result = new Object[params.size()];
+    var result = new Object[params.size()];
     params
         .entrySet()
         .forEach(
@@ -200,6 +197,7 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     this.language = language;
   }
 
+  @Override
   public boolean requireDatabaseSession() {
     return false;
   }

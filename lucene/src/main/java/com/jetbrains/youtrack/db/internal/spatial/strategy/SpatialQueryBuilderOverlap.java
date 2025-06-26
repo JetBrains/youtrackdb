@@ -13,18 +13,16 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.strategy;
 
-import com.jetbrains.youtrack.db.internal.spatial.engine.OLuceneSpatialIndexContainer;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.spatial.engine.LuceneSpatialIndexContainer;
 import com.jetbrains.youtrack.db.internal.spatial.query.SpatialQueryContext;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeBuilder;
 import java.util.Map;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.spatial.SpatialStrategy;
 import org.apache.lucene.spatial.query.SpatialArgs;
 import org.apache.lucene.spatial.query.SpatialOperation;
-import org.locationtech.spatial4j.shape.Shape;
 
 /**
  *
@@ -33,24 +31,25 @@ public class SpatialQueryBuilderOverlap extends SpatialQueryBuilderAbstract {
 
   public static final String NAME = "&&";
 
-  public SpatialQueryBuilderOverlap(OLuceneSpatialIndexContainer manager, ShapeBuilder factory) {
+  public SpatialQueryBuilderOverlap(LuceneSpatialIndexContainer manager, ShapeBuilder factory) {
     super(manager, factory);
   }
 
   // TODO check PGIS
   @Override
-  public SpatialQueryContext build(Map<String, Object> query) throws Exception {
-    Shape shape = parseShape(query);
-    SpatialStrategy strategy = manager.strategy();
-    SpatialArgs args = new SpatialArgs(SpatialOperation.Intersects, shape.getBoundingBox());
-    Query filterQuery = strategy.makeQuery(args);
-    BooleanQuery q =
+  public SpatialQueryContext build(DatabaseSessionEmbedded db, Map<String, Object> query)
+      throws Exception {
+    var shape = parseShape(query);
+    var strategy = manager.strategy();
+    var args = new SpatialArgs(SpatialOperation.Intersects, shape.getBoundingBox());
+    var filterQuery = strategy.makeQuery(args);
+    var q =
         new BooleanQuery.Builder()
             .add(filterQuery, BooleanClause.Occur.MUST)
             .add(new MatchAllDocsQuery(), BooleanClause.Occur.SHOULD)
             .build();
 
-    return new SpatialQueryContext(null, manager.searcher(), q);
+    return new SpatialQueryContext(null, manager.searcher(db.getStorage()), q);
   }
 
   @Override

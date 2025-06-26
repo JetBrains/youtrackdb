@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.text;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
 
 /**
@@ -37,11 +37,11 @@ public class SQLFunctionFormat extends SQLFunctionAbstract {
 
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] params,
       CommandContext iContext) {
-    final Object[] args = new Object[params.length - 1];
+    final var args = new Object[params.length - 1];
 
     System.arraycopy(params, 1, args, 0, args.length);
 

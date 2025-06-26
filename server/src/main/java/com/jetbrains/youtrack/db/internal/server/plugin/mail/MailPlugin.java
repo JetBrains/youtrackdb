@@ -23,11 +23,12 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.script.ScriptInjection;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
-import com.jetbrains.youtrack.db.internal.server.plugin.OServerPluginConfigurable;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
+import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginConfigurable;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.IOException;
 import java.text.ParseException;
 import java.util.HashMap;
@@ -37,12 +38,12 @@ import javax.script.Bindings;
 import javax.script.ScriptEngine;
 
 public class MailPlugin extends ServerPluginAbstract
-    implements ScriptInjection, OServerPluginConfigurable {
+    implements ScriptInjection, ServerPluginConfigurable {
 
   private static final String CONFIG_PROFILE_PREFIX = "profile.";
   private static final String CONFIG_MAIL_PREFIX = "mail.";
 
-  private EntityImpl configuration;
+  private Map<String, Object> configuration;
 
   private final Map<String, MailProfile> profiles = new HashMap<String, MailProfile>();
 
@@ -54,7 +55,8 @@ public class MailPlugin extends ServerPluginAbstract
   @Override
   public void config(final YouTrackDBServer youTrackDBServer,
       final ServerParameterConfiguration[] iParams) {
-    YouTrackDBInternal.extract(youTrackDBServer.getContext()).getScriptManager()
+    ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
+        youTrackDBServer.getContext())).getScriptManager()
         .registerInjection(this);
   }
 
@@ -100,7 +102,7 @@ public class MailPlugin extends ServerPluginAbstract
   }
 
   @Override
-  public EntityImpl getConfig() {
+  public Map<String, Object> getConfig() {
     return configuration;
   }
 

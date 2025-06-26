@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Map;
 
 /**
@@ -18,7 +18,7 @@ public class SQLInsertSetExpression {
   }
 
   public SQLInsertSetExpression copy() {
-    SQLInsertSetExpression result = new SQLInsertSetExpression();
+    var result = new SQLInsertSetExpression();
     result.left = left == null ? null : left.copy();
     result.right = right == null ? null : right.copy();
     return result;
@@ -32,7 +32,7 @@ public class SQLInsertSetExpression {
     return right;
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return right.isCacheable(session);
   }
 

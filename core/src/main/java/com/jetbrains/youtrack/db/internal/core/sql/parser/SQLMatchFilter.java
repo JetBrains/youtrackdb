@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLMatchFilter extends SimpleNode {
 
@@ -22,8 +23,9 @@ public class SQLMatchFilter extends SimpleNode {
     super(p, id);
   }
 
+  @Nullable
   public String getAlias() {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (item.alias != null) {
         return item.alias.getStringValue();
       }
@@ -32,8 +34,8 @@ public class SQLMatchFilter extends SimpleNode {
   }
 
   public void setAlias(String alias) {
-    boolean found = false;
-    for (SQLMatchFilterItem item : items) {
+    var found = false;
+    for (var item : items) {
       if (item.alias != null) {
         item.alias = new SQLIdentifier(alias);
         found = true;
@@ -41,14 +43,15 @@ public class SQLMatchFilter extends SimpleNode {
       }
     }
     if (!found) {
-      SQLMatchFilterItem newItem = new SQLMatchFilterItem(-1);
+      var newItem = new SQLMatchFilterItem(-1);
       newItem.alias = new SQLIdentifier(alias);
       items.add(newItem);
     }
   }
 
+  @Nullable
   public SQLWhereClause getFilter() {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (item.filter != null) {
         return item.filter;
       }
@@ -57,8 +60,8 @@ public class SQLMatchFilter extends SimpleNode {
   }
 
   public void setFilter(SQLWhereClause filter) {
-    boolean found = false;
-    for (SQLMatchFilterItem item : items) {
+    var found = false;
+    for (var item : items) {
       if (item.filter != null) {
         item.filter = filter;
         found = true;
@@ -66,14 +69,15 @@ public class SQLMatchFilter extends SimpleNode {
       }
     }
     if (!found) {
-      SQLMatchFilterItem newItem = new SQLMatchFilterItem(-1);
+      var newItem = new SQLMatchFilterItem(-1);
       newItem.filter = filter;
       items.add(newItem);
     }
   }
 
+  @Nullable
   public SQLWhereClause getWhileCondition() {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (item.whileCondition != null) {
         return item.whileCondition;
       }
@@ -81,13 +85,14 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public String getClassName(CommandContext context) {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (item.className != null) {
         if (item.className.value instanceof String) {
           return (String) item.className.value;
         } else if (item.className.value instanceof SimpleNode) {
-          StringBuilder builder = new StringBuilder();
+          var builder = new StringBuilder();
 
           ((SimpleNode) item.className.value)
               .toString(context == null ? null : context.getInputParameters(), builder);
@@ -102,23 +107,25 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
-  public String getClusterName(CommandContext context) {
-    for (SQLMatchFilterItem item : items) {
-      if (item.clusterName != null) {
-        return item.clusterName.getStringValue();
-      } else if (item.clusterId != null) {
-        int cid = item.clusterId.value.intValue();
-        String clusterName = context.getDatabase().getClusterNameById(cid);
-        if (clusterName != null) {
-          return clusterName;
+  @Nullable
+  public String getCollectionName(CommandContext context) {
+    for (var item : items) {
+      if (item.collectionName != null) {
+        return item.collectionName.getStringValue();
+      } else if (item.collectionId != null) {
+        var cid = item.collectionId.value.intValue();
+        var collectionName = context.getDatabaseSession().getCollectionNameById(cid);
+        if (collectionName != null) {
+          return collectionName;
         }
       }
     }
     return null;
   }
 
+  @Nullable
   public SQLRid getRid(CommandContext context) {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (item.rid != null) {
         return item.rid;
       }
@@ -126,8 +133,9 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public Integer getMaxDepth() {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (item.maxDepth != null) {
         return item.maxDepth.value.intValue();
       }
@@ -136,7 +144,7 @@ public class SQLMatchFilter extends SimpleNode {
   }
 
   public boolean isOptional() {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (Boolean.TRUE.equals(item.optional)) {
         return true;
       }
@@ -144,8 +152,9 @@ public class SQLMatchFilter extends SimpleNode {
     return false;
   }
 
+  @Nullable
   public String getDepthAlias() {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (item.depthAlias != null) {
         return item.depthAlias.getStringValue();
       }
@@ -153,8 +162,9 @@ public class SQLMatchFilter extends SimpleNode {
     return null;
   }
 
+  @Nullable
   public String getPathAlias() {
-    for (SQLMatchFilterItem item : items) {
+    for (var item : items) {
       if (item.pathAlias != null) {
         return item.pathAlias.getStringValue();
       }
@@ -164,8 +174,8 @@ public class SQLMatchFilter extends SimpleNode {
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("{");
-    boolean first = true;
-    for (SQLMatchFilterItem item : items) {
+    var first = true;
+    for (var item : items) {
       if (!first) {
         builder.append(", ");
       }
@@ -177,8 +187,8 @@ public class SQLMatchFilter extends SimpleNode {
 
   public void toGenericStatement(StringBuilder builder) {
     builder.append("{");
-    boolean first = true;
-    for (SQLMatchFilterItem item : items) {
+    var first = true;
+    for (var item : items) {
       if (!first) {
         builder.append(", ");
       }
@@ -190,7 +200,7 @@ public class SQLMatchFilter extends SimpleNode {
 
   @Override
   public SQLMatchFilter copy() {
-    SQLMatchFilter result = new SQLMatchFilter(-1);
+    var result = new SQLMatchFilter(-1);
     result.items =
         items == null ? null : items.stream().map(x -> x.copy()).collect(Collectors.toList());
     return result;
@@ -205,7 +215,7 @@ public class SQLMatchFilter extends SimpleNode {
       return false;
     }
 
-    SQLMatchFilter that = (SQLMatchFilter) o;
+    var that = (SQLMatchFilter) o;
 
     return Objects.equals(items, that.items);
   }

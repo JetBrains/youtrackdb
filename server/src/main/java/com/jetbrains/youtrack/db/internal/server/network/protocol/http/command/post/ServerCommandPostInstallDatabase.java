@@ -17,14 +17,13 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
 import java.net.URL;
-import java.net.URLConnection;
 
 public class ServerCommandPostInstallDatabase extends ServerCommandAuthenticatedServerAbstract {
 
@@ -35,18 +34,18 @@ public class ServerCommandPostInstallDatabase extends ServerCommandAuthenticated
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     checkSyntax(iRequest.getUrl(), 1, "Syntax error: installDatabase");
     iRequest.getData().commandInfo = "Import database";
     try {
-      final String url = iRequest.getContent();
-      final String name = getDbName(url);
+      final var url = iRequest.getContent();
+      final var name = getDbName(url);
       if (name != null) {
         if (server.getContext().exists(name)) {
           throw new DatabaseException("Database named '" + name + "' already exists: ");
         } else {
-          final URL uri = new URL(url);
-          final URLConnection conn = uri.openConnection();
+          final var uri = new URL(url);
+          final var conn = uri.openConnection();
           conn.setRequestProperty("User-Agent", "YouTrackDB-Studio");
           conn.setDefaultUseCaches(false);
           server
@@ -55,10 +54,10 @@ public class ServerCommandPostInstallDatabase extends ServerCommandAuthenticated
                   name,
                   conn.getInputStream(),
                   () -> {
+                    //noinspection ReturnOfNull
                     return null;
                   });
-          try (DatabaseSession session = server.getDatabases().openNoAuthorization(name)) {
-          }
+          server.getDatabases().openNoAuthorization(name).close();
 
           iResponse.send(
               HttpUtils.STATUS_OK_CODE,
@@ -79,7 +78,7 @@ public class ServerCommandPostInstallDatabase extends ServerCommandAuthenticated
   protected String getDbName(final String url) {
     String name = null;
     if (url != null) {
-      int idx = url.lastIndexOf('/');
+      var idx = url.lastIndexOf('/');
       if (idx != -1) {
         name = url.substring(idx + 1).replace(".zip", "");
       }

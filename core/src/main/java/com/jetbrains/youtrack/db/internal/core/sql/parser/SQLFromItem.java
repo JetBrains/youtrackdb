@@ -2,22 +2,21 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLFromItem extends SimpleNode {
 
   protected List<SQLRid> rids;
   protected List<SQLInputParameter> inputParams;
-  protected SQLCluster cluster;
-  protected SQLClusterList clusterList;
-  protected SQLIndexIdentifier index;
   protected SQLMetadataIdentifier metadata;
   protected SQLStatement statement;
   protected SQLInputParameter inputParam;
@@ -33,15 +32,16 @@ public class SQLFromItem extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    if (rids != null && rids.size() > 0) {
+    if (rids != null && !rids.isEmpty()) {
       if (rids.size() == 1) {
-        rids.get(0).toString(params, builder);
+        rids.getFirst().toString(params, builder);
         return;
       } else {
         builder.append("[");
-        boolean first = true;
-        for (SQLRid rid : rids) {
+        var first = true;
+        for (var rid : rids) {
           if (!first) {
             builder.append(", ");
           }
@@ -51,14 +51,14 @@ public class SQLFromItem extends SimpleNode {
         builder.append("]");
         return;
       }
-    } else if (inputParams != null && inputParams.size() > 0) {
+    } else if (inputParams != null && !inputParams.isEmpty()) {
       if (inputParams.size() == 1) {
-        inputParams.get(0).toString(params, builder);
+        inputParams.getFirst().toString(params, builder);
         return;
       } else {
         builder.append("[");
-        boolean first = true;
-        for (SQLInputParameter rid : inputParams) {
+        var first = true;
+        for (var rid : inputParams) {
           if (!first) {
             builder.append(", ");
           }
@@ -68,14 +68,6 @@ public class SQLFromItem extends SimpleNode {
         builder.append("]");
         return;
       }
-    } else if (cluster != null) {
-      cluster.toString(params, builder);
-      return;
-      // } else if (className != null) {
-      // return className.getValue();
-    } else if (clusterList != null) {
-      clusterList.toString(params, builder);
-      return;
     } else if (metadata != null) {
       metadata.toString(params, builder);
       return;
@@ -83,9 +75,6 @@ public class SQLFromItem extends SimpleNode {
       builder.append("(");
       statement.toString(params, builder);
       builder.append(")");
-      return;
-    } else if (index != null) {
-      index.toString(params, builder);
       return;
     } else if (inputParam != null) {
       inputParam.toString(params, builder);
@@ -99,15 +88,16 @@ public class SQLFromItem extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
-    if (rids != null && rids.size() > 0) {
+    if (rids != null && !rids.isEmpty()) {
       if (rids.size() == 1) {
-        rids.get(0).toGenericStatement(builder);
+        rids.getFirst().toGenericStatement(builder);
         return;
       } else {
         builder.append("[");
-        boolean first = true;
-        for (SQLRid rid : rids) {
+        var first = true;
+        for (var rid : rids) {
           if (!first) {
             builder.append(", ");
           }
@@ -117,14 +107,14 @@ public class SQLFromItem extends SimpleNode {
         builder.append("]");
         return;
       }
-    } else if (inputParams != null && inputParams.size() > 0) {
+    } else if (inputParams != null && !inputParams.isEmpty()) {
       if (inputParams.size() == 1) {
-        inputParams.get(0).toGenericStatement(builder);
+        inputParams.getFirst().toGenericStatement(builder);
         return;
       } else {
         builder.append("[");
-        boolean first = true;
-        for (SQLInputParameter rid : inputParams) {
+        var first = true;
+        for (var rid : inputParams) {
           if (!first) {
             builder.append(", ");
           }
@@ -134,12 +124,6 @@ public class SQLFromItem extends SimpleNode {
         builder.append("]");
         return;
       }
-    } else if (cluster != null) {
-      cluster.toGenericStatement(builder);
-      return;
-    } else if (clusterList != null) {
-      clusterList.toGenericStatement(builder);
-      return;
     } else if (metadata != null) {
       metadata.toGenericStatement(builder);
       return;
@@ -147,9 +131,6 @@ public class SQLFromItem extends SimpleNode {
       builder.append("(");
       statement.toGenericStatement(builder);
       builder.append(")");
-      return;
-    } else if (index != null) {
-      index.toGenericStatement(builder);
       return;
     } else if (inputParam != null) {
       inputParam.toGenericStatement(builder);
@@ -167,20 +148,22 @@ public class SQLFromItem extends SimpleNode {
     return identifier;
   }
 
+  @Nullable
+  public SchemaClassInternal getSchemaClass(DatabaseSessionEmbedded session) {
+    if (identifier == null) {
+      return null;
+    }
+
+    var stringValue = identifier.getStringValue();
+    if (stringValue != null && !stringValue.isEmpty()) {
+      return session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(stringValue);
+    }
+
+    return null;
+  }
+
   public List<SQLRid> getRids() {
     return rids;
-  }
-
-  public SQLCluster getCluster() {
-    return cluster;
-  }
-
-  public SQLClusterList getClusterList() {
-    return clusterList;
-  }
-
-  public SQLIndexIdentifier getIndex() {
-    return index;
   }
 
   public SQLMetadataIdentifier getMetadata() {
@@ -207,17 +190,16 @@ public class SQLFromItem extends SimpleNode {
     return modifier;
   }
 
+  @Override
   public SQLFromItem copy() {
-    SQLFromItem result = new SQLFromItem(-1);
+    var result = new SQLFromItem(-1);
     if (rids != null) {
-      result.rids = rids.stream().map(r -> r.copy()).collect(Collectors.toList());
+      result.rids = rids.stream().map(SQLRid::copy).collect(Collectors.toList());
     }
     if (inputParams != null) {
-      result.inputParams = inputParams.stream().map(r -> r.copy()).collect(Collectors.toList());
+      result.inputParams = inputParams.stream().map(SQLInputParameter::copy)
+          .collect(Collectors.toList());
     }
-    result.cluster = cluster == null ? null : cluster.copy();
-    result.clusterList = clusterList == null ? null : clusterList.copy();
-    result.index = index == null ? null : index.copy();
     result.metadata = metadata == null ? null : metadata.copy();
     result.statement = statement == null ? null : statement.copy();
     result.inputParam = inputParam == null ? null : inputParam.copy();
@@ -237,21 +219,12 @@ public class SQLFromItem extends SimpleNode {
       return false;
     }
 
-    SQLFromItem oFromItem = (SQLFromItem) o;
+    var oFromItem = (SQLFromItem) o;
 
     if (!Objects.equals(rids, oFromItem.rids)) {
       return false;
     }
     if (!Objects.equals(inputParams, oFromItem.inputParams)) {
-      return false;
-    }
-    if (!Objects.equals(cluster, oFromItem.cluster)) {
-      return false;
-    }
-    if (!Objects.equals(clusterList, oFromItem.clusterList)) {
-      return false;
-    }
-    if (!Objects.equals(index, oFromItem.index)) {
       return false;
     }
     if (!Objects.equals(metadata, oFromItem.metadata)) {
@@ -274,11 +247,8 @@ public class SQLFromItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = rids != null ? rids.hashCode() : 0;
+    var result = rids != null ? rids.hashCode() : 0;
     result = 31 * result + (inputParams != null ? inputParams.hashCode() : 0);
-    result = 31 * result + (cluster != null ? cluster.hashCode() : 0);
-    result = 31 * result + (clusterList != null ? clusterList.hashCode() : 0);
-    result = 31 * result + (index != null ? index.hashCode() : 0);
     result = 31 * result + (metadata != null ? metadata.hashCode() : 0);
     result = 31 * result + (statement != null ? statement.hashCode() : 0);
     result = 31 * result + (inputParam != null ? inputParam.hashCode() : 0);
@@ -290,18 +260,6 @@ public class SQLFromItem extends SimpleNode {
 
   public void setRids(List<SQLRid> rids) {
     this.rids = rids;
-  }
-
-  public void setCluster(SQLCluster cluster) {
-    this.cluster = cluster;
-  }
-
-  public void setClusterList(SQLClusterList clusterList) {
-    this.clusterList = clusterList;
-  }
-
-  public void setIndex(SQLIndexIdentifier index) {
-    this.index = index;
   }
 
   public void setMetadata(SQLMetadataIdentifier metadata) {
@@ -332,42 +290,33 @@ public class SQLFromItem extends SimpleNode {
     this.inputParams = inputParams;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (rids != null) {
       result.setProperty(
-          "rids", rids.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          "rids", rids.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     if (inputParams != null) {
       result.setProperty(
-          "inputParams", rids.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
-    }
-    if (cluster != null) {
-      result.setProperty("cluster", cluster.serialize(db));
-    }
-    if (clusterList != null) {
-      result.setProperty("clusterList", clusterList.serialize(db));
-    }
-    if (index != null) {
-      result.setProperty("index", index.serialize(db));
+          "inputParams", rids.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     if (metadata != null) {
-      result.setProperty("metadata", metadata.serialize(db));
+      result.setProperty("metadata", metadata.serialize(session));
     }
     if (statement != null) {
-      result.setProperty("statement", statement.serialize(db));
+      result.setProperty("statement", statement.serialize(session));
     }
     if (inputParam != null) {
-      result.setProperty("inputParam", inputParam.serialize(db));
+      result.setProperty("inputParam", inputParam.serialize(session));
     }
     if (identifier != null) {
-      result.setProperty("identifier", identifier.serialize(db));
+      result.setProperty("identifier", identifier.serialize(session));
     }
     if (functionCall != null) {
-      result.setProperty("functionCall", functionCall.serialize(db));
+      result.setProperty("functionCall", functionCall.serialize(session));
     }
     if (modifier != null) {
-      result.setProperty("modifier", modifier.serialize(db));
+      result.setProperty("modifier", modifier.serialize(session));
     }
 
     return result;
@@ -377,8 +326,8 @@ public class SQLFromItem extends SimpleNode {
     if (fromResult.getProperty("rids") != null) {
       List<Result> serRids = fromResult.getProperty("rids");
       rids = new ArrayList<>();
-      for (Result res : serRids) {
-        SQLRid rid = new SQLRid(-1);
+      for (var res : serRids) {
+        var rid = new SQLRid(-1);
         rid.deserialize(res);
         rids.add(rid);
       }
@@ -387,23 +336,9 @@ public class SQLFromItem extends SimpleNode {
     if (fromResult.getProperty("inputParams") != null) {
       List<Result> ser = fromResult.getProperty("inputParams");
       inputParams = new ArrayList<>();
-      for (Result res : ser) {
+      for (var res : ser) {
         inputParams.add(SQLInputParameter.deserializeFromOResult(res));
       }
-    }
-
-    if (fromResult.getProperty("cluster") != null) {
-      cluster = new SQLCluster(-1);
-      cluster.deserialize(fromResult.getProperty("cluster"));
-    }
-    if (fromResult.getProperty("clusterList") != null) {
-      clusterList = new SQLClusterList(-1);
-      clusterList.deserialize(fromResult.getProperty("clusterList"));
-    }
-
-    if (fromResult.getProperty("index") != null) {
-      index = new SQLIndexIdentifier(-1);
-      index.deserialize(fromResult.getProperty("index"));
     }
     if (fromResult.getProperty("metadata") != null) {
       metadata = new SQLMetadataIdentifier(-1);
@@ -428,7 +363,7 @@ public class SQLFromItem extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (modifier != null) {
       return false;
     }
@@ -442,7 +377,7 @@ public class SQLFromItem extends SimpleNode {
       return statement.executinPlanCanBeCached(session);
     }
     if (functionCall != null) {
-      return functionCall.isCacheable();
+      return functionCall.isCacheable(session);
     }
 
     return true;

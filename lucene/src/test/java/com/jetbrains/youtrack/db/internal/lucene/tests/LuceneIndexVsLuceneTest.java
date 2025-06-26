@@ -20,13 +20,9 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LucenePerFieldAnalyzerWrapper;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -38,9 +34,6 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.NIOFSDirectory;
 import org.junit.Before;
@@ -57,27 +50,27 @@ public class LuceneIndexVsLuceneTest extends LuceneBaseTest {
 
   @Before
   public void init() {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
 
-    Schema schema = db.getMetadata().getSchema();
+    session.getMetadata().getSchema();
 
     FileUtils.deleteRecursively(getPath().getAbsoluteFile());
     try {
-      Directory dir = getDirectory();
+      var dir = getDirectory();
       analyzer = new LucenePerFieldAnalyzerWrapper(new StandardAnalyzer());
 
       analyzer.add("title", new StandardAnalyzer()).add("Song.title", new StandardAnalyzer());
 
-      IndexWriterConfig iwc = new IndexWriterConfig(analyzer);
+      var iwc = new IndexWriterConfig(analyzer);
       iwc.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
       indexWriter = new IndexWriter(dir, iwc);
 
     } catch (IOException e) {
       e.printStackTrace();
     }
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE").close();
   }
 
   private File getPath() {
@@ -92,11 +85,12 @@ public class LuceneIndexVsLuceneTest extends LuceneBaseTest {
   @Ignore
   public void testLuceneVsLucene() throws IOException, ParseException {
 
-    for (EntityImpl oDocument : db.browseClass("Song")) {
-
-      String title = oDocument.field("title");
+    var entityIterator = session.browseClass("Song");
+    while (entityIterator.hasNext()) {
+      var entity = entityIterator.next();
+      String title = entity.getProperty("title");
       if (title != null) {
-        Document d = new Document();
+        var d = new Document();
 
         d.add(new TextField("title", title, Field.Store.YES));
         d.add(new TextField("Song.title", title, Field.Store.YES));
@@ -108,32 +102,23 @@ public class LuceneIndexVsLuceneTest extends LuceneBaseTest {
     indexWriter.close();
 
     IndexReader reader = DirectoryReader.open(getDirectory());
-    assertThat(reader.numDocs()).isEqualTo(Long.valueOf(db.countClass("Song")).intValue());
+    assertThat(reader.numDocs()).isEqualTo(Long.valueOf(session.countClass("Song")).intValue());
 
-    IndexSearcher searcher = new IndexSearcher(reader);
+    var searcher = new IndexSearcher(reader);
 
-    Query query = new MultiFieldQueryParser(new String[]{"title"}, analyzer).parse("down the");
-    final TopDocs docs = searcher.search(query, Integer.MAX_VALUE);
-    ScoreDoc[] hits = docs.scoreDocs;
+    var query = new MultiFieldQueryParser(new String[]{"title"}, analyzer).parse("down the");
+    final var docs = searcher.search(query, Integer.MAX_VALUE);
 
-    ResultSet resultSet =
-        db.query("select *,$score from Song where search_class('down the')=true");
+    var resultSet =
+        session.query("select *,$score from Song where search_class('down the')=true");
 
     resultSet.stream()
         .forEach(
             r -> {
               System.out.println("r = " + r);
-              assertThat((Object[]) r.toEntity().getProperty("$score")).isNotNull();
+              assertThat((Object[]) r.getProperty("$score")).isNotNull();
             });
 
-    //    int i = 0;
-    //    for (ScoreDoc hit : hits) {
-    ////      Assert.assertEquals(oDocs.get(i).field("$score"), hit.score);
-    //
-    //      assertThat(resultSet.get(i).<Float>field("$score")).isEqualTo(hit.score);
-    //      i++;
-    //    }
-    //    reader.close();
     resultSet.close();
   }
 }

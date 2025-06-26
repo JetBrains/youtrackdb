@@ -21,12 +21,15 @@ package com.jetbrains.youtrack.db.internal.core.command.script.formatter;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
+import javax.annotation.Nullable;
 
 /**
  * SQL script formatter.
  */
 public class SQLScriptFormatter implements ScriptFormatter {
 
+  @Override
+  @Nullable
   public String getFunctionDefinition(DatabaseSessionInternal session, final Function f) {
     return null;
   }
@@ -35,6 +38,6 @@ public class SQLScriptFormatter implements ScriptFormatter {
   public String getFunctionInvoke(DatabaseSessionInternal session, final Function iFunction,
       final Object[] iArgs) {
     // TODO: BIND ARGS
-    return iFunction.getCode(session);
+    return iFunction.getCode();
   }
 }

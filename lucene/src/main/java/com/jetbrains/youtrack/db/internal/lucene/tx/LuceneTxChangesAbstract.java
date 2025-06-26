@@ -27,7 +27,6 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.TopDocs;
 
 /**
  *
@@ -56,16 +55,16 @@ public abstract class LuceneTxChangesAbstract implements LuceneTxChanges {
       // documents", e);
       throw BaseException.wrapException(
           new LuceneIndexException("Error during searcher index instantiation on new entities"),
-          e);
+          e, (String) null);
     }
   }
 
   @Override
   public long deletedDocs(Query query) {
     try {
-      final IndexSearcher indexSearcher =
+      final var indexSearcher =
           new IndexSearcher(DirectoryReader.open(deletedIdx, true, true));
-      final TopDocs search = indexSearcher.search(query, Integer.MAX_VALUE);
+      final var search = indexSearcher.search(query, Integer.MAX_VALUE);
       return search.totalHits;
     } catch (IOException e) {
       LogManager.instance()

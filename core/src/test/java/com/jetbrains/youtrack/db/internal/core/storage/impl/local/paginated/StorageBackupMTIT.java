@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException;
@@ -10,13 +11,10 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -24,7 +22,6 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -40,30 +37,28 @@ public class StorageBackupMTIT {
 
   @Test
   public void testParallelBackup() throws Exception {
-    final String buildDirectory = System.getProperty("buildDirectory", ".");
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
     dbName = StorageBackupMTIT.class.getSimpleName();
-    final String dbDirectory =
-        buildDirectory + File.separator + "databases" + File.separator + dbName;
+
     final File backupDir = new File(buildDirectory, "backupDir");
     final String backupDbName = StorageBackupMTIT.class.getSimpleName() + "BackUp";
 
-    FileUtils.deleteRecursively(new File(dbDirectory));
+    FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPath(getClass())));
 
     try {
-
-      youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
           YouTrackDBConfig.defaultConfig());
       youTrackDB.execute(
-          "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+          "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();
-      final SchemaClass backupClass = schema.createClass("BackupClass");
-      backupClass.createProperty(db, "num", PropertyType.INTEGER);
-      backupClass.createProperty(db, "data", PropertyType.BINARY);
+      final var backupClass = schema.createClass("BackupClass");
+      backupClass.createProperty("num", PropertyType.INTEGER);
+      backupClass.createProperty("data", PropertyType.BINARY);
 
-      backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+      backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
       FileUtils.deleteRecursively(backupDir);
 
@@ -71,23 +66,24 @@ public class StorageBackupMTIT {
         Assert.assertTrue(backupDir.mkdirs());
       }
 
-      final ExecutorService executor = Executors.newCachedThreadPool();
-      final List<Future<Void>> futures = new ArrayList<>();
+      try (final var executor = Executors.newCachedThreadPool()) {
+        final List<Future<Void>> futures = new ArrayList<>();
 
-      for (int i = 0; i < 4; i++) {
-        futures.add(executor.submit(new DataWriterCallable()));
-      }
+        for (var i = 0; i < 4; i++) {
+          futures.add(executor.submit(new DataWriterCallable()));
+        }
 
-      futures.add(executor.submit(new DBBackupCallable(backupDir.getAbsolutePath())));
+        futures.add(executor.submit(new DBBackupCallable(backupDir.getAbsolutePath())));
 
-      latch.countDown();
+        latch.countDown();
 
-      TimeUnit.MINUTES.sleep(15);
+        TimeUnit.MINUTES.sleep(15);
 
-      stop = true;
+        stop = true;
 
-      for (Future<Void> future : futures) {
-        future.get();
+        for (var future : futures) {
+          future.get();
+        }
       }
 
       System.out.println("do inc backup last time");
@@ -95,33 +91,21 @@ public class StorageBackupMTIT {
 
       youTrackDB.close();
 
-      final String backedUpDbDirectory = buildDirectory + File.separator + backupDbName;
-      FileUtils.deleteRecursively(new File(backedUpDbDirectory));
-
       System.out.println("create and restore");
 
-      YouTrackDBEmbedded embedded =
-          (YouTrackDBEmbedded)
-              YouTrackDBInternal.embedded(buildDirectory, YouTrackDBConfig.defaultConfig());
-      embedded.restore(
-          backupDbName,
-          null,
-          null,
-          null,
-          backupDir.getAbsolutePath(),
+      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
           YouTrackDBConfig.defaultConfig());
-      embedded.close();
+      youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(),
+          YouTrackDBConfig.defaultConfig());
 
-      youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
-          YouTrackDBConfig.defaultConfig());
-      final DatabaseCompare compare =
+      final var compare =
           new DatabaseCompare(
-              (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
 
       System.out.println("compare");
-      boolean areSame = compare.compare();
+      var areSame = compare.compare();
       Assert.assertTrue(areSame);
 
     } finally {
@@ -133,10 +117,14 @@ public class StorageBackupMTIT {
         }
       }
       try {
-        youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+        youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.defaultConfig());
-        youTrackDB.drop(dbName);
-        youTrackDB.drop(backupDbName);
+        if (youTrackDB.exists(dbName)) {
+          youTrackDB.drop(dbName);
+        }
+        if (youTrackDB.exists(backupDbName)) {
+          youTrackDB.drop(backupDbName);
+        }
 
         youTrackDB.close();
 
@@ -149,36 +137,34 @@ public class StorageBackupMTIT {
 
   @Test
   public void testParallelBackupEncryption() throws Exception {
-    final String buildDirectory = System.getProperty("buildDirectory", ".");
-    final String backupDbName = StorageBackupMTIT.class.getSimpleName() + "BackUp";
-    final String backedUpDbDirectory = buildDirectory + File.separator + backupDbName;
-    final File backupDir = new File(buildDirectory, "backupDir");
+    final var buildDirectory = System.getProperty("buildDirectory", ".");
+    final var backupDbName = StorageBackupMTIT.class.getSimpleName() + "BackUp";
+    final var backedUpDbDirectory = buildDirectory + File.separator + backupDbName;
+    final var backupDir = new File(buildDirectory, "backupDir");
 
     dbName = StorageBackupMTIT.class.getSimpleName();
-    String dbDirectory = buildDirectory + File.separator + dbName;
 
-    final YouTrackDBConfigImpl config =
+    final var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
                 "T1JJRU5UREJfSVNfQ09PTA==")
             .build();
-
     try {
 
-      FileUtils.deleteRecursively(new File(dbDirectory));
+      FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPath(getClass())));
 
-      youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
       youTrackDB.execute(
-          "create database " + dbName + " plocal users ( admin identified by 'admin' role admin)");
+          "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       final Schema schema = db.getMetadata().getSchema();
-      final SchemaClass backupClass = schema.createClass("BackupClass");
-      backupClass.createProperty(db, "num", PropertyType.INTEGER);
-      backupClass.createProperty(db, "data", PropertyType.BINARY);
+      final var backupClass = schema.createClass("BackupClass");
+      backupClass.createProperty("num", PropertyType.INTEGER);
+      backupClass.createProperty("data", PropertyType.BINARY);
 
-      backupClass.createIndex(db, "backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+      backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
 
       FileUtils.deleteRecursively(backupDir);
 
@@ -186,10 +172,10 @@ public class StorageBackupMTIT {
         Assert.assertTrue(backupDir.mkdirs());
       }
 
-      final ExecutorService executor = Executors.newCachedThreadPool();
+      final var executor = Executors.newCachedThreadPool();
       final List<Future<Void>> futures = new ArrayList<>();
 
-      for (int i = 0; i < 4; i++) {
+      for (var i = 0; i < 4; i++) {
         futures.add(executor.submit(new DataWriterCallable()));
       }
 
@@ -201,7 +187,7 @@ public class StorageBackupMTIT {
 
       stop = true;
 
-      for (Future<Void> future : futures) {
+      for (var future : futures) {
         future.get();
       }
 
@@ -214,22 +200,18 @@ public class StorageBackupMTIT {
 
       System.out.println("create and restore");
 
-      YouTrackDBEmbedded embedded =
-          (YouTrackDBEmbedded) YouTrackDBInternal.embedded(buildDirectory, config);
-      embedded.restore(backupDbName, null, null, null, backupDir.getAbsolutePath(), config);
-      embedded.close();
-
       GlobalConfiguration.STORAGE_ENCRYPTION_KEY.setValue("T1JJRU5UREJfSVNfQ09PTA==");
-      youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
-          YouTrackDBConfig.defaultConfig());
-      final DatabaseCompare compare =
+      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+      youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(), config);
+
+      final var compare =
           new DatabaseCompare(
-              (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin"),
-              (DatabaseSessionInternal) youTrackDB.open(backupDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
               System.out::println);
       System.out.println("compare");
 
-      boolean areSame = compare.compare();
+      var areSame = compare.compare();
       Assert.assertTrue(areSame);
 
     } finally {
@@ -241,7 +223,7 @@ public class StorageBackupMTIT {
         }
       }
       try {
-        youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+        youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
         youTrackDB.drop(dbName);
         youTrackDB.drop(backupDbName);
 
@@ -262,20 +244,20 @@ public class StorageBackupMTIT {
 
       System.out.println(Thread.currentThread() + " - start writing");
 
-      try (var ignored = youTrackDB.open(dbName, "admin", "admin")) {
+      try (var databaseSession = youTrackDB.open(dbName, "admin", "admin")) {
         final Random random = new Random();
         while (!stop) {
           try {
-            final byte[] data = new byte[16];
+            final var data = new byte[16];
             random.nextBytes(data);
 
-            final int num = random.nextInt();
+            final var num = random.nextInt();
 
-            final EntityImpl document = new EntityImpl("BackupClass");
-            document.field("num", num);
-            document.field("data", data);
-
-            document.save();
+            databaseSession.executeInTx(transaction -> {
+              var entity = transaction.newEntity("BackupClass");
+              entity.setProperty("num", num);
+              entity.setProperty("data", data);
+            });
           } catch (ModificationOperationProhibitedException e) {
             System.out.println("Modification prohibited ... wait ...");
             //noinspection BusyWait

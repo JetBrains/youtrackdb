@@ -25,68 +25,68 @@ import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.Service;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerEntryConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
-import com.jetbrains.youtrack.db.internal.server.network.ServerNetworkListener;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.NetworkProtocolHttpAbstract;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent.StaticContent;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.InputStream;
-import java.lang.reflect.Method;
+import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Manages Server Extensions
  */
 public class ServerPluginManager implements Service {
 
+  private static final Logger logger = LoggerFactory.getLogger(ServerPluginManager.class);
+
   private static final int CHECK_DELAY = 5000;
   private YouTrackDBServer server;
   private final ConcurrentHashMap<String, ServerPluginInfo> activePlugins =
-      new ConcurrentHashMap<String, ServerPluginInfo>();
+      new ConcurrentHashMap<>();
   private final ConcurrentHashMap<String, String> loadedPlugins =
-      new ConcurrentHashMap<String, String>();
+      new ConcurrentHashMap<>();
   private volatile TimerTask autoReloadTimerTask;
   private String directory;
 
-  protected List<OPluginLifecycleListener> pluginListeners =
-      new ArrayList<OPluginLifecycleListener>();
+  protected List<PluginLifecycleListener> pluginListeners = new ArrayList<>();
 
   public void config(YouTrackDBServer iServer) {
     server = iServer;
   }
 
+  @Override
   public void startup() {
-    boolean hotReload = false;
-    boolean dynamic = true;
-    boolean loadAtStartup = true;
+    var hotReload = false;
+    var dynamic = true;
+    var loadAtStartup = true;
     directory =
         SystemVariableResolver.resolveSystemVariables("${YOUTRACKDB_HOME}", ".") + "/plugins/";
 
     if (server.getConfiguration() != null && server.getConfiguration().properties != null) {
-      for (ServerEntryConfiguration p : server.getConfiguration().properties) {
-        if (p.name.equals("plugin.hotReload")) {
-          hotReload = Boolean.parseBoolean(p.value);
-        } else if (p.name.equals("plugin.dynamic")) {
-          dynamic = Boolean.parseBoolean(p.value);
-        } else if (p.name.equals("plugin.loadAtStartup")) {
-          loadAtStartup = Boolean.parseBoolean(p.value);
-        } else if (p.name.equals("plugin.directory")) {
-          directory = p.value;
+      for (var p : server.getConfiguration().properties) {
+        switch (p.name) {
+          case "plugin.hotReload" -> hotReload = Boolean.parseBoolean(p.value);
+          case "plugin.dynamic" -> dynamic = Boolean.parseBoolean(p.value);
+          case "plugin.loadAtStartup" -> loadAtStartup = Boolean.parseBoolean(p.value);
+          case "plugin.directory" -> directory = p.value;
         }
       }
     }
@@ -102,10 +102,12 @@ public class ServerPluginManager implements Service {
     if (hotReload) {
       autoReloadTimerTask =
           YouTrackDBEnginesManager.instance()
+              .getScheduler()
               .scheduleTask(this::updatePlugins, CHECK_DELAY, CHECK_DELAY);
     }
   }
 
+  @Nullable
   public ServerPluginInfo getPluginByName(final String iName) {
     if (iName == null) {
       return null;
@@ -122,11 +124,11 @@ public class ServerPluginManager implements Service {
   }
 
   public String[] getPluginNames() {
-    return activePlugins.keySet().toArray(new String[activePlugins.size()]);
+    return activePlugins.keySet().toArray(new String[0]);
   }
 
   public void registerPlugin(final ServerPluginInfo iPlugin) {
-    final String pluginName = iPlugin.getName();
+    final var pluginName = iPlugin.getName();
 
     if (activePlugins.containsKey(pluginName)) {
       throw new IllegalStateException("Plugin '" + pluginName + "' already registered");
@@ -139,11 +141,11 @@ public class ServerPluginManager implements Service {
   }
 
   public void uninstallPluginByFile(final String iFileName) {
-    final String pluginName = loadedPlugins.remove(iFileName);
+    final var pluginName = loadedPlugins.remove(iFileName);
     if (pluginName != null) {
       LogManager.instance().info(this, "Uninstalling dynamic plugin '%s'...", iFileName);
 
-      final ServerPluginInfo removedPlugin = activePlugins.remove(pluginName);
+      final var removedPlugin = activePlugins.remove(pluginName);
       if (removedPlugin != null) {
         callListenerBeforeShutdown(removedPlugin.getInstance());
         removedPlugin.shutdown();
@@ -155,12 +157,15 @@ public class ServerPluginManager implements Service {
   @Override
   public void shutdown() {
     LogManager.instance().info(this, "Shutting down plugins:");
-    for (Entry<String, ServerPluginInfo> pluginInfoEntry : activePlugins.entrySet()) {
+    for (var pluginInfoEntry : activePlugins.entrySet()) {
       LogManager.instance().info(this, "- %s", pluginInfoEntry.getKey());
-      final ServerPluginInfo plugin = pluginInfoEntry.getValue();
+      final var plugin = pluginInfoEntry.getValue();
       try {
         callListenerBeforeShutdown(plugin.getInstance());
         plugin.shutdown(false);
+        if (plugin instanceof DatabaseLifecycleListener databaseLifecycleListener) {
+          YouTrackDBEnginesManager.instance().removeDbLifecycleListener(databaseLifecycleListener);
+        }
         callListenerAfterShutdown(plugin.getInstance());
       } catch (Exception t) {
         LogManager.instance().error(this, "Error during server plugin %s shutdown", t, plugin);
@@ -177,8 +182,9 @@ public class ServerPluginManager implements Service {
     return "plugin-manager";
   }
 
+  @Nullable
   protected String updatePlugin(final File pluginFile) {
-    final String pluginFileName = pluginFile.getName();
+    final var pluginFileName = pluginFile.getName();
 
     if (!pluginFile.isDirectory()
         && !pluginFileName.endsWith(".jar")
@@ -194,9 +200,9 @@ public class ServerPluginManager implements Service {
       return null;
     }
 
-    ServerPluginInfo currentPluginData = getPluginByFile(pluginFileName);
+    var currentPluginData = getPluginByFile(pluginFileName);
 
-    final long fileLastModified = pluginFile.lastModified();
+    final var fileLastModified = pluginFile.lastModified();
     if (currentPluginData != null) {
       if (fileLastModified <= currentPluginData.getLoadedOn())
       // ALREADY LOADED, SKIPT IT
@@ -214,7 +220,7 @@ public class ServerPluginManager implements Service {
       } catch (Exception e) {
         // IGNORE EXCEPTIONS
         LogManager.instance()
-            .debug(this, "Error on shutdowning plugin '%s'...", e, pluginFileName);
+            .debug(this, "Error on shutdowning plugin '%s'...", logger, e, pluginFileName);
       }
     }
 
@@ -223,13 +229,13 @@ public class ServerPluginManager implements Service {
     return pluginFileName;
   }
 
-  protected void registerStaticDirectory(final ServerPluginInfo iPluginData) {
-    Object pluginWWW = iPluginData.getParameter("www");
+  protected void registerStaticDirectory(final ServerPluginInfo pluginData) {
+    var pluginWWW = pluginData.getParameter("www");
     if (pluginWWW == null) {
-      pluginWWW = iPluginData.getName();
+      pluginWWW = pluginData.getName();
     }
 
-    final ServerNetworkListener httpListener =
+    final var httpListener =
         server.getListenerByProtocol(NetworkProtocolHttpAbstract.class);
 
     if (httpListener == null) {
@@ -237,50 +243,42 @@ public class ServerPluginManager implements Service {
           "HTTP listener not registered while installing Static Content command");
     }
 
-    final ServerCommandGetStaticContent command =
+    final var command =
         (ServerCommandGetStaticContent)
             httpListener.getCommand(ServerCommandGetStaticContent.class);
 
     if (command != null) {
-      final URL wwwURL = iPluginData.getClassLoader().findResource("www/");
+      final var wwwURL = pluginData.getClassLoader().findResource("www/");
 
       final CallableFunction<Object, String> callback;
       if (wwwURL != null) {
-        callback = createStaticLinkCallback(iPluginData, wwwURL);
+        callback = createStaticLinkCallback(pluginData);
       } else
       // LET TO THE COMMAND TO CONTROL IT
       {
         callback =
-            new CallableFunction<Object, String>() {
-              @Override
-              public Object call(final String iArgument) {
-                return iPluginData.getInstance().getContent(iArgument);
-              }
-            };
+            argument -> pluginData.getInstance().getContent(argument);
       }
 
       command.registerVirtualFolder(pluginWWW.toString(), callback);
     }
   }
 
-  protected CallableFunction<Object, String> createStaticLinkCallback(
-      final ServerPluginInfo iPluginData, final URL wwwURL) {
-    return new CallableFunction<Object, String>() {
-      @Override
-      public Object call(final String iArgument) {
-        String fileName = "www/" + iArgument;
-        final URL url = iPluginData.getClassLoader().findResource(fileName);
+  protected static CallableFunction<Object, String> createStaticLinkCallback(
+      final ServerPluginInfo iPluginData) {
+    return iArgument -> {
+      var fileName = "www/" + iArgument;
+      final var url = iPluginData.getClassLoader().findResource(fileName);
 
-        if (url != null) {
-          final StaticContent content = new StaticContent();
-          content.is =
-              new BufferedInputStream(iPluginData.getClassLoader().getResourceAsStream(fileName));
-          content.contentSize = -1;
-          content.type = ServerCommandGetStaticContent.getContentType(url.getFile());
-          return content;
-        }
-        return null;
+      if (url != null) {
+        final var content = new StaticContent();
+        content.is =
+            new BufferedInputStream(iPluginData.getClassLoader().getResourceAsStream(fileName));
+        content.contentSize = -1;
+        content.type = ServerCommandGetStaticContent.getContentType(url.getFile());
+        return content;
       }
+      return null;
     };
   }
 
@@ -291,12 +289,12 @@ public class ServerPluginManager implements Service {
       final ServerParameterConfiguration[] params)
       throws Exception {
 
-    final Class<? extends ServerPlugin> classToLoad =
+    final var classToLoad =
         (Class<? extends ServerPlugin>) pluginClassLoader.loadClass(iClassName);
-    final ServerPlugin instance = classToLoad.newInstance();
+    final var instance = classToLoad.newInstance();
 
     // CONFIG()
-    final Method configMethod =
+    final var configMethod =
         classToLoad.getDeclaredMethod(
             "config", YouTrackDBServer.class, ServerParameterConfiguration[].class);
 
@@ -307,7 +305,7 @@ public class ServerPluginManager implements Service {
     callListenerAfterConfig(instance, params);
 
     // STARTUP()
-    final Method startupMethod = classToLoad.getDeclaredMethod("startup");
+    final var startupMethod = classToLoad.getDeclaredMethod("startup");
 
     callListenerBeforeStartup(instance);
 
@@ -320,21 +318,25 @@ public class ServerPluginManager implements Service {
 
   private void updatePlugins() {
     // load plugins.directory from server configuration or default to $YOUTRACKDB_HOME/plugins
-    final File pluginsDirectory = new File(directory);
+    final var pluginsDirectory = new File(directory);
     if (!pluginsDirectory.exists()) {
-      pluginsDirectory.mkdirs();
+      try {
+        Files.createDirectories(pluginsDirectory.toPath());
+      } catch (IOException e) {
+        throw new IllegalStateException("Error during  creation of directory for plugins", e);
+      }
     }
 
-    final File[] plugins = pluginsDirectory.listFiles();
+    final var plugins = pluginsDirectory.listFiles();
 
-    final Set<String> currentDynamicPlugins = new HashSet<String>();
-    for (Entry<String, String> entry : loadedPlugins.entrySet()) {
+    final Set<String> currentDynamicPlugins = new HashSet<>();
+    for (var entry : loadedPlugins.entrySet()) {
       currentDynamicPlugins.add(entry.getKey());
     }
 
     if (plugins != null) {
-      for (File plugin : plugins) {
-        final String pluginName = updatePlugin(plugin);
+      for (var plugin : plugins) {
+        final var pluginName = updatePlugin(plugin);
         if (pluginName != null) {
           currentDynamicPlugins.remove(pluginName);
         }
@@ -342,25 +344,26 @@ public class ServerPluginManager implements Service {
     }
 
     // REMOVE MISSING PLUGIN
-    for (String pluginName : currentDynamicPlugins) {
+    for (var pluginName : currentDynamicPlugins) {
       uninstallPluginByFile(pluginName);
     }
   }
 
+  @SuppressWarnings("unchecked")
   private void installDynamicPlugin(final File pluginFile) {
-    String pluginName = pluginFile.getName();
+    var pluginName = pluginFile.getName();
 
     final ServerPluginInfo currentPluginData;
     LogManager.instance().info(this, "Installing dynamic plugin '%s'...", pluginName);
 
     URLClassLoader pluginClassLoader = null;
     try {
-      final URL url = pluginFile.toURI().toURL();
+      final var url = pluginFile.toURI().toURL();
 
       pluginClassLoader = new URLClassLoader(new URL[]{url}, getClass().getClassLoader());
 
       // LOAD PLUGIN.JSON FILE
-      final URL r = pluginClassLoader.findResource("plugin.json");
+      final var r = pluginClassLoader.findResource("plugin.json");
       if (r == null) {
         LogManager.instance()
             .error(
@@ -374,9 +377,7 @@ public class ServerPluginManager implements Service {
                 pluginName));
       }
 
-      final InputStream pluginConfigFile = r.openStream();
-
-      try {
+      try (var pluginConfigFile = r.openStream()) {
         if (pluginConfigFile == null || pluginConfigFile.available() == 0) {
           LogManager.instance()
               .error(
@@ -389,30 +390,30 @@ public class ServerPluginManager implements Service {
                   "Error on loading 'plugin.json' file for dynamic plugin '%s'", pluginName));
         }
 
-        final EntityImpl properties = new EntityImpl().fromJSON(pluginConfigFile);
+        final var properties = JSONSerializerJackson.INSTANCE.mapFromJson(pluginConfigFile);
 
-        if (properties.containsField("name"))
+        if (properties.containsKey("name"))
         // OVERWRITE PLUGIN NAME
         {
-          pluginName = properties.field("name");
+          pluginName = (String) properties.get("name");
         }
 
-        final String pluginClass = properties.field("javaClass");
+        final var pluginClass = (String) properties.get("javaClass");
 
         final ServerPlugin pluginInstance;
         final Map<String, Object> parameters;
 
         if (pluginClass != null) {
           // CREATE PARAMETERS
-          parameters = properties.field("parameters");
+          parameters = (Map<String, Object>) properties.get("parameters");
           final List<ServerParameterConfiguration> params =
-              new ArrayList<ServerParameterConfiguration>();
-          for (String paramName : parameters.keySet()) {
+              new ArrayList<>();
+          for (var entry : parameters.entrySet()) {
             params.add(
-                new ServerParameterConfiguration(paramName, (String) parameters.get(paramName)));
+                new ServerParameterConfiguration(entry.getKey(), (String) entry.getValue()));
           }
-          final ServerParameterConfiguration[] pluginParams =
-              params.toArray(new ServerParameterConfiguration[params.size()]);
+          final var pluginParams =
+              params.toArray(new ServerParameterConfiguration[0]);
 
           pluginInstance = startPluginClass(pluginClass, pluginClassLoader, pluginParams);
         } else {
@@ -424,9 +425,9 @@ public class ServerPluginManager implements Service {
         currentPluginData =
             new ServerPluginInfo(
                 pluginName,
-                properties.field("version"),
-                properties.field("description"),
-                properties.field("web"),
+                (String) properties.get("version"),
+                (String) properties.get("description"),
+                (String) properties.get("web"),
                 pluginInstance,
                 parameters,
                 pluginFile.lastModified(),
@@ -436,8 +437,6 @@ public class ServerPluginManager implements Service {
         loadedPlugins.put(pluginFile.getName(), pluginName);
 
         registerStaticDirectory(currentPluginData);
-      } finally {
-        pluginConfigFile.close();
       }
 
     } catch (Exception e) {
@@ -445,20 +444,20 @@ public class ServerPluginManager implements Service {
     }
   }
 
-  public ServerPluginManager registerLifecycleListener(final OPluginLifecycleListener iListener) {
+  public ServerPluginManager registerLifecycleListener(final PluginLifecycleListener iListener) {
     pluginListeners.add(iListener);
     return this;
   }
 
   public ServerPluginManager unregisterLifecycleListener(
-      final OPluginLifecycleListener iListener) {
+      final PluginLifecycleListener iListener) {
     pluginListeners.remove(iListener);
     return this;
   }
 
   public void callListenerBeforeConfig(
       final ServerPlugin plugin, final ServerParameterConfiguration[] cfg) {
-    for (OPluginLifecycleListener l : pluginListeners) {
+    for (var l : pluginListeners) {
       try {
         l.onBeforeConfig(plugin, cfg);
       } catch (Exception ex) {
@@ -469,7 +468,7 @@ public class ServerPluginManager implements Service {
 
   public void callListenerAfterConfig(
       final ServerPlugin plugin, final ServerParameterConfiguration[] cfg) {
-    for (OPluginLifecycleListener l : pluginListeners) {
+    for (var l : pluginListeners) {
       try {
         l.onAfterConfig(plugin, cfg);
       } catch (Exception ex) {
@@ -478,8 +477,18 @@ public class ServerPluginManager implements Service {
     }
   }
 
+  public void callListenerAfterConfigError(ServerPlugin plugin, Throwable e) {
+    for (var l : pluginListeners) {
+      try {
+        l.onAfterConfigError(plugin, e);
+      } catch (Exception ex) {
+        LogManager.instance().error(this, "callListenerAfterShutdown()", ex);
+      }
+    }
+  }
+
   public void callListenerBeforeStartup(final ServerPlugin plugin) {
-    for (OPluginLifecycleListener l : pluginListeners) {
+    for (var l : pluginListeners) {
       try {
         l.onBeforeStartup(plugin);
       } catch (Exception ex) {
@@ -489,7 +498,17 @@ public class ServerPluginManager implements Service {
   }
 
   public void callListenerAfterStartup(final ServerPlugin plugin) {
-    for (OPluginLifecycleListener l : pluginListeners) {
+    for (var l : pluginListeners) {
+      try {
+        l.onAfterStartup(plugin);
+      } catch (Exception ex) {
+        LogManager.instance().error(this, "callListenerAfterStartup()", ex);
+      }
+    }
+  }
+
+  public void callListenerAfterStartupError(final ServerPlugin plugin, Throwable error) {
+    for (var l : pluginListeners) {
       try {
         l.onAfterStartup(plugin);
       } catch (Exception ex) {
@@ -499,7 +518,7 @@ public class ServerPluginManager implements Service {
   }
 
   public void callListenerBeforeShutdown(final ServerPlugin plugin) {
-    for (OPluginLifecycleListener l : pluginListeners) {
+    for (var l : pluginListeners) {
       try {
         l.onBeforeShutdown(plugin);
       } catch (Exception ex) {
@@ -508,8 +527,9 @@ public class ServerPluginManager implements Service {
     }
   }
 
+
   public void callListenerAfterShutdown(final ServerPlugin plugin) {
-    for (OPluginLifecycleListener l : pluginListeners) {
+    for (var l : pluginListeners) {
       try {
         l.onAfterShutdown(plugin);
       } catch (Exception ex) {
@@ -517,4 +537,6 @@ public class ServerPluginManager implements Service {
       }
     }
   }
+
+
 }

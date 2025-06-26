@@ -5,12 +5,15 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.MetadataPath;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexMetadataPath;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,8 +21,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class SQLModifier extends SimpleNode {
 
@@ -127,6 +130,17 @@ public class SQLModifier extends SimpleNode {
   }
 
   public Object execute(Result iCurrentRecord, Object result, CommandContext ctx) {
+    result = executeOneLevel(iCurrentRecord, result, ctx);
+    if (next != null) {
+      result = next.execute(iCurrentRecord, result, ctx);
+    }
+    return result;
+  }
+
+  /**
+   * Execute this modifier without stepping down to `next`.
+   */
+  Object executeOneLevel(Result iCurrentRecord, Object result, CommandContext ctx) {
     if (ctx.getVariable("$current") == null) {
       ctx.setVariable("$current", iCurrentRecord);
     }
@@ -143,20 +157,18 @@ public class SQLModifier extends SimpleNode {
     } else if (rightBinaryCondition != null) {
       result = rightBinaryCondition.execute(iCurrentRecord, result, ctx);
     }
-    if (next != null) {
-      result = next.execute(iCurrentRecord, result, ctx);
-    }
     return result;
   }
 
+  @Nullable
   private Object filterByCondition(Object iResult, CommandContext ctx) {
     if (iResult == null) {
       return null;
     }
     List<Object> result = new ArrayList<Object>();
     if (iResult.getClass().isArray()) {
-      for (int i = 0; i < Array.getLength(iResult); i++) {
-        Object item = Array.get(iResult, i);
+      for (var i = 0; i < Array.getLength(iResult); i++) {
+        var item = Array.get(iResult, i);
         if (condition.evaluate(item, ctx)) {
           result.add(item);
         }
@@ -171,7 +183,7 @@ public class SQLModifier extends SimpleNode {
     }
     if (iResult instanceof Iterator) {
       while (((Iterator) iResult).hasNext()) {
-        Object item = ((Iterator) iResult).next();
+        var item = ((Iterator) iResult).next();
         if (condition.evaluate(item, ctx)) {
           result.add(item);
         }
@@ -205,7 +217,7 @@ public class SQLModifier extends SimpleNode {
   }
 
   public SQLModifier copy() {
-    SQLModifier result = new SQLModifier(-1);
+    var result = new SQLModifier(-1);
     result.squareBrackets = squareBrackets;
     result.arrayRange = arrayRange == null ? null : arrayRange.copy();
     result.condition = condition == null ? null : condition.copy();
@@ -227,7 +239,7 @@ public class SQLModifier extends SimpleNode {
       return false;
     }
 
-    SQLModifier oModifier = (SQLModifier) o;
+    var oModifier = (SQLModifier) o;
 
     if (squareBrackets != oModifier.squareBrackets) {
       return false;
@@ -255,7 +267,7 @@ public class SQLModifier extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = (squareBrackets ? 1 : 0);
+    var result = (squareBrackets ? 1 : 0);
     result = 31 * result + (arrayRange != null ? arrayRange.hashCode() : 0);
     result = 31 * result + (condition != null ? condition.hashCode() : 0);
     result = 31 * result + (arraySingleValues != null ? arraySingleValues.hashCode() : 0);
@@ -311,32 +323,38 @@ public class SQLModifier extends SimpleNode {
   }
 
   protected void setValue(Result currentRecord, Object target, Object value,
-      CommandContext ctx) {
+      CommandContext ctx, @Nullable SchemaProperty schemaProperty, int level) {
     if (next == null) {
-      doSetValue(currentRecord, target, value, ctx);
+      doSetValue(currentRecord, target, value, ctx, schemaProperty, level);
     } else {
-      Object newTarget = calculateLocal(currentRecord, target, ctx);
+      var newTarget = calculateLocal(currentRecord, target, ctx);
       if (newTarget != null) {
-        next.setValue(currentRecord, newTarget, value, ctx);
+        next.setValue(currentRecord, newTarget, value, ctx, schemaProperty, level + 1);
       }
     }
   }
 
   private void doSetValue(Result currentRecord, Object target, Object value,
-      CommandContext ctx) {
+      CommandContext ctx, @Nullable SchemaProperty schemaProperty, int level) {
     value = SQLUpdateItem.convertResultToDocument(value);
-    value = SQLUpdateItem.cleanValue(value);
+
+    var session = ctx.getDatabaseSession();
     if (methodCall != null) {
       // do nothing
     } else if (suffix != null) {
+
+      value = convertLinkedType(value, level == 0 ? schemaProperty : null, session);
       suffix.setValue(target, value, ctx);
     } else if (arrayRange != null) {
+      value = SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty);
       arrayRange.setValue(target, value, ctx);
     } else if (condition != null) {
       // TODO
       throw new UnsupportedOperationException(
           "SET value on conditional filtering will be supported soon");
     } else if (arraySingleValues != null) {
+
+      value = convertLinkedType(value, level == 0 ? schemaProperty : null, session);
       arraySingleValues.setValue(currentRecord, target, value, ctx);
     } else if (rightBinaryCondition != null) {
       throw new UnsupportedOperationException(
@@ -344,6 +362,33 @@ public class SQLModifier extends SimpleNode {
     }
   }
 
+  @Nullable
+  private static Object convertLinkedType(
+      Object value,
+      @Nullable SchemaProperty schemaProperty,
+      DatabaseSessionInternal session
+  ) {
+    if (value == null) {
+      return null;
+    }
+    PropertyTypeInternal targetType = null;
+
+    if (schemaProperty != null && PropertyTypeInternal.isSimpleValueType(value)) {
+      targetType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType());
+    }
+
+    if (targetType == null) {
+      targetType = PropertyTypeInternal.getTypeByValue(value);
+    }
+
+    if (targetType != null) {
+      value = targetType.convert(value, session);
+    }
+
+    return value;
+  }
+
+  @Nullable
   private Object calculateLocal(Result currentRecord, Object target, CommandContext ctx) {
     if (methodCall != null) {
       return methodCall.execute(target, ctx);
@@ -360,7 +405,7 @@ public class SQLModifier extends SimpleNode {
         }
       } else if (MultiValue.isMultiValue(target)) {
         List<Object> result = new ArrayList<>();
-        for (Object o : MultiValue.getMultiValueIterable(target)) {
+        for (var o : MultiValue.getMultiValueIterable(target)) {
           if (condition.evaluate(o, ctx)) {
             result.add(o);
           }
@@ -380,7 +425,7 @@ public class SQLModifier extends SimpleNode {
   public void applyRemove(
       Object currentValue, ResultInternal originalRecord, CommandContext ctx) {
     if (next != null) {
-      Object val = calculateLocal(originalRecord, currentValue, ctx);
+      var val = calculateLocal(originalRecord, currentValue, ctx);
       next.applyRemove(val, originalRecord, ctx);
     } else {
       if (arrayRange != null) {
@@ -397,34 +442,35 @@ public class SQLModifier extends SimpleNode {
       } else if (suffix != null) {
         suffix.applyRemove(currentValue, ctx);
       } else {
-        throw new CommandExecutionException("cannot apply REMOVE " + this);
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "cannot apply REMOVE " + this);
       }
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("squareBrackets", squareBrackets);
     if (arrayRange != null) {
-      result.setProperty("arrayRange", arrayRange.serialize(db));
+      result.setProperty("arrayRange", arrayRange.serialize(session));
     }
     if (condition != null) {
-      result.setProperty("condition", condition.serialize(db));
+      result.setProperty("condition", condition.serialize(session));
     }
     if (arraySingleValues != null) {
-      result.setProperty("arraySingleValues", arraySingleValues.serialize(db));
+      result.setProperty("arraySingleValues", arraySingleValues.serialize(session));
     }
     if (rightBinaryCondition != null) {
-      result.setProperty("rightBinaryCondition", rightBinaryCondition.serialize(db));
+      result.setProperty("rightBinaryCondition", rightBinaryCondition.serialize(session));
     }
     if (methodCall != null) {
-      result.setProperty("methodCall", methodCall.serialize(db));
+      result.setProperty("methodCall", methodCall.serialize(session));
     }
     if (suffix != null) {
-      result.setProperty("suffix", suffix.serialize(db));
+      result.setProperty("suffix", suffix.serialize(session));
     }
     if (next != null) {
-      result.setProperty("next", next.serialize(db));
+      result.setProperty("next", next.serialize(session));
     }
     return result;
   }
@@ -463,7 +509,7 @@ public class SQLModifier extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (arrayRange != null || arraySingleValues != null || rightBinaryCondition != null) {
       return false; // TODO enhance a bit
     }
@@ -481,10 +527,11 @@ public class SQLModifier extends SimpleNode {
 
   public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
-      var prop = clazz.getPropertyInternal(suffix.getIdentifier().getStringValue());
+      var prop = clazz.getPropertyInternal(
+          suffix.getIdentifier().getStringValue());
       if (prop != null
-          && prop.getAllIndexesInternal(ctx.getDatabase()).stream()
-          .anyMatch(idx -> idx.getDefinition().getFields().size() == 1)) {
+          && prop.getAllIndexesInternal().stream()
+          .anyMatch(idx -> idx.getDefinition().getProperties().size() == 1)) {
         if (next != null) {
           var linkedClazz = (SchemaClassInternal) prop.getLinkedClass();
           return next.isIndexChain(ctx, linkedClazz);
@@ -495,19 +542,22 @@ public class SQLModifier extends SimpleNode {
     return false;
   }
 
-  public Optional<MetadataPath> getPath() {
+  @Nullable
+  public IndexMetadataPath getIndexMetadataPath() {
     if (this.suffix != null && this.suffix.isBaseIdentifier()) {
       if (this.next != null) {
-        Optional<MetadataPath> path = this.next.getPath();
-        if (path.isPresent()) {
-          path.get().addPre(suffix.identifier.getValue());
+        var path = this.next.getIndexMetadataPath();
+        if (path != null) {
+          path.addPre(suffix.identifier.getValue());
         }
+
         return path;
       } else {
-        return Optional.of(new MetadataPath(suffix.identifier.getValue()));
+        return new IndexMetadataPath(suffix.identifier.getValue());
       }
     }
-    return Optional.empty();
+
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=39c21495d02f9b5007b4a2d6915496e1 (do not edit this line) */

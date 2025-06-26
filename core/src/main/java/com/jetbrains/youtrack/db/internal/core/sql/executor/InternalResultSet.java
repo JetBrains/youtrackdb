@@ -1,68 +1,155 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.common.util.Resettable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.NoSuchElementException;
+import java.util.function.Consumer;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-/**
- *
- */
-public class InternalResultSet implements ResultSet, Resettable {
+public class InternalResultSet implements ResultSet {
 
-  private List<Result> content = new ArrayList<>();
+  private final List<Result> content;
+
   private int next = 0;
   protected ExecutionPlan plan;
 
+  @Nullable
+  private DatabaseSessionInternal session;
+
+  private boolean closed = false;
+
+  public InternalResultSet(@Nullable DatabaseSessionInternal session) {
+    this.session = session;
+    this.content = new ArrayList<>();
+  }
+
+  public InternalResultSet(@Nullable DatabaseSessionInternal session,
+      @Nonnull List<Result> content) {
+    this.session = session;
+    this.content = content;
+  }
+
   @Override
   public boolean hasNext() {
+    assert session == null || session.assertIfNotActive();
+    if (closed) {
+      return false;
+    }
+
     return content.size() > next;
   }
 
   @Override
   public Result next() {
+    assert session == null || session.assertIfNotActive();
+    if (closed) {
+      throw new NoSuchElementException();
+    }
+
     return content.get(next++);
   }
 
   @Override
   public void close() {
+    if (closed) {
+      return;
+    }
+
+    assert session == null || session.assertIfNotActive();
     this.content.clear();
+    this.session = null;
+    this.closed = true;
   }
 
   @Override
-  public Optional<ExecutionPlan> getExecutionPlan() {
-    return Optional.ofNullable(plan);
+  public @Nullable ExecutionPlan getExecutionPlan() {
+    assert session == null || session.assertIfNotActive();
+
+    return plan;
   }
 
   public void setPlan(ExecutionPlan plan) {
+    assert session == null || session.assertIfNotActive();
+    checkClosed();
+
     this.plan = plan;
   }
 
-  @Override
-  public Map<String, Long> getQueryStats() {
-    return new HashMap<>();
-  }
-
   public void add(Result nextResult) {
+    assert session == null || session.assertIfNotActive();
+    checkClosed();
+
     content.add(nextResult);
   }
 
-  public void reset() {
-    this.next = 0;
-  }
-
   public int size() {
+    assert session == null || session.assertIfNotActive();
+    checkClosed();
+
     return content.size();
   }
 
-  public InternalResultSet copy() {
-    InternalResultSet result = new InternalResultSet();
-    result.content = this.content;
-    return result;
+  @Nonnull
+  public InternalResultSet copy(@Nullable DatabaseSessionInternal session) {
+    assert this.session == null || this.session.assertIfNotActive();
+    assert session == null || session.assertIfNotActive();
+
+    return new InternalResultSet(session, this.content);
+  }
+
+  @Nullable
+  @Override
+  public DatabaseSession getBoundToSession() {
+    return session;
+  }
+
+  @Override
+  public boolean tryAdvance(Consumer<? super Result> action) {
+    if (hasNext()) {
+      action.accept(next());
+      return true;
+    }
+
+    return false;
+  }
+
+  @Override
+  public void forEachRemaining(@Nonnull Consumer<? super Result> action) {
+    while (hasNext()) {
+      action.accept(next());
+    }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return closed;
+  }
+
+  @Nullable
+  @Override
+  public ResultSet trySplit() {
+    return null;
+  }
+
+  @Override
+  public long estimateSize() {
+    return content.size() - next;
+  }
+
+  @Override
+  public int characteristics() {
+    return ORDERED | SIZED;
+  }
+
+  private void checkClosed() {
+    if (closed) {
+      throw new IllegalStateException("ResultSet is closed and can not be used");
+    }
   }
 }

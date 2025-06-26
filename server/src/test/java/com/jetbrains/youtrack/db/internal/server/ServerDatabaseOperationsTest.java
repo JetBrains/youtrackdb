@@ -3,15 +3,14 @@ package com.jetbrains.youtrack.db.internal.server;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.server.config.ServerConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerUserConfiguration;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerUserConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -32,22 +31,10 @@ public class ServerDatabaseOperationsTest {
   private YouTrackDBServer server;
 
   @Before
-  public void before()
-      throws ClassNotFoundException,
-      MalformedObjectNameException,
-      InstanceAlreadyExistsException,
-      NotCompliantMBeanException,
-      MBeanRegistrationException,
-      NoSuchMethodException,
-      IOException,
-      InvocationTargetException,
-      IllegalAccessException,
-      InstantiationException {
-    LogManager.instance().setConsoleLevel(Level.OFF.getName());
-    ServerConfiguration conf = new ServerConfiguration();
-
+  public void before() throws Exception {
+    var conf = new ServerConfiguration();
     conf.handlers = new ArrayList<>();
-    ServerUserConfiguration rootUser = new ServerUserConfiguration();
+    var rootUser = new ServerUserConfiguration();
     rootUser.name = "root";
     rootUser.password = "root";
     rootUser.resources = "server.listDatabases";
@@ -60,17 +47,15 @@ public class ServerDatabaseOperationsTest {
     server
         .getContext()
         .execute("create database " + ServerDatabaseOperationsTest.class.getSimpleName() +
-            " memory users (admin identified by 'admin' role admin)");
-    assertTrue(server.existsDatabase(ServerDatabaseOperationsTest.class.getSimpleName()));
+            " memory users (admin identified by 'admin' role admin)").close();
 
-    try (DatabaseSession session = server.openDatabase(
+    assertTrue(server.existsDatabase(ServerDatabaseOperationsTest.class.getSimpleName()));
+    try (var session = server.openSession(
         ServerDatabaseOperationsTest.class.getSimpleName())) {
-      EntityImpl securityConfig = new EntityImpl();
-      securityConfig.fromJSON(
-          IOUtils.readStreamAsString(
-              this.getClass().getClassLoader().getResourceAsStream("security.json")),
-          "noMap");
-      server.getSecurity().reload((DatabaseSessionInternal) session, securityConfig);
+
+      var map = JSONSerializerJackson.INSTANCE.mapFromJson(IOUtils.readStreamAsString(
+          this.getClass().getClassLoader().getResourceAsStream("security.json")));
+      server.getSecurity().reload(session, map);
     } finally {
       server.dropDatabase(ServerDatabaseOperationsTest.class.getSimpleName());
     }
@@ -95,9 +80,9 @@ public class ServerDatabaseOperationsTest {
     server
         .getContext()
         .execute("create database " + ServerDatabaseOperationsTest.class.getSimpleName()
-            + " memory users (admin identified by 'admin' role admin)");
+            + " memory users (admin identified by 'admin' role admin)").close();
     assertTrue(server.existsDatabase(ServerDatabaseOperationsTest.class.getSimpleName()));
-    DatabaseSession session = server.openDatabase(
+    BasicDatabaseSession session = server.openSession(
         ServerDatabaseOperationsTest.class.getSimpleName());
     assertNotNull(session);
     session.close();

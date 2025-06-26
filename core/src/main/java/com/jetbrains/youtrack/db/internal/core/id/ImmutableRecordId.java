@@ -28,25 +28,18 @@ import java.io.InputStream;
  * Immutable RID implementation. To be really immutable fields must not be public anymore. TODO!
  */
 public class ImmutableRecordId extends RecordId {
-
   public static final RID EMPTY_RECORD_ID = new ImmutableRecordId();
-  private static final long serialVersionUID = 1L;
 
   public ImmutableRecordId() {
     super();
   }
 
-  public ImmutableRecordId(final int iClusterId, final long iClusterPosition) {
-    super(iClusterId, iClusterPosition);
+  public ImmutableRecordId(final int iCollectionId, final long iCollectionPosition) {
+    super(iCollectionId, iCollectionPosition);
   }
 
   public ImmutableRecordId(final RecordId iRID) {
     super(iRID);
-  }
-
-  @Override
-  public void copyFrom(final RID iSource) {
-    throw new UnsupportedOperationException("copyFrom");
   }
 
   @Override

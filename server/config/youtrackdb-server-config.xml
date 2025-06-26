@@ -20,13 +20,6 @@
 
 <youtrackdb-server>
   <handlers>
-    <!-- JMX SERVER, TO TURN ON SET THE 'ENABLED' PARAMETER TO 'true' -->
-    <handler class="com.jetbrains.youtrack.db.internal.server.handler.JMXPlugin">
-      <parameters>
-        <parameter name="enabled" value="false"/>
-        <parameter name="profilerManaged" value="true"/>
-      </parameters>
-    </handler>
     <!-- AUTOMATIC BACKUP, TO TURN ON SET THE 'ENABLED' PARAMETER TO 'true' -->
     <handler class="com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup">
       <parameters>
@@ -53,7 +46,11 @@
         <parameter name="config" value="${YOUTRACKDB_HOME}/config/custom-sql-functions.json"/>
       </parameters>
     </handler>
-
+    <handler class="com.jetbrains.youtrack.db.internal.server.plugin.gremlin.GremlinServerPlugin">
+      <parameters>
+        <parameter name="config" value="${YOUTRACKDB_HOME}/config/gremlin-server.yaml"/>
+      </parameters>
+    </handler>
   </handlers>
   <network>
     <sockets>
@@ -62,9 +59,9 @@
         name="ssl">
         <parameters>
           <parameter value="false" name="network.ssl.clientAuth"/>
-          <parameter value="config/cert/orientdb.ks" name="network.ssl.keyStore"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.keyStore"/>
           <parameter value="password" name="network.ssl.keyStorePassword"/>
-          <parameter value="config/cert/orientdb.ks" name="network.ssl.trustStore"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.trustStore"/>
           <parameter value="password" name="network.ssl.trustStorePassword"/>
         </parameters>
       </socket>
@@ -73,9 +70,9 @@
         name="https">
         <parameters>
           <parameter value="false" name="network.ssl.clientAuth"/>
-          <parameter value="config/cert/orientdb.ks" name="network.ssl.keyStore"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.keyStore"/>
           <parameter value="password" name="network.ssl.keyStorePassword"/>
-          <parameter value="config/cert/orientdb.ks" name="network.ssl.trustStore"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.trustStore"/>
           <parameter value="password" name="network.ssl.trustStorePassword"/>
         </parameters>
       </socket>
@@ -94,8 +91,8 @@
         <parameters>
           <!-- Connection's custom parameters. If not specified the global configuration
               will be taken -->
-          <parameter name="network.http.charset" value="utf-8"/>
-          <parameter value="true" name="network.http.jsonResponseError"/>
+          <parameter name="youtrackdb.network.http.charset" value="utf-8"/>
+          <parameter value="true" name="youtrackdb.network.http.jsonResponseError"/>
           <parameter value="Content-Security-Policy: frame-ancestors 'none'"
             name="network.http.additionalResponseHeaders"></parameter>
           <!-- Define additional HTTP headers to always send as response -->
@@ -121,8 +118,8 @@
         </commands>
       </listener>
     </listeners>
-    <cluster>
-    </cluster>
+    <collection>
+    </collection>
   </network>
   <storages>
   </storages>

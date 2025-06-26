@@ -2,7 +2,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -26,12 +26,13 @@ public class SQLInsertBody extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
 
     if (identifierList != null) {
       builder.append("(");
-      boolean first = true;
-      for (SQLIdentifier item : identifierList) {
+      var first = true;
+      for (var item : identifierList) {
         if (!first) {
           builder.append(", ");
         }
@@ -40,15 +41,15 @@ public class SQLInsertBody extends SimpleNode {
       }
       builder.append(") VALUES ");
       if (valueExpressions != null) {
-        boolean firstList = true;
-        for (List<SQLExpression> itemList : valueExpressions) {
+        var firstList = true;
+        for (var itemList : valueExpressions) {
           if (firstList) {
             builder.append("(");
           } else {
             builder.append("),(");
           }
           first = true;
-          for (SQLExpression item : itemList) {
+          for (var item : itemList) {
             if (!first) {
               builder.append(", ");
             }
@@ -63,8 +64,8 @@ public class SQLInsertBody extends SimpleNode {
 
     if (setExpressions != null) {
       builder.append("SET ");
-      boolean first = true;
-      for (SQLInsertSetExpression item : setExpressions) {
+      var first = true;
+      for (var item : setExpressions) {
         if (!first) {
           builder.append(", ");
         }
@@ -75,9 +76,9 @@ public class SQLInsertBody extends SimpleNode {
 
     if (content != null || contentInputParam != null) {
       builder.append("CONTENT ");
-      boolean first = true;
+      var first = true;
       if (content != null) {
-        for (SQLJson item : content) {
+        for (var item : content) {
           if (!first) {
             builder.append(", ");
           }
@@ -85,7 +86,7 @@ public class SQLInsertBody extends SimpleNode {
           first = false;
         }
       } else if (contentInputParam != null) {
-        for (SQLInputParameter item : contentInputParam) {
+        for (var item : contentInputParam) {
           if (!first) {
             builder.append(", ");
           }
@@ -96,12 +97,13 @@ public class SQLInsertBody extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
 
     if (identifierList != null) {
       builder.append("(");
-      boolean first = true;
-      for (SQLIdentifier item : identifierList) {
+      var first = true;
+      for (var item : identifierList) {
         if (!first) {
           builder.append(", ");
         }
@@ -110,15 +112,15 @@ public class SQLInsertBody extends SimpleNode {
       }
       builder.append(") VALUES ");
       if (valueExpressions != null) {
-        boolean firstList = true;
-        for (List<SQLExpression> itemList : valueExpressions) {
+        var firstList = true;
+        for (var itemList : valueExpressions) {
           if (firstList) {
             builder.append("(");
           } else {
             builder.append("),(");
           }
           first = true;
-          for (SQLExpression item : itemList) {
+          for (var item : itemList) {
             if (!first) {
               builder.append(", ");
             }
@@ -133,8 +135,8 @@ public class SQLInsertBody extends SimpleNode {
 
     if (setExpressions != null) {
       builder.append("SET ");
-      boolean first = true;
-      for (SQLInsertSetExpression item : setExpressions) {
+      var first = true;
+      for (var item : setExpressions) {
         if (!first) {
           builder.append(", ");
         }
@@ -145,9 +147,9 @@ public class SQLInsertBody extends SimpleNode {
 
     if (content != null || contentInputParam != null) {
       builder.append("CONTENT ");
-      boolean first = true;
+      var first = true;
       if (content != null) {
-        for (SQLJson item : content) {
+        for (var item : content) {
           if (!first) {
             builder.append(", ");
           }
@@ -155,7 +157,7 @@ public class SQLInsertBody extends SimpleNode {
           first = false;
         }
       } else if (contentInputParam != null) {
-        for (SQLInputParameter item : contentInputParam) {
+        for (var item : contentInputParam) {
           if (!first) {
             builder.append(", ");
           }
@@ -166,8 +168,9 @@ public class SQLInsertBody extends SimpleNode {
     }
   }
 
+  @Override
   public SQLInsertBody copy() {
-    SQLInsertBody result = new SQLInsertBody(-1);
+    var result = new SQLInsertBody(-1);
     result.identifierList =
         identifierList == null
             ? null
@@ -200,7 +203,7 @@ public class SQLInsertBody extends SimpleNode {
       return false;
     }
 
-    SQLInsertBody that = (SQLInsertBody) o;
+    var that = (SQLInsertBody) o;
 
     if (!Objects.equals(identifierList, that.identifierList)) {
       return false;
@@ -219,7 +222,7 @@ public class SQLInsertBody extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = identifierList != null ? identifierList.hashCode() : 0;
+    var result = identifierList != null ? identifierList.hashCode() : 0;
     result = 31 * result + (valueExpressions != null ? valueExpressions.hashCode() : 0);
     result = 31 * result + (setExpressions != null ? setExpressions.hashCode() : 0);
     result = 31 * result + (content != null ? content.hashCode() : 0);
@@ -282,11 +285,11 @@ public class SQLInsertBody extends SimpleNode {
     content.add(json);
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
 
     if (this.valueExpressions != null) {
-      for (List<SQLExpression> valueExpression : valueExpressions) {
-        for (SQLExpression oExpression : valueExpression) {
+      for (var valueExpression : valueExpressions) {
+        for (var oExpression : valueExpression) {
           if (!oExpression.isCacheable(session)) {
             return false;
           }
@@ -294,7 +297,7 @@ public class SQLInsertBody extends SimpleNode {
       }
     }
     if (setExpressions != null) {
-      for (SQLInsertSetExpression setExpression : setExpressions) {
+      for (var setExpression : setExpressions) {
         if (!setExpression.isCacheable(session)) {
           return false;
         }
@@ -302,8 +305,8 @@ public class SQLInsertBody extends SimpleNode {
     }
 
     if (content != null) {
-      for (SQLJson item : content) {
-        if (!item.isCacheable()) {
+      for (var item : content) {
+        if (!false) {
           return false;
         }
       }

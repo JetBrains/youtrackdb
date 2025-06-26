@@ -2,15 +2,14 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseStats;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.UpdateExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -41,17 +40,17 @@ public class SQLProfileStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    db.resetRecordLoadStats();
-    BasicCommandContext ctx = new BasicCommandContext();
+    session.resetRecordLoadStats();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -68,17 +67,20 @@ public class SQLProfileStatement extends SQLStatement {
       ((UpdateExecutionPlan) executionPlan).executeInternal();
     }
 
-    LocalResultSet rs = new LocalResultSet((InternalExecutionPlan) executionPlan);
+    var rs = new LocalResultSet(session, (InternalExecutionPlan) executionPlan);
 
     while (rs.hasNext()) {
       rs.next();
     }
-    DatabaseStats dbStats = db.getStats();
-    ExplainResultSet result =
-        new ExplainResultSet(db,
-            rs.getExecutionPlan()
-                .orElseThrow(
-                    () -> new CommandExecutionException("Cannot profile command: " + statement)),
+    var dbStats = session.getStats();
+    var ep = rs.getExecutionPlan();
+    if (ep == null) {
+      throw new CommandExecutionException(session,
+          "Cannot profile command: " + statement);
+    }
+    var result =
+        new ExplainResultSet(session,
+            ep,
             dbStats);
     rs.close();
     return result;
@@ -86,13 +88,14 @@ public class SQLProfileStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map args, CommandContext parentCtx, boolean usePlanCache) {
-    db.resetRecordLoadStats();
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionEmbedded session, Map<Object, Object> args, CommandContext parentCtx,
+      boolean usePlanCache) {
+    session.resetRecordLoadStats();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(args);
 
     ExecutionPlan executionPlan;
@@ -102,17 +105,20 @@ public class SQLProfileStatement extends SQLStatement {
       executionPlan = statement.createExecutionPlanNoCache(ctx, true);
     }
 
-    LocalResultSet rs = new LocalResultSet((InternalExecutionPlan) executionPlan);
+    var rs = new LocalResultSet(session, (InternalExecutionPlan) executionPlan);
 
     while (rs.hasNext()) {
       rs.next();
     }
-    DatabaseStats dbStats = db.getStats();
-    ExplainResultSet result =
-        new ExplainResultSet(db,
-            rs.getExecutionPlan()
-                .orElseThrow(
-                    () -> new CommandExecutionException("Cannot profile command: " + statement)),
+    var dbStats = session.getStats();
+    var ep = rs.getExecutionPlan();
+    if (ep == null) {
+      throw new CommandExecutionException(session,
+          "Cannot profile command: " + statement);
+    }
+    var result =
+        new ExplainResultSet(session,
+            ep,
             dbStats);
     rs.close();
     return result;
@@ -125,7 +131,7 @@ public class SQLProfileStatement extends SQLStatement {
 
   @Override
   public SQLProfileStatement copy() {
-    SQLProfileStatement result = new SQLProfileStatement(-1);
+    var result = new SQLProfileStatement(-1);
     result.statement = statement == null ? null : statement.copy();
     return result;
   }
@@ -139,7 +145,7 @@ public class SQLProfileStatement extends SQLStatement {
       return false;
     }
 
-    SQLProfileStatement that = (SQLProfileStatement) o;
+    var that = (SQLProfileStatement) o;
 
     return Objects.equals(statement, that.statement);
   }

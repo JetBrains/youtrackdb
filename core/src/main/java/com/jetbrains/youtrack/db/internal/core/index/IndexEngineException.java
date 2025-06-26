@@ -26,11 +26,11 @@ public class IndexEngineException extends CoreException {
     super(exception);
   }
 
-  public IndexEngineException(String message, String componentName) {
-    super(message, componentName);
+  public IndexEngineException(String dbName, String message, String componentName) {
+    super(dbName, message, componentName);
   }
 
-  public IndexEngineException(String message) {
-    super(message);
+  public IndexEngineException(String dbName, String message) {
+    super(dbName, message);
   }
 }

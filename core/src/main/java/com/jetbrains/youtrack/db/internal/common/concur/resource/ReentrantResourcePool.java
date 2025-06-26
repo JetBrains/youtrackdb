@@ -20,9 +20,9 @@
 package com.jetbrains.youtrack.db.internal.common.concur.resource;
 
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
+import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBShutdownListener;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBStartupListener;
-import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -70,22 +70,23 @@ public class ReentrantResourcePool<K, V> extends ResourcePool<K, V>
     }
   }
 
+  @Override
   public V getResource(K key, final long maxWaitMillis, Object... additionalArgs)
       throws LockException {
-    Map<K, ResourceHolder<V>> resourceHolderMap = activeResources.get();
+    var resourceHolderMap = activeResources.get();
 
     if (resourceHolderMap == null) {
       resourceHolderMap = new HashMap<K, ResourceHolder<V>>();
       activeResources.set(resourceHolderMap);
     }
 
-    final ResourceHolder<V> holder = resourceHolderMap.get(key);
+    final var holder = resourceHolderMap.get(key);
     if (holder != null) {
       holder.counter++;
       return holder.resource;
     }
     try {
-      final V res = super.getResource(key, maxWaitMillis, additionalArgs);
+      final var res = super.getResource(key, maxWaitMillis, additionalArgs);
       resourceHolderMap.put(key, new ResourceHolder<V>(res));
       return res;
 
@@ -97,12 +98,13 @@ public class ReentrantResourcePool<K, V> extends ResourcePool<K, V>
     }
   }
 
+  @Override
   public boolean returnResource(final V res) {
-    final Map<K, ResourceHolder<V>> resourceHolderMap = activeResources.get();
+    final var resourceHolderMap = activeResources.get();
     if (resourceHolderMap != null) {
       K keyToRemove = null;
-      for (Map.Entry<K, ResourceHolder<V>> entry : resourceHolderMap.entrySet()) {
-        final ResourceHolder<V> holder = entry.getValue();
+      for (var entry : resourceHolderMap.entrySet()) {
+        final var holder = entry.getValue();
         if (holder.resource.equals(res)) {
           holder.counter--;
           assert holder.counter >= 0;
@@ -122,12 +124,12 @@ public class ReentrantResourcePool<K, V> extends ResourcePool<K, V>
   }
 
   public int getConnectionsInCurrentThread(final K key) {
-    final Map<K, ResourceHolder<V>> resourceHolderMap = activeResources.get();
+    final var resourceHolderMap = activeResources.get();
     if (resourceHolderMap == null) {
       return 0;
     }
 
-    final ResourceHolder<V> holder = resourceHolderMap.get(key);
+    final var holder = resourceHolderMap.get(key);
     if (holder == null) {
       return 0;
     }
@@ -135,21 +137,22 @@ public class ReentrantResourcePool<K, V> extends ResourcePool<K, V>
     return holder.counter;
   }
 
+  @Override
   public void remove(final V res) {
     this.resources.remove(res);
 
     final List<K> activeResourcesToRemove = new ArrayList<K>();
-    final Map<K, ResourceHolder<V>> activeResourcesMap = activeResources.get();
+    final var activeResourcesMap = activeResources.get();
 
     if (activeResourcesMap != null) {
-      for (Map.Entry<K, ResourceHolder<V>> entry : activeResourcesMap.entrySet()) {
-        final ResourceHolder<V> holder = entry.getValue();
+      for (var entry : activeResourcesMap.entrySet()) {
+        final var holder = entry.getValue();
         if (holder.resource.equals(res)) {
           activeResourcesToRemove.add(entry.getKey());
         }
       }
 
-      for (K resourceKey : activeResourcesToRemove) {
+      for (var resourceKey : activeResourcesToRemove) {
         activeResourcesMap.remove(resourceKey);
         sem.release();
       }

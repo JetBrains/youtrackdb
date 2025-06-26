@@ -1,19 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.ScenarioThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import java.util.ArrayList;
@@ -21,38 +12,35 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.Callable;
 
-/**
- *
- */
 public class SchemaClassEmbedded extends SchemaClassImpl {
 
   protected SchemaClassEmbedded(SchemaShared iOwner, String iName) {
     super(iOwner, iName);
   }
 
-  protected SchemaClassEmbedded(SchemaShared iOwner, String iName, int[] iClusterIds) {
-    super(iOwner, iName, iClusterIds);
+  protected SchemaClassEmbedded(SchemaShared iOwner, String iName, int[] iCollectionIds) {
+    super(iOwner, iName, iCollectionIds);
   }
 
-  public SchemaProperty addProperty(
+  @Override
+  public SchemaPropertyImpl addProperty(
       DatabaseSessionInternal session, final String propertyName,
-      final PropertyType type,
-      final PropertyType linkedType,
-      final SchemaClass linkedClass,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
+      final SchemaClassImpl linkedClass,
       final boolean unsafe) {
     if (type == null) {
-      throw new SchemaException("Property type not defined.");
+      throw new SchemaException(session.getDatabaseName(), "Property type not defined.");
     }
 
     if (propertyName == null || propertyName.isEmpty()) {
-      throw new SchemaException("Property name is null or empty");
+      throw new SchemaException(session.getDatabaseName(), "Property name is null or empty");
     }
 
     validatePropertyName(propertyName);
-    if (session.getTransaction().isActive()) {
-      throw new SchemaException(
+    if (session.getTransactionInternal().isActive()) {
+      throw new SchemaException(session.getDatabaseName(),
           "Cannot create property '" + propertyName + "' inside a transaction");
     }
 
@@ -77,67 +65,34 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public SchemaClass setClusterSelection(DatabaseSession session, final String value) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    acquireSchemaWriteLock(database);
-    try {
-      setClusterSelectionInternal(database, value);
-      return this;
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-  }
-
-  public void setClusterSelectionInternal(DatabaseSessionInternal session,
-      final String clusterSelection) {
-    // AVOID TO CHECK THIS IN LOCK TO AVOID RE-GENERATION OF IMMUTABLE SCHEMAS
-    if (this.clusterSelection.getName().equals(clusterSelection))
-    // NO CHANGES
-    {
-      return;
-    }
+  public void setCustom(DatabaseSessionInternal session, final String name,
+      final String value) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
     acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
-
-      this.clusterSelection = owner.getClusterSelectionFactory().newInstance(clusterSelection);
+      setCustomInternal(session, name, value);
     } finally {
       releaseSchemaWriteLock(session);
     }
   }
 
-  public SchemaClassImpl setCustom(DatabaseSession session, final String name, final String value) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+  @Override
+  public void clearCustom(DatabaseSessionInternal session) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
-      setCustomInternal(database, name, value);
-      return this;
+      clearCustomInternal(session);
     } finally {
-      releaseSchemaWriteLock(database);
-    }
-  }
-
-  public void clearCustom(DatabaseSession session) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    acquireSchemaWriteLock(database);
-    try {
-      clearCustomInternal(database);
-    } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
   protected void clearCustomInternal(DatabaseSessionInternal session) {
     acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
 
       customFields = null;
     } finally {
@@ -146,114 +101,104 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   }
 
   @Override
-  public SchemaClass setSuperClasses(DatabaseSession session,
-      final List<? extends SchemaClass> classes) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-    if (classes != null) {
-      List<SchemaClass> toCheck = new ArrayList<SchemaClass>(classes);
-      toCheck.add(this);
-      checkParametersConflict(toCheck);
-    }
-    acquireSchemaWriteLock(database);
-    try {
-      setSuperClassesInternal(database, classes);
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-    return this;
-  }
-
-  public SchemaClass removeBaseClassInternal(DatabaseSessionInternal session,
-      final SchemaClass baseClass) {
+  public void removeBaseClassInternal(DatabaseSessionInternal session,
+      final SchemaClassImpl baseClass) {
     acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
 
       if (subclasses == null) {
-        return this;
+        return;
       }
 
       if (subclasses.remove(baseClass)) {
-        removePolymorphicClusterIds(session, (SchemaClassImpl) baseClass);
+        removePolymorphicCollectionIds(session, baseClass);
       }
 
-      return this;
     } finally {
       releaseSchemaWriteLock(session);
     }
   }
 
   @Override
-  public SchemaClass addSuperClass(DatabaseSession session, final SchemaClass superClass) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-    checkParametersConflict(database, superClass);
-    acquireSchemaWriteLock(database);
-    try {
-      addSuperClassInternal(database, superClass);
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-    return this;
+  public void addSuperClass(DatabaseSessionInternal session,
+      final SchemaClassImpl superClass) {
+
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    checkParametersConflict(session, superClass);
+    addSuperClassInternal(session, superClass);
   }
 
-  protected void addSuperClassInternal(DatabaseSessionInternal database,
-      final SchemaClass superClass) {
-    acquireSchemaWriteLock(database);
+  public void addSuperClassInternal(DatabaseSessionInternal session,
+      final SchemaClassImpl superClass) {
+
+    acquireSchemaWriteLock(session);
     try {
-      final SchemaClassImpl cls;
-      cls = (SchemaClassImpl) superClass;
 
-      if (cls != null) {
-
-        // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
-        final SecurityUser user = database.geCurrentUser();
-        if (user != null) {
-          user.allow(database, Rule.ResourceGeneric.CLASS, cls.getName(), Role.PERMISSION_UPDATE);
-        }
-
-        if (superClasses.contains(superClass)) {
-          throw new SchemaException(
-              "Class: '"
-                  + this.getName()
-                  + "' already has the class '"
-                  + superClass.getName()
-                  + "' as superclass");
-        }
-
-        cls.addBaseClass(database, this);
-        superClasses.add(cls);
+      if (superClass.getName().equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+          superClass.getName().equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Cannot add the class '"
+                + superClass.getName()
+                + "' as superclass of the class '"
+                + this.getName()
+                + "'. Addition of graph classes is not allowed");
       }
+
+      // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
+      final var user = session.getCurrentUser();
+      if (user != null) {
+        user.allow(session, Rule.ResourceGeneric.CLASS, superClass.getName(),
+            Role.PERMISSION_UPDATE);
+      }
+
+      if (superClasses.contains(superClass)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Class: '"
+                + this.getName()
+                + "' already has the class '"
+                + superClass.getName()
+                + "' as superclass");
+      }
+
+      superClass.addBaseClass(session, this, true);
+      superClasses.add(superClass);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
   @Override
-  public void removeSuperClass(DatabaseSession session, SchemaClass superClass) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-    acquireSchemaWriteLock(database);
+  public void removeSuperClass(DatabaseSessionInternal session, SchemaClassImpl superClass) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock(session);
     try {
-      removeSuperClassInternal(database, superClass);
+      removeSuperClassInternal(session, superClass);
 
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
   protected void removeSuperClassInternal(DatabaseSessionInternal session,
-      final SchemaClass superClass) {
+      final SchemaClassImpl superClass) {
     acquireSchemaWriteLock(session);
     try {
+      if (superClass.getName().equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+          superClass.getName().equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Cannot remove the class '"
+                + superClass.getName()
+                + "' as superclass of the class '"
+                + this.getName()
+                + "'. Removal of graph classes is not allowed");
+      }
+
       final SchemaClassImpl cls;
-      cls = (SchemaClassImpl) superClass;
+      cls = superClass;
 
       if (superClasses.contains(cls)) {
-        if (cls != null) {
-          cls.removeBaseClassInternal(session, this);
-        }
+        cls.removeBaseClassInternal(session, this);
 
         superClasses.remove(superClass);
       }
@@ -262,145 +207,127 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
+  @Override
+  public void setSuperClasses(DatabaseSessionInternal session,
+      final List<SchemaClassImpl> classes) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    if (classes != null) {
+      List<SchemaClassImpl> toCheck = new ArrayList<>(classes);
+      toCheck.add(this);
+      checkParametersConflict(session, toCheck);
+    }
+    acquireSchemaWriteLock(session);
+    try {
+      setSuperClassesInternal(session, classes, true);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+
+  @Override
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
-      final List<? extends SchemaClass> classes) {
-    List<SchemaClassImpl> newSuperClasses = new ArrayList<SchemaClassImpl>();
+      final List<SchemaClassImpl> classes, boolean validateIndexes) {
+    if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType(session)) {
+      if (!classes.contains(owner.getClass(SchemaClass.EDGE_CLASS_NAME))) {
+        throw new IllegalArgumentException(
+            "Edge class must have super class " + SchemaClass.EDGE_CLASS_NAME
+                + ", its removal is not allowed.");
+      }
+    }
+    if (!name.equals(SchemaClass.VERTEX_CLASS_NAME) && isVertexType(session)) {
+      if (!classes.contains(owner.getClass(SchemaClass.VERTEX_CLASS_NAME))) {
+        throw new IllegalArgumentException(
+            "Vertex class must have super class " + SchemaClass.VERTEX_CLASS_NAME
+                + ", its removal is not allowed.");
+      }
+    }
+
+    List<SchemaClassImpl> newSuperClasses = new ArrayList<>();
     SchemaClassImpl cls;
-    for (SchemaClass superClass : classes) {
-      cls = (SchemaClassImpl) superClass;
+    for (var superClass : classes) {
+      cls = superClass;
       if (newSuperClasses.contains(cls)) {
-        throw new SchemaException("Duplicated superclass '" + cls.getName() + "'");
+        throw new SchemaException(session.getDatabaseName(),
+            "Duplicated superclass '" + cls.getName() + "'");
       }
 
       newSuperClasses.add(cls);
     }
 
-    List<SchemaClassImpl> toAddList = new ArrayList<SchemaClassImpl>(newSuperClasses);
+    List<SchemaClassImpl> toAddList = new ArrayList<>(newSuperClasses);
     toAddList.removeAll(superClasses);
-    List<SchemaClassImpl> toRemoveList = new ArrayList<SchemaClassImpl>(superClasses);
+    List<SchemaClassImpl> toRemoveList = new ArrayList<>(superClasses);
     toRemoveList.removeAll(newSuperClasses);
 
-    for (SchemaClassImpl toRemove : toRemoveList) {
+    for (var toRemove : toRemoveList) {
       toRemove.removeBaseClassInternal(session, this);
     }
-    for (SchemaClassImpl addTo : toAddList) {
-      addTo.addBaseClass(session, this);
+    for (var addTo : toAddList) {
+      addTo.addBaseClass(session, this, validateIndexes);
     }
     superClasses.clear();
     superClasses.addAll(newSuperClasses);
   }
 
-  public SchemaClass setName(DatabaseSession session, final String name) {
+  @Override
+  public void setName(DatabaseSessionInternal session, final String name) {
     if (getName().equals(name)) {
-      return this;
+      return;
     }
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-    final Character wrongCharacter = SchemaShared.checkClassNameIfValid(name);
-    SchemaClass oClass = database.getMetadata().getSchema().getClass(name);
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    final var wrongCharacter = SchemaShared.checkClassNameIfValid(name);
+    var oClass = session.getMetadata().getSchema().getClass(name);
     if (oClass != null) {
-      String error =
+      var error =
           String.format(
               "Cannot rename class %s to %s. A Class with name %s exists", this.name, name, name);
-      throw new SchemaException(error);
+      throw new SchemaException(session.getDatabaseName(), error);
     }
     //noinspection ConstantValue
     if (wrongCharacter != null) {
-      throw new SchemaException(
+      throw new SchemaException(session.getDatabaseName(),
           "Invalid class name found. Character '"
               + wrongCharacter
               + "' cannot be used in class name '"
               + name
               + "'");
     }
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
-      setNameInternal(database, name);
+      setNameInternal(session, name);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
-
-    return this;
   }
 
-  protected void setNameInternal(DatabaseSessionInternal database, final String name) {
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-    acquireSchemaWriteLock(database);
+  protected void setNameInternal(DatabaseSessionInternal session, final String name) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
-      final String oldName = this.name;
-      owner.changeClassName(database, this.name, name, this);
+      checkEmbedded(session);
+      final var oldName = this.name;
+      owner.changeClassName(session, this.name, name, this);
       this.name = name;
-      renameCluster(database, oldName, this.name);
+      renameCollection(session, oldName, this.name);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
-  public void setDefaultClusterId(DatabaseSession session, final int defaultClusterId) {
-    var sessionInternal = (DatabaseSessionInternal) session;
-    acquireSchemaWriteLock(sessionInternal);
-    try {
-      checkEmbedded();
-      this.defaultClusterId = defaultClusterId;
-    } finally {
-      releaseSchemaWriteLock(sessionInternal);
-    }
-  }
-
-  public SchemaClass setShortName(DatabaseSession session, String shortName) {
-    if (shortName != null) {
-      shortName = shortName.trim();
-      if (shortName.isEmpty()) {
-        shortName = null;
-      }
-    }
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    acquireSchemaWriteLock(database);
-    try {
-      setShortNameInternal(database, shortName);
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-
-    return this;
-  }
-
-  protected void setShortNameInternal(DatabaseSessionInternal database, final String iShortName) {
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    acquireSchemaWriteLock(database);
-    try {
-      checkEmbedded();
-
-      String oldName = null;
-
-      if (this.shortName != null) {
-        oldName = this.shortName;
-      }
-
-      owner.changeClassName(database, oldName, iShortName, this);
-
-      this.shortName = iShortName;
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-  }
-
+  @Override
   protected SchemaPropertyImpl createPropertyInstance() {
     return new SchemaPropertyEmbedded(this);
   }
 
   public SchemaPropertyImpl addPropertyInternal(
       DatabaseSessionInternal session, final String name,
-      final PropertyType type,
-      final PropertyType linkedType,
-      final SchemaClass linkedClass,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
+      final SchemaClassImpl linkedClass,
       final boolean unsafe) {
     if (name == null || name.isEmpty()) {
-      throw new SchemaException("Found property name null");
+      throw new SchemaException(session.getDatabaseName(), "Found property name null");
     }
 
     if (!unsafe) {
@@ -420,14 +347,14 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
     acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
 
       if (properties.containsKey(name)) {
-        throw new SchemaException(
+        throw new SchemaException(session.getDatabaseName(),
             "Class '" + this.name + "' already has property '" + name + "'");
       }
 
-      GlobalProperty global = owner.findOrCreateGlobalProperty(name, type);
+      var global = owner.findOrCreateGlobalProperty(name, type);
 
       prop = createPropertyInstance(global);
 
@@ -449,34 +376,22 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     return prop;
   }
 
-  protected SchemaPropertyEmbedded createPropertyInstance(GlobalProperty global) {
+  protected SchemaPropertyEmbedded createPropertyInstance(GlobalPropertyImpl global) {
     return new SchemaPropertyEmbedded(this, global);
   }
 
-  /**
-   * {@inheritDoc}
-   */
-  public SchemaClass truncateCluster(DatabaseSession session, String clusterName) {
-    var database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE, name);
 
-    truncateClusterInternal(clusterName, database);
+  @Override
+  public void setStrictMode(DatabaseSessionInternal session, final boolean isStrict) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    return this;
-  }
-
-  public SchemaClass setStrictMode(DatabaseSession session, final boolean isStrict) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
-      setStrictModeInternal(database, isStrict);
+      setStrictModeInternal(session, isStrict);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
 
-    return this;
   }
 
   protected void setStrictModeInternal(DatabaseSessionInternal session, final boolean iStrict) {
@@ -484,7 +399,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
     acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
 
       this.strictMode = iStrict;
     } finally {
@@ -492,241 +407,119 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  public SchemaClass setDescription(DatabaseSession session, String iDescription) {
+  @Override
+  public void setDescription(DatabaseSessionInternal session, String iDescription) {
     if (iDescription != null) {
       iDescription = iDescription.trim();
       if (iDescription.isEmpty()) {
         iDescription = null;
       }
     }
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
-      setDescriptionInternal(database, iDescription);
+      setDescriptionInternal(session, iDescription);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
-
-    return this;
   }
 
   protected void setDescriptionInternal(DatabaseSessionInternal session,
       final String iDescription) {
     acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
       this.description = iDescription;
     } finally {
       releaseSchemaWriteLock(session);
     }
   }
 
-  public SchemaClass addClusterId(DatabaseSession session, final int clusterId) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    if (isAbstract()) {
-      throw new SchemaException("Impossible to associate a cluster to an abstract class class");
-    }
-
-    acquireSchemaWriteLock(database);
-    try {
-      addClusterIdInternal(database, clusterId);
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-    return this;
-  }
-
-  public SchemaClass removeClusterId(DatabaseSession session, final int clusterId) {
-    return removeClusterId((DatabaseSessionInternal) session, clusterId, false);
-  }
-
-  public SchemaClass removeClusterId(DatabaseSessionInternal session, final int clusterId,
-      boolean force) {
-    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    if (!force && clusterIds.length == 1 && clusterId == clusterIds[0]) {
-      throw new DatabaseException(
-          " Impossible to remove the last cluster of class '"
-              + getName()
-              + "' drop the class instead");
-    }
-
-    acquireSchemaWriteLock(session);
-    try {
-      removeClusterIdInternal(session, clusterId);
-    } finally {
-      releaseSchemaWriteLock(session);
-    }
-
-    return this;
-  }
-
-  protected void removeClusterIdInternal(
-      DatabaseSessionInternal database, final int clusterToRemove) {
-    acquireSchemaWriteLock(database);
-    try {
-      checkEmbedded();
-
-      boolean found = false;
-      for (int clusterId : clusterIds) {
-        if (clusterId == clusterToRemove) {
-          found = true;
-          break;
-        }
-      }
-
-      if (found) {
-        final int[] newClusterIds = new int[clusterIds.length - 1];
-        for (int i = 0, k = 0; i < clusterIds.length; ++i) {
-          if (clusterIds[i] == clusterToRemove)
-          // JUMP IT
-          {
-            continue;
-          }
-
-          newClusterIds[k] = clusterIds[i];
-          k++;
-        }
-        clusterIds = newClusterIds;
-
-        removePolymorphicClusterId(database, clusterToRemove);
-      }
-
-      if (defaultClusterId == clusterToRemove) {
-        if (clusterIds.length >= 1) {
-          defaultClusterId = clusterIds[0];
-        } else {
-          defaultClusterId = NOT_EXISTENT_CLUSTER_ID;
-        }
-      }
-
-      ((SchemaEmbedded) owner).removeClusterForClass(database, clusterToRemove);
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-
-  }
-
-  public void dropProperty(DatabaseSession session, final String propertyName) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    if (database.getTransaction().isActive()) {
+  @Override
+  public void dropProperty(DatabaseSessionInternal session, final String propertyName) {
+    if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
     }
 
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
       if (!properties.containsKey(propertyName)) {
-        throw new SchemaException(
+        throw new SchemaException(session.getDatabaseName(),
             "Property '" + propertyName + "' not found in class " + name + "'");
       }
-
-      ScenarioThreadLocal.executeAsDistributed(
-          (Callable<SchemaProperty>)
-              () -> {
-                dropPropertyInternal(database, propertyName);
-                return null;
-              });
-
+      dropPropertyInternal(session, propertyName);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
   protected void dropPropertyInternal(
-      DatabaseSessionInternal database, final String iPropertyName) {
-    if (database.getTransaction().isActive()) {
+      DatabaseSessionInternal session, final String iPropertyName) {
+    if (session.getTransactionInternal().isActive()) {
       throw new IllegalStateException("Cannot drop a property inside a transaction");
     }
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
 
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
 
-      final SchemaProperty prop = properties.remove(iPropertyName);
+      final var prop = properties.remove(iPropertyName);
 
       if (prop == null) {
-        throw new SchemaException(
+        throw new SchemaException(session.getDatabaseName(),
             "Property '" + iPropertyName + "' not found in class " + name + "'");
       }
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  public void setOverSize(DatabaseSessionInternal session, final float overSize) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock(session);
+    try {
+      setOverSizeInternal(session, overSize);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setOverSizeInternal(DatabaseSessionInternal session, final float overSize) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock(session);
+    try {
+      checkEmbedded(session);
+
+      this.overSize = overSize;
+    } finally {
+      releaseSchemaWriteLock(session);
     }
   }
 
   @Override
-  public SchemaClass addCluster(DatabaseSession session, final String clusterNameOrId) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+  public void setAbstract(DatabaseSessionInternal session, boolean isAbstract) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    if (isAbstract()) {
-      throw new SchemaException("Impossible to associate a cluster to an abstract class class");
-    }
-
-    acquireSchemaWriteLock(database);
+    acquireSchemaWriteLock(session);
     try {
-      final int clusterId = owner.createClusterIfNeeded(database, clusterNameOrId);
-      addClusterIdInternal(database, clusterId);
+      setAbstractInternal(session, isAbstract);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
-
-    return this;
-  }
-
-  public SchemaClass setOverSize(DatabaseSession session, final float overSize) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-    acquireSchemaWriteLock(database);
-    try {
-      setOverSizeInternal(database, overSize);
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-
-    return this;
-  }
-
-  protected void setOverSizeInternal(DatabaseSessionInternal database, final float overSize) {
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-    acquireSchemaWriteLock(database);
-    try {
-      checkEmbedded();
-
-      this.overSize = overSize;
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-  }
-
-  public SchemaClass setAbstract(DatabaseSession session, boolean isAbstract) {
-    final DatabaseSessionInternal database = (DatabaseSessionInternal) session;
-    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-
-    acquireSchemaWriteLock(database);
-    try {
-      setAbstractInternal(database, isAbstract);
-    } finally {
-      releaseSchemaWriteLock(database);
-    }
-
-    return this;
   }
 
   protected void setCustomInternal(DatabaseSessionInternal session, final String name,
       final String value) {
     acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
 
       if (customFields == null) {
-        customFields = new HashMap<String, String>();
+        customFields = new HashMap<>();
       }
       if (value == null || "null".equalsIgnoreCase(value)) {
         customFields.remove(name);
@@ -745,43 +538,43 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     try {
       if (isAbstract) {
         // SWITCH TO ABSTRACT
-        if (defaultClusterId != NOT_EXISTENT_CLUSTER_ID) {
+        if (defaultCollectionId != NOT_EXISTENT_COLLECTION_ID) {
           // CHECK
           if (count(database) > 0) {
             throw new IllegalStateException(
                 "Cannot set the class as abstract because contains records.");
           }
 
-          tryDropCluster(database, defaultClusterId);
-          for (int clusterId : getClusterIds()) {
-            tryDropCluster(database, clusterId);
-            removePolymorphicClusterId(database, clusterId);
-            ((SchemaEmbedded) owner).removeClusterForClass(database, clusterId);
+          tryDropCollection(database, defaultCollectionId);
+          for (var collectionId : getCollectionIds()) {
+            tryDropCollection(database, collectionId);
+            removePolymorphicCollectionId(database, collectionId);
+            ((SchemaEmbedded) owner).removeCollectionForClass(database, collectionId);
           }
 
-          setClusterIds(new int[]{NOT_EXISTENT_CLUSTER_ID});
+          setCollectionIds(new int[]{NOT_EXISTENT_COLLECTION_ID});
 
-          defaultClusterId = NOT_EXISTENT_CLUSTER_ID;
+          defaultCollectionId = NOT_EXISTENT_COLLECTION_ID;
         }
       } else {
         if (!abstractClass) {
           return;
         }
 
-        int clusterId = database.getClusterIdByName(name);
-        if (clusterId == -1) {
-          clusterId = database.addCluster(name);
+        var collectionId = database.getCollectionIdByName(name);
+        if (collectionId == -1) {
+          collectionId = database.addCollection(name);
         }
 
-        this.defaultClusterId = clusterId;
-        this.clusterIds[0] = this.defaultClusterId;
-        this.polymorphicClusterIds = Arrays.copyOf(clusterIds, clusterIds.length);
-        for (SchemaClass clazz : getAllSubclasses()) {
+        this.defaultCollectionId = collectionId;
+        this.collectionIds[0] = this.defaultCollectionId;
+        this.polymorphicCollectionIds = Arrays.copyOf(collectionIds, collectionIds.length);
+        for (var clazz : getAllSubclasses()) {
           if (clazz instanceof SchemaClassImpl) {
-            addPolymorphicClusterIds(database, (SchemaClassImpl) clazz);
+            addPolymorphicCollectionIds(database, clazz, true);
           } else {
             LogManager.instance()
-                .warn(this, "Warning: cannot set polymorphic cluster IDs for class " + name);
+                .warn(this, "Warning: cannot set polymorphic collection IDs for class " + name);
           }
         }
       }
@@ -792,75 +585,77 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
   }
 
-  private void tryDropCluster(DatabaseSessionInternal session, final int clusterId) {
-    if (name.toLowerCase(Locale.ENGLISH).equals(session.getClusterNameById(clusterId))) {
-      // DROP THE DEFAULT CLUSTER CALLED WITH THE SAME NAME ONLY IF EMPTY
-      if (session.countClusterElements(clusterId) == 0) {
-        session.dropClusterInternal(clusterId);
+  private void tryDropCollection(DatabaseSessionInternal session, final int collectionId) {
+    if (name.toLowerCase(Locale.ENGLISH).equals(session.getCollectionNameById(collectionId))) {
+      // DROP THE DEFAULT COLLECTION CALLED WITH THE SAME NAME ONLY IF EMPTY
+      if (session.countCollectionElements(collectionId) == 0) {
+        session.dropCollectionInternal(collectionId);
       }
     }
   }
 
-  protected void addClusterIdInternal(DatabaseSessionInternal database, final int clusterId) {
-    acquireSchemaWriteLock(database);
+  protected void addCollectionIdInternal(DatabaseSessionInternal session, final int collectionId) {
+    acquireSchemaWriteLock(session);
     try {
-      checkEmbedded();
+      checkEmbedded(session);
 
-      owner.checkClusterCanBeAdded(clusterId, this);
+      owner.checkCollectionCanBeAdded(session, collectionId, this);
 
-      for (int currId : clusterIds) {
-        if (currId == clusterId)
+      for (var currId : collectionIds) {
+        if (currId == collectionId)
         // ALREADY ADDED
         {
           return;
         }
       }
 
-      clusterIds = ArrayUtils.copyOf(clusterIds, clusterIds.length + 1);
-      clusterIds[clusterIds.length - 1] = clusterId;
-      Arrays.sort(clusterIds);
+      collectionIds = ArrayUtils.copyOf(collectionIds, collectionIds.length + 1);
+      collectionIds[collectionIds.length - 1] = collectionId;
+      Arrays.sort(collectionIds);
 
-      addPolymorphicClusterId(database, clusterId);
+      addPolymorphicCollectionId(session, collectionId);
 
-      if (defaultClusterId == NOT_EXISTENT_CLUSTER_ID) {
-        defaultClusterId = clusterId;
+      if (defaultCollectionId == NOT_EXISTENT_COLLECTION_ID) {
+        defaultCollectionId = collectionId;
       }
 
-      ((SchemaEmbedded) owner).addClusterForClass(database, clusterId, this);
+      ((SchemaEmbedded) owner).addCollectionForClass(session, collectionId, this);
     } finally {
-      releaseSchemaWriteLock(database);
+      releaseSchemaWriteLock(session);
     }
   }
 
-  protected void addPolymorphicClusterId(DatabaseSessionInternal session, int clusterId) {
-    if (Arrays.binarySearch(polymorphicClusterIds, clusterId) >= 0) {
+  protected void addPolymorphicCollectionId(DatabaseSessionInternal session, int collectionId) {
+    if (Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0) {
       return;
     }
 
-    polymorphicClusterIds = ArrayUtils.copyOf(polymorphicClusterIds,
-        polymorphicClusterIds.length + 1);
-    polymorphicClusterIds[polymorphicClusterIds.length - 1] = clusterId;
-    Arrays.sort(polymorphicClusterIds);
+    polymorphicCollectionIds = ArrayUtils.copyOf(polymorphicCollectionIds,
+        polymorphicCollectionIds.length + 1);
+    polymorphicCollectionIds[polymorphicCollectionIds.length - 1] = collectionId;
+    Arrays.sort(polymorphicCollectionIds);
 
-    addClusterIdToIndexes(session, clusterId);
+    addCollectionIdToIndexes(session, collectionId, true);
 
-    for (SchemaClassImpl superClass : superClasses) {
-      ((SchemaClassEmbedded) superClass).addPolymorphicClusterId(session, clusterId);
+    for (var superClass : superClasses) {
+      ((SchemaClassEmbedded) superClass).addPolymorphicCollectionId(session, collectionId);
     }
   }
 
-  protected void addClusterIdToIndexes(DatabaseSessionInternal session, int iId) {
-    var clusterName = session.getClusterNameById(iId);
-    final List<String> indexesToAdd = new ArrayList<String>();
+  @Override
+  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId,
+      boolean requireEmpty) {
+    var collectionName = session.getCollectionNameById(iId);
+    final List<String> indexesToAdd = new ArrayList<>();
 
-    for (Index index : getIndexesInternal(session)) {
+    for (var index : getIndexesInternal(session)) {
       indexesToAdd.add(index.getName());
     }
 
-    final IndexManagerAbstract indexManager =
-        session.getMetadata().getIndexManagerInternal();
-    for (String indexName : indexesToAdd) {
-      indexManager.addClusterToIndex(session, clusterName, indexName);
+    final var indexManager =
+        session.getSharedContext().getIndexManager();
+    for (var indexName : indexesToAdd) {
+      indexManager.addCollectionToIndex(session, collectionName, indexName, requireEmpty);
     }
   }
 }

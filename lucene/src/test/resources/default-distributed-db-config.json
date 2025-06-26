@@ -7,7 +7,7 @@
   "servers": {
     "*": "master"
   },
-  "clusters": {
+  "collections": {
     "internal": {
     },
     "*": {

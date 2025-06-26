@@ -1,17 +1,19 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.MetadataUpdateListener;
 import com.jetbrains.youtrack.db.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaShared;
-import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * This class is an LRU cache for already prepared SQL execution plans. It stores itself in the
@@ -44,7 +46,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
       throw new IllegalArgumentException("DB cannot be null");
     }
 
-    ExecutionPlanCache resource = db.getSharedContext().getExecutionPlanCache();
+    var resource = db.getSharedContext().getExecutionPlanCache();
     synchronized (resource) {
       return resource.lastInvalidation;
     }
@@ -72,6 +74,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
    * @param db        the current DB instance
    * @return a statement executor from the cache
    */
+  @Nullable
   public static ExecutionPlan get(
       String statement, CommandContext ctx, DatabaseSessionInternal db) {
     if (db == null) {
@@ -81,12 +84,12 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
       return null;
     }
 
-    ExecutionPlanCache resource = db.getSharedContext().getExecutionPlanCache();
-    ExecutionPlan result = resource.getInternal(statement, ctx, db);
+    var resource = db.getSharedContext().getExecutionPlanCache();
+    var result = resource.getInternal(statement, ctx, db);
     return result;
   }
 
-  public static void put(String statement, ExecutionPlan plan, DatabaseSessionInternal db) {
+  public static void put(String statement, ExecutionPlan plan, DatabaseSessionEmbedded db) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
     }
@@ -94,11 +97,11 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
       return;
     }
 
-    ExecutionPlanCache resource = db.getSharedContext().getExecutionPlanCache();
+    var resource = db.getSharedContext().getExecutionPlanCache();
     resource.putInternal(statement, plan, db);
   }
 
-  public void putInternal(String statement, ExecutionPlan plan, DatabaseSessionInternal db) {
+  public void putInternal(String statement, ExecutionPlan plan, DatabaseSessionEmbedded db) {
     if (statement == null) {
       return;
     }
@@ -108,9 +111,9 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
     }
 
     synchronized (map) {
-      InternalExecutionPlan internal = (InternalExecutionPlan) plan;
-      BasicCommandContext ctx = new BasicCommandContext();
-      ctx.setDatabase(db);
+      var internal = (InternalExecutionPlan) plan;
+      var ctx = new BasicCommandContext();
+      ctx.setDatabaseSession(db);
       internal = internal.copy(ctx);
       // this copy is never used, so it has to be closed to free resources
       internal.close();
@@ -123,11 +126,12 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
    * @param ctx
    * @return the corresponding executor, taking it from the internal cache, if it exists
    */
+  @Nullable
   public ExecutionPlan getInternal(
       String statement, CommandContext ctx, DatabaseSessionInternal db) {
     InternalExecutionPlan result;
 
-    long currentGlobalTimeout =
+    var currentGlobalTimeout =
         db.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
     if (currentGlobalTimeout != this.lastGlobalTimeout) {
       invalidate();
@@ -167,29 +171,29 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
   }
 
   @Override
-  public void onSchemaUpdate(DatabaseSessionInternal session, String database,
+  public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName,
       SchemaShared schema) {
     invalidate();
   }
 
   @Override
-  public void onIndexManagerUpdate(DatabaseSessionInternal session, String database,
+  public void onIndexManagerUpdate(DatabaseSessionInternal session, String databaseName,
       IndexManagerAbstract indexManager) {
     invalidate();
   }
 
   @Override
-  public void onFunctionLibraryUpdate(DatabaseSessionInternal session, String database) {
+  public void onFunctionLibraryUpdate(DatabaseSessionInternal session, String databaseName) {
     invalidate();
   }
 
   @Override
-  public void onSequenceLibraryUpdate(DatabaseSessionInternal session, String database) {
+  public void onSequenceLibraryUpdate(DatabaseSessionInternal session, String databaseName) {
     invalidate();
   }
 
   @Override
-  public void onStorageConfigurationUpdate(String database, StorageConfiguration update) {
+  public void onStorageConfigurationUpdate(String databaseName, StorageConfiguration update) {
     invalidate();
   }
 
@@ -198,7 +202,7 @@ public class ExecutionPlanCache implements MetadataUpdateListener {
       throw new IllegalArgumentException("DB cannot be null");
     }
 
-    ExecutionPlanCache resource = db.getSharedContext().getExecutionPlanCache();
+    var resource = db.getSharedContext().getExecutionPlanCache();
     return resource;
   }
 }

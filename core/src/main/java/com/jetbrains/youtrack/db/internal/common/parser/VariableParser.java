@@ -45,21 +45,21 @@ public class VariableParser {
       throw new IllegalArgumentException("Missed VariableParserListener listener");
     }
 
-    int beginPos = iText.lastIndexOf(iBegin);
+    var beginPos = iText.lastIndexOf(iBegin);
     if (beginPos == -1) {
       return iText;
     }
 
-    int endPos = iText.indexOf(iEnd, beginPos + 1);
+    var endPos = iText.indexOf(iEnd, beginPos + 1);
     if (endPos == -1) {
       return iText;
     }
 
-    String pre = iText.substring(0, beginPos);
-    String var = iText.substring(beginPos + iBegin.length(), endPos);
-    String post = iText.substring(endPos + iEnd.length());
+    var pre = iText.substring(0, beginPos);
+    var var = iText.substring(beginPos + iBegin.length(), endPos);
+    var post = iText.substring(endPos + iEnd.length());
 
-    Object resolved = iListener.resolve(var);
+    var resolved = iListener.resolve(var);
 
     if (resolved == null) {
       if (iDefaultValue == null) {
@@ -74,7 +74,7 @@ public class VariableParser {
     }
 
     if (pre.length() > 0 || post.length() > 0) {
-      final String path = pre + (resolved != null ? resolved.toString() : "") + post;
+      final var path = pre + (resolved != null ? resolved.toString() : "") + post;
       return resolveVariables(path, iBegin, iEnd, iListener);
     }
 

@@ -7,7 +7,7 @@ public class NullKeyNormalizer implements KeyNormalizers {
 
   @Override
   public byte[] execute(Object key, int decomposition) throws IOException {
-    final ByteBuffer bb = ByteBuffer.allocate(1);
+    final var bb = ByteBuffer.allocate(1);
     bb.put((byte) 1);
     return bb.array();
   }

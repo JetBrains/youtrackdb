@@ -20,18 +20,18 @@ package com.jetbrains.youtrack.db.internal.spatial;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup;
+import com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup.AutomaticBackupListener;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -44,15 +44,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.zip.GZIPInputStream;
 import org.junit.After;
 import org.junit.Assert;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestName;
 
-/**
- *
- */
 public class LuceneSpatialAutomaticBackupRestoreTest {
 
   private static final String DBNAME = "OLuceneAutomaticBackupRestoreTest";
@@ -64,17 +60,15 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
   private String BACKUFILE = null;
 
   private YouTrackDBServer server;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionEmbedded db;
 
   @Rule
   public TestName name = new TestName();
 
   @Before
   public void setUp() throws Exception {
-    Assume.assumeFalse(IOUtils.isOsWindows());
-
-    final String buildDirectory = System.getProperty("buildDirectory", "target");
-    final File buildDirectoryFile = new File(buildDirectory);
+    final var buildDirectory = System.getProperty("buildDirectory", "target");
+    final var buildDirectoryFile = new File(buildDirectory);
 
     tempFolder = new File(buildDirectoryFile, name.getMethodName());
     FileUtils.deleteRecursively(tempFolder);
@@ -84,7 +78,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
         new YouTrackDBServer() {
           @Override
           public Map<String, String> getAvailableStorageNames() {
-            HashMap<String, String> result = new HashMap<String, String>();
+            var result = new HashMap<String, String>();
             result.put(DBNAME, URL);
             return result;
           }
@@ -93,55 +87,55 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
     System.setProperty("YOUTRACKDB_HOME", tempFolder.getAbsolutePath());
 
-    String path = tempFolder.getAbsolutePath() + File.separator + "databases";
+    var path = tempFolder.getAbsolutePath() + File.separator + "databases";
     youTrackDB = server.getContext();
 
-    URL = "plocal:" + path + File.separator + DBNAME;
+    URL = "disk:" + path + File.separator + DBNAME;
 
     BACKUPDIR = tempFolder.getAbsolutePath() + File.separator + "backups";
 
     BACKUFILE = BACKUPDIR + File.separator + DBNAME;
 
-    final File config = new File(tempFolder, "config");
+    final var config = new File(tempFolder, "config");
     Assert.assertTrue(config.mkdirs());
 
     dropIfExists();
 
     youTrackDB.execute(
-        "create database ? plocal users(admin identified by 'admin' role admin)", DBNAME);
+        "create database ? disk users(admin identified by 'admin' role admin)", DBNAME);
 
-    db = (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
+    db = (DatabaseSessionEmbedded) youTrackDB.open(DBNAME, "admin", "admin");
 
-    db.command("create class City ").close();
-    db.command("create property City.name string").close();
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
+    db.execute("create class City ").close();
+    db.execute("create property City.name string").close();
+    db.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE").close();
 
-    db.command("create property City.location EMBEDDED OPOINT").close();
+    db.execute("create property City.location EMBEDDED OPOINT").close();
 
-    db.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
-
-    EntityImpl rome = newCity("Rome", 12.5, 41.9);
-
+    db.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
     db.begin();
-    db.save(rome);
+    newCity("Rome", 12.5, 41.9);
     db.commit();
   }
 
-  protected EntityImpl newCity(String name, final Double longitude, final Double latitude) {
-    EntityImpl city =
-        new EntityImpl("City")
-            .field("name", name)
-            .field(
-                "location",
-                new EntityImpl("OPoint")
-                    .field(
-                        "coordinates",
-                        new ArrayList<Double>() {
-                          {
-                            add(longitude);
-                            add(latitude);
-                          }
-                        }));
+  protected Entity newCity(String name, final Double longitude, final Double latitude) {
+    var point = db.newEmbeddedEntity("OPoint");
+
+    point.newEmbeddedList(
+        "coordinates",
+        new ArrayList<Double>() {
+          {
+            add(longitude);
+            add(latitude);
+          }
+        });
+    var city = db.newEntity("City");
+
+    city.setEmbeddedEntity("location", point);
+
+    city.setString("name", name);
+    city.setDouble("longitude", longitude);
+
     return city;
   }
 
@@ -163,42 +157,43 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
   @Test
   public void shouldExportImport() throws IOException, InterruptedException {
-    String query =
+    var query =
         "select * from City where  ST_WITHIN(location,'POLYGON ((12.314015 41.8262816, 12.314015"
             + " 41.963125, 12.6605063 41.963125, 12.6605063 41.8262816, 12.314015 41.8262816))') ="
             + " true";
-    ResultSet docs = db.query(query);
+    var tx = db.begin();
+    var docs = tx.query(query);
     Assert.assertEquals(docs.stream().count(), 1);
+    tx.commit();
 
-    String jsonConfig =
+    var jsonConfig =
         IOUtils.readStreamAsString(
             getClass().getClassLoader().getResourceAsStream("automatic-backup.json"));
 
-    EntityImpl doc =
-        new EntityImpl();
-    doc.fromJSON(jsonConfig);
-    doc.field("enabled", true)
-        .field("targetFileName", "${DBNAME}.json")
-        .field("targetDirectory", BACKUPDIR)
-        .field("mode", "EXPORT")
-        .field("dbInclude", new String[]{DBNAME})
-        .field(
-            "firstTime",
-            new SimpleDateFormat("HH:mm:ss")
-                .format(new Date(System.currentTimeMillis() + 2000)));
+    var map = JSONSerializerJackson.INSTANCE.mapFromJson(jsonConfig);
+    map.put("enabled", true);
+    map.put("targetFileName", "${DBNAME}.json");
+    map.put("targetDirectory", BACKUPDIR);
+    map.put("mode", "EXPORT");
+    map.put("dbInclude", new String[]{DBNAME});
+    map.put(
+        "firstTime",
+        new SimpleDateFormat("HH:mm:ss")
+            .format(new Date(System.currentTimeMillis() + 2000)));
 
     IOUtils.writeFile(
-        new File(tempFolder.getAbsolutePath() + "/config/automatic-backup.json"), doc.toJSON());
+        new File(tempFolder.getAbsolutePath() + "/config/automatic-backup.json"),
+        JSONSerializerJackson.INSTANCE.mapToJson(map));
 
-    final AutomaticBackup aBackup = new AutomaticBackup();
+    final var aBackup = new AutomaticBackup();
 
-    final ServerParameterConfiguration[] config = new ServerParameterConfiguration[]{};
+    final var config = new ServerParameterConfiguration[]{};
 
     aBackup.config(server, config);
-    final CountDownLatch latch = new CountDownLatch(1);
+    final var latch = new CountDownLatch(1);
 
     aBackup.registerListener(
-        new AutomaticBackup.OAutomaticBackupListener() {
+        new AutomaticBackupListener() {
           @Override
           public void onBackupCompleted(String database) {
             latch.countDown();
@@ -219,7 +214,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
     db = createAndOpen();
 
-    GZIPInputStream stream = new GZIPInputStream(new FileInputStream(BACKUFILE + ".json.gz"));
+    var stream = new GZIPInputStream(new FileInputStream(BACKUFILE + ".json.gz"));
     new DatabaseImport(
         db,
         stream,
@@ -237,7 +232,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
 
     assertThat(db.countClass("City")).isEqualTo(1);
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.location");
+    var index = db.getSharedContext().getIndexManager().getIndex("City.location");
 
     assertThat(index).isNotNull();
     assertThat(index.getType()).isEqualTo(SchemaClass.INDEX_TYPE.SPATIAL.name());
@@ -245,13 +240,13 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
     assertThat(db.query(query).stream()).hasSize(1);
   }
 
-  private DatabaseSessionInternal createAndOpen() {
+  private DatabaseSessionEmbedded createAndOpen() {
     youTrackDB.execute(
-        "create database ? plocal users(admin identified by 'admin' role admin)", DBNAME);
+        "create database ? disk users(admin identified by 'admin' role admin)", DBNAME);
     return open();
   }
 
-  private DatabaseSessionInternal open() {
-    return (DatabaseSessionInternal) youTrackDB.open(DBNAME, "admin", "admin");
+  private DatabaseSessionEmbedded open() {
+    return (DatabaseSessionEmbedded) youTrackDB.open(DBNAME, "admin", "admin");
   }
 }

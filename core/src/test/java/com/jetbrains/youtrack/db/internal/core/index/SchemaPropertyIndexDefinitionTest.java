@@ -1,106 +1,111 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
+
   private PropertyIndexDefinition propertyIndex;
 
   @Before
   public void beforeMethod() {
-    propertyIndex = new PropertyIndexDefinition("testClass", "fOne", PropertyType.INTEGER);
+    session.begin();
+    propertyIndex = new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER);
+  }
+
+  @After
+  public void afterMethod() {
+    session.rollback();
   }
 
   @Test
   public void testCreateValueSingleParameter() {
-    final Object result = propertyIndex.createValue(db, Collections.singletonList("12"));
+    final var result = propertyIndex.createValue(session.getActiveTransaction(),
+        Collections.singletonList("12"));
     Assert.assertEquals(12, result);
   }
 
   @Test
   public void testCreateValueTwoParameters() {
-    final Object result = propertyIndex.createValue(db, Arrays.asList("12", "25"));
+    final var result = propertyIndex.createValue(session.getActiveTransaction(),
+        Arrays.asList("12", "25"));
     Assert.assertEquals(12, result);
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParameter() {
-    propertyIndex.createValue(db, Collections.singletonList("tt"));
+    propertyIndex.createValue(session.getActiveTransaction(), Collections.singletonList("tt"));
   }
 
   @Test
   public void testCreateValueSingleParameterArrayParams() {
-    final Object result = propertyIndex.createValue(db, "12");
+    final var result = propertyIndex.createValue(session.getActiveTransaction(), "12");
     Assert.assertEquals(12, result);
   }
 
   @Test
   public void testCreateValueTwoParametersArrayParams() {
-    final Object result = propertyIndex.createValue(db, "12", "25");
+    final var result = propertyIndex.createValue(session.getActiveTransaction(), "12", "25");
     Assert.assertEquals(12, result);
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = NumberFormatException.class)
   public void testCreateValueWrongParameterArrayParams() {
-    propertyIndex.createValue(db, "tt");
+    propertyIndex.createValue(session.getActiveTransaction(), "tt");
   }
 
   @Test
   public void testGetDocumentValueToIndex() {
-    final EntityImpl document = new EntityImpl();
+    session.begin();
+    final var document = (EntityImpl) session.newEntity();
 
-    document.field("fOne", "15");
-    document.field("fTwo", 10);
+    document.setProperty("fOne", "15");
+    document.setProperty("fTwo", 10);
 
-    final Object result = propertyIndex.getDocumentValueToIndex(db, document);
+    final var result = propertyIndex.getDocumentValueToIndex(session.getActiveTransaction(),
+        document);
     Assert.assertEquals(15, result);
+    session.rollback();
   }
 
   @Test
-  public void testGetFields() {
-    final List<String> result = propertyIndex.getFields();
+  public void testGetProperties() {
+    final var result = propertyIndex.getProperties();
     Assert.assertEquals(1, result.size());
     Assert.assertEquals("fOne", result.getFirst());
   }
 
   @Test
   public void testGetTypes() {
-    final PropertyType[] result = propertyIndex.getTypes();
+    final var result = propertyIndex.getTypes();
     Assert.assertEquals(1, result.length);
-    Assert.assertEquals(PropertyType.INTEGER, result[0]);
+    Assert.assertEquals(PropertyTypeInternal.INTEGER, result[0]);
   }
 
   @Test
   public void testEmptyIndexReload() {
-    propertyIndex = new PropertyIndexDefinition("tesClass", "fOne", PropertyType.INTEGER);
+    propertyIndex = new PropertyIndexDefinition("tesClass", "fOne", PropertyTypeInternal.INTEGER);
 
-    db.begin();
-    final EntityImpl docToStore = propertyIndex.toStream(new EntityImpl());
-    db.save(docToStore);
-    db.commit();
-
-    final EntityImpl docToLoad = db.load(docToStore.getIdentity());
-
-    final PropertyIndexDefinition result = new PropertyIndexDefinition();
-    result.fromStream(docToLoad);
+    final var map = propertyIndex.toMap(session);
+    final var result = new PropertyIndexDefinition();
+    result.fromMap(map);
 
     Assert.assertEquals(result, propertyIndex);
   }
 
   @Test
   public void testIndexReload() {
-    final EntityImpl docToStore = propertyIndex.toStream(new EntityImpl());
+    final var map = propertyIndex.toMap(session);
 
-    final PropertyIndexDefinition result = new PropertyIndexDefinition();
-    result.fromStream(docToStore);
+    final var result = new PropertyIndexDefinition();
+    result.fromMap(map);
 
     Assert.assertEquals(result, propertyIndex);
   }

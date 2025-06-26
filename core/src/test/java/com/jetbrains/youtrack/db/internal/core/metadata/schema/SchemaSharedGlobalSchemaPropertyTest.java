@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -14,10 +13,10 @@ public class SchemaSharedGlobalSchemaPropertyTest extends DbTestBase {
   @Test
   public void testGlobalPropertyCreate() {
 
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
 
     schema.createGlobalProperty("testaasd", PropertyType.SHORT, 100);
-    GlobalProperty prop = schema.getGlobalPropertyById(100);
+    var prop = schema.getGlobalPropertyById(100);
     assertEquals(prop.getName(), "testaasd");
     assertEquals(prop.getId(), (Integer) 100);
     assertEquals(prop.getType(), PropertyType.SHORT);
@@ -26,7 +25,7 @@ public class SchemaSharedGlobalSchemaPropertyTest extends DbTestBase {
   @Test
   public void testGlobalPropertyCreateDoubleSame() {
 
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
 
     schema.createGlobalProperty("test", PropertyType.SHORT, 200);
     schema.createGlobalProperty("test", PropertyType.SHORT, 200);
@@ -35,7 +34,7 @@ public class SchemaSharedGlobalSchemaPropertyTest extends DbTestBase {
   @Test(expected = SchemaException.class)
   public void testGlobalPropertyCreateDouble() {
 
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSchema();
 
     schema.createGlobalProperty("test", PropertyType.SHORT, 201);
     schema.createGlobalProperty("test1", PropertyType.SHORT, 201);

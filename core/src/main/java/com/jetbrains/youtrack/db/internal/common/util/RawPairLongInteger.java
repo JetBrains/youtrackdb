@@ -29,7 +29,7 @@ public final class RawPairLongInteger {
       return false;
     }
 
-    RawPairLongInteger oRawPair = (RawPairLongInteger) o;
+    var oRawPair = (RawPairLongInteger) o;
 
     if (first != oRawPair.first) {
       return false;
@@ -39,7 +39,7 @@ public final class RawPairLongInteger {
 
   @Override
   public int hashCode() {
-    int result = Long.hashCode(HashCommon.mix(first));
+    var result = Long.hashCode(HashCommon.mix(first));
     result = 31 * result + HashCommon.mix(second);
     return result;
   }

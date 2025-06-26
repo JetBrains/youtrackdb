@@ -24,25 +24,25 @@ import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.RestrictedOperation;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicy;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicyImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityResourceProperty;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole.ALLOW_MODES;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Provides a symmetric key specific authentication. Implements an Security interface that delegates
@@ -61,11 +61,11 @@ public class SymmetricKeySecurity implements SecurityInternal {
 
   @Override
   public SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, String userName, String password) {
+      DatabaseSessionEmbedded session, String userName, String password) {
     return authenticate(session, userName, password);
   }
 
-  public SecurityUserIml authenticate(
+  public SecurityUserImpl authenticate(
       DatabaseSessionInternal session, final String username, final String password) {
     if (delegate == null) {
       throw new SecurityAccessException(
@@ -77,9 +77,9 @@ public class SymmetricKeySecurity implements SecurityInternal {
           "OSymmetricKeySecurity.authenticate() Database is null for username: " + username);
     }
 
-    final String dbName = session.getName();
+    final var dbName = session.getDatabaseName();
 
-    SecurityUserIml user = delegate.getUser(session, username);
+    var user = delegate.getUser(session, username);
 
     if (user == null) {
       throw new SecurityAccessException(
@@ -94,11 +94,14 @@ public class SymmetricKeySecurity implements SecurityInternal {
     }
 
     try {
-      UserSymmetricKeyConfig userConfig = new UserSymmetricKeyConfig(user.getDocument(session));
+      Identifiable identifiable = user.getIdentity();
+      var transaction = session.getActiveTransaction();
+      var userConfig = new UserSymmetricKeyConfig(
+          transaction.loadEntity(identifiable).toMap(false));
 
-      SymmetricKey sk = SymmetricKey.fromConfig(userConfig);
+      var sk = SymmetricKey.fromConfig(userConfig);
 
-      String decryptedUsername = sk.decryptAsString(password);
+      var decryptedUsername = sk.decryptAsString(password);
 
       if (SecurityManager.checkPassword(username, decryptedUsername)) {
         return user;
@@ -113,7 +116,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
                   + username
                   + " "
                   + ex.getMessage()),
-          ex);
+          ex, session.getDatabaseName());
     }
 
     throw new SecurityAccessException(
@@ -132,57 +135,8 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.isAllowed(session, iAllowAll, iAllowOperation);
   }
 
-  @Override
-  public Identifiable allowUser(
-      DatabaseSession session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iUserName) {
-    return delegate.allowUser(session, entity, iOperationType, iUserName);
-  }
 
-  @Override
-  public Identifiable allowRole(
-      DatabaseSession session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iRoleName) {
-    return delegate.allowRole(session, entity, iOperationType, iRoleName);
-  }
-
-  @Override
-  public Identifiable denyUser(
-      DatabaseSessionInternal session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iUserName) {
-    return delegate.denyUser(session, entity, iOperationType, iUserName);
-  }
-
-  @Override
-  public Identifiable denyRole(
-      DatabaseSessionInternal session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iRoleName) {
-    return delegate.denyRole(session, entity, iOperationType, iRoleName);
-  }
-
-  @Override
-  public Identifiable allowIdentity(
-      DatabaseSession session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    return delegate.allowIdentity(session, entity, iAllowFieldName, iId);
-  }
-
-  @Override
-  public Identifiable disallowIdentity(
-      DatabaseSessionInternal session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId) {
-    return delegate.disallowIdentity(session, entity, iAllowFieldName, iId);
-  }
-
-  public SecurityUserIml create(DatabaseSessionInternal session) {
+  public SecurityUserImpl create(DatabaseSessionInternal session) {
     return delegate.create(session);
   }
 
@@ -190,19 +144,20 @@ public class SymmetricKeySecurity implements SecurityInternal {
     delegate.load(session);
   }
 
-  public SecurityUserIml authenticate(DatabaseSessionInternal session, final Token authToken) {
+  @Nullable
+  public SecurityUserImpl authenticate(DatabaseSessionInternal session, final Token authToken) {
     return null;
   }
 
-  public SecurityUserIml getUser(DatabaseSession session, final String iUserName) {
+  public SecurityUserImpl getUser(DatabaseSession session, final String iUserName) {
     return delegate.getUser(session, iUserName);
   }
 
-  public SecurityUserIml getUser(DatabaseSession session, final RID iUserId) {
+  public SecurityUserImpl getUser(DatabaseSession session, final RID iUserId) {
     return delegate.getUser(session, iUserId);
   }
 
-  public SecurityUserIml createUser(
+  public SecurityUserImpl createUser(
       DatabaseSessionInternal session,
       final String iUserName,
       final String iUserPassword,
@@ -210,7 +165,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.createUser(session, iUserName, iUserPassword, iRoles);
   }
 
-  public SecurityUserIml createUser(
+  public SecurityUserImpl createUser(
       DatabaseSessionInternal session,
       final String iUserName,
       final String iUserPassword,
@@ -228,17 +183,15 @@ public class SymmetricKeySecurity implements SecurityInternal {
 
   public Role createRole(
       DatabaseSessionInternal session,
-      final String iRoleName,
-      final ALLOW_MODES iAllowMode) {
-    return delegate.createRole(session, iRoleName, iAllowMode);
+      final String iRoleName) {
+    return delegate.createRole(session, iRoleName);
   }
 
   public Role createRole(
       DatabaseSessionInternal session,
       final String iRoleName,
-      final Role iParent,
-      final ALLOW_MODES iAllowMode) {
-    return delegate.createRole(session, iRoleName, iParent, iAllowMode);
+      final Role iParent) {
+    return delegate.createRole(session, iRoleName, iParent);
   }
 
   public List<EntityImpl> getAllUsers(DatabaseSession session) {
@@ -250,7 +203,7 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
   @Override
-  public Map<String, SecurityPolicy> getSecurityPolicies(
+  public Map<String, ? extends SecurityPolicy> getSecurityPolicies(
       DatabaseSession session, SecurityRole role) {
     return delegate.getSecurityPolicies(session, role);
   }
@@ -305,10 +258,6 @@ public class SymmetricKeySecurity implements SecurityInternal {
     return delegate.dropRole(session, iRoleName);
   }
 
-  public void createClassTrigger(DatabaseSessionInternal session) {
-    delegate.createClassTrigger(session);
-  }
-
   @Override
   public long getVersion(DatabaseSession session) {
     return delegate.getVersion(session);
@@ -320,56 +269,56 @@ public class SymmetricKeySecurity implements SecurityInternal {
   }
 
   @Override
-  public Set<String> getFilteredProperties(DatabaseSessionInternal session,
+  public Set<String> getFilteredProperties(DatabaseSessionEmbedded session,
       EntityImpl entity) {
     return delegate.getFilteredProperties(session, entity);
   }
 
   @Override
-  public boolean isAllowedWrite(DatabaseSessionInternal session, EntityImpl entity,
+  public boolean isAllowedWrite(DatabaseSessionEmbedded session, EntityImpl entity,
       String propertyName) {
     return delegate.isAllowedWrite(session, entity, propertyName);
   }
 
   @Override
-  public boolean canCreate(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canCreate(DatabaseSessionEmbedded session, DBRecord record) {
     return delegate.canCreate(session, record);
   }
 
   @Override
-  public boolean canRead(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canRead(DatabaseSessionEmbedded session, DBRecord record) {
     return delegate.canRead(session, record);
   }
 
   @Override
-  public boolean canUpdate(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canUpdate(DatabaseSessionEmbedded session, DBRecord record) {
     return delegate.canUpdate(session, record);
   }
 
   @Override
-  public boolean canDelete(DatabaseSessionInternal session, DBRecord record) {
+  public boolean canDelete(DatabaseSessionEmbedded session, DBRecord record) {
     return delegate.canDelete(session, record);
   }
 
   @Override
-  public boolean canExecute(DatabaseSessionInternal session, Function function) {
+  public boolean canExecute(DatabaseSessionEmbedded session, Function function) {
     return delegate.canExecute(session, function);
   }
 
   @Override
-  public boolean isReadRestrictedBySecurityPolicy(DatabaseSession session, String resource) {
+  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
     return delegate.isReadRestrictedBySecurityPolicy(session, resource);
   }
 
   @Override
   public Set<SecurityResourceProperty> getAllFilteredProperties(
-      DatabaseSessionInternal database) {
+      DatabaseSessionEmbedded database) {
     return delegate.getAllFilteredProperties(database);
   }
 
   @Override
   public SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, AuthenticationInfo authenticationInfo) {
+      DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo) {
     return delegate.securityAuthenticate(session, authenticationInfo);
   }
 

@@ -2,18 +2,20 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * this class is only used by the query executor to store pre-calculated values and store them in a
@@ -26,69 +28,84 @@ public class SQLValueExpression extends SQLExpression {
     this.value = val;
   }
 
+  @Override
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
     return value;
   }
 
+  @Override
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     return value;
   }
 
+  @Override
   public boolean isBaseIdentifier() {
     return false;
   }
 
-  public boolean isEarlyCalculated() {
+  public static boolean isEarlyCalculated() {
     return true;
   }
 
+  @Override
   public SQLIdentifier getDefaultAlias() {
     return new SQLIdentifier(String.valueOf(value));
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(value);
   }
 
+  @Override
   public boolean supportsBasicCalculation() {
     return true;
   }
 
-  public boolean isIndexedFunctionCal(DatabaseSessionInternal session) {
+  @Override
+  public boolean isIndexedFunctionCal(DatabaseSessionEmbedded session) {
     return false;
   }
 
+  @Override
   public boolean canExecuteIndexedFunctionWithoutIndex(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
     return false;
   }
 
+  @Override
   public boolean allowsIndexedFunctionExecutionOnTarget(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
     return false;
   }
 
+  @Override
   public boolean executeIndexedFunctionAfterIndexSearch(
       SQLFromClause target, CommandContext context, SQLBinaryCompareOperator operator,
       Object right) {
     return false;
   }
 
+  @Override
   public boolean isExpand() {
     return false;
   }
 
+  @Override
+  @Nullable
   public SQLValueExpression getExpandContent() {
     return null;
   }
 
+  @Override
   public boolean needsAliases(Set<String> aliases) {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     return false;
   }
 
@@ -96,13 +113,15 @@ public class SQLValueExpression extends SQLExpression {
     return this;
   }
 
+  @Override
   public AggregationContext getAggregationContext(CommandContext ctx) {
-    throw new CommandExecutionException("Cannot aggregate on " + this);
+    throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot aggregate on " + this);
   }
 
+  @Override
   public SQLValueExpression copy() {
 
-    SQLValueExpression result = new SQLValueExpression(-1);
+    var result = new SQLValueExpression(-1);
     result.value = value;
     return result;
   }
@@ -116,7 +135,7 @@ public class SQLValueExpression extends SQLExpression {
       return false;
     }
 
-    SQLValueExpression that = (SQLValueExpression) o;
+    var that = (SQLValueExpression) o;
     return that.value == this.value;
   }
 
@@ -125,52 +144,71 @@ public class SQLValueExpression extends SQLExpression {
     return 1;
   }
 
+  @Override
   public void extractSubQueries(SubQueryCollector collector) {
   }
 
+  @Override
   public void extractSubQueries(SQLIdentifier letAlias, SubQueryCollector collector) {
   }
 
+  @Override
   public boolean refersToParent() {
 
     return false;
   }
 
+  @Override
+  @Nullable
   List<String> getMatchPatternInvolvedAliases() {
     return null;
   }
 
+  @Override
   public void applyRemove(ResultInternal result, CommandContext ctx) {
-    throw new CommandExecutionException("Cannot apply REMOVE " + this);
+    throw new CommandExecutionException(ctx.getDatabaseSession(), "Cannot apply REMOVE " + this);
   }
 
+  @Override
   public boolean isCount() {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
+  @Override
+  public boolean isEarlyCalculated(CommandContext ctx) {
+    return true;
+  }
+
+  @Override
+  public Result serialize(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException(
         "Cannot serialize value expression (not supported yet)");
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     throw new UnsupportedOperationException(
         "Cannot deserialize value expression (not supported yet)");
   }
 
+  @Override
   public boolean isDefinedFor(Result currentRecord) {
     return true;
   }
 
-  public boolean isDefinedFor(Entity currentRecord) {
+  @Override
+  public boolean isDefinedFor(DatabaseSessionInternal db, Entity currentRecord) {
     return true;
   }
 
+  @Override
+  @Nullable
   public Collate getCollate(Result currentRecord, CommandContext ctx) {
     return null;
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  @Override
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return true;
   }
 }

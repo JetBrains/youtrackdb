@@ -1,23 +1,31 @@
 package com.jetbrains.youtrack.db.internal.client.remote.db;
 
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
+import javax.annotation.Nonnull;
 
 /**
  *
  */
 public class YTLiveQueryMonitorRemote implements LiveQueryMonitor {
 
-  private final DatabaseSessionRemote database;
+  @Nonnull
+  private final DatabasePoolInternal<RemoteDatabaseSession> pool;
   private final int monitorId;
 
-  public YTLiveQueryMonitorRemote(DatabaseSessionRemote database, int monitorId) {
-    this.database = database;
+  public YTLiveQueryMonitorRemote(@Nonnull DatabasePoolInternal<RemoteDatabaseSession> pool,
+      int monitorId) {
+    this.pool = pool;
     this.monitorId = monitorId;
   }
 
   @Override
   public void unSubscribe() {
-    database.getStorageRemote().unsubscribeLive(database, this.monitorId);
+    try (var session = (DatabaseSessionRemote) pool.acquire()) {
+      session.getCommandOrchestrator().unsubscribeLive(session, this.monitorId);
+    }
   }
 
   @Override

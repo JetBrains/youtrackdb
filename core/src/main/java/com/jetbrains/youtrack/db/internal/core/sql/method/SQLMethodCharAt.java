@@ -16,9 +16,10 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.method;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.AbstractSQLMethod;
+import javax.annotation.Nullable;
 
 /**
  * Returns a character in a string.
@@ -36,10 +37,11 @@ public class SQLMethodCharAt extends AbstractSQLMethod {
     return "charAt(<position>)";
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
@@ -47,7 +49,7 @@ public class SQLMethodCharAt extends AbstractSQLMethod {
       return null;
     }
 
-    int index = Integer.parseInt(iParams[0].toString());
+    var index = Integer.parseInt(iParams[0].toString());
     return "" + iThis.toString().charAt(index);
   }
 }

@@ -24,11 +24,11 @@ public class GuaranteeEmptyCountStep extends AbstractExecutionStep {
       throw new IllegalStateException("filter step requires a previous step");
     }
 
-    ExecutionStream upstream = prev.start(ctx);
+    var upstream = prev.start(ctx);
     if (upstream.hasNext(ctx)) {
       return upstream.limit(1);
     } else {
-      ResultInternal result = new ResultInternal(ctx.getDatabase());
+      var result = new ResultInternal(ctx.getDatabaseSession());
       result.setProperty(item.getProjectionAliasAsString(), 0L);
       return ExecutionStream.resultIterator(Collections.singleton((Result) result).iterator());
     }
@@ -39,6 +39,7 @@ public class GuaranteeEmptyCountStep extends AbstractExecutionStep {
     return new GuaranteeEmptyCountStep(item.copy(), ctx, profilingEnabled);
   }
 
+  @Override
   public boolean canBeCached() {
     return true;
   }

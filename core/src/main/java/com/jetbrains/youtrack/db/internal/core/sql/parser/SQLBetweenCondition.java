@@ -2,18 +2,21 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLBetweenCondition extends SQLBooleanExpression {
 
@@ -31,27 +34,27 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    Object firstValue = first.execute(currentRecord, ctx);
+    var firstValue = first.execute(currentRecord, ctx);
     if (firstValue == null) {
       return false;
     }
 
-    Object secondValue = second.execute(currentRecord, ctx);
+    var secondValue = second.execute(currentRecord, ctx);
     if (secondValue == null) {
       return false;
     }
 
-    var db = ctx.getDatabase();
-    secondValue = PropertyType.convert(db, secondValue, firstValue.getClass());
+    var db = ctx.getDatabaseSession();
+    secondValue = PropertyTypeInternal.convert(db, secondValue, firstValue.getClass());
 
-    Object thirdValue = third.execute(currentRecord, ctx);
+    var thirdValue = third.execute(currentRecord, ctx);
     if (thirdValue == null) {
       return false;
     }
-    thirdValue = PropertyType.convert(db, thirdValue, firstValue.getClass());
+    thirdValue = PropertyTypeInternal.convert(db, thirdValue, firstValue.getClass());
 
-    final int leftResult = ((Comparable<Object>) firstValue).compareTo(secondValue);
-    final int rightResult = ((Comparable<Object>) firstValue).compareTo(thirdValue);
+    final var leftResult = ((Comparable<Object>) firstValue).compareTo(secondValue);
+    final var rightResult = ((Comparable<Object>) firstValue).compareTo(thirdValue);
 
     return leftResult >= 0 && rightResult <= 0;
   }
@@ -59,7 +62,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
   @Override
   public boolean evaluate(Result currentRecord, CommandContext ctx) {
 
-    var db = ctx.getDatabase();
+    var db = ctx.getDatabaseSession();
     if (first.isFunctionAny()) {
       return evaluateAny(db, currentRecord, ctx);
     }
@@ -68,14 +71,15 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
       return evaluateAllFunction(currentRecord, ctx);
     }
 
-    Object firstValue = first.execute(currentRecord, ctx);
-    Object secondValue = second.execute(currentRecord, ctx);
-    Object thirdValue = third.execute(currentRecord, ctx);
+    var firstValue = first.execute(currentRecord, ctx);
+    var secondValue = second.execute(currentRecord, ctx);
+    var thirdValue = third.execute(currentRecord, ctx);
 
     return evaluate(db, firstValue, secondValue, thirdValue);
   }
 
-  private static boolean evaluate(DatabaseSession session, Object firstValue, Object secondValue,
+  private static boolean evaluate(DatabaseSessionInternal session, Object firstValue,
+      Object secondValue,
       Object thirdValue) {
     if (firstValue == null) {
       return false;
@@ -85,26 +89,26 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
       return false;
     }
 
-    secondValue = PropertyType.convert(session, secondValue, firstValue.getClass());
+    secondValue = PropertyTypeInternal.convert(session, secondValue, firstValue.getClass());
 
     if (thirdValue == null) {
       return false;
     }
-    thirdValue = PropertyType.convert(session, thirdValue, firstValue.getClass());
+    thirdValue = PropertyTypeInternal.convert(session, thirdValue, firstValue.getClass());
 
-    final int leftResult = ((Comparable<Object>) firstValue).compareTo(secondValue);
-    final int rightResult = ((Comparable<Object>) firstValue).compareTo(thirdValue);
+    final var leftResult = ((Comparable<Object>) firstValue).compareTo(secondValue);
+    final var rightResult = ((Comparable<Object>) firstValue).compareTo(thirdValue);
 
     return leftResult >= 0 && rightResult <= 0;
   }
 
-  private boolean evaluateAny(DatabaseSession session, Result currentRecord,
+  private boolean evaluateAny(DatabaseSessionInternal session, Result currentRecord,
       CommandContext ctx) {
-    Object secondValue = second.execute(currentRecord, ctx);
-    Object thirdValue = third.execute(currentRecord, ctx);
+    var secondValue = second.execute(currentRecord, ctx);
+    var thirdValue = third.execute(currentRecord, ctx);
 
-    for (String s : currentRecord.getPropertyNames()) {
-      Object firstValue = currentRecord.getProperty(s);
+    for (var s : currentRecord.getPropertyNames()) {
+      var firstValue = currentRecord.getProperty(s);
       if (evaluate(session, firstValue, secondValue, thirdValue)) {
         return true;
       }
@@ -113,12 +117,12 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
   }
 
   private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
-    Object secondValue = second.execute(currentRecord, ctx);
-    Object thirdValue = third.execute(currentRecord, ctx);
+    var secondValue = second.execute(currentRecord, ctx);
+    var thirdValue = third.execute(currentRecord, ctx);
 
-    var database = ctx.getDatabase();
-    for (String s : currentRecord.getPropertyNames()) {
-      Object firstValue = currentRecord.getProperty(s);
+    var database = ctx.getDatabaseSession();
+    for (var s : currentRecord.getPropertyNames()) {
+      var firstValue = currentRecord.getProperty(s);
       if (!evaluate(database, firstValue, secondValue, thirdValue)) {
         return false;
       }
@@ -194,7 +198,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
 
   @Override
   public SQLBooleanExpression copy() {
-    SQLBetweenCondition result = new SQLBetweenCondition(-1);
+    var result = new SQLBetweenCondition(-1);
     result.first = first.copy();
     result.second = second.copy();
     result.third = third.copy();
@@ -222,7 +226,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLBetweenCondition that = (SQLBetweenCondition) o;
+    var that = (SQLBetweenCondition) o;
 
     if (!Objects.equals(first, that.first)) {
       return false;
@@ -235,16 +239,17 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = first != null ? first.hashCode() : 0;
+    var result = first != null ? first.hashCode() : 0;
     result = 31 * result + (second != null ? second.hashCode() : 0);
     result = 31 * result + (third != null ? third.hashCode() : 0);
     return result;
   }
 
+  @Nullable
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
     List<String> result = new ArrayList<String>();
-    List<String> x = first.getMatchPatternInvolvedAliases();
+    var x = first.getMatchPatternInvolvedAliases();
     if (x != null) {
       result.addAll(x);
     }
@@ -257,18 +262,15 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
       result.addAll(x);
     }
 
-    if (result.size() == 0) {
+    if (result.isEmpty()) {
       return null;
     }
+
     return result;
   }
 
   @Override
-  public void translateLuceneOperator() {
-  }
-
-  @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (first != null && !first.isCacheable(session)) {
       return false;
     }
@@ -276,6 +278,29 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
       return false;
     }
     return third == null || third.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=f94f4779c4a6c6d09539446045ceca89 (do not edit this line) */

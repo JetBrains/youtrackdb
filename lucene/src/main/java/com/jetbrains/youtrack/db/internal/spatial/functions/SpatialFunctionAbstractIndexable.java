@@ -17,18 +17,13 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.metadata.MetadataInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromItem;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLJson;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLtOperator;
@@ -43,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -54,25 +50,26 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     super(iName, iMinParams, iMaxParams);
   }
 
-  protected LuceneSpatialIndex searchForIndex(DatabaseSessionInternal session,
+  @Nullable
+  protected LuceneSpatialIndex searchForIndex(DatabaseSessionEmbedded session,
       SQLFromClause target,
       SQLExpression[] args) {
-    MetadataInternal dbMetadata = getDb().getMetadata();
 
-    SQLFromItem item = target.getItem();
-    SQLIdentifier identifier = item.getIdentifier();
-    String fieldName = args[0].toString();
+    var fieldName = args[0].toString();
 
-    String className = identifier.getStringValue();
-    List<LuceneSpatialIndex> indices =
-        dbMetadata.getImmutableSchemaSnapshot().getClassInternal(className)
-            .getIndexesInternal(session).stream()
+    var shemaClass = target.getSchemaClass(session);
+    if (shemaClass == null) {
+      return null;
+    }
+
+    var indices =
+        shemaClass.getIndexesInternal().stream()
             .filter(idx -> idx instanceof LuceneSpatialIndex)
             .map(idx -> (LuceneSpatialIndex) idx)
             .filter(
                 idx ->
                     intersect(
-                        idx.getDefinition().getFields(), Collections.singletonList(fieldName)))
+                        idx.getDefinition().getProperties(), Collections.singletonList(fieldName)))
             .toList();
 
     if (indices.size() > 1) {
@@ -80,16 +77,14 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
           "too many indices matching given field name: " + String.join(",", fieldName));
     }
 
-    return indices.isEmpty() ? null : indices.get(0);
+    return indices.isEmpty() ? null : indices.getFirst();
   }
 
-  protected DatabaseSessionInternal getDb() {
-    return DatabaseRecordThreadLocal.instance().get();
-  }
-
+  @Nullable
   protected Iterable<Identifiable> results(
       SQLFromClause target, SQLExpression[] args, CommandContext ctx, Object rightValue) {
-    Index index = searchForIndex(ctx.getDatabase(), target, args);
+    var session = ctx.getDatabaseSession();
+    Index index = searchForIndex(session, target, args);
 
     if (index == null) {
       return null;
@@ -98,54 +93,67 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     Map<String, Object> queryParams = new HashMap<>();
     queryParams.put(SpatialQueryBuilderAbstract.GEO_FILTER, operator());
     Object shape;
+
     if (args[1].getValue() instanceof SQLJson json) {
-      EntityImpl doc = new EntityImpl();
-      doc.fromJSON(json.toString());
-      shape = doc.toMap();
+      shape = JSONSerializerJackson.INSTANCE.mapFromJson(json.toString());
     } else {
       shape = args[1].execute((Identifiable) null, ctx);
     }
 
     if (shape instanceof Collection) {
-      int size = ((Collection) shape).size();
+      var size = ((Collection) shape).size();
 
       if (size == 0) {
         return new LuceneResultSetEmpty();
       }
       if (size == 1) {
 
-        Object next = ((Collection) shape).iterator().next();
+        var next = ((Collection) shape).iterator().next();
 
+        var shapeFound = false;
         if (next instanceof Result inner) {
-          var propertyNames = inner.getPropertyNames();
-          if (propertyNames.size() == 1) {
-            Object property = inner.getProperty(propertyNames.iterator().next());
-            if (property instanceof Result) {
-              shape = ((Result) property).toEntity();
+          if (inner.isEntity()) {
+            var entity = inner.asEntity();
+            if (entity.isEmbedded()) {
+              shapeFound = true;
+              shape = inner.asEntity();
             }
-          } else {
-            return new LuceneResultSetEmpty();
+          }
+
+          if (!shapeFound) {
+            var propertyNames = inner.getPropertyNames();
+            if (propertyNames.size() == 1) {
+              var property = inner.getProperty(propertyNames.getFirst());
+              if (property instanceof Result) {
+                shape = ((Result) property).asEntityOrNull();
+              }
+            } else {
+              return new LuceneResultSetEmpty();
+            }
           }
         }
       } else {
-        throw new CommandExecutionException("The collection in input cannot be major than 1");
+        throw new CommandExecutionException(session,
+            "The collection in input cannot be major than 1");
       }
     }
 
-    if (shape instanceof ResultInternal) {
-      shape = ((ResultInternal) shape).toEntity();
+    if (shape instanceof Result result) {
+      shape = result.asEntity();
     }
+
     queryParams.put(SpatialQueryBuilderAbstract.SHAPE, shape);
 
     onAfterParsing(queryParams, args, ctx, rightValue);
 
-    Set<String> indexes = (Set<String>) ctx.getVariable("involvedIndexes");
+    var indexes = (Set<String>) ctx.getVariable("involvedIndexes");
     if (indexes == null) {
       indexes = new HashSet<>();
       ctx.setVariable("involvedIndexes", indexes);
     }
     indexes.add(index.getName());
-    return index.getInternal().getRids(ctx.getDatabase(), queryParams).collect(Collectors.toSet());
+    return index.getRids(ctx.getDatabaseSession(), queryParams)
+        .collect(Collectors.toSet());
   }
 
   protected void onAfterParsing(
@@ -176,7 +184,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
     if (!isValidBinaryOperator(operator)) {
       return false;
     }
-    LuceneSpatialIndex index = searchForIndex(ctx.getDatabase(), target, args);
+    var index = searchForIndex(ctx.getDatabaseSession(), target, args);
 
     return index != null;
   }
@@ -199,12 +207,12 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
       CommandContext ctx,
       SQLExpression... args) {
 
-    LuceneSpatialIndex index = searchForIndex(ctx.getDatabase(), target, args);
-    return index == null ? -1 : index.size(ctx.getDatabase());
+    var index = searchForIndex(ctx.getDatabaseSession(), target, args);
+    return index == null ? -1 : index.size(ctx.getDatabaseSession());
   }
 
   public static <T> boolean intersect(List<T> list1, List<T> list2) {
-    for (T t : list1) {
+    for (var t : list1) {
       if (list2.contains(t)) {
         return true;
       }

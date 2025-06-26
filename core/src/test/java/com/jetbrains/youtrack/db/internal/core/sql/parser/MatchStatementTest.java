@@ -9,8 +9,8 @@ import org.junit.Test;
 public class MatchStatementTest {
 
   protected SimpleNode checkRightSyntax(String query) {
-    SimpleNode result = checkSyntax(query, true);
-    StringBuilder builder = new StringBuilder();
+    var result = checkSyntax(query, true);
+    var builder = new StringBuilder();
     result.toString(null, builder);
     return checkSyntax(builder.toString(), true);
   }
@@ -20,7 +20,7 @@ public class MatchStatementTest {
   }
 
   protected SimpleNode checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
       if (!isCorrect) {
@@ -85,7 +85,7 @@ public class MatchStatementTest {
 
   @Test
   public void testFilterTypes() {
-    String query =
+    var query =
         "MATCH {"
             + "   class: 'v', "
             + "   as: foo, "
@@ -97,7 +97,7 @@ public class MatchStatementTest {
 
   @Test
   public void testFilterTypes2() {
-    String query =
+    var query =
         "MATCH {"
             + "   classes: ['V', 'E'], "
             + "   as: foo, "
@@ -109,20 +109,20 @@ public class MatchStatementTest {
 
   @Test
   public void testMultiPath() {
-    String query =
+    var query =
         "MATCH {}" + "  .(out().in(){class:'v'}.both('Foo')){maxDepth: 3}.out() return foo";
     checkRightSyntax(query);
   }
 
   @Test
   public void testMultiPathArrows() {
-    String query = "MATCH {}" + "  .(-->{}<--{class:'v'}--){maxDepth: 3}-->{} return foo";
+    var query = "MATCH {}" + "  .(-->{}<--{class:'v'}--){maxDepth: 3}-->{} return foo";
     checkRightSyntax(query);
   }
 
   @Test
   public void testMultipleMatches() {
-    String query = "MATCH {class: 'V', as: foo}.out(){class: 'V', as: bar}, ";
+    var query = "MATCH {class: 'V', as: foo}.out(){class: 'V', as: bar}, ";
     query += " {class: 'V', as: foo}.out(){class: 'V', as: bar},";
     query += " {class: 'V', as: foo}.out(){class: 'V', as: bar} RETURN foo";
     checkRightSyntax(query);
@@ -130,7 +130,7 @@ public class MatchStatementTest {
 
   @Test
   public void testMultipleMatchesArrow() {
-    String query = "MATCH {class: 'V', as: foo}-->{class: 'V', as: bar}, ";
+    var query = "MATCH {class: 'V', as: foo}-->{class: 'V', as: bar}, ";
     query += " {class: 'V', as: foo}-->{class: 'V', as: bar},";
     query += " {class: 'V', as: foo}-->{class: 'V', as: bar} RETURN foo";
     checkRightSyntax(query);
@@ -198,20 +198,18 @@ public class MatchStatementTest {
   }
 
   @Test
-  public void testClusterTarget() {
-    checkRightSyntax("MATCH {cluster:v, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster:12, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster: v, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster: `v`, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster:`v`, as: foo} RETURN $elements");
-    checkRightSyntax("MATCH {cluster: 12, as: foo} RETURN $elements");
-
-    checkWrongSyntax("MATCH {cluster: 12.1, as: foo} RETURN $elements");
+  public void testClassTarget() {
+    checkRightSyntax("MATCH {class:v, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class:12, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class: v, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class: `v`, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class:`v`, as: foo} RETURN $elements");
+    checkRightSyntax("MATCH {class: 12, as: foo} RETURN $elements");
   }
 
   @Test
   public void testNot() {
-    checkRightSyntax("MATCH {cluster:v, as: foo}, NOT {as:foo}-->{as:bar} RETURN $elements");
+    checkRightSyntax("MATCH {class:v, as: foo}, NOT {as:foo}-->{as:bar} RETURN $elements");
   }
 
   @Test
@@ -236,7 +234,7 @@ public class MatchStatementTest {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

@@ -19,10 +19,12 @@
 package com.jetbrains.youtrack.db.internal.lucene.collections;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
+import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngine;
 import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngineAbstract;
 import com.jetbrains.youtrack.db.internal.lucene.engine.LuceneIndexEngineUtils;
@@ -37,10 +39,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.apache.lucene.analysis.TokenStream;
+import javax.annotation.Nullable;
 import org.apache.lucene.document.Document;
-import org.apache.lucene.index.IndexReader;
-import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TopDocs;
@@ -50,7 +50,6 @@ import org.apache.lucene.search.highlight.InvalidTokenOffsetsException;
 import org.apache.lucene.search.highlight.QueryTermScorer;
 import org.apache.lucene.search.highlight.Scorer;
 import org.apache.lucene.search.highlight.SimpleHTMLFormatter;
-import org.apache.lucene.search.highlight.TextFragment;
 import org.apache.lucene.search.highlight.TokenSources;
 
 /**
@@ -70,18 +69,21 @@ public class LuceneResultSet implements Set<Identifiable> {
   private long deletedMatchCount = 0;
 
   private boolean closed = false;
+  private final DatabaseSessionInternal session;
 
-  protected LuceneResultSet() {
+  protected LuceneResultSet(DatabaseSessionInternal session) {
+    this.session = session;
   }
 
   public LuceneResultSet(
-      final LuceneIndexEngine engine,
+      DatabaseSessionInternal session, final LuceneIndexEngine engine,
       final LuceneQueryContext queryContext,
       final Map<String, ?> metadata) {
     this.engine = engine;
     this.queryContext = queryContext;
     this.query = queryContext.getQuery();
     this.indexName = engine.indexName();
+    this.session = session;
 
     fetchFirstBatch();
     deletedMatchCount = calculateDeletedMatch();
@@ -92,9 +94,9 @@ public class LuceneResultSet implements Set<Identifiable> {
     highlighted =
         Optional.ofNullable((List<String>) highlight.get("fields")).orElse(Collections.emptyList());
 
-    final String startElement = (String) Optional.ofNullable(highlight.get("start")).orElse("<B>");
+    final var startElement = (String) Optional.ofNullable(highlight.get("start")).orElse("<B>");
 
-    final String endElement = (String) Optional.ofNullable(highlight.get("end")).orElse("</B>");
+    final var endElement = (String) Optional.ofNullable(highlight.get("end")).orElse("</B>");
 
     final Scorer scorer = new QueryTermScorer(queryContext.getQuery());
     final Formatter formatter = new SimpleHTMLFormatter(startElement, endElement);
@@ -105,7 +107,7 @@ public class LuceneResultSet implements Set<Identifiable> {
 
   protected void fetchFirstBatch() {
     try {
-      final IndexSearcher searcher = queryContext.getSearcher();
+      final var searcher = queryContext.getSearcher();
       if (queryContext.getSort() == null) {
         topDocs = searcher.search(query, PAGE_SIZE);
       } else {
@@ -208,11 +210,13 @@ public class LuceneResultSet implements Set<Identifiable> {
 
     @Override
     public boolean hasNext() {
-      final boolean hasNext = index < (totalHits - deletedMatchCount);
+      assert session.assertIfNotActive();
+      final var hasNext = index < (totalHits - deletedMatchCount);
       if (!hasNext && !closed) {
-        final IndexSearcher searcher = queryContext.getSearcher();
+        final var searcher = queryContext.getSearcher();
         if (searcher.getIndexReader().getRefCount() > 1) {
-          engine.release(searcher);
+          assert session.assertIfNotActive();
+          engine.release(session.getStorage(), searcher);
           closed = true;
         }
       }
@@ -221,6 +225,8 @@ public class LuceneResultSet implements Set<Identifiable> {
 
     @Override
     public Identifiable next() {
+      assert session.assertIfNotActive();
+      var storage = session.getStorage();
       ScoreDoc scoreDoc;
       ContextualRecordId res;
       Document doc;
@@ -229,7 +235,7 @@ public class LuceneResultSet implements Set<Identifiable> {
         doc = toDocument(scoreDoc);
 
         res = toRecordId(doc, scoreDoc);
-      } while (isToSkip(res, doc));
+      } while (isToSkip(storage, res, doc));
       index++;
       return res;
     }
@@ -239,10 +245,11 @@ public class LuceneResultSet implements Set<Identifiable> {
         localIndex = 0;
         fetchMoreResult();
       }
-      final ScoreDoc score = scoreDocs[localIndex++];
+      final var score = scoreDocs[localIndex++];
       return score;
     }
 
+    @Nullable
     private Document toDocument(final ScoreDoc score) {
       try {
         return queryContext.getSearcher().doc(score.doc);
@@ -253,18 +260,18 @@ public class LuceneResultSet implements Set<Identifiable> {
     }
 
     private ContextualRecordId toRecordId(final Document doc, final ScoreDoc score) {
-      final String rId = doc.get(LuceneIndexEngineAbstract.RID);
-      final ContextualRecordId res = new ContextualRecordId(rId);
+      final var rId = doc.get(LuceneIndexEngineAbstract.RID);
+      final var res = new ContextualRecordId(rId);
 
-      final IndexReader indexReader = queryContext.getSearcher().getIndexReader();
+      final var indexReader = queryContext.getSearcher().getIndexReader();
       try {
-        for (final String field : highlighted) {
-          final String text = doc.get(field);
+        for (final var field : highlighted) {
+          final var text = doc.get(field);
           if (text != null) {
-            TokenStream tokenStream =
+            var tokenStream =
                 TokenSources.getAnyTokenStream(
                     indexReader, score.doc, field, doc, engine.indexAnalyzer());
-            TextFragment[] frag =
+            var frag =
                 highlighter.getBestTextFragments(tokenStream, text, true, maxNumFragments);
             queryContext.addHighlightFragment(field, frag);
           }
@@ -272,18 +279,20 @@ public class LuceneResultSet implements Set<Identifiable> {
         engine.onRecordAddedToResultSet(queryContext, res, doc, score);
         return res;
       } catch (IOException | InvalidTokenOffsetsException e) {
-        throw BaseException.wrapException(new LuceneIndexException("error while highlighting"), e);
+        throw BaseException.wrapException(new LuceneIndexException("error while highlighting"), e,
+            session);
       }
     }
 
-    private boolean isToSkip(final ContextualRecordId recordId, final Document doc) {
-      return isDeleted(recordId, doc) || isUpdatedDiskMatch(recordId, doc);
+    private boolean isToSkip(Storage storage, final ContextualRecordId recordId,
+        final Document doc) {
+      return isDeleted(storage, recordId, doc) || isUpdatedDiskMatch(recordId, doc) ;
     }
 
     private void fetchMoreResult() {
       TopDocs topDocs = null;
       try {
-        final IndexSearcher searcher = queryContext.getSearcher();
+        final var searcher = queryContext.getSearcher();
         if (queryContext.getSort() == null) {
           topDocs = searcher.searchAfter(scoreDocs[scoreDocs.length - 1], query, PAGE_SIZE);
         } else {
@@ -298,8 +307,8 @@ public class LuceneResultSet implements Set<Identifiable> {
       }
     }
 
-    private boolean isDeleted(Identifiable value, Document doc) {
-      return queryContext.isDeleted(doc, null, value);
+    private boolean isDeleted(Storage storage, Identifiable value, Document doc) {
+      return queryContext.isDeleted(storage, doc, null, value);
     }
 
     private boolean isUpdatedDiskMatch(Identifiable value, Document doc) {

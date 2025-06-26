@@ -2,15 +2,18 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLMatchesCondition extends SQLBooleanExpression {
 
@@ -30,32 +33,32 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    String regex = right;
+    var regex = right;
     if (regex != null) {
       regex = regex.substring(1, regex.length() - 1);
     } else if (rightExpression != null) {
-      Object val = rightExpression.execute(currentRecord, ctx);
+      var val = rightExpression.execute(currentRecord, ctx);
       if (val instanceof String) {
         regex = (String) val;
       } else {
         return false;
       }
     } else {
-      Object paramVal = rightParam.getValue(ctx.getInputParameters());
+      var paramVal = rightParam.getValue(ctx.getInputParameters());
       if (paramVal instanceof String) {
         regex = (String) paramVal;
       } else {
         return false;
       }
     }
-    Object value = expression.execute(currentRecord, ctx);
+    var value = expression.execute(currentRecord, ctx);
 
     return matches(value, regex, ctx);
   }
 
-  private boolean matches(Object value, String regex, CommandContext ctx) {
-    final String key = "MATCHES_" + regex.hashCode();
-    java.util.regex.Pattern p = (java.util.regex.Pattern) ctx.getVariable(key);
+  private static boolean matches(Object value, String regex, CommandContext ctx) {
+    final var key = "MATCHES_" + regex.hashCode();
+    var p = (java.util.regex.Pattern) ctx.getVariable(key);
     if (p == null) {
       p = java.util.regex.Pattern.compile(regex);
       ctx.setVariable(key, p);
@@ -70,29 +73,30 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Result currentRecord, CommandContext ctx) {
-    String regex = right;
+    var regex = right;
     if (regex != null) {
       regex = regex.substring(1, regex.length() - 1);
     } else if (rightExpression != null) {
-      Object val = rightExpression.execute(currentRecord, ctx);
+      var val = rightExpression.execute(currentRecord, ctx);
       if (val instanceof String) {
         regex = (String) val;
       } else {
         return false;
       }
     } else {
-      Object paramVal = rightParam.getValue(ctx.getInputParameters());
+      var paramVal = rightParam.getValue(ctx.getInputParameters());
       if (paramVal instanceof String) {
         regex = (String) paramVal;
       } else {
         return false;
       }
     }
-    Object value = expression.execute(currentRecord, ctx);
+    var value = expression.execute(currentRecord, ctx);
 
     return matches(value, regex, ctx);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     expression.toString(params, builder);
     builder.append(" MATCHES ");
@@ -105,6 +109,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     expression.toGenericStatement(builder);
     builder.append(" MATCHES ");
@@ -127,7 +132,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
 
   @Override
   protected int getNumberOfExternalCalculations() {
-    int result = 0;
+    var result = 0;
     if (expression != null && !expression.supportsBasicCalculation()) {
       result++;
     }
@@ -159,7 +164,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
 
   @Override
   public SQLMatchesCondition copy() {
-    SQLMatchesCondition result = new SQLMatchesCondition(-1);
+    var result = new SQLMatchesCondition(-1);
     result.expression = expression == null ? null : expression.copy();
     result.right = right;
     result.rightParam = rightParam == null ? null : rightParam.copy();
@@ -192,7 +197,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
       return false;
     }
 
-    SQLMatchesCondition that = (SQLMatchesCondition) o;
+    var that = (SQLMatchesCondition) o;
 
     if (!Objects.equals(expression, that.expression)) {
       return false;
@@ -208,7 +213,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = expression != null ? expression.hashCode() : 0;
+    var result = expression != null ? expression.hashCode() : 0;
     result = 31 * result + (right != null ? right.hashCode() : 0);
     result = 31 * result + (rightExpression != null ? rightExpression.hashCode() : 0);
     result = 31 * result + (rightParam != null ? rightParam.hashCode() : 0);
@@ -217,8 +222,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
 
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
-    List<String> result = new ArrayList<>();
-    result.addAll(expression.getMatchPatternInvolvedAliases());
+    List<String> result = new ArrayList<>(expression.getMatchPatternInvolvedAliases());
     if (rightExpression != null) {
       result.addAll(rightExpression.getMatchPatternInvolvedAliases());
     }
@@ -226,11 +230,34 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (!expression.isCacheable(session)) {
       return false;
     }
     return rightExpression == null || rightExpression.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=68712f476e2e633c2bbfc34cb6c39356 (do not edit this line) */

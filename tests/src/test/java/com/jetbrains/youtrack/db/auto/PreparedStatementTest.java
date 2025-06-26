@@ -15,176 +15,121 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class PreparedStatementTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public PreparedStatementTest(boolean remote) {
-    super(remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
     super.beforeClass();
-    database.command("CREATE CLASS PreparedStatementTest1");
-    database.command("insert into PreparedStatementTest1 (name, surname) values ('foo1', 'bar1')");
-    database.command(
+    session.execute("CREATE CLASS PreparedStatementTest1");
+    session.begin();
+    session.execute("insert into PreparedStatementTest1 (name, surname) values ('foo1', 'bar1')");
+    session.execute(
         "insert into PreparedStatementTest1 (name, listElem) values ('foo2', ['bar2'])");
+    session.commit();
   }
 
   @Test
   public void testUnnamedParamTarget() {
-    Iterable<EntityImpl> result =
-        database
-            .command(new SQLSynchQuery<EntityImpl>("select from ?"))
-            .execute(database, "PreparedStatementTest1");
-
+    session.begin();
+    var result =
+        session
+            .query("select from ?", "PreparedStatementTest1").toList();
     Set<String> expected = new HashSet<String>();
     expected.add("foo1");
     expected.add("foo2");
-    boolean found = false;
-    for (EntityImpl doc : result) {
+    var found = false;
+    for (var doc : result) {
       found = true;
-      Assert.assertTrue(expected.contains(doc.field("name")));
+      Assert.assertTrue(expected.contains(doc.getProperty("name")));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamTarget() {
+    session.begin();
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("className", "PreparedStatementTest1");
-    Iterable<EntityImpl> result =
-        database.command(new SQLSynchQuery<EntityImpl>("select from :className"))
-            .execute(database, params);
+    var result =
+        session.query("select from :className", params).toList();
 
     Set<String> expected = new HashSet<String>();
     expected.add("foo1");
     expected.add("foo2");
-    boolean found = false;
-    for (EntityImpl doc : result) {
+    var found = false;
+    for (var doc : result) {
       found = true;
-      Assert.assertTrue(expected.contains(doc.field("name")));
+      Assert.assertTrue(expected.contains(doc.getProperty("name")));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamTargetRid() {
+    session.begin();
 
-    Iterable<EntityImpl> result =
-        database
-            .command(new SQLSynchQuery<EntityImpl>("select from PreparedStatementTest1 limit 1"))
-            .execute(database);
-
-    EntityImpl record = result.iterator().next();
+    var result =
+        session
+            .query("select from PreparedStatementTest1 limit 1").toList();
+    var record = result.iterator().next();
 
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("inputRid", record.getIdentity());
     result =
-        database.command(new SQLSynchQuery<EntityImpl>("select from :inputRid"))
-            .execute(database, params);
-
-    boolean found = false;
-    for (EntityImpl doc : result) {
+        session.query("select from :inputRid", params).toList();
+    var found = false;
+    for (var doc : result) {
       found = true;
       Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>field("name"), record.field("name"));
+      Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testUnnamedParamTargetRid() {
+    session.begin();
 
-    Iterable<EntityImpl> result =
-        database
-            .command(new SQLSynchQuery<EntityImpl>("select from PreparedStatementTest1 limit 1"))
-            .execute(database);
+    var result =
+        session
+            .query("select from PreparedStatementTest1 limit 1").toList();
 
-    EntityImpl record = result.iterator().next();
+    var record = result.iterator().next();
     result =
-        database
-            .command(new SQLSynchQuery<EntityImpl>("select from ?"))
-            .execute(database, record.getIdentity());
-
-    boolean found = false;
-    for (EntityImpl doc : result) {
+        session
+            .query("select from ?", record.getIdentity()).toList();
+    var found = false;
+    for (var doc : result) {
       found = true;
       Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>field("name"), record.field("name"));
+      Assert.assertEquals(doc.<Object>getProperty("name"), record.getProperty("name"));
     }
     Assert.assertTrue(found);
-  }
-
-  @Test
-  public void testNamedParamTargetDocument() {
-
-    Iterable<EntityImpl> result =
-        database
-            .command(new SQLSynchQuery<EntityImpl>("select from PreparedStatementTest1 limit 1"))
-            .execute(database);
-
-    EntityImpl record = result.iterator().next();
-
-    Map<String, Object> params = new HashMap<String, Object>();
-    params.put("inputRid", record);
-    result =
-        database.command(new SQLSynchQuery<EntityImpl>("select from :inputRid"))
-            .execute(database, params);
-
-    boolean found = false;
-    for (EntityImpl doc : result) {
-      found = true;
-      Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>field("name"), record.field("name"));
-    }
-    Assert.assertTrue(found);
-  }
-
-  @Test
-  public void testUnnamedParamTargetDocument() {
-
-    Iterable<EntityImpl> result =
-        database
-            .command(new SQLSynchQuery<EntityImpl>("select from PreparedStatementTest1 limit 1"))
-            .execute(database);
-
-    EntityImpl record = result.iterator().next();
-    result = database.command(new SQLSynchQuery<EntityImpl>("select from ?"))
-        .execute(database, record);
-
-    boolean found = false;
-    for (EntityImpl doc : result) {
-      found = true;
-      Assert.assertEquals(doc.getIdentity(), record.getIdentity());
-      Assert.assertEquals(doc.<Object>field("name"), record.field("name"));
-    }
-    Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testUnnamedParamFlat() {
-    ResultSet result = database.query("select from PreparedStatementTest1 where name = ?",
+    var result = session.query("select from PreparedStatementTest1 where name = ?",
         "foo1");
 
-    boolean found = false;
+    var found = false;
     while (result.hasNext()) {
-      Result doc = result.next();
+      var doc = result.next();
       found = true;
       Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
@@ -195,12 +140,12 @@ public class PreparedStatementTest extends BaseDBTest {
   public void testNamedParamFlat() {
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("name", "foo1");
-    ResultSet result =
-        database.query("select from PreparedStatementTest1 where name = :name", params);
+    var result =
+        session.query("select from PreparedStatementTest1 where name = :name", params);
 
-    boolean found = false;
+    var found = false;
     while (result.hasNext()) {
-      Result doc = result.next();
+      var doc = result.next();
       found = true;
       Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
@@ -209,87 +154,87 @@ public class PreparedStatementTest extends BaseDBTest {
 
   @Test
   public void testUnnamedParamInArray() {
-    Iterable<EntityImpl> result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from PreparedStatementTest1 where name in [?]"))
-            .execute(database, "foo1");
+    session.begin();
+    var result =
+        session
+            .query(
+                "select from PreparedStatementTest1 where name in [?]", "foo1").toList();
 
-    boolean found = false;
-    for (EntityImpl doc : result) {
+    var found = false;
+    for (var doc : result) {
       found = true;
-      Assert.assertEquals(doc.field("name"), "foo1");
+      Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamInArray() {
+    session.begin();
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("name", "foo1");
-    Iterable<EntityImpl> result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from PreparedStatementTest1 where name in [:name]"))
-            .execute(database, params);
-
-    boolean found = false;
-    for (EntityImpl doc : result) {
+    var result =
+        session
+            .query(
+                "select from PreparedStatementTest1 where name in [:name]", params).toList();
+    var found = false;
+    for (var doc : result) {
       found = true;
-      Assert.assertEquals(doc.field("name"), "foo1");
+      Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testUnnamedParamInArray2() {
-    Iterable<EntityImpl> result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from PreparedStatementTest1 where name in [?, 'antani']"))
-            .execute(database, "foo1");
+    session.begin();
+    var result =
+        session
+            .query(
+                "select from PreparedStatementTest1 where name in [?, 'antani']", "foo1").toList();
 
-    boolean found = false;
-    for (EntityImpl doc : result) {
+    var found = false;
+    for (var doc : result) {
       found = true;
-      Assert.assertEquals(doc.field("name"), "foo1");
+      Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testNamedParamInArray2() {
+    session.begin();
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("name", "foo1");
-    Iterable<EntityImpl> result =
-        database
-            .command(
-                new SQLSynchQuery<EntityImpl>(
-                    "select from PreparedStatementTest1 where name in [:name, 'antani']"))
-            .execute(database, params);
+    var result =
+        session
+            .query(
+                "select from PreparedStatementTest1 where name in [:name, 'antani']", params)
+            .toList();
 
-    boolean found = false;
-    for (EntityImpl doc : result) {
+    var found = false;
+    for (var doc : result) {
       found = true;
-      Assert.assertEquals(doc.field("name"), "foo1");
+      Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
     Assert.assertTrue(found);
+    session.commit();
   }
 
   @Test
   public void testSubqueryUnnamedParamFlat() {
-    ResultSet result =
-        database.query(
+    var result =
+        session.query(
             "select from (select from PreparedStatementTest1 where name = ?) where name = ?",
             "foo1",
             "foo1");
 
-    boolean found = false;
+    var found = false;
     while (result.hasNext()) {
-      Result doc = result.next();
+      var doc = result.next();
       found = true;
       Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
@@ -300,15 +245,15 @@ public class PreparedStatementTest extends BaseDBTest {
   public void testSubqueryNamedParamFlat() {
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("name", "foo1");
-    ResultSet result =
-        database.query(
+    var result =
+        session.query(
             "select from (select from PreparedStatementTest1 where name = :name) where name ="
                 + " :name",
             params);
 
-    boolean found = false;
+    var found = false;
     while (result.hasNext()) {
-      Result doc = result.next();
+      var doc = result.next();
       found = true;
       Assert.assertEquals(doc.getProperty("name"), "foo1");
     }
@@ -320,11 +265,11 @@ public class PreparedStatementTest extends BaseDBTest {
     Map<String, Object> params = new HashMap<String, Object>();
     params.put("one", 1);
     params.put("three", 3);
-    ResultSet result = database.query("select max(:one, :three) as maximo", params);
+    var result = session.query("select max(:one, :three) as maximo", params);
 
-    boolean found = false;
+    var found = false;
     while (result.hasNext()) {
-      Result doc = result.next();
+      var doc = result.next();
       found = true;
       Assert.assertEquals(doc.<Object>getProperty("maximo"), 3);
     }
@@ -335,10 +280,9 @@ public class PreparedStatementTest extends BaseDBTest {
   public void testSqlInjectionOnTarget() {
 
     try {
-      Iterable<EntityImpl> result =
-          database
-              .command(new SQLSynchQuery<EntityImpl>("select from ?"))
-              .execute(database, "PreparedStatementTest1 where name = 'foo'");
+      var result =
+          session
+              .query("select from ?", "PreparedStatementTest1 where name = 'foo'").toList();
       Assert.fail();
     } catch (Exception e) {
 

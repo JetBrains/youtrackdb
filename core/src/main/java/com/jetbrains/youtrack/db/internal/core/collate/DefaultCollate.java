@@ -21,6 +21,8 @@ package com.jetbrains.youtrack.db.internal.core.collate;
 
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Default collate, does not apply conversions.
@@ -29,11 +31,13 @@ public class DefaultCollate extends DefaultComparator implements Collate {
 
   public static final String NAME = "default";
 
-  public String getName() {
+  @Override
+  public @Nonnull String getName() {
     return NAME;
   }
 
-  public Object transform(final Object obj) {
+  @Override
+  public @Nullable Object transform(final @Nullable Object obj) {
     return obj;
   }
 
@@ -48,7 +52,7 @@ public class DefaultCollate extends DefaultComparator implements Collate {
       return false;
     }
 
-    final DefaultCollate that = (DefaultCollate) obj;
+    final var that = (DefaultCollate) obj;
 
     return NAME.equals(NAME);
   }

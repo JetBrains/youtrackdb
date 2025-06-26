@@ -17,30 +17,32 @@
 
 package com.jetbrains.youtrack.db.internal.core;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.command.CommandRequestText;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.engine.Engine;
 import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
-import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
+import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageCluster;
-import com.jetbrains.youtrack.db.internal.core.storage.cluster.PaginatedCluster;
-import com.jetbrains.youtrack.db.internal.core.storage.config.ClusterBasedStorageConfiguration;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree.SBTreeCollectionManager;
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionOptimistic;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection.ATTRIBUTES;
+import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedStorageConfiguration;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
+import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collection;
@@ -54,11 +56,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-/**
- *
- */
 public class PostponedEngineStartTest {
-
   private static YouTrackDBEnginesManager YOUTRACKDB;
 
   private static Engine ENGINE1;
@@ -79,7 +77,6 @@ public class PostponedEngineStartTest {
 
           @Override
           public YouTrackDBEnginesManager shutdown() {
-            DatabaseDocumentTx.closeAll();
             return this;
           }
         };
@@ -114,26 +111,26 @@ public class PostponedEngineStartTest {
 
   // @Test
   public void testEngineShouldNotStartAtRuntimeStart() {
-    final Engine engine = YOUTRACKDB.getEngine(ENGINE1.getName());
+    final var engine = YOUTRACKDB.getEngine(ENGINE1.getName());
     Assert.assertFalse(engine.isRunning());
   }
 
   // @Test(dependsOnMethods = "testEngineShouldNotStartAtRuntimeStart")
   public void testGetEngineIfRunningShouldReturnNullEngineIfNotRunning() {
-    final Engine engine = YOUTRACKDB.getEngineIfRunning(ENGINE1.getName());
+    final var engine = YOUTRACKDB.getEngineIfRunning(ENGINE1.getName());
     Assert.assertNull(engine);
   }
 
   // @Test(dependsOnMethods = "testGetEngineIfRunningShouldReturnNullEngineIfNotRunning")
   public void testGetRunningEngineShouldStartEngine() {
-    final Engine engine = YOUTRACKDB.getRunningEngine(ENGINE1.getName());
+    final var engine = YOUTRACKDB.getRunningEngine(ENGINE1.getName());
     Assert.assertNotNull(engine);
     Assert.assertTrue(engine.isRunning());
   }
 
   // @Test(dependsOnMethods = "testGetRunningEngineShouldStartEngine")
   public void testEngineRestart() {
-    Engine engine = YOUTRACKDB.getRunningEngine(ENGINE1.getName());
+    var engine = YOUTRACKDB.getRunningEngine(ENGINE1.getName());
     engine.shutdown();
     Assert.assertFalse(engine.isRunning());
 
@@ -149,10 +146,10 @@ public class PostponedEngineStartTest {
 
   // @Test
   public void testStoppedEngineShouldStartAndCreateStorage() {
-    Engine engine = YOUTRACKDB.getEngineIfRunning(ENGINE2.getName());
+    var engine = YOUTRACKDB.getEngineIfRunning(ENGINE2.getName());
     Assert.assertNull(engine);
 
-    final Storage storage =
+    final var storage =
         ENGINE2.createStorage(
             ENGINE2.getName() + ":storage",
             125 * 1024 * 1024,
@@ -178,7 +175,7 @@ public class PostponedEngineStartTest {
 
   // @Test(expected = IllegalStateException.class)
   public void testGetRunningEngineShouldThrowIfEngineIsUnableToStart() {
-    Engine engine = YOUTRACKDB.getEngine(FAULTY_ENGINE.getName());
+    var engine = YOUTRACKDB.getEngine(FAULTY_ENGINE.getName());
     Assert.assertNotNull(engine);
     try {
 
@@ -211,12 +208,12 @@ public class PostponedEngineStartTest {
         long maxWalSegSize,
         long doubleWriteLogMaxSegSize,
         int storageId,
-        YouTrackDBInternal context) {
+        YouTrackDBInternalEmbedded context) {
       return new Storage() {
 
         @Override
         public List<String> backup(
-            OutputStream out,
+            DatabaseSessionInternal db, OutputStream out,
             Map<String, Object> options,
             Callable<Object> callable,
             CommandOutputListener iListener,
@@ -234,14 +231,13 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public String getClusterName(DatabaseSessionInternal database, int clusterId) {
+        public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
           return null;
         }
 
         @Override
-        public boolean setClusterAttribute(int id, StorageCluster.ATTRIBUTES attribute,
+        public void setCollectionAttribute(int id, ATTRIBUTES attribute,
             Object value) {
-          return false;
         }
 
         @Override
@@ -286,11 +282,9 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public @Nonnull RawBuffer readRecord(
-            DatabaseSessionInternal session, RecordId iRid,
-            boolean iIgnoreCache,
-            boolean prefetchRecords,
-            RecordCallback<RawBuffer> iCallback) {
+        public @Nonnull ReadRecordResult readRecord(
+            DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
+            boolean fetchNextRid) {
           return null;
         }
 
@@ -305,117 +299,99 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public boolean cleanOutRecord(
-            DatabaseSessionInternal session, RecordId recordId, int recordVersion, int iMode,
-            RecordCallback<Boolean> callback) {
-          return false;
+        public void commit(FrontendTransactionImpl iTx) {
         }
 
         @Override
-        public List<RecordOperation> commit(TransactionOptimistic iTx) {
+        public CollectionBasedStorageConfiguration getConfiguration() {
           return null;
         }
 
         @Override
-        public ClusterBasedStorageConfiguration getConfiguration() {
-          return null;
-        }
-
-        @Override
-        public int getClusters() {
+        public int getCollections() {
           return 0;
         }
 
         @Override
-        public Set<String> getClusterNames() {
+        public Set<String> getCollectionNames() {
           return null;
         }
 
         @Override
-        public Collection<? extends StorageCluster> getClusterInstances() {
+        public Collection<? extends StorageCollection> getCollectionInstances() {
           return null;
         }
 
         @Override
-        public int addCluster(DatabaseSessionInternal database, String iClusterName,
+        public int addCollection(DatabaseSessionInternal database, String iCollectionName,
             Object... iParameters) {
           return 0;
         }
 
         @Override
-        public int addCluster(DatabaseSessionInternal database, String iClusterName,
+        public int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key) {
+          return 0;
+        }
+
+        @Override
+        public int addCollection(DatabaseSessionInternal database, String iCollectionName,
             int iRequestedId) {
           return 0;
         }
 
         @Override
-        public boolean dropCluster(DatabaseSessionInternal session, String iClusterName) {
+        public boolean dropCollection(DatabaseSessionInternal session, String iCollectionName) {
           return false;
         }
 
         @Override
-        public boolean dropCluster(DatabaseSessionInternal database, int iId) {
+        public boolean dropCollection(DatabaseSessionInternal database, int iId) {
           return false;
         }
 
         @Override
-        public String getClusterNameById(int clusterId) {
+        public String getCollectionNameById(int collectionId) {
           return null;
         }
 
         @Override
-        public long getClusterRecordsSizeById(int clusterId) {
+        public long getCollectionRecordsSizeById(int collectionId) {
           return 0;
         }
 
         @Override
-        public long getClusterRecordsSizeByName(String clusterName) {
+        public long getCollectionRecordsSizeByName(String collectionName) {
           return 0;
         }
 
         @Override
-        public String getClusterRecordConflictStrategy(int clusterId) {
+        public String getCollectionRecordConflictStrategy(int collectionId) {
           return null;
         }
 
         @Override
-        public boolean isSystemCluster(int clusterId) {
+        public boolean isSystemCollection(int collectionId) {
           return false;
         }
 
         @Override
-        public long getLastClusterPosition(int clusterId) {
+        public long count(DatabaseSessionInternal session, int iCollectionId) {
           return 0;
         }
 
         @Override
-        public long getClusterNextPosition(int clusterId) {
-          return 0;
-        }
-
-        @Override
-        public PaginatedCluster.RECORD_STATUS getRecordStatus(RID rid) {
-          return null;
-        }
-
-        @Override
-        public long count(DatabaseSessionInternal session, int iClusterId) {
-          return 0;
-        }
-
-        @Override
-        public long count(DatabaseSessionInternal session, int iClusterId,
+        public long count(DatabaseSessionInternal session, int iCollectionId,
             boolean countTombstones) {
           return 0;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int[] iClusterIds) {
+        public long count(DatabaseSessionInternal session, int[] iCollectionIds) {
           return 0;
         }
 
         @Override
-        public long count(DatabaseSessionInternal session, int[] iClusterIds,
+        public long count(DatabaseSessionInternal session, int[] iCollectionIds,
             boolean countTombstones) {
           return 0;
         }
@@ -426,32 +402,24 @@ public class PostponedEngineStartTest {
         }
 
         @Override
+        public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+            String fieldName, RID rid) {
+          return null;
+        }
+
+        @Override
         public long countRecords(DatabaseSessionInternal session) {
           return 0;
         }
 
         @Override
-        public int getDefaultClusterId() {
+        public int getCollectionIdByName(String iCollectionName) {
           return 0;
         }
 
         @Override
-        public void setDefaultClusterId(int defaultClusterId) {
-        }
-
-        @Override
-        public int getClusterIdByName(String iClusterName) {
-          return 0;
-        }
-
-        @Override
-        public String getPhysicalClusterNameById(int iClusterId) {
+        public String getPhysicalCollectionNameById(int iCollectionId) {
           return null;
-        }
-
-        @Override
-        public boolean checkForRecordValidity(PhysicalPosition ppos) {
-          return false;
         }
 
         @Override
@@ -474,36 +442,30 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public Object command(DatabaseSessionInternal database, CommandRequestText iCommand) {
-          return null;
-        }
-
-        @Override
-        public long[] getClusterDataRange(DatabaseSessionInternal session, int currentClusterId) {
-          return new long[0];
-        }
-
-        @Override
         public PhysicalPosition[] higherPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition) {
+            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
+            int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] lowerPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition) {
+            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
+            int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] ceilingPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition) {
+            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
+            int limit) {
           return new PhysicalPosition[0];
         }
 
         @Override
         public PhysicalPosition[] floorPhysicalPositions(
-            DatabaseSessionInternal session, int clusterId, PhysicalPosition physicalPosition) {
+            DatabaseSessionInternal session, int collectionId, PhysicalPosition physicalPosition,
+            int limit) {
           return new PhysicalPosition[0];
         }
 
@@ -528,17 +490,12 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public boolean isDistributed() {
+        public boolean isAssigningCollectionIds() {
           return false;
         }
 
         @Override
-        public boolean isAssigningClusterIds() {
-          return false;
-        }
-
-        @Override
-        public SBTreeCollectionManager getSBtreeCollectionManager() {
+        public LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager() {
           return null;
         }
 
@@ -560,11 +517,6 @@ public class PostponedEngineStartTest {
         public String incrementalBackup(DatabaseSessionInternal session, String backupDirectory,
             CallableFunction<Void, Void> started) {
           return null;
-        }
-
-        @Override
-        public boolean supportIncremental() {
-          return false;
         }
 
         @Override
@@ -620,11 +572,11 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public void setClusterSelection(String clusterSelection) {
+        public void setCollectionSelection(String collectionSelection) {
         }
 
         @Override
-        public void setMinimumClusters(int minimumClusters) {
+        public void setMinimumCollections(int minimumCollections) {
         }
 
         @Override
@@ -648,12 +600,25 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public int[] getClustersIds(Set<String> filterClusters) {
+        public int[] getCollectionsIds(Set<String> filterCollections) {
           return null;
         }
 
         @Override
-        public YouTrackDBInternal getContext() {
+        public YouTrackDBInternalEmbedded getContext() {
+          return null;
+        }
+
+        @Override
+        public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool,
+            String query, BasicLiveQueryResultListener<DatabaseSession, Result> listener,
+            Map<String, ?> args) {
+          return null;
+        }
+
+        @Override
+        public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
+            BasicLiveQueryResultListener listener, Object... args) {
           return null;
         }
       };
@@ -684,7 +649,7 @@ public class PostponedEngineStartTest {
         long maxWalSegSize,
         long doubleWriteLogMaxSegSize,
         int storageId,
-        YouTrackDBInternal context) {
+        YouTrackDBInternalEmbedded context) {
       throw new UnsupportedOperationException();
     }
 

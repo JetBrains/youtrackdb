@@ -1,30 +1,28 @@
 package com.jetbrains.youtrack.db.internal.core.command.script;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolListener;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.script.transformer.ScriptTransformer;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.script.ScriptException;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.PolyglotException;
-import org.graalvm.polyglot.Value;
 
 /**
  *
@@ -43,9 +41,9 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
   }
 
   private Context resolveContext(DatabaseSessionInternal database) {
-    ResourcePool<DatabaseSessionInternal, Context> pool =
+    var pool =
         contextPools.computeIfAbsent(
-            database.getName(),
+            database.getDatabaseName(),
             (k) -> {
               return new ResourcePool<DatabaseSessionInternal, Context>(
                   database.getConfiguration().getValueAsInteger(GlobalConfiguration.SCRIPT_POOL),
@@ -55,7 +53,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
   }
 
   private void returnContext(Context context, DatabaseSessionInternal database) {
-    ResourcePool<DatabaseSessionInternal, Context> pool = contextPools.get(database.getName());
+    var pool = contextPools.get(database.getDatabaseName());
     if (pool != null) {
       pool.returnResource(context);
     }
@@ -63,12 +61,12 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
 
   @Override
   public Context createNewResource(DatabaseSessionInternal database, Object... iAdditionalArgs) {
-    final ScriptManager scriptManager =
+    final var scriptManager =
         database.getSharedContext().getYouTrackDB().getScriptManager();
 
-    final Set<String> allowedPackaged = scriptManager.getAllowedPackages();
+    final var allowedPackaged = scriptManager.getAllowedPackages();
 
-    Context ctx =
+    var ctx =
         Context.newBuilder()
             .allowHostAccess(HostAccess.ALL)
             .allowNativeAccess(false)
@@ -82,7 +80,7 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
                     return true;
                   }
 
-                  final int pos = s.lastIndexOf('.');
+                  final var pos = s.lastIndexOf('.');
                   if (pos > -1) {
                     return allowedPackaged.contains(s.substring(0, pos) + ".*");
                   }
@@ -90,10 +88,10 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
                 })
             .build();
 
-    PolyglotScriptBinding bindings = new PolyglotScriptBinding(ctx.getBindings(language));
+    var bindings = new PolyglotScriptBinding(ctx.getBindings(language));
 
     scriptManager.bindContextVariables(null, bindings, database, null, null);
-    final String library =
+    final var library =
         scriptManager.getLibrary(
             database, "js".equalsIgnoreCase(language) ? "javascript" : language);
     if (library != null) {
@@ -110,41 +108,43 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
   }
 
   @Override
-  public ResultSet execute(DatabaseSessionInternal database, String script, Object... params) {
+  public ResultSet execute(DatabaseSessionEmbedded database, String script, Object... params) {
     preExecute(database, script, params);
 
-    Int2ObjectOpenHashMap<Object> par = new Int2ObjectOpenHashMap<>();
+    var par = new Int2ObjectOpenHashMap<Object>();
 
-    for (int i = 0; i < params.length; i++) {
+    for (var i = 0; i < params.length; i++) {
       par.put(i, params[i]);
     }
     return execute(database, script, par);
   }
 
   @Override
-  public ResultSet execute(DatabaseSessionInternal database, String script, Map params) {
+  public ResultSet execute(DatabaseSessionEmbedded database, String script, Map params) {
 
     preExecute(database, script, params);
 
-    final ScriptManager scriptManager =
+    final var scriptManager =
         database.getSharedContext().getYouTrackDB().getScriptManager();
 
-    Context ctx = resolveContext(database);
+    var ctx = resolveContext(database);
     try {
-      PolyglotScriptBinding bindings = new PolyglotScriptBinding(ctx.getBindings(language));
+      var bindings = new PolyglotScriptBinding(ctx.getBindings(language));
 
       scriptManager.bindContextVariables(null, bindings, database, null, params);
 
-      Value result = ctx.eval(language, script);
-      ResultSet transformedResult = transformer.toResultSet(database, result);
+      var result = ctx.eval(language, script);
+      var transformedResult = transformer.toResultSet(database, result);
       scriptManager.unbind(null, bindings, null, null);
       return transformedResult;
 
     } catch (PolyglotException e) {
-      final int col = e.getSourceLocation() != null ? e.getSourceLocation().getStartColumn() : 0;
+      final var col = e.getSourceLocation() != null ? e.getSourceLocation().getStartColumn() : 0;
       throw BaseException.wrapException(
-          new CommandScriptException("Error on execution of the script", script, col),
-          new ScriptException(e));
+          new CommandScriptException(database.getDatabaseName(), "Error on execution of the script",
+              script,
+              col),
+          new ScriptException(e), database.getDatabaseName());
     } finally {
       returnContext(ctx, database);
     }
@@ -153,32 +153,32 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
   @Override
   public Object executeFunction(
       CommandContext context, final String functionName, final Map<Object, Object> iArgs) {
+    var sessionInternal = context.getDatabaseSession();
+    final var f = sessionInternal.getMetadata().getFunctionLibrary()
+        .getFunction(sessionInternal, functionName);
 
-    DatabaseSessionInternal database = context.getDatabase();
-    final Function f = database.getMetadata().getFunctionLibrary().getFunction(functionName);
+    sessionInternal.checkSecurity(Rule.ResourceGeneric.FUNCTION, Role.PERMISSION_READ,
+        f.getName());
 
-    database.checkSecurity(Rule.ResourceGeneric.FUNCTION, Role.PERMISSION_READ,
-        f.getName(database));
+    final var scriptManager =
+        sessionInternal.getSharedContext().getYouTrackDB().getScriptManager();
 
-    final ScriptManager scriptManager =
-        database.getSharedContext().getYouTrackDB().getScriptManager();
-
-    Context ctx = resolveContext(database);
+    var ctx = resolveContext(sessionInternal);
     try {
 
-      PolyglotScriptBinding bindings = new PolyglotScriptBinding(ctx.getBindings(language));
+      var bindings = new PolyglotScriptBinding(ctx.getBindings(language));
 
-      scriptManager.bindContextVariables(null, bindings, database, null, iArgs);
-      final Object[] args = iArgs == null ? null : iArgs.keySet().toArray();
+      scriptManager.bindContextVariables(null, bindings, sessionInternal, null, iArgs);
+      final var args = iArgs == null ? null : iArgs.keySet().toArray();
 
-      Value result = ctx.eval(language, scriptManager.getFunctionInvoke(database, f, args));
+      var result = ctx.eval(language, scriptManager.getFunctionInvoke(sessionInternal, f, args));
 
       Object finalResult;
       if (result.isNull()) {
         finalResult = null;
       } else if (result.hasArrayElements()) {
         final List<Object> array = new ArrayList<>((int) result.getArraySize());
-        for (int i = 0; i < result.getArraySize(); ++i) {
+        for (var i = 0; i < result.getArraySize(); ++i) {
           array.add(new ResultInternal(result.getArrayElement(i).asHostObject()));
         }
         finalResult = array;
@@ -194,21 +194,23 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
       scriptManager.unbind(null, bindings, null, null);
       return finalResult;
     } catch (PolyglotException e) {
-      final int col = e.getSourceLocation() != null ? e.getSourceLocation().getStartColumn() : 0;
+      final var col = e.getSourceLocation() != null ? e.getSourceLocation().getStartColumn() : 0;
       throw BaseException.wrapException(
-          new CommandScriptException("Error on execution of the script", functionName, col),
-          new ScriptException(e));
+          new CommandScriptException(sessionInternal.getDatabaseName(),
+              "Error on execution of the script",
+              functionName, col),
+          new ScriptException(e), sessionInternal.getDatabaseName());
     } finally {
-      returnContext(ctx, database);
+      returnContext(ctx, sessionInternal);
     }
   }
 
   @Override
   public void close(String iDatabaseName) {
-    ResourcePool<DatabaseSessionInternal, Context> contextPool =
+    var contextPool =
         contextPools.remove(iDatabaseName);
     if (contextPool != null) {
-      for (Context c : contextPool.getAllResources()) {
+      for (var c : contextPool.getAllResources()) {
         c.close();
       }
       contextPool.close();
@@ -217,8 +219,8 @@ public class PolyglotScriptExecutor extends AbstractScriptExecutor
 
   @Override
   public void closeAll() {
-    for (ResourcePool<DatabaseSessionInternal, Context> d : contextPools.values()) {
-      for (Context c : d.getAllResources()) {
+    for (var d : contextPools.values()) {
+      for (var c : d.getAllResources()) {
         c.close();
       }
       d.close();

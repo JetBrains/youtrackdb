@@ -6,15 +6,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.SelectExecutionPlanner;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.SelectExecutionPlanner;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -127,6 +127,7 @@ public class SQLSelectStatement extends SQLStatement {
     this.letClause = letClause;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
 
     builder.append("SELECT");
@@ -190,6 +191,7 @@ public class SQLSelectStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
 
     builder.append("SELECT");
@@ -253,6 +255,7 @@ public class SQLSelectStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void validate() throws CommandSQLParsingException {
     if (projection != null) {
       projection.validate();
@@ -263,7 +266,7 @@ public class SQLSelectStatement extends SQLStatement {
   }
 
   @Override
-  public boolean executinPlanCanBeCached(DatabaseSessionInternal session) {
+  public boolean executinPlanCanBeCached(DatabaseSessionEmbedded session) {
     if (originalStatement == null) {
       setOriginalStatement(this.toString());
     }
@@ -284,16 +287,16 @@ public class SQLSelectStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -305,18 +308,18 @@ public class SQLSelectStatement extends SQLStatement {
       executionPlan = createExecutionPlanNoCache(ctx, false);
     }
 
-    LocalResultSet result = new LocalResultSet(executionPlan);
-    return result;
+    return new LocalResultSet(session, executionPlan);
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
     InternalExecutionPlan executionPlan;
     if (usePlanCache) {
@@ -325,22 +328,23 @@ public class SQLSelectStatement extends SQLStatement {
       executionPlan = createExecutionPlanNoCache(ctx, false);
     }
 
-    LocalResultSet result = new LocalResultSet(executionPlan);
-    return result;
+    return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    SelectExecutionPlanner planner = new SelectExecutionPlanner(this);
-    InternalExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling, true);
+    var planner = new SelectExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, true);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlanNoCache(
       CommandContext ctx, boolean enableProfiling) {
-    SelectExecutionPlanner planner = new SelectExecutionPlanner(this);
-    InternalExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling, false);
+    var planner = new SelectExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, false);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
@@ -381,7 +385,7 @@ public class SQLSelectStatement extends SQLStatement {
       return false;
     }
 
-    SQLSelectStatement that = (SQLSelectStatement) o;
+    var that = (SQLSelectStatement) o;
 
     if (!Objects.equals(target, that.target)) {
       return false;
@@ -424,7 +428,7 @@ public class SQLSelectStatement extends SQLStatement {
 
   @Override
   public int hashCode() {
-    int result = target != null ? target.hashCode() : 0;
+    var result = target != null ? target.hashCode() : 0;
     result = 31 * result + (projection != null ? projection.hashCode() : 0);
     result = 31 * result + (whereClause != null ? whereClause.hashCode() : 0);
     result = 31 * result + (groupBy != null ? groupBy.hashCode() : 0);
@@ -492,46 +496,48 @@ public class SQLSelectStatement extends SQLStatement {
     this.noCache = noCache;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = (ResultInternal) super.serialize(db);
+  @Override
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = (ResultInternal) super.serialize(session);
     if (target != null) {
-      result.setProperty("target", target.serialize(db));
+      result.setProperty("target", target.serialize(session));
     }
     if (projection != null) {
-      result.setProperty("projection", projection.serialize(db));
+      result.setProperty("projection", projection.serialize(session));
     }
     if (whereClause != null) {
-      result.setProperty("whereClause", whereClause.serialize(db));
+      result.setProperty("whereClause", whereClause.serialize(session));
     }
     if (groupBy != null) {
-      result.setProperty("groupBy", groupBy.serialize(db));
+      result.setProperty("groupBy", groupBy.serialize(session));
     }
     if (orderBy != null) {
-      result.setProperty("orderBy", orderBy.serialize(db));
+      result.setProperty("orderBy", orderBy.serialize(session));
     }
     if (unwind != null) {
-      result.setProperty("unwind", unwind.serialize(db));
+      result.setProperty("unwind", unwind.serialize(session));
     }
     if (skip != null) {
-      result.setProperty("skip", skip.serialize(db));
+      result.setProperty("skip", skip.serialize(session));
     }
     if (limit != null) {
-      result.setProperty("limit", limit.serialize(db));
+      result.setProperty("limit", limit.serialize(session));
     }
     if (fetchPlan != null) {
-      result.setProperty("fetchPlan", fetchPlan.serialize(db));
+      result.setProperty("fetchPlan", fetchPlan.serialize(session));
     }
     if (letClause != null) {
-      result.setProperty("letClause", letClause.serialize(db));
+      result.setProperty("letClause", letClause.serialize(session));
     }
     if (timeout != null) {
-      result.setProperty("timeout", timeout.serialize(db));
+      result.setProperty("timeout", timeout.serialize(session));
     }
     result.setProperty("parallel", parallel);
     result.setProperty("noCache", noCache);
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     if (fromResult.getProperty("target") != null) {
       target = new SQLFromClause(-1);

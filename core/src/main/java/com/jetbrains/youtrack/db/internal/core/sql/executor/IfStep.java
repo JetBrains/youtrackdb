@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIfStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLReturnStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -26,7 +27,7 @@ public class IfStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-    ScriptExecutionPlan plan = producePlan(ctx);
+    var plan = producePlan(ctx);
     if (plan != null) {
       return plan.start();
     } else {
@@ -36,31 +37,32 @@ public class IfStep extends AbstractExecutionStep {
 
   public ScriptExecutionPlan producePlan(CommandContext ctx) {
     if (condition.evaluate((Result) null, ctx)) {
-      ScriptExecutionPlan positivePlan = initPositivePlan(ctx);
+      var positivePlan = initPositivePlan(ctx);
       return positivePlan;
     } else {
-      ScriptExecutionPlan negativePlan = initNegativePlan(ctx);
+      var negativePlan = initNegativePlan(ctx);
       return negativePlan;
     }
   }
 
   public ScriptExecutionPlan initPositivePlan(CommandContext ctx) {
-    BasicCommandContext subCtx1 = new BasicCommandContext();
+    var subCtx1 = new BasicCommandContext();
     subCtx1.setParent(ctx);
-    ScriptExecutionPlan positivePlan = new ScriptExecutionPlan(subCtx1);
-    for (SQLStatement stm : positiveStatements) {
+    var positivePlan = new ScriptExecutionPlan(subCtx1);
+    for (var stm : positiveStatements) {
       positivePlan.chain(stm.createExecutionPlan(subCtx1, profilingEnabled), profilingEnabled);
     }
     return positivePlan;
   }
 
+  @Nullable
   public ScriptExecutionPlan initNegativePlan(CommandContext ctx) {
     if (negativeStatements != null) {
       if (negativeStatements.size() > 0) {
-        BasicCommandContext subCtx2 = new BasicCommandContext();
+        var subCtx2 = new BasicCommandContext();
         subCtx2.setParent(ctx);
-        ScriptExecutionPlan negativePlan = new ScriptExecutionPlan(subCtx2);
-        for (SQLStatement stm : negativeStatements) {
+        var negativePlan = new ScriptExecutionPlan(subCtx2);
+        for (var stm : negativeStatements) {
           negativePlan.chain(stm.createExecutionPlan(subCtx2, profilingEnabled), profilingEnabled);
         }
         return negativePlan;
@@ -79,14 +81,14 @@ public class IfStep extends AbstractExecutionStep {
 
   public boolean containsReturn() {
     if (positiveStatements != null) {
-      for (SQLStatement stm : positiveStatements) {
+      for (var stm : positiveStatements) {
         if (containsReturn(stm)) {
           return true;
         }
       }
     }
     if (negativeStatements != null) {
-      for (SQLStatement stm : negativeStatements) {
+      for (var stm : negativeStatements) {
         if (containsReturn(stm)) {
           return true;
         }
@@ -100,7 +102,7 @@ public class IfStep extends AbstractExecutionStep {
       return true;
     }
     if (stm instanceof SQLIfStatement) {
-      for (SQLStatement o : ((SQLIfStatement) stm).getStatements()) {
+      for (var o : ((SQLIfStatement) stm).getStatements()) {
         if (containsReturn(o)) {
           return true;
         }

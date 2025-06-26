@@ -21,24 +21,25 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
-import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.DocumentHelper;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
@@ -49,10 +50,10 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * SQL Helper class
@@ -65,20 +66,20 @@ public class SQLHelper {
   public static final String NOT_NULL = "_NOT_NULL_";
   public static final String DEFINED = "_DEFINED_";
 
-  public static Object parseDefaultValue(DatabaseSessionInternal session, EntityImpl iRecord,
-      final String iWord) {
-    final Object v = SQLHelper.parseValue(iWord, null);
+  public static Object parseDefaultValue(DatabaseSessionEmbedded session, EntityImpl iRecord,
+      final String iWord, @Nonnull SchemaProperty schemaProperty) {
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+
+    final var v = SQLHelper.parseValue(iWord, context, schemaProperty);
 
     if (v != VALUE_NOT_PARSED) {
       return v;
     }
 
     // TRY TO PARSE AS FUNCTION
-    final SQLFunctionRuntime func = SQLHelper.getFunction(session, null, iWord);
+    final var func = SQLHelper.getFunction(session, null, iWord);
     if (func != null) {
-      var context = new BasicCommandContext();
-      context.setDatabase(session);
-
       return func.execute(iRecord, iRecord, null, context);
     }
 
@@ -93,87 +94,186 @@ public class SQLHelper {
    * @param iValue Value to convert.
    * @return The value converted if recognized, otherwise VALUE_NOT_PARSED
    */
-  public static Object parseValue(String iValue, final CommandContext iContext) {
-    return parseValue(iValue, iContext, false);
+  public static Object parseValue(String iValue, final CommandContext context,
+      @Nullable SchemaProperty schemaProperty) {
+    return parseValue(iValue, context, false,
+        null, schemaProperty, null, null);
   }
 
+  @Nullable
   public static Object parseValue(
-      String iValue, final CommandContext iContext, boolean resolveContextVariables) {
-
+      String iValue, final CommandContext context,
+      boolean resolveContextVariables,
+      @Nullable SchemaClass schemaClass,
+      @Nullable SchemaProperty schemaProperty, @Nullable PropertyTypeInternal propertyType,
+      @Nullable PropertyTypeInternal parentProperty) {
     if (iValue == null) {
       return null;
+    }
+
+    if (propertyType == null && schemaProperty != null) {
+      propertyType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getType());
     }
 
     iValue = iValue.trim();
 
     Object fieldValue = VALUE_NOT_PARSED;
 
-    if (iValue.length() == 0) {
+    var session = context.getDatabaseSession();
+    if (iValue.isEmpty()) {
       return iValue;
     }
-    if (iValue.startsWith("'") && iValue.endsWith("'")
-        || iValue.startsWith("\"") && iValue.endsWith("\""))
+
+    if (iValue.charAt(0) == '\'' && iValue.charAt(iValue.length() - 1) == '\''
+        || iValue.charAt(0) == '\"'
+        && iValue.charAt(iValue.length() - 1) == '\"')
     // STRING
     {
       fieldValue = IOUtils.getStringContent(iValue);
     } else if (iValue.charAt(0) == StringSerializerHelper.LIST_BEGIN
         && iValue.charAt(iValue.length() - 1) == StringSerializerHelper.LIST_END) {
       // COLLECTION/ARRAY
-      final List<String> items =
+      final var items =
           StringSerializerHelper.smartSplit(
               iValue.substring(1, iValue.length() - 1), StringSerializerHelper.RECORD_SEPARATOR);
 
-      final List<Object> coll = new ArrayList<Object>();
-      for (String item : items) {
-        coll.add(parseValue(item, iContext, resolveContextVariables));
+      List<Object> coll;
+      if (propertyType != null) {
+        if (propertyType.isMultiValue()) {
+          if (propertyType.isLink()) {
+            //noinspection rawtypes,unchecked
+            coll = (List) session.newLinkList();
+          } else {
+            coll = session.newEmbeddedList();
+          }
+        } else {
+          throw new IllegalArgumentException(
+              "Value is a list but property is not a collection : " + iValue);
+        }
+      } else {
+        coll = session.newEmbeddedList();
       }
+
+      if (schemaProperty != null) {
+        var linkedType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType());
+        var linkedClass = schemaProperty.getLinkedClass();
+        for (var item : items) {
+          coll.add(parseValue(item, context, resolveContextVariables,
+              linkedClass,
+              null, linkedType, propertyType));
+        }
+      } else {
+        for (var item : items) {
+          coll.add(parseValue(item, context, resolveContextVariables, null, null, null,
+              null));
+        }
+      }
+
       fieldValue = coll;
 
     } else if (iValue.charAt(0) == StringSerializerHelper.MAP_BEGIN
         && iValue.charAt(iValue.length() - 1) == StringSerializerHelper.MAP_END) {
-      // MAP
-      final List<String> items =
-          StringSerializerHelper.smartSplit(
-              iValue.substring(1, iValue.length() - 1), StringSerializerHelper.RECORD_SEPARATOR);
-
-      final Map<Object, Object> map = new HashMap<Object, Object>();
-      for (String item : items) {
-        final List<String> parts =
-            StringSerializerHelper.smartSplit(item, StringSerializerHelper.ENTRY_SEPARATOR);
-
-        if (parts == null || parts.size() != 2) {
-          throw new CommandSQLParsingException(
-              "Map found but entries are not defined as <key>:<value>");
+      // map or entity
+      if (schemaClass != null) {
+        Entity entity;
+        if (parentProperty != null) {
+          if (parentProperty.isEmbedded()) {
+            entity = session.newEmbeddedEntity(schemaClass);
+          } else if (parentProperty.isLink()) {
+            entity = session.newEntity(schemaClass);
+          } else {
+            throw new IllegalArgumentException(
+                "Property is not a link or embedded : " + parentProperty);
+          }
+        } else {
+          entity = session.newEntity(schemaClass);
         }
-
-        Object key = StringSerializerHelper.decode(parseValue(parts.get(0), iContext).toString());
-        Object value = parseValue(parts.get(1), iContext);
-        if (VALUE_NOT_PARSED == value) {
-          value = new SQLPredicate(iContext, parts.get(1)).evaluate(iContext);
-        }
-        if (value instanceof String) {
-          value = StringSerializerHelper.decode(value.toString());
-        }
-        map.put(key, value);
-      }
-
-      if (map.containsKey(DocumentHelper.ATTRIBUTE_TYPE))
-      // IT'S A DOCUMENT
-      // TODO: IMPROVE THIS CASE AVOIDING DOUBLE PARSING
-      {
-        var entity = new EntityImpl();
-        entity.fromJSON(iValue);
-        fieldValue = entity;
+        fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
       } else {
-        fieldValue = map;
-      }
+        final var items =
+            StringSerializerHelper.smartSplit(
+                iValue.substring(1, iValue.length() - 1), StringSerializerHelper.RECORD_SEPARATOR);
 
+        Map<String, Object> map;
+        if (propertyType != null) {
+          if (propertyType.isMultiValue()) {
+            if (propertyType.isLink()) {
+              //noinspection unchecked,rawtypes
+              map = (Map) session.newLinkMap();
+            } else {
+              map = session.newEmbeddedMap();
+            }
+          } else {
+            throw new IllegalArgumentException(
+                "Value is a map but property is not a collection : " + iValue);
+          }
+        } else {
+          map = session.newEmbeddedMap();
+        }
+
+        for (var item : items) {
+          final var parts =
+              StringSerializerHelper.smartSplit(item, StringSerializerHelper.ENTRY_SEPARATOR);
+
+          if (parts.size() != 2) {
+            throw new CommandSQLParsingException(context.getDatabaseSession().getDatabaseName(),
+                "Map found but entries are not defined as <key>:<value>");
+          }
+
+          Object key;
+          Object value;
+          if (schemaProperty != null) {
+            var linkedType = PropertyTypeInternal.convertFromPublicType(
+                schemaProperty.getLinkedType());
+            var linkedClass = schemaProperty.getLinkedClass();
+            key = parseValue(parts.get(0), context, resolveContextVariables,
+                null,
+                null, PropertyTypeInternal.STRING, propertyType);
+            value = parseValue(parts.get(1), context, resolveContextVariables,
+                linkedClass,
+                null, linkedType, propertyType);
+          } else {
+            key = parseValue(parts.get(0), context, resolveContextVariables,
+                null, null, null, null);
+            value = parseValue(parts.get(1), context, resolveContextVariables,
+                null, null, null, null);
+          }
+
+          if (VALUE_NOT_PARSED == value) {
+            value = new SQLPredicate(context, parts.get(1)).evaluate(context);
+          }
+          if (value instanceof String) {
+            value = StringSerializerHelper.decode(value.toString());
+          }
+          map.put(key.toString(), value);
+        }
+
+        if (map.containsKey(EntityHelper.ATTRIBUTE_TYPE))
+        // entity
+        {
+          Entity entity;
+          if (parentProperty != null) {
+            if (parentProperty.isEmbedded()) {
+              entity = session.newEmbeddedEntity();
+            } else if (parentProperty.isLink()) {
+              entity = session.newEntity();
+            } else {
+              throw new IllegalArgumentException(
+                  "Property is not a link or embedded : " + parentProperty);
+            }
+          } else {
+            entity = session.newEntity();
+          }
+
+          fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
+        } else {
+          fieldValue = map;
+        }
+      }
     } else if (iValue.charAt(0) == StringSerializerHelper.EMBEDDED_BEGIN
         && iValue.charAt(iValue.length() - 1) == StringSerializerHelper.EMBEDDED_END) {
       // SUB-COMMAND
-      fieldValue = new CommandSQL(iValue.substring(1, iValue.length() - 1));
-      ((CommandSQL) fieldValue).getContext().setParent(iContext);
-
+      throw new UnsupportedOperationException();
     } else if (RecordId.isA(iValue))
     // RID
     {
@@ -201,15 +301,15 @@ public class SQLHelper {
       {
         fieldValue = Boolean.FALSE;
       } else if (iValue.startsWith("date(")) {
-        final SQLFunctionRuntime func = SQLHelper.getFunction(iContext.getDatabase(), null,
+        final var func = SQLHelper.getFunction(context.getDatabaseSession(), null,
             iValue);
         if (func != null) {
-          fieldValue = func.execute(null, null, null, iContext);
+          fieldValue = func.execute(null, null, null, context);
         }
-      } else if (resolveContextVariables && iValue.startsWith("$") && iContext != null) {
-        fieldValue = iContext.getVariable(iValue);
+      } else if (resolveContextVariables && iValue.charAt(0) == '$') {
+        fieldValue = context.getVariable(iValue);
       } else {
-        final Object v = parseStringNumber(iValue);
+        final var v = parseStringNumber(iValue);
         if (v != null) {
           fieldValue = v;
         }
@@ -219,24 +319,25 @@ public class SQLHelper {
     return fieldValue;
   }
 
+  @Nullable
   public static Object parseStringNumber(final String iValue) {
-    final PropertyType t = RecordSerializerCSVAbstract.getType(iValue);
+    final var t = RecordSerializerCSVAbstract.getType(iValue);
 
-    if (t == PropertyType.INTEGER) {
+    if (t == PropertyTypeInternal.INTEGER) {
       return Integer.parseInt(iValue);
-    } else if (t == PropertyType.LONG) {
+    } else if (t == PropertyTypeInternal.LONG) {
       return Long.parseLong(iValue);
-    } else if (t == PropertyType.FLOAT) {
+    } else if (t == PropertyTypeInternal.FLOAT) {
       return Float.parseFloat(iValue);
-    } else if (t == PropertyType.SHORT) {
+    } else if (t == PropertyTypeInternal.SHORT) {
       return Short.parseShort(iValue);
-    } else if (t == PropertyType.BYTE) {
+    } else if (t == PropertyTypeInternal.BYTE) {
       return Byte.parseByte(iValue);
-    } else if (t == PropertyType.DOUBLE) {
+    } else if (t == PropertyTypeInternal.DOUBLE) {
       return Double.parseDouble(iValue);
-    } else if (t == PropertyType.DECIMAL) {
+    } else if (t == PropertyTypeInternal.DECIMAL) {
       return new BigDecimal(iValue);
-    } else if (t == PropertyType.DATE || t == PropertyType.DATETIME) {
+    } else if (t == PropertyTypeInternal.DATE || t == PropertyTypeInternal.DATETIME) {
       return new Date(Long.parseLong(iValue));
     }
 
@@ -268,45 +369,47 @@ public class SQLHelper {
   public static Object parseValue(
       final BaseParser iCommand,
       final String iWord,
-      final CommandContext iContext,
+      final CommandContext context,
       boolean resolveContextVariables) {
     if (iWord.equals("*")) {
       return "*";
     }
 
     // TRY TO PARSE AS RAW VALUE
-    final Object v = parseValue(iWord, iContext, resolveContextVariables);
+    final var v = parseValue(iWord, context, resolveContextVariables, null,
+        null, null, null);
     if (v != VALUE_NOT_PARSED) {
       return v;
     }
 
     if (!iWord.equalsIgnoreCase("any()") && !iWord.equalsIgnoreCase("all()")) {
       // TRY TO PARSE AS FUNCTION
-      final Object func = SQLHelper.getFunction(iContext.getDatabase(), iCommand, iWord);
+      final Object func = SQLHelper.getFunction(context.getDatabaseSession(), iCommand, iWord);
       if (func != null) {
         return func;
       }
     }
 
-    if (iWord.startsWith("$"))
+    if (!iWord.isEmpty() && iWord.charAt(0) == '$')
     // CONTEXT VARIABLE
     {
-      return new SQLFilterItemVariable(iContext.getDatabase(), iCommand, iWord);
+      return new SQLFilterItemVariable(context.getDatabaseSession(), iCommand, iWord);
     }
 
     // PARSE AS FIELD
-    return new SQLFilterItemField(iContext.getDatabase(), iCommand, iWord, null);
+    return new SQLFilterItemField(context.getDatabaseSession(), iCommand, iWord, null);
   }
 
-  public static SQLFunctionRuntime getFunction(DatabaseSessionInternal session,
+  @Nullable
+  public static SQLFunctionRuntime getFunction(DatabaseSessionEmbedded session,
       final BaseParser iCommand, final String iWord) {
-    final int separator = iWord.indexOf('.');
-    final int beginParenthesis = iWord.indexOf(StringSerializerHelper.EMBEDDED_BEGIN);
+    final var separator = iWord.indexOf('.');
+    final var beginParenthesis = iWord.indexOf(StringSerializerHelper.EMBEDDED_BEGIN);
     if (beginParenthesis > -1 && (separator == -1 || separator > beginParenthesis)) {
-      final int endParenthesis =
+      final var endParenthesis =
           iWord.indexOf(StringSerializerHelper.EMBEDDED_END, beginParenthesis);
 
-      final char firstChar = iWord.charAt(0);
+      final var firstChar = iWord.charAt(0);
       if (endParenthesis > -1 && (firstChar == '_' || Character.isLetter(firstChar)))
       // FUNCTION: CREATE A RUN-TIME CONTAINER FOR IT TO SAVE THE PARAMETERS
       {
@@ -317,6 +420,7 @@ public class SQLHelper {
     return null;
   }
 
+  @Nullable
   public static Object getValue(final Object iObject) {
     if (iObject == null) {
       return null;
@@ -329,28 +433,38 @@ public class SQLHelper {
     return iObject;
   }
 
+  @Nullable
   public static Object getValue(
-      final Object iObject, final DBRecord iRecord, final CommandContext iContext) {
-    if (iObject == null) {
-      return null;
-    }
-
-    if (iObject instanceof SQLFilterItem) {
-      return ((SQLFilterItem) iObject).getValue(iRecord, null, iContext);
-    } else if (iObject instanceof String) {
-      final String s = ((String) iObject).trim();
-      if (iRecord != null & !s.isEmpty()
-          && !IOUtils.isStringContent(iObject)
-          && !Character.isDigit(s.charAt(0)))
-      // INTERPRETS IT
-      {
-        return DocumentHelper.getFieldValue(iContext.getDatabase(), iRecord, s, iContext);
+      final Object iObject, final Result iRecord, final CommandContext iContext) {
+    switch (iObject) {
+      case null -> {
+        return null;
+      }
+      case SQLFilterItem sqlFilterItem -> {
+        if (iRecord instanceof Entity entity) {
+          return ((SQLFilterItem) iObject).getValue(entity, null, iContext);
+        } else {
+          throw new DatabaseExportException("Record is not an entity");
+        }
+      }
+      case String string -> {
+        final var s = string.trim();
+        if (iRecord != null & !s.isEmpty()
+            && !IOUtils.isStringContent(iObject)
+            && !Character.isDigit(s.charAt(0)))
+        // INTERPRETS IT
+        {
+          return EntityHelper.getFieldValue(iContext.getDatabaseSession(), iRecord, s, iContext);
+        }
+      }
+      default -> {
       }
     }
 
     return iObject;
   }
 
+  @Nullable
   public static Object resolveFieldValue(
       DatabaseSession session, final EntityImpl entity,
       final String iFieldName,
@@ -370,10 +484,10 @@ public class SQLHelper {
     }
 
     if (iFieldValue instanceof EntityImpl && !((EntityImpl) iFieldValue).getIdentity()
-        .isValid())
+        .isValidPosition())
     // EMBEDDED entity
     {
-      EntityInternalUtils.addOwner((EntityImpl) iFieldValue, entity);
+      ((EntityImpl) iFieldValue).setOwner(entity);
     }
 
     // can't use existing getValue with iContext
@@ -387,6 +501,7 @@ public class SQLHelper {
     return iFieldValue;
   }
 
+  @Nullable
   public static EntityImpl bindParameters(
       final EntityImpl entity,
       final Map<String, Object> iFields,
@@ -398,13 +513,14 @@ public class SQLHelper {
 
     final List<Pair<String, Object>> fields = new ArrayList<Pair<String, Object>>(iFields.size());
 
-    for (Map.Entry<String, Object> entry : iFields.entrySet()) {
+    for (var entry : iFields.entrySet()) {
       fields.add(new Pair<String, Object>(entry.getKey(), entry.getValue()));
     }
 
     return bindParameters(entity, fields, iArguments, iContext);
   }
 
+  @Nullable
   public static EntityImpl bindParameters(
       final EntityImpl e,
       final List<Pair<String, Object>> iFields,
@@ -414,80 +530,11 @@ public class SQLHelper {
       return null;
     }
 
-    // BIND VALUES
-    for (Pair<String, Object> field : iFields) {
-      final String fieldName = field.getKey();
-      Object fieldValue = field.getValue();
-
-      if (fieldValue != null) {
-        if (fieldValue instanceof CommandSQL cmd) {
-          cmd.getContext().setParent(iContext);
-          fieldValue = DatabaseRecordThreadLocal.instance().get().command(cmd)
-              .execute(iContext.getDatabase());
-
-          // CHECK FOR CONVERSIONS
-          SchemaImmutableClass immutableClass = EntityInternalUtils.getImmutableSchemaClass(e);
-          if (immutableClass != null) {
-            final SchemaProperty prop = immutableClass.getProperty(fieldName);
-            if (prop != null) {
-              if (prop.getType() == PropertyType.LINK) {
-                if (MultiValue.isMultiValue(fieldValue)) {
-                  final int size = MultiValue.getSize(fieldValue);
-                  if (size == 1)
-                  // GET THE FIRST ITEM AS UNIQUE LINK
-                  {
-                    fieldValue = MultiValue.getFirstValue(fieldValue);
-                  } else if (size == 0)
-                  // NO ITEMS, SET IT AS NULL
-                  {
-                    fieldValue = null;
-                  }
-                }
-              }
-            } else if (immutableClass.isEdgeType()
-                && ("out".equals(fieldName) || "in".equals(fieldName))
-                && (fieldValue instanceof List lst)) {
-              if (lst.size() == 1) {
-                fieldValue = lst.get(0);
-              }
-            }
-          }
-
-          if (MultiValue.isMultiValue(fieldValue)) {
-            final List<Object> tempColl = new ArrayList<Object>(MultiValue.getSize(fieldValue));
-
-            String singleFieldName = null;
-            for (Object o : MultiValue.getMultiValueIterable(fieldValue)) {
-              if (o instanceof Identifiable && !((Identifiable) o).getIdentity()
-                  .isPersistent()) {
-                // TEMPORARY / EMBEDDED
-                final DBRecord rec = ((Identifiable) o).getRecord();
-                if (rec != null && rec instanceof EntityImpl entity) {
-                  // CHECK FOR ONE FIELD ONLY
-                  if (entity.fields() == 1) {
-                    singleFieldName = entity.fieldNames()[0];
-                    tempColl.add(entity.field(singleFieldName));
-                  } else {
-                    // TRANSFORM IT IN EMBEDDED
-                    entity.getIdentity().reset();
-                    EntityInternalUtils.addOwner(entity, e);
-                    EntityInternalUtils.addOwner(entity, e);
-                    tempColl.add(entity);
-                  }
-                }
-              } else {
-                tempColl.add(o);
-              }
-            }
-
-            fieldValue = tempColl;
-          }
-        }
-      }
-
-      e.field(
-          fieldName,
-          resolveFieldValue(iContext.getDatabase(), e, fieldName, fieldValue, iArguments,
+    for (var field : iFields) {
+      final var fieldName = field.getKey();
+      var fieldValue = field.getValue();
+      e.setProperty(fieldName,
+          resolveFieldValue(iContext.getDatabaseSession(), e, fieldName, fieldValue, iArguments,
               iContext));
     }
     return e;

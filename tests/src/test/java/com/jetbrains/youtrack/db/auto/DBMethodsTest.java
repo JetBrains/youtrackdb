@@ -1,8 +1,5 @@
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -13,23 +10,10 @@ import org.testng.annotations.Test;
  */
 @Test
 public class DBMethodsTest extends BaseDBTest {
+  public void testAddCollection() {
+    session.addCollection("addCollectionTest");
 
-  @Parameters(value = "remote")
-  public DBMethodsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
-  }
-
-  public void testAddCluster() {
-    database.addCluster("addClusterTest");
-
-    Assert.assertTrue(database.existsCluster("addClusterTest"));
-    Assert.assertTrue(database.existsCluster("addclUstertESt"));
+    Assert.assertTrue(session.existsCollection("addCollectionTest"));
+    Assert.assertTrue(session.existsCollection("addcOllectiontESt"));
   }
 }

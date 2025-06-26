@@ -15,8 +15,8 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.multipart;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import java.io.IOException;
 import java.util.Map;
 
@@ -27,12 +27,12 @@ public class HttpMultipartContentBaseParser implements HttpMultipartContentParse
 
   @Override
   public String parse(
-      OHttpRequest iRequest,
+      HttpRequest iRequest,
       Map<String, String> headers,
       HttpMultipartContentInputStream in,
-      DatabaseSession database)
+      DatabaseSessionEmbedded db)
       throws IOException {
-    StringBuilder builder = new StringBuilder();
+    var builder = new StringBuilder();
     int b;
     while ((b = in.read()) > 0) {
       builder.append((char) b);

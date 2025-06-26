@@ -35,29 +35,29 @@ public class ContainsConditionTest extends DbTestBase {
 
   @Test
   public void test() {
-    SQLContainsCondition op = new SQLContainsCondition(-1);
+    var op = new SQLContainsCondition(-1);
 
-    Assert.assertFalse(op.execute(db, null, null));
-    Assert.assertFalse(op.execute(db, null, "foo"));
+    Assert.assertFalse(op.execute(session, null, null));
+    Assert.assertFalse(op.execute(session, null, "foo"));
 
     List<Object> left = new ArrayList<Object>();
-    Assert.assertFalse(op.execute(db, left, "foo"));
-    Assert.assertFalse(op.execute(db, left, null));
+    Assert.assertFalse(op.execute(session, left, "foo"));
+    Assert.assertFalse(op.execute(session, left, null));
 
     left.add("foo");
     left.add("bar");
 
-    Assert.assertTrue(op.execute(db, left, "foo"));
-    Assert.assertTrue(op.execute(db, left, "bar"));
-    Assert.assertFalse(op.execute(db, left, "fooz"));
+    Assert.assertTrue(op.execute(session, left, "foo"));
+    Assert.assertTrue(op.execute(session, left, "bar"));
+    Assert.assertFalse(op.execute(session, left, "fooz"));
 
     left.add(null);
-    Assert.assertTrue(op.execute(db, left, null));
+    Assert.assertTrue(op.execute(session, left, null));
   }
 
   @Test
   public void testIterable() {
-    Iterable left =
+    var left =
         new Iterable() {
           private final List<Integer> ls = Arrays.asList(3, 1, 2);
 
@@ -67,7 +67,7 @@ public class ContainsConditionTest extends DbTestBase {
           }
         };
 
-    Iterable right =
+    var right =
         new Iterable() {
           private final List<Integer> ls = Arrays.asList(2, 3);
 
@@ -77,7 +77,7 @@ public class ContainsConditionTest extends DbTestBase {
           }
         };
 
-    SQLContainsCondition op = new SQLContainsCondition(-1);
-    Assert.assertTrue(op.execute(db, left, right));
+    var op = new SQLContainsCondition(-1);
+    Assert.assertTrue(op.execute(session, left, right));
   }
 }

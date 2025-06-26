@@ -28,8 +28,9 @@ public class LetQueryStep extends AbstractExecutionStep {
   }
 
   private ResultInternal calculate(ResultInternal result, CommandContext ctx) {
-    BasicCommandContext subCtx = new BasicCommandContext();
-    subCtx.setDatabase(ctx.getDatabase());
+    var session = ctx.getDatabaseSession();
+    var subCtx = new BasicCommandContext();
+    subCtx.setDatabaseSession(session);
     subCtx.setParentWithoutOverridingChild(ctx);
     InternalExecutionPlan subExecutionPlan;
     if (query.toString().contains("?")) {
@@ -39,7 +40,8 @@ public class LetQueryStep extends AbstractExecutionStep {
     } else {
       subExecutionPlan = query.createExecutionPlan(subCtx, profilingEnabled);
     }
-    result.setMetadata(varName.getStringValue(), toList(new LocalResultSet(subExecutionPlan)));
+    result.setMetadata(varName.getStringValue(),
+        toList(new LocalResultSet(session, subExecutionPlan)));
     return result;
   }
 
@@ -55,7 +57,7 @@ public class LetQueryStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot execute a local LET on a query without a target");
     }
     return prev.start(ctx).map(this::mapResult);
@@ -67,7 +69,7 @@ public class LetQueryStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ LET (for each record)\n" + spaces + "  " + varName + " = (" + query + ")";
   }
 }

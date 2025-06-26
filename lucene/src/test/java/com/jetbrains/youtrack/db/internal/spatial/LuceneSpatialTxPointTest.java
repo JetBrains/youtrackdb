@@ -17,12 +17,9 @@
 
 package com.jetbrains.youtrack.db.internal.spatial;
 
-import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.ArrayList;
 import org.junit.Assert;
 import org.junit.Before;
@@ -36,133 +33,115 @@ public class LuceneSpatialTxPointTest extends BaseSpatialLuceneTest {
   @Before
   public void init() {
 
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass v = schema.getClass("V");
-    SchemaClass oClass = schema.createClass("City");
-    oClass.setSuperClass(db, v);
-    oClass.createProperty(db, "location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
-    oClass.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var oClass = schema.createVertexClass("City");
+    oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
+    oClass.createProperty("name", PropertyType.STRING);
 
-    SchemaClass place = schema.createClass("Place");
-    place.setSuperClass(db, v);
-    place.createProperty(db, "latitude", PropertyType.DOUBLE);
-    place.createProperty(db, "longitude", PropertyType.DOUBLE);
-    place.createProperty(db, "name", PropertyType.STRING);
+    var place = schema.createVertexClass("Place");
+    place.createProperty("latitude", PropertyType.DOUBLE);
+    place.createProperty("longitude", PropertyType.DOUBLE);
+    place.createProperty("name", PropertyType.STRING);
 
-    db.command("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
+    session.execute("CREATE INDEX City.location ON City(location) SPATIAL ENGINE LUCENE").close();
   }
 
-  protected EntityImpl newCity(String name, final Double longitude, final Double latitude) {
+  protected Entity newCity(String name, final Double longitude, final Double latitude) {
+    var location = newPoint(longitude, latitude);
 
-    EntityImpl location = newPoint(longitude, latitude);
+    var city = session.newVertex("City");
+    city.setProperty("name", name);
+    city.setProperty("location", location);
 
-    EntityImpl city = new EntityImpl("City");
-    city.field("name", name);
-    city.field("location", location);
     return city;
   }
 
-  private EntityImpl newPoint(final Double longitude, final Double latitude) {
-    EntityImpl location = new EntityImpl("OPoint");
-    location.field(
-        "coordinates",
-        new ArrayList<Double>() {
-          {
-            add(longitude);
-            add(latitude);
-          }
-        });
+  private Entity newPoint(final Double longitude, final Double latitude) {
+    var location = session.newEmbeddedEntity("OPoint");
+    location.newEmbeddedList("coordinates", new ArrayList<Double>() {
+      {
+        add(longitude);
+        add(latitude);
+      }
+    });
     return location;
   }
 
   @Test
   public void testIndexingTxPoint() {
+    session.begin();
+    newCity("Rome", 12.5, 41.9);
 
-    EntityImpl rome = newCity("Rome", 12.5, 41.9);
-
-    db.begin();
-
-    db.save(rome);
-
-    String query =
+    var query =
         "select * from City where  ST_WITHIN(location,{ 'shape' : { 'type' : 'ORectangle' ,"
             + " 'coordinates' : [12.314015,41.8262816,12.6605063,41.963125]} }) = true";
-    ResultSet docs = db.query(query);
+    var docs = session.query(query);
 
     Assert.assertEquals(1, docs.stream().count());
 
-    db.rollback();
+    session.rollback();
 
     query =
         "select * from City where  ST_WITHIN(location,{ 'shape' : { 'type' : 'ORectangle' ,"
             + " 'coordinates' : [12.314015,41.8262816,12.6605063,41.963125]} }) = true";
-    docs = db.query(query);
+    docs = session.query(query);
 
     Assert.assertEquals(0, docs.stream().count());
   }
 
   @Test
   public void testIndexingUpdateTxPoint() {
+    session.begin();
+    var rome = newCity("Rome", -0.1275, 51.507222);
+    session.commit();
 
-    EntityImpl rome = newCity("Rome", -0.1275, 51.507222);
+    session.begin();
 
-    db.begin();
-    rome = db.save(rome);
-    db.commit();
+    var activeTx = session.getActiveTransaction();
+    rome = activeTx.load(rome);
+    rome.setProperty("location", newPoint(12.5, 41.9));
 
-    db.begin();
+    session.commit();
 
-    rome = db.bindToSession(rome);
-    rome.field("location", newPoint(12.5, 41.9));
-
-    db.save(rome);
-
-    db.commit();
-
-    String query =
+    var query =
         "select * from City where  ST_WITHIN(location,{ 'shape' : { 'type' : 'ORectangle' ,"
             + " 'coordinates' : [12.314015,41.8262816,12.6605063,41.963125]} }) = true";
-    ResultSet docs = db.query(query);
+    var docs = session.query(query);
 
     Assert.assertEquals(1, docs.stream().count());
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.location");
+    var index = session.getSharedContext().getIndexManager().getIndex("City.location");
 
-    db.begin();
-    Assert.assertEquals(1, index.getInternal().size(db));
-    db.commit();
+    session.begin();
+    Assert.assertEquals(1, index.size(session));
+    session.commit();
   }
 
   @Test
   public void testIndexingComplexUpdateTxPoint() {
+    session.begin();
+    var rome = newCity("Rome", 12.5, 41.9);
+    var london = newCity("London", -0.1275, 51.507222);
+    session.commit();
 
-    EntityImpl rome = newCity("Rome", 12.5, 41.9);
-    EntityImpl london = newCity("London", -0.1275, 51.507222);
+    session.begin();
 
-    db.begin();
-    rome = db.save(rome);
-    london = db.save(london);
-    db.commit();
+    var activeTx1 = session.getActiveTransaction();
+    rome = activeTx1.load(rome);
+    var activeTx = session.getActiveTransaction();
+    london = activeTx.load(london);
 
-    db.begin();
+    rome.setProperty("location", newPoint(12.5, 41.9));
+    london.setProperty("location", newPoint(-0.1275, 51.507222));
+    london.setProperty("location", newPoint(-0.1275, 51.507222));
+    london.setProperty("location", newPoint(12.5, 41.9));
 
-    rome = db.bindToSession(rome);
-    london = db.bindToSession(london);
+    session.commit();
 
-    rome.field("location", newPoint(12.5, 41.9));
-    london.field("location", newPoint(-0.1275, 51.507222));
-    london.field("location", newPoint(-0.1275, 51.507222));
-    london.field("location", newPoint(12.5, 41.9));
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex("City.location");
 
-    db.save(rome);
-    db.save(london);
-
-    db.commit();
-
-    db.begin();
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.location");
-
-    Assert.assertEquals(2, index.getInternal().size(db));
-    db.commit();
+    Assert.assertEquals(2, index.size(session));
+    session.commit();
   }
 }

@@ -3,14 +3,16 @@ package com.jetbrains.youtrack.db.internal.server.network;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.client.remote.RemotePushHandler;
 import com.jetbrains.youtrack.db.internal.client.remote.StorageRemotePushThread;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import java.io.IOException;
@@ -44,7 +46,7 @@ public class PushMessageUnitTest {
   public class MockPushRequest implements BinaryPushRequest<BinaryPushResponse> {
 
     @Override
-    public void write(DatabaseSessionInternal session, ChannelDataOutput channel)
+    public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel)
         throws IOException {
       requestWritten.countDown();
     }
@@ -55,12 +57,16 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public void read(DatabaseSessionInternal db, ChannelDataInput network) throws IOException {
+    public void readMonitorIdAndStatus(ChannelDataInput network) {
     }
 
     @Override
-    public BinaryPushResponse execute(DatabaseSessionInternal session,
-        RemotePushHandler remote) {
+    public void read(RemoteDatabaseSessionInternal session, ChannelDataInput network)
+        throws IOException {
+    }
+
+    @Override
+    public BinaryPushResponse execute(RemotePushHandler remote, SocketChannelBinary network) {
       executed.countDown();
       return new MockPushResponse();
     }
@@ -74,9 +80,13 @@ public class PushMessageUnitTest {
   public class MockPushRequestNoResponse implements BinaryPushRequest<BinaryPushResponse> {
 
     @Override
-    public void write(DatabaseSessionInternal session, ChannelDataOutput channel)
+    public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel)
         throws IOException {
       requestWritten.countDown();
+    }
+
+    @Override
+    public void readMonitorIdAndStatus(ChannelDataInput network) {
     }
 
     @Override
@@ -85,12 +95,12 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public void read(DatabaseSessionInternal db, ChannelDataInput network) throws IOException {
+    public void read(RemoteDatabaseSessionInternal session, ChannelDataInput network)
+        throws IOException {
     }
 
     @Override
-    public BinaryPushResponse execute(DatabaseSessionInternal session,
-        RemotePushHandler remote) {
+    public BinaryPushResponse execute(RemotePushHandler remote, SocketChannelBinary network) {
       executed.countDown();
       return null;
     }
@@ -115,10 +125,10 @@ public class PushMessageUnitTest {
   @Before
   public void before() throws IOException {
     MockitoAnnotations.initMocks(this);
-    PipedInputStream inputClient = new PipedInputStream();
-    PipedOutputStream outputServer = new PipedOutputStream(inputClient);
-    PipedInputStream inputServer = new PipedInputStream();
-    PipedOutputStream outputClient = new PipedOutputStream(inputServer);
+    var inputClient = new PipedInputStream();
+    var outputServer = new PipedOutputStream(inputClient);
+    var inputServer = new PipedInputStream();
+    var outputClient = new PipedOutputStream(inputServer);
     this.channelBinaryClient = new MockPipeChannel(inputClient, outputClient);
     this.channelBinaryServer = new MockPipeChannel(inputServer, outputServer);
     Mockito.when(server.getContextConfiguration()).thenReturn(new ContextConfiguration());
@@ -132,7 +142,7 @@ public class PushMessageUnitTest {
 
   @Test
   public void testPushMessage() throws IOException, InterruptedException {
-    NetworkProtocolBinary binary = new NetworkProtocolBinary(server);
+    var binary = new NetworkProtocolBinary(server);
     binary.initVariables(server, channelBinaryServer);
     new Thread(
         () -> {
@@ -145,7 +155,7 @@ public class PushMessageUnitTest {
         .start();
     binary.start();
     assertTrue(requestWritten.await(10, TimeUnit.SECONDS));
-    StorageRemotePushThread pushThread = new StorageRemotePushThread(remote, "none", 10, 1000);
+    var pushThread = new StorageRemotePushThread(remote, "none", 10, 1000);
     pushThread.start();
 
     assertTrue(executed.await(10, TimeUnit.SECONDS));
@@ -157,9 +167,9 @@ public class PushMessageUnitTest {
 
   @Test
   public void testPushMessageNoResponse() throws IOException, InterruptedException {
-    NetworkProtocolBinary binary = new NetworkProtocolBinary(server);
+    var binary = new NetworkProtocolBinary(server);
     binary.initVariables(server, channelBinaryServer);
-    Thread thread =
+    var thread =
         new Thread(
             () -> {
               try {
@@ -171,7 +181,7 @@ public class PushMessageUnitTest {
     thread.start();
     binary.start();
     assertTrue(requestWritten.await(10, TimeUnit.SECONDS));
-    StorageRemotePushThread pushThread = new StorageRemotePushThread(remote, "none", 10, 1000);
+    var pushThread = new StorageRemotePushThread(remote, "none", 10, 1000);
     pushThread.start();
 
     assertTrue(executed.await(10, TimeUnit.SECONDS));

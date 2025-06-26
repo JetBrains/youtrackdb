@@ -2,22 +2,25 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
+import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 public class SQLArrayConcatExpression extends SimpleNode {
 
@@ -43,8 +46,8 @@ public class SQLArrayConcatExpression extends SimpleNode {
     this.childExpressions.add(elem);
   }
 
-  public Object apply(Object left, Object right) {
-
+  @Nullable
+  public static Object apply(Object left, Object right, DatabaseSessionInternal session) {
     if (left == null && right == null) {
       return null;
     }
@@ -65,46 +68,90 @@ public class SQLArrayConcatExpression extends SimpleNode {
       }
     }
 
-    List<Object> result = new ArrayList<>();
-    if (MultiValue.isMultiValue(left)) {
-      Iterator<?> leftIter = MultiValue.getMultiValueIterator(left);
-      while (leftIter.hasNext()) {
-        result.add(leftIter.next());
+    List<Object> result = null;
+    if (left instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+      var type = PropertyTypeInternal.getTypeByValue(trackedMultiValue);
+      left = type.copy(trackedMultiValue, session);
+
+      if (left instanceof List<?> list) {
+        //noinspection unchecked
+        result = (List<Object>) list;
       }
-    } else {
-      result.add(left);
     }
 
-    if (MultiValue.isMultiValue(right)) {
-      Iterator<?> rigthIter = MultiValue.getMultiValueIterator(right);
-      while (rigthIter.hasNext()) {
-        result.add(rigthIter.next());
+    if (right instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+      var type = PropertyTypeInternal.getTypeByValue(trackedMultiValue);
+      right = type.copy(trackedMultiValue, session);
+      if (result == null && right instanceof List<?> list) {
+        //noinspection unchecked
+        result = (List<Object>) list;
       }
-    } else {
-      result.add(right);
+    }
+
+    if (result == null) {
+      result = new ArrayList<>();
+    }
+
+    if (result != left) {
+      addValueToResultList(left, session, result);
+    }
+
+    if (result != right) {
+      addValueToResultList(right, session, result);
     }
 
     return result;
   }
 
+  private static void addValueToResultList(Object value, DatabaseSessionInternal session,
+      List<Object> result) {
+    if (MultiValue.isMultiValue(value)) {
+      var leftIter = MultiValue.getMultiValueIterator(value);
+      while (leftIter.hasNext()) {
+        if (result instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+          var item = leftIter.next();
+          var type = PropertyTypeInternal.getTypeByValue(item);
+          if (type == null) {
+            throw new CommandExecutionException(session,
+                "Cannot concatenate values of not supported types : " + item.getClass() + " : "
+                    + item);
+          }
+          if (item instanceof RecordElement recordElement) {
+            var copy = type.copy(recordElement, session);
+            result.add(copy);
+          } else {
+            var converted = type.convert(item, session);
+            result.add(converted);
+          }
+        } else {
+          result.add(leftIter.next());
+        }
+      }
+    } else {
+      result.add(value);
+    }
+  }
+
   public Object execute(Identifiable iCurrentRecord, CommandContext ctx) {
-    Object result = childExpressions.get(0).execute(iCurrentRecord, ctx);
-    for (int i = 1; i < childExpressions.size(); i++) {
-      result = apply(result, childExpressions.get(i).execute(iCurrentRecord, ctx));
+    var session = ctx.getDatabaseSession();
+    var result = childExpressions.getFirst().execute(iCurrentRecord, ctx);
+    for (var i = 1; i < childExpressions.size(); i++) {
+      result = apply(result, childExpressions.get(i).execute(iCurrentRecord, ctx), session);
     }
     return result;
   }
 
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
-    Object result = childExpressions.get(0).execute(iCurrentRecord, ctx);
-    for (int i = 1; i < childExpressions.size(); i++) {
-      result = apply(result, childExpressions.get(i).execute(iCurrentRecord, ctx));
+    var session = ctx.getDatabaseSession();
+    var result = childExpressions.getFirst().execute(iCurrentRecord, ctx);
+    for (var i = 1; i < childExpressions.size(); i++) {
+      result = apply(result, childExpressions.get(i).execute(iCurrentRecord, ctx), session);
     }
     return result;
   }
 
   public boolean isEarlyCalculated(CommandContext ctx) {
-    for (SQLArrayConcatExpressionElement element : childExpressions) {
+    for (var element : childExpressions) {
       if (!element.isEarlyCalculated(ctx)) {
         return false;
       }
@@ -113,7 +160,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
   }
 
   protected boolean supportsBasicCalculation() {
-    for (SQLArrayConcatExpressionElement expr : this.childExpressions) {
+    for (var expr : this.childExpressions) {
       if (!expr.supportsBasicCalculation()) {
         return false;
       }
@@ -122,7 +169,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
   }
 
   public boolean needsAliases(Set<String> aliases) {
-    for (SQLArrayConcatExpressionElement expr : childExpressions) {
+    for (var expr : childExpressions) {
       if (expr.needsAliases(aliases)) {
         return true;
       }
@@ -130,8 +177,8 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
-    for (SQLArrayConcatExpressionElement expr : this.childExpressions) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
+    for (var expr : this.childExpressions) {
       if (expr.isAggregate(session)) {
         return true;
       }
@@ -139,35 +186,32 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return false;
   }
 
-  public SimpleNode splitForAggregation(DatabaseSessionInternal session,
+  public SimpleNode splitForAggregation(DatabaseSessionEmbedded session,
       AggregateProjectionSplit aggregateProj) {
     if (isAggregate(session)) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(session,
           "Cannot use aggregate functions in array concatenation");
     } else {
       return this;
     }
   }
 
-  public AggregationContext getAggregationContext(CommandContext ctx) {
-    throw new UnsupportedOperationException(
-        "array concatenation expressions do not allow plain aggregation");
-  }
 
+  @Override
   public SQLArrayConcatExpression copy() {
-    SQLArrayConcatExpression result = new SQLArrayConcatExpression(-1);
+    var result = new SQLArrayConcatExpression(-1);
     this.childExpressions.forEach(x -> result.childExpressions.add(x.copy()));
     return result;
   }
 
   public void extractSubQueries(SubQueryCollector collector) {
-    for (SQLArrayConcatExpressionElement expr : this.childExpressions) {
+    for (var expr : this.childExpressions) {
       expr.extractSubQueries(collector);
     }
   }
 
   public boolean refersToParent() {
-    for (SQLArrayConcatExpressionElement expr : this.childExpressions) {
+    for (var expr : this.childExpressions) {
       if (expr.refersToParent()) {
         return true;
       }
@@ -175,22 +219,24 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return false;
   }
 
+  @Nullable
   public List<String> getMatchPatternInvolvedAliases() {
     List<String> result = new ArrayList<String>();
-    for (SQLArrayConcatExpressionElement exp : childExpressions) {
-      List<String> x = exp.getMatchPatternInvolvedAliases();
+    for (var exp : childExpressions) {
+      var x = exp.getMatchPatternInvolvedAliases();
       if (x != null) {
         result.addAll(x);
       }
     }
-    if (result.size() == 0) {
+    if (result.isEmpty()) {
       return null;
     }
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    for (int i = 0; i < childExpressions.size(); i++) {
+    for (var i = 0; i < childExpressions.size(); i++) {
       if (i > 0) {
         builder.append(" || ");
       }
@@ -200,7 +246,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
 
   @Override
   public void toGenericStatement(StringBuilder builder) {
-    for (int i = 0; i < childExpressions.size(); i++) {
+    for (var i = 0; i < childExpressions.size(); i++) {
       if (i > 0) {
         builder.append(" || ");
       }
@@ -217,7 +263,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
       return false;
     }
 
-    SQLArrayConcatExpression that = (SQLArrayConcatExpression) o;
+    var that = (SQLArrayConcatExpression) o;
 
     return Objects.equals(childExpressions, that.childExpressions);
   }
@@ -227,12 +273,12 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return childExpressions != null ? childExpressions.hashCode() : 0;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (childExpressions != null) {
       result.setProperty(
           "childExpressions",
-          childExpressions.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          childExpressions.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     return result;
   }
@@ -242,16 +288,16 @@ public class SQLArrayConcatExpression extends SimpleNode {
     if (fromResult.getProperty("childExpressions") != null) {
       List<Result> ser = fromResult.getProperty("childExpressions");
       childExpressions = new ArrayList<>();
-      for (Result r : ser) {
-        SQLArrayConcatExpressionElement exp = new SQLArrayConcatExpressionElement(-1);
+      for (var r : ser) {
+        var exp = new SQLArrayConcatExpressionElement(-1);
         exp.deserialize(r);
         childExpressions.add(exp);
       }
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
-    for (SQLArrayConcatExpressionElement exp : childExpressions) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
+    for (var exp : childExpressions) {
       if (!exp.isCacheable(session)) {
         return false;
       }

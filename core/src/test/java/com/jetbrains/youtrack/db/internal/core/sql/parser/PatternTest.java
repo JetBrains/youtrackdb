@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
@@ -15,13 +14,13 @@ public class PatternTest extends ParserTestAbstract {
 
   @Test
   public void testSimplePattern() {
-    String query = "MATCH {as:a, class:Person} return a";
-    YouTrackDBSql parser = getParserFor(query);
+    var query = "MATCH {as:a, class:Person} return a";
+    var parser = getParserFor(query);
     try {
-      SQLMatchStatement stm = (SQLMatchStatement) parser.parse();
+      var stm = (SQLMatchStatement) parser.parse();
       stm.setContext(getContext());
       stm.buildPatterns();
-      Pattern pattern = stm.pattern;
+      var pattern = stm.pattern;
       Assert.assertEquals(0, pattern.getNumOfEdges());
       Assert.assertEquals(1, pattern.getAliasToNode().size());
       Assert.assertNotNull(pattern.getAliasToNode().get("a"));
@@ -33,17 +32,17 @@ public class PatternTest extends ParserTestAbstract {
 
   @Test
   public void testCartesianProduct() {
-    String query = "MATCH {as:a, class:Person}, {as:b, class:Person} return a, b";
-    YouTrackDBSql parser = getParserFor(query);
+    var query = "MATCH {as:a, class:Person}, {as:b, class:Person} return a, b";
+    var parser = getParserFor(query);
     try {
-      SQLMatchStatement stm = (SQLMatchStatement) parser.parse();
+      var stm = (SQLMatchStatement) parser.parse();
       stm.setContext(getContext());
       stm.buildPatterns();
-      Pattern pattern = stm.pattern;
+      var pattern = stm.pattern;
       Assert.assertEquals(0, pattern.getNumOfEdges());
       Assert.assertEquals(2, pattern.getAliasToNode().size());
       Assert.assertNotNull(pattern.getAliasToNode().get("a"));
-      List<Pattern> subPatterns = pattern.getDisjointPatterns();
+      var subPatterns = pattern.getDisjointPatterns();
       Assert.assertEquals(2, subPatterns.size());
       Assert.assertEquals(0, subPatterns.get(0).getNumOfEdges());
       Assert.assertEquals(1, subPatterns.get(0).getAliasToNode().size());
@@ -64,19 +63,19 @@ public class PatternTest extends ParserTestAbstract {
 
   @Test
   public void testComplexCartesianProduct() {
-    String query =
+    var query =
         "MATCH {as:a, class:Person}-->{as:b}, {as:c, class:Person}-->{as:d}-->{as:e}, {as:d,"
             + " class:Foo}-->{as:f} return a, b";
-    YouTrackDBSql parser = getParserFor(query);
+    var parser = getParserFor(query);
     try {
-      SQLMatchStatement stm = (SQLMatchStatement) parser.parse();
+      var stm = (SQLMatchStatement) parser.parse();
       stm.setContext(getContext());
       stm.buildPatterns();
-      Pattern pattern = stm.pattern;
+      var pattern = stm.pattern;
       Assert.assertEquals(4, pattern.getNumOfEdges());
       Assert.assertEquals(6, pattern.getAliasToNode().size());
       Assert.assertNotNull(pattern.getAliasToNode().get("a"));
-      List<Pattern> subPatterns = pattern.getDisjointPatterns();
+      var subPatterns = pattern.getDisjointPatterns();
       Assert.assertEquals(2, subPatterns.size());
 
       Set<String> aliases = new HashSet<>();
@@ -97,7 +96,7 @@ public class PatternTest extends ParserTestAbstract {
 
   private CommandContext getContext() {
     var ctx = new BasicCommandContext();
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
 
     return ctx;
   }

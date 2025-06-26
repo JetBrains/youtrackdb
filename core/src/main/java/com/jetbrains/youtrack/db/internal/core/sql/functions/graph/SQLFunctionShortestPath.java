@@ -2,7 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -13,7 +13,8 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionItera
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeToVertexIterable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinksIterable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.math.SQLFunctionMathAbstract;
@@ -22,12 +23,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Shortest path algorithm to find the shortest path from one node to another node in a directed
@@ -75,43 +76,47 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
   public List<RID> execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       final Object[] iParams,
       final CommandContext iContext) {
 
-    final DBRecord record = iCurrentRecord != null ? iCurrentRecord.getRecord() : null;
+    var session = iContext.getDatabaseSession();
+    var record =
+        iCurrentRecord != null && iCurrentRecord.isEntity() ? iCurrentRecord.asEntity() : null;
 
-    final ShortestPathContext ctx = new ShortestPathContext();
+    final var ctx = new ShortestPathContext();
 
-    Object source = iParams[0];
+    var source = iParams[0];
     source = getSingleItem(source);
     if (source == null) {
       throw new IllegalArgumentException("Only one sourceVertex is allowed");
     }
     source = SQLHelper.getValue(source, record, iContext);
     if (source instanceof Identifiable) {
-      Entity elem = ((Identifiable) source).getRecord();
-      if (elem == null || !elem.isVertex()) {
+      var transaction = session.getActiveTransaction();
+      Entity elem = transaction.load(((Identifiable) source));
+      if (!elem.isVertex()) {
         throw new IllegalArgumentException("The sourceVertex must be a vertex record");
       }
-      ctx.sourceVertex = elem.asVertex().get();
+      ctx.sourceVertex = elem.asVertex();
     } else {
       throw new IllegalArgumentException("The sourceVertex must be a vertex record");
     }
 
-    Object dest = iParams[1];
+    var dest = iParams[1];
     dest = getSingleItem(dest);
     if (dest == null) {
       throw new IllegalArgumentException("Only one destinationVertex is allowed");
     }
     dest = SQLHelper.getValue(dest, record, iContext);
     if (dest instanceof Identifiable) {
-      Entity elem = ((Identifiable) dest).getRecord();
+      var transaction = session.getActiveTransaction();
+      Entity elem = transaction.load(((Identifiable) dest));
       if (elem == null || !elem.isVertex()) {
         throw new IllegalArgumentException("The destinationVertex must be a vertex record");
       }
-      ctx.destinationVertex = elem.asVertex().get();
+      ctx.destinationVertex = elem.asVertex();
     } else {
       throw new IllegalArgumentException("The destinationVertex must be a vertex record");
     }
@@ -134,7 +139,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     ctx.edgeType = null;
     if (iParams.length > 3) {
 
-      Object param = iParams[3];
+      var param = iParams[3];
       if (param instanceof Collection
           && ((Collection) param).stream().allMatch(x -> x instanceof String)) {
         ctx.edgeType = ((Collection<String>) param).stream().collect(Collectors.joining(","));
@@ -148,7 +153,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     }
 
     if (iParams.length > 4) {
-      bindAdditionalParams(iParams[4], ctx);
+      bindAdditionalParams(session, iParams[4], ctx);
     }
 
     ctx.queueLeft.add(ctx.sourceVertex);
@@ -157,7 +162,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     ctx.queueRight.add(ctx.destinationVertex);
     ctx.rightVisited.add(ctx.destinationVertex.getIdentity());
 
-    int depth = 1;
+    var depth = 1;
     while (true) {
       if (ctx.maxDepth != null && ctx.maxDepth <= depth) {
         break;
@@ -167,7 +172,8 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
       }
 
       if (Thread.interrupted()) {
-        throw new CommandExecutionException("The shortestPath() function has been interrupted");
+        throw new CommandExecutionException(session,
+            "The shortestPath() function has been interrupted");
       }
 
       if (!CommandExecutorAbstract.checkInterruption(iContext)) {
@@ -224,23 +230,27 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     return new ArrayList<RID>();
   }
 
-  private void bindAdditionalParams(Object additionalParams, ShortestPathContext ctx) {
+  private void bindAdditionalParams(DatabaseSessionInternal db, Object additionalParams,
+      ShortestPathContext ctx) {
     if (additionalParams == null) {
       return;
     }
+
     Map<String, ?> mapParams = null;
     if (additionalParams instanceof Map) {
       mapParams = (Map) additionalParams;
     } else if (additionalParams instanceof Identifiable) {
-      mapParams = ((EntityImpl) ((Identifiable) additionalParams).getRecord()).toMap();
+      var transaction = db.getActiveTransaction();
+      mapParams = ((EntityImpl) transaction.load(((Identifiable) additionalParams))).toMap();
     }
     if (mapParams != null) {
       ctx.maxDepth = integer(mapParams.get("maxDepth"));
-      Boolean withEdge = toBoolean(mapParams.get("edge"));
+      var withEdge = toBoolean(mapParams.get("edge"));
       ctx.edge = Boolean.TRUE.equals(withEdge) ? Boolean.TRUE : Boolean.FALSE;
     }
   }
 
+  @Nullable
   private Integer integer(Object fromObject) {
     if (fromObject == null) {
       return null;
@@ -260,6 +270,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
   /**
    * @return
    */
+  @Nullable
   private Boolean toBoolean(Object fromObject) {
     if (fromObject == null) {
       return null;
@@ -278,30 +289,26 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
 
   /**
    * get adjacent vertices and edges
-   *
-   * @param srcVertex
-   * @param direction
-   * @param types
-   * @return
    */
-  private RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
+  private static RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
       Vertex srcVertex, Direction direction, String... types) {
     if (direction == Direction.BOTH) {
-      MultiCollectionIterator<Vertex> vertexIterator = new MultiCollectionIterator<>();
-      MultiCollectionIterator<Edge> edgeIterator = new MultiCollectionIterator<>();
-      RawPair<Iterable<Vertex>, Iterable<Edge>> pair1 =
+      var vertexIterator = new MultiCollectionIterator<Vertex>();
+      var edgeIterator = new MultiCollectionIterator<Edge>();
+      var pair1 =
           getVerticesAndEdges(srcVertex, Direction.OUT, types);
-      RawPair<Iterable<Vertex>, Iterable<Edge>> pair2 =
+      var pair2 =
           getVerticesAndEdges(srcVertex, Direction.IN, types);
-      vertexIterator.add(pair1.first);
-      vertexIterator.add(pair2.first);
-      edgeIterator.add(pair1.second);
-      edgeIterator.add(pair2.second);
+      vertexIterator.add(pair1.first());
+      vertexIterator.add(pair2.first());
+      edgeIterator.add(pair1.second());
+      edgeIterator.add(pair2.second());
       return new RawPair<>(vertexIterator, edgeIterator);
     } else {
-      Iterable<Edge> edges1 = srcVertex.getEdges(direction, types);
-      Iterable<Edge> edges2 = srcVertex.getEdges(direction, types);
-      return new RawPair<>(new EdgeToVertexIterable(edges1, direction), edges2);
+      var edges1 = srcVertex.getEdges(direction, types);
+      var edges2 = srcVertex.getEdges(direction, types);
+      //noinspection unchecked,rawtypes
+      return new RawPair<>(new BidirectionalLinksIterable<>((Iterable) edges1, direction), edges2);
     }
   }
 
@@ -312,7 +319,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
    * @param direction
    * @return
    */
-  private RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
+  private static RawPair<Iterable<Vertex>, Iterable<Edge>> getVerticesAndEdges(
       Vertex srcVertex, Direction direction) {
     return getVerticesAndEdges(srcVertex, direction, (String[]) null);
   }
@@ -322,8 +329,9 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
         + " ]])";
   }
 
+  @Nullable
   protected List<RID> walkLeft(final ShortestPathContext ctx) {
-    ArrayDeque<Vertex> nextLevelQueue = new ArrayDeque<>();
+    var nextLevelQueue = new ArrayDeque<Vertex>();
     if (!Boolean.TRUE.equals(ctx.edge)) {
       while (!ctx.queueLeft.isEmpty()) {
         ctx.current = ctx.queueLeft.poll();
@@ -334,9 +342,9 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
         } else {
           neighbors = ctx.current.getVertices(ctx.directionLeft, ctx.edgeTypeParam);
         }
-        for (Vertex neighbor : neighbors) {
-          final Vertex v = neighbor;
-          final RID neighborIdentity = v.getIdentity();
+        for (var neighbor : neighbors) {
+          final var v = neighbor;
+          final var neighborIdentity = v.getIdentity();
 
           if (ctx.rightVisited.contains(neighborIdentity)) {
             ctx.previouses.put(neighborIdentity, ctx.current.getIdentity());
@@ -360,12 +368,19 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
         } else {
           neighbors = getVerticesAndEdges(ctx.current, ctx.directionLeft, ctx.edgeTypeParam);
         }
-        Iterator<Vertex> vertexIterator = neighbors.first.iterator();
-        Iterator<Edge> edgeIterator = neighbors.second.iterator();
+        var vertexIterator = neighbors.first().iterator();
+        var edgeIterator = neighbors.second().iterator();
         while (vertexIterator.hasNext() && edgeIterator.hasNext()) {
-          Vertex v = vertexIterator.next();
-          final RID neighborVertexIdentity = v.getIdentity();
-          final RID neighborEdgeIdentity = edgeIterator.next().getIdentity();
+          var v = vertexIterator.next();
+          final var neighborVertexIdentity = v.getIdentity();
+          var edge = edgeIterator.next();
+
+          RID neighborEdgeIdentity;
+          if (edge.isStateful()) {
+            neighborEdgeIdentity = edge.asStatefulEdge().getIdentity();
+          } else {
+            neighborEdgeIdentity = null;
+          }
 
           if (ctx.rightVisited.contains(neighborVertexIdentity)) {
             ctx.previouses.put(neighborVertexIdentity, neighborEdgeIdentity);
@@ -386,8 +401,9 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
     return null;
   }
 
+  @Nullable
   protected List<RID> walkRight(final ShortestPathContext ctx) {
-    final ArrayDeque<Vertex> nextLevelQueue = new ArrayDeque<>();
+    final var nextLevelQueue = new ArrayDeque<Vertex>();
     if (!Boolean.TRUE.equals(ctx.edge)) {
       while (!ctx.queueRight.isEmpty()) {
         ctx.currentRight = ctx.queueRight.poll();
@@ -398,9 +414,9 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
         } else {
           neighbors = ctx.currentRight.getVertices(ctx.directionRight, ctx.edgeTypeParam);
         }
-        for (Vertex neighbor : neighbors) {
-          final Vertex v = neighbor;
-          final RID neighborIdentity = v.getIdentity();
+        for (var neighbor : neighbors) {
+          final var v = neighbor;
+          final var neighborIdentity = v.getIdentity();
 
           if (ctx.leftVisited.contains(neighborIdentity)) {
             ctx.nexts.put(neighborIdentity, ctx.currentRight.getIdentity());
@@ -426,12 +442,19 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
           neighbors = getVerticesAndEdges(ctx.currentRight, ctx.directionRight, ctx.edgeTypeParam);
         }
 
-        Iterator<Vertex> vertexIterator = neighbors.first.iterator();
-        Iterator<Edge> edgeIterator = neighbors.second.iterator();
+        var vertexIterator = neighbors.first().iterator();
+        var edgeIterator = neighbors.second().iterator();
         while (vertexIterator.hasNext() && edgeIterator.hasNext()) {
-          final Vertex v = vertexIterator.next();
-          final RID neighborVertexIdentity = v.getIdentity();
-          final RID neighborEdgeIdentity = edgeIterator.next().getIdentity();
+          final var v = vertexIterator.next();
+          final var neighborVertexIdentity = v.getIdentity();
+          var edge = edgeIterator.next();
+
+          RID neighborEdgeIdentity;
+          if (edge.isStateful()) {
+            neighborEdgeIdentity = edge.asStatefulEdge().getIdentity();
+          } else {
+            neighborEdgeIdentity = null;
+          }
 
           if (ctx.leftVisited.contains(neighborVertexIdentity)) {
             ctx.nexts.put(neighborVertexIdentity, neighborEdgeIdentity);
@@ -458,7 +481,7 @@ public class SQLFunctionShortestPath extends SQLFunctionMathAbstract {
       final RID neighbor) {
     final List<RID> result = new ArrayList<RID>();
 
-    RID current = neighbor;
+    var current = neighbor;
     while (current != null) {
       result.add(0, current);
       current = leftDistances.get(current);

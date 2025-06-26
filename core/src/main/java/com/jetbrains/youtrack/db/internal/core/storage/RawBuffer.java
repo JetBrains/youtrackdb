@@ -40,7 +40,7 @@ public final class RawBuffer {
       return false;
     }
 
-    RawBuffer that = (RawBuffer) o;
+    var that = (RawBuffer) o;
 
     return version == that.version
         && recordType == that.recordType

@@ -24,12 +24,12 @@ public class MatchStep extends AbstractExecutionStep {
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
 
-    ExecutionStream resultSet = prev.start(ctx);
+    var resultSet = prev.start(ctx);
     return resultSet.flatMap(this::createNextResultSet);
   }
 
   public ExecutionStream createNextResultSet(Result lastUpstreamRecord, CommandContext ctx) {
-    MatchEdgeTraverser trav = createTraverser(lastUpstreamRecord);
+    var trav = createTraverser(lastUpstreamRecord);
     return new ResultSetEdgeTraverser(trav);
   }
 
@@ -47,8 +47,8 @@ public class MatchStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
-    StringBuilder result = new StringBuilder();
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
     result.append(spaces);
     result.append("+ MATCH ");
     if (edge.out) {

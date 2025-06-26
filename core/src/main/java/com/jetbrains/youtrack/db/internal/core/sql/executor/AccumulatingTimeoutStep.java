@@ -23,7 +23,7 @@ public class AccumulatingTimeoutStep extends AbstractExecutionStep {
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
 
-    final ExecutionStream internal = prev.start(ctx);
+    final var internal = prev.start(ctx);
     return new TimeoutResultSet(internal, this.timeout.getVal().longValue(), this::fail);
   }
 

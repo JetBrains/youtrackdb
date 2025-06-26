@@ -1,6 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
-public interface DatabaseTask<X> {
+import javax.annotation.Nullable;
 
-  X call(DatabaseSessionInternal session);
+public interface DatabaseTask<X> {
+  @Nullable
+  X call(DatabaseSessionEmbedded session);
 }

@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.function;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 import java.util.Set;
@@ -31,7 +32,7 @@ public class FunctionLibraryProxy extends ProxedResource<FunctionLibraryImpl>
     implements FunctionLibrary {
 
   public FunctionLibraryProxy(
-      final FunctionLibraryImpl iDelegate, final DatabaseSessionInternal iDatabase) {
+      final FunctionLibraryImpl iDelegate, final DatabaseSessionEmbedded iDatabase) {
     super(iDelegate, iDatabase);
   }
 
@@ -41,23 +42,23 @@ public class FunctionLibraryProxy extends ProxedResource<FunctionLibraryImpl>
   }
 
   @Override
-  public Function getFunction(final String iName) {
-    return delegate.getFunction(iName);
+  public Function getFunction(DatabaseSessionInternal db, final String iName) {
+    return delegate.getFunction(db, iName);
   }
 
   @Override
   public Function createFunction(final String iName) {
-    return delegate.createFunction(database, iName);
+    return delegate.createFunction(session, iName);
   }
 
   @Override
   public void create() {
-    delegate.create(database);
+    FunctionLibraryImpl.create(session);
   }
 
   @Override
   public void load() {
-    delegate.load(database);
+    delegate.load(session);
   }
 
   @Override

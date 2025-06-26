@@ -14,7 +14,6 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import org.junit.Test;
 
 public class StringSerializerHelperTest extends DbTestBase {
@@ -22,9 +21,9 @@ public class StringSerializerHelperTest extends DbTestBase {
   @Test
   public void test() {
     final List<String> stringItems = new ArrayList<String>();
-    final String text =
+    final var text =
         "['f\\'oo', 'don\\'t can\\'t', \"\\\"bar\\\"\", 'b\\\"a\\'z', \"q\\\"u\\'x\"]";
-    final int startPos = 0;
+    final var startPos = 0;
 
     StringSerializerHelper.getCollection(
         text,
@@ -43,7 +42,7 @@ public class StringSerializerHelperTest extends DbTestBase {
 
   @Test
   public void testSmartTrim() {
-    String input = "   t  est   ";
+    var input = "   t  est   ";
     assertEquals(smartTrim(input, true, true), "t  est");
     assertEquals(smartTrim(input, false, true), " t  est");
     assertEquals(smartTrim(input, true, false), "t  est ");
@@ -70,7 +69,7 @@ public class StringSerializerHelperTest extends DbTestBase {
 
   @Test
   public void testEncodeAndDecode() {
-    String[] values = {
+    var values = new String[]{
         "test",
         "test\"",
         "test\"test",
@@ -81,23 +80,23 @@ public class StringSerializerHelperTest extends DbTestBase {
         "\"\"\"\"",
         "\\\"\\\"\\\""
     };
-    for (String value : values) {
-      String encoded = encode(value);
-      String decoded = decode(encoded);
+    for (var value : values) {
+      var encoded = encode(value);
+      var decoded = decode(encoded);
       assertEquals(decoded, value);
     }
   }
 
   @Test
   public void testGetMap() {
-    String testText = "";
-    Map<String, String> map = StringSerializerHelper.getMap(db, testText);
+    var testText = "";
+    var map = StringSerializerHelper.getMap(session, testText);
     assertNotNull(map);
     assertTrue(map.isEmpty());
 
     testText = "{ param1 :value1, param2 :value2}";
     // testText = "{\"param1\":\"value1\",\"param2\":\"value2\"}";
-    map = StringSerializerHelper.getMap(db, testText);
+    map = StringSerializerHelper.getMap(session, testText);
     assertNotNull(map);
     assertFalse(map.isEmpty());
     System.out.println(map);
@@ -115,7 +114,7 @@ public class StringSerializerHelperTest extends DbTestBase {
 
   @Test
   public void testIndexOf() {
-    String testString = "This is my test string";
+    var testString = "This is my test string";
     assertEquals(indexOf(testString, 0, 'T'), 0);
     assertEquals(indexOf(testString, 0, 'h'), 1);
     assertEquals(indexOf(testString, 0, 'i'), 2);
@@ -126,8 +125,8 @@ public class StringSerializerHelperTest extends DbTestBase {
 
   @Test
   public void testSmartSplit() {
-    String testString = "a, b, c, d";
-    List<String> splitted = smartSplit(testString, ',');
+    var testString = "a, b, c, d";
+    var splitted = smartSplit(testString, ',');
     assertEquals(splitted.get(0), "a");
     assertEquals(splitted.get(1), " b");
     assertEquals(splitted.get(2), " c");

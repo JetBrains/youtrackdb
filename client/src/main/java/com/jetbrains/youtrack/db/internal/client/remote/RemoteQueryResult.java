@@ -1,32 +1,15 @@
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet;
 
-/**
- *
- */
 public class RemoteQueryResult {
+  private final RemoteResultSet result;
 
-  private final ResultSet result;
-  private final boolean transactionUpdated;
-  private final boolean reloadMetadata;
-
-  public RemoteQueryResult(ResultSet result, boolean transactionUpdated,
-      boolean reloadMetadata) {
+  public RemoteQueryResult(RemoteResultSet result) {
     this.result = result;
-    this.transactionUpdated = transactionUpdated;
-    this.reloadMetadata = reloadMetadata;
   }
 
-  public ResultSet getResult() {
+  public RemoteResultSet getResult() {
     return result;
-  }
-
-  public boolean isTransactionUpdated() {
-    return transactionUpdated;
-  }
-
-  public boolean isReloadMetadata() {
-    return reloadMetadata;
   }
 }

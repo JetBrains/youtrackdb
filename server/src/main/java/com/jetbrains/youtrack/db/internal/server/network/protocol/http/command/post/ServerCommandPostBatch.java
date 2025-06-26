@@ -19,13 +19,16 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandDocumentAbstract;
 import java.util.Collection;
 import java.util.Map;
@@ -80,16 +83,14 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
   private static final String[] NAMES = {"POST|batch/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
     checkSyntax(iRequest.getUrl(), 2, "Syntax error: batch/<database>");
 
     iRequest.getData().commandInfo = "Execute multiple requests in one shot";
 
-    EntityImpl batch = null;
     Object lastResult = null;
-    try (DatabaseSessionInternal db = getProfiledDatabaseInstance(iRequest)) {
-
-      if (db.getTransaction().isActive()) {
+    try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
+      if (db.isTxActive()) {
         // TEMPORARY PATCH TO UNDERSTAND WHY UNDER HIGH LOAD TX IS NOT COMMITTED AFTER BATCH. MAYBE
         // A PENDING TRANSACTION?
         LogManager.instance()
@@ -97,20 +98,20 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
                 this,
                 "Found database instance from the pool with a pending transaction. Forcing rollback"
                     + " before using it");
-        db.rollback(true);
+        db.rollback();
       }
 
-      batch = new EntityImpl();
-      batch.fromJSON(iRequest.getContent());
+      var batch = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
 
-      Boolean tx = batch.field("transaction");
+      var tx = (Boolean) batch.get("transaction");
       if (tx == null) {
         tx = false;
       }
 
       final Collection<Map<Object, Object>> operations;
       try {
-        operations = batch.field("operations");
+        //noinspection unchecked
+        operations = (Collection<Map<Object, Object>>) batch.get("operations");
       } catch (Exception e) {
         throw new IllegalArgumentException(
             "Expected 'operations' field as a collection of objects", e);
@@ -120,116 +121,117 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
         throw new IllegalArgumentException("Input JSON has no operations to execute");
       }
 
-      boolean txBegun = false;
-      if (tx && !db.getTransaction().isActive()) {
+      var txBegun = false;
+      if (tx && !db.isTxActive()) {
         db.begin();
         txBegun = true;
       }
 
       // BROWSE ALL THE OPERATIONS
-      for (Map<Object, Object> operation : operations) {
-        final String type = (String) operation.get("type");
+      for (var operation : operations) {
+        final var type = (String) operation.get("type");
 
-        if (type.equals("c")) {
-          // CREATE
-          final EntityImpl entity = getRecord(operation);
-          entity.save();
-          lastResult = entity;
-        } else if (type.equals("u")) {
-          // UPDATE
-          final EntityImpl entity = getRecord(operation);
-          entity.save();
-          lastResult = entity;
-        } else if (type.equals("d")) {
-          // DELETE
-          final EntityImpl entity = getRecord(operation);
-          db.delete(entity.getIdentity());
-          lastResult = entity.getIdentity();
-        } else if (type.equals("cmd")) {
-          // COMMAND
-          final String language = (String) operation.get("language");
-          if (language == null) {
-            throw new IllegalArgumentException("language parameter is null");
+        switch (type) {
+          case "c" ->
+            // CREATE
+              lastResult = getRecord(db, operation);
+          case "u" ->
+            // UPDATE
+              lastResult = getRecord(db, operation);
+          case "d" -> {
+            // DELETE
+            final var entity = getRecord(db, operation);
+            if (entity.isIdentifiable()) {
+              entity.asRecord().delete();
+            } else {
+              throw new IllegalArgumentException("Cannot delete a non-record entity");
+            }
+
+            lastResult = entity.getIdentity();
           }
+          case "cmd" -> {
+            // COMMAND
+            final var language = (String) operation.get("language");
+            if (language == null) {
+              throw new IllegalArgumentException("language parameter is null");
+            }
 
-          final Object command = operation.get("command");
-          if (command == null) {
-            throw new IllegalArgumentException("command parameter is null");
-          }
+            final var command = operation.get("command");
+            if (command == null) {
+              throw new IllegalArgumentException("command parameter is null");
+            }
 
-          Object params = operation.get("parameters");
-          if (params instanceof Collection) {
-            params = ((Collection) params).toArray();
-          }
+            var params = operation.get("parameters");
+            if (params instanceof Collection<?> collection) {
+              params = collection.toArray();
+            }
 
-          String commandAsString = null;
-          if (command != null) {
+            var commandAsString = new StringBuilder();
             if (MultiValue.isMultiValue(command)) {
-              for (Object c : MultiValue.getMultiValueIterable(command)) {
-                if (commandAsString == null) {
-                  commandAsString = c.toString();
-                } else {
-                  commandAsString += ";" + c.toString();
+              for (var c : MultiValue.getMultiValueIterable(command)) {
+                commandAsString.append(";").append(c.toString());
+              }
+            } else {
+              commandAsString.append(command);
+            }
+
+            ResultSet result;
+            if (params == null) {
+              result = db.computeScript(language, commandAsString.toString());
+            } else {
+              result = db.computeScript(language, commandAsString.toString(), (Object[]) params);
+            }
+            lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
+            result.close();
+          }
+          case "script" -> {
+            // COMMAND
+            final var language = (String) operation.get("language");
+            if (language == null) {
+              throw new IllegalArgumentException("language parameter is null");
+            }
+
+            final var script = operation.get("script");
+            if (script == null) {
+              throw new IllegalArgumentException("script parameter is null");
+            }
+
+            var text = new StringBuilder(1024);
+            if (MultiValue.isMultiValue(script)) {
+              // ENSEMBLE ALL THE SCRIPT LINES IN JUST ONE SEPARATED BY LINEFEED
+              var i = 0;
+              for (var o : MultiValue.getMultiValueIterable(script)) {
+                if (o != null) {
+                  if (i++ > 0) {
+                    var trimmed = text.toString().trim();
+                    if (!(!trimmed.isEmpty()
+                        && trimmed.charAt(trimmed.length() - 1) == ';')) {
+                      text.append(";");
+                    }
+                    text.append("\n");
+                  }
+                  text.append(o);
                 }
               }
             } else {
-              commandAsString = command.toString();
+              text.append(script);
             }
-          }
 
-          ResultSet result;
-          if (params == null) {
-            result = db.execute(language, commandAsString);
-          } else {
-            result = db.execute(language, commandAsString, (Object[]) params);
-          }
-          lastResult = result.stream().map(x -> x.toEntity()).collect(Collectors.toList());
-          result.close();
-        } else if (type.equals("script")) {
-          // COMMAND
-          final String language = (String) operation.get("language");
-          if (language == null) {
-            throw new IllegalArgumentException("language parameter is null");
-          }
-
-          final Object script = operation.get("script");
-          if (script == null) {
-            throw new IllegalArgumentException("script parameter is null");
-          }
-
-          StringBuilder text = new StringBuilder(1024);
-          if (MultiValue.isMultiValue(script)) {
-            // ENSEMBLE ALL THE SCRIPT LINES IN JUST ONE SEPARATED BY LINEFEED
-            int i = 0;
-            for (Object o : MultiValue.getMultiValueIterable(script)) {
-              if (o != null) {
-                if (i++ > 0) {
-                  if (!text.toString().trim().endsWith(";")) {
-                    text.append(";");
-                  }
-                  text.append("\n");
-                }
-                text.append(o);
-              }
+            var params = operation.get("parameters");
+            if (params instanceof Collection<?> collection) {
+              params = collection.toArray();
             }
-          } else {
-            text.append(script);
-          }
 
-          Object params = operation.get("parameters");
-          if (params instanceof Collection) {
-            params = ((Collection) params).toArray();
-          }
+            ResultSet result;
+            if (params == null) {
+              result = db.computeScript(language, text.toString());
+            } else {
+              result = db.computeScript(language, text.toString(), (Object[]) params);
+            }
 
-          ResultSet result;
-          if (params == null) {
-            result = db.execute(language, text.toString());
-          } else {
-            result = db.execute(language, text.toString(), (Object[]) params);
+            lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
+            result.close();
           }
-
-          lastResult = result.stream().map(x -> x.toEntity()).collect(Collectors.toList());
-          result.close();
         }
       }
 
@@ -245,7 +247,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
                 this,
                 "Error (%s) on serializing result of batch command:\n%s",
                 e,
-                batch.toJSON("prettyPrint"));
+                JSONSerializerJackson.INSTANCE.mapToJson(batch));
         throw e;
       }
 
@@ -253,18 +255,19 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
     return false;
   }
 
-  public EntityImpl getRecord(Map<Object, Object> operation) {
-    Object record = operation.get("record");
+  public static Result getRecord(DatabaseSessionInternal db, Map<Object, Object> operation) {
+    var record = operation.get("record");
 
-    EntityImpl entity;
-    if (record instanceof Map<?, ?>)
+    Result result;
+    if (record instanceof Map<?, ?> map)
     // CONVERT MAP IN DOCUMENT
     {
-      entity = new EntityImpl((Map<String, Object>) record);
+      //noinspection unchecked
+      result = new ResultInternal(db, (Map<String, Object>) map);
     } else {
-      entity = (EntityImpl) record;
+      result = (EntityImpl) record;
     }
-    return entity;
+    return result;
   }
 
   @Override

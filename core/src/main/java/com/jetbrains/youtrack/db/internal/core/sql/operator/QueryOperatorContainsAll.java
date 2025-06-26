@@ -19,13 +19,14 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.operator;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import java.util.Collection;
+import javax.annotation.Nullable;
 
 /**
  * CONTAINS ALL operator.
@@ -39,14 +40,14 @@ public class QueryOperatorContainsAll extends QueryOperatorEqualityNotNulls {
   @Override
   @SuppressWarnings("unchecked")
   protected boolean evaluateExpression(
-      final Identifiable iRecord,
+      final Result iRecord,
       final SQLFilterCondition iCondition,
       final Object iLeft,
       final Object iRight,
       CommandContext iContext) {
     final SQLFilterCondition condition;
 
-    var database = iContext.getDatabase();
+    var database = iContext.getDatabaseSession();
     if (iCondition.getLeft() instanceof SQLFilterCondition) {
       condition = (SQLFilterCondition) iCondition.getLeft();
     } else if (iCondition.getRight() instanceof SQLFilterCondition) {
@@ -58,9 +59,9 @@ public class QueryOperatorContainsAll extends QueryOperatorEqualityNotNulls {
     if (iLeft.getClass().isArray()) {
       if (iRight.getClass().isArray()) {
         // ARRAY VS ARRAY
-        int matches = 0;
-        for (final Object l : (Object[]) iLeft) {
-          for (final Object r : (Object[]) iRight) {
+        var matches = 0;
+        for (final var l : (Object[]) iLeft) {
+          for (final var r : (Object[]) iRight) {
             if (QueryOperatorEquals.equals(database, l, r)) {
               ++matches;
               break;
@@ -70,9 +71,9 @@ public class QueryOperatorContainsAll extends QueryOperatorEqualityNotNulls {
         return matches == ((Object[]) iRight).length;
       } else if (iRight instanceof Collection<?>) {
         // ARRAY VS ARRAY
-        int matches = 0;
-        for (final Object l : (Object[]) iLeft) {
-          for (final Object r : (Collection<?>) iRight) {
+        var matches = 0;
+        for (final var l : (Object[]) iLeft) {
+          for (final var r : (Collection<?>) iRight) {
             if (QueryOperatorEquals.equals(database, l, r)) {
               ++matches;
               break;
@@ -84,11 +85,11 @@ public class QueryOperatorContainsAll extends QueryOperatorEqualityNotNulls {
 
     } else if (iLeft instanceof Collection<?>) {
 
-      final Collection<EntityImpl> collection = (Collection<EntityImpl>) iLeft;
+      final var collection = (Collection<EntityImpl>) iLeft;
 
       if (condition != null) {
         // CHECK AGAINST A CONDITION
-        for (final EntityImpl o : collection) {
+        for (final var o : collection) {
           if (condition.evaluate(o, null, iContext) == Boolean.FALSE) {
             return false;
           }
@@ -104,10 +105,10 @@ public class QueryOperatorContainsAll extends QueryOperatorEqualityNotNulls {
     } else if (iRight instanceof Collection<?>) {
 
       // CHECK AGAINST A CONDITION
-      final Collection<EntityImpl> collection = (Collection<EntityImpl>) iRight;
+      final var collection = (Collection<EntityImpl>) iRight;
 
       if (condition != null) {
-        for (final EntityImpl o : collection) {
+        for (final var o : collection) {
           if (condition.evaluate(o, null, iContext) == Boolean.FALSE) {
             return false;
           }
@@ -129,11 +130,13 @@ public class QueryOperatorContainsAll extends QueryOperatorEqualityNotNulls {
     return IndexReuseType.NO_INDEX;
   }
 
+  @Nullable
   @Override
   public RID getBeginRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;
   }
 
+  @Nullable
   @Override
   public RID getEndRidRange(DatabaseSession session, Object iLeft, Object iRight) {
     return null;

@@ -21,7 +21,9 @@ package com.jetbrains.youtrack.db.internal.core.command.traverse;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.Iterator;
+import javax.annotation.Nullable;
 
 public class TraverseMultiValueProcess extends TraverseAbstractProcess<Iterator<Object>> {
 
@@ -30,11 +32,14 @@ public class TraverseMultiValueProcess extends TraverseAbstractProcess<Iterator<
   protected int index = -1;
 
   public TraverseMultiValueProcess(
-      final Traverse iCommand, final Iterator<Object> iTarget, TraversePath parentPath) {
-    super(iCommand, iTarget);
+      final Traverse iCommand, final Iterator<Object> iTarget, TraversePath parentPath,
+      DatabaseSessionInternal db) {
+    super(iCommand, iTarget, db);
     this.parentPath = parentPath;
   }
 
+  @Override
+  @Nullable
   public Identifiable process() {
     while (target.hasNext()) {
       value = target.next();
@@ -43,10 +48,11 @@ public class TraverseMultiValueProcess extends TraverseAbstractProcess<Iterator<
       if (value instanceof Identifiable) {
 
         if (value instanceof RID) {
-          value = ((Identifiable) value).getRecord();
+          var transaction = session.getActiveTransaction();
+          value = transaction.load(((Identifiable) value));
         }
         final TraverseAbstractProcess<Identifiable> subProcess =
-            new TraverseRecordProcess(command, (Identifiable) value, getPath());
+            new TraverseRecordProcess(command, (Identifiable) value, getPath(), session);
         command.getContext().push(subProcess);
 
         return null;

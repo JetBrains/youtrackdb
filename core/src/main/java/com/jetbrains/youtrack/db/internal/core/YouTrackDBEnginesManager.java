@@ -19,21 +19,21 @@
  */
 package com.jetbrains.youtrack.db.internal.core;
 
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.profiler.AbstractProfiler;
 import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
-import com.jetbrains.youtrack.db.internal.common.profiler.ProfilerStub;
+import com.jetbrains.youtrack.db.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCacheFactory;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCacheFactoryImpl;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategyFactory;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseThreadLocalFactory;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.engine.Engine;
 import com.jetbrains.youtrack.db.internal.core.record.RecordFactoryManager;
@@ -45,7 +45,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -55,16 +54,22 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import javax.annotation.Nullable;
+import org.apache.commons.collections4.IteratorUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener> {
+
+  private static final Logger logger = LoggerFactory.getLogger(YouTrackDBEnginesManager.class);
+
   public static final String YOUTRACKDB_HOME = "YOUTRACKDB_HOME";
   public static final String URL_SYNTAX =
       "<engine>:<db-type>:<db-name>[?<db-param>=<db-value>[&]]*";
@@ -76,9 +81,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private final ConcurrentMap<String, Engine> engines = new ConcurrentHashMap<String, Engine>();
 
-  private final Map<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>
-      dbLifecycleListeners =
-      new LinkedHashMap<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>();
+  private final AtomicReference<List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>>>
+      dbLifecycleListeners = new AtomicReference<>(List.of());
   private final ThreadGroup threadGroup;
   private final ReadWriteLock engineLock = new ReentrantReadWriteLock();
   private final RecordConflictStrategyFactory recordConflictStrategy =
@@ -95,6 +99,9 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   private final Set<WeakHashSetValueHolder<YouTrackDBShutdownListener>> weakShutdownListeners =
       Collections.newSetFromMap(
           new ConcurrentHashMap<WeakHashSetValueHolder<YouTrackDBShutdownListener>, Boolean>());
+
+  private final YouTrackDBScheduler scheduler = new YouTrackDBScheduler();
+  private volatile Profiler profiler;
 
   private final PriorityQueue<ShutdownHandler> shutdownHandlers =
       new PriorityQueue<ShutdownHandler>(
@@ -116,17 +123,15 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private final LocalRecordCacheFactory localRecordCache = new LocalRecordCacheFactoryImpl();
 
-  private final Set<YouTrackDBEmbedded> factories =
+  private final Set<YouTrackDBInternalEmbedded> factories =
       Collections.newSetFromMap(new ConcurrentHashMap<>());
 
   private final Set<YouTrackDBInternal> runningInstances = new HashSet<>();
 
   private final String os;
 
-  private volatile Timer timer;
   private volatile RecordFactoryManager recordFactoryManager = new RecordFactoryManager();
   private YouTrackDBShutdownHook shutdownHook;
-  private volatile AbstractProfiler profiler;
   private DatabaseThreadLocalFactory databaseThreadFactory;
   private volatile boolean active = false;
   private SignalHandler signalHandler;
@@ -165,14 +170,14 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         return false;
       }
 
-      WeakHashSetValueHolder that = (WeakHashSetValueHolder) o;
+      var that = (WeakHashSetValueHolder) o;
 
       if (hashCode != that.hashCode) {
         return false;
       }
 
-      final T thisObject = get();
-      final Object thatObject = that.get();
+      final var thisObject = get();
+      final var thatObject = that.get();
 
       if (thisObject == null && thatObject == null) {
         return super.equals(that);
@@ -203,6 +208,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return startUp(false);
   }
 
+  @Nullable
   public static YouTrackDBEnginesManager startUp(boolean insideWebContainer) {
     initLock.lock();
     try {
@@ -215,7 +221,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         return instance;
       }
 
-      final YouTrackDBEnginesManager youTrack = new YouTrackDBEnginesManager(insideWebContainer);
+      final var youTrack = new YouTrackDBEnginesManager(insideWebContainer);
       youTrack.startup();
 
       instance = youTrack;
@@ -258,11 +264,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         return this;
       }
 
-      if (timer == null) {
-        timer = new Timer(true);
-      }
+      profiler = new Profiler(scheduler);
 
-      profiler = new ProfilerStub(false);
+      registerWeakYouTrackDBStartupListener(profiler);
+      registerWeakYouTrackDBShutdownListener(profiler);
 
       shutdownHook = new YouTrackDBShutdownHook();
       if (signalHandler == null) {
@@ -277,8 +282,9 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       active = true;
+      scheduler.activate();
 
-      for (YouTrackDBStartupListener l : startupListeners) {
+      for (var l : startupListeners) {
         try {
           if (l != null) {
             l.onStartup();
@@ -289,10 +295,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       purgeWeakStartupListeners();
-      for (final WeakHashSetValueHolder<YouTrackDBStartupListener> wl : weakStartupListeners) {
+      for (final var wl : weakStartupListeners) {
         try {
           if (wl != null) {
-            final YouTrackDBStartupListener l = wl.get();
+            final var l = wl.get();
             if (l != null) {
               l.onStartup();
             }
@@ -304,7 +310,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       initShutdownQueue();
-      registerWeakYouTrackDBStartupListener(profiler);
     } finally {
       engineLock.writeLock().unlock();
     }
@@ -332,7 +337,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   private void initShutdownQueue() {
     addShutdownHandler(new ShutdownYouTrackDBInstancesHandler());
     addShutdownHandler(new ShutdownPendingThreadsHandler());
-    addShutdownHandler(new ShutdownProfilerHandler());
     addShutdownHandler(new ShutdownCallListenersHandler());
   }
 
@@ -343,9 +347,9 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * shoutdown handlers according to their priority.
    */
   private void registerEngines() {
-    ClassLoader classLoader = YouTrackDBEnginesManager.class.getClassLoader();
+    var classLoader = YouTrackDBEnginesManager.class.getClassLoader();
 
-    Iterator<Engine> engines =
+    var engines =
         ClassLoaderHelper.lookupProviderWithYouTrackDBClassLoader(Engine.class, classLoader);
 
     Engine engine = null;
@@ -355,7 +359,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         registerEngine(engine);
       } catch (IllegalArgumentException e) {
         if (engine != null) {
-          LogManager.instance().debug(this, "Failed to replace engine " + engine.getName(), e);
+          LogManager.instance().debug(this, "Failed to replace engine " + engine.getName(), logger,
+              e);
         }
       }
     }
@@ -371,11 +376,12 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       active = false;
 
       LogManager.instance().info(this, "YouTrackDB Engine is shutting down...");
-      for (ShutdownHandler handler : shutdownHandlers) {
+      for (var handler : shutdownHandlers) {
         try {
-          LogManager.instance().debug(this, "Shutdown handler %s is going to be called", handler);
+          LogManager.instance().debug(this, "Shutdown handler %s is going to be called", logger,
+              handler);
           handler.shutdown();
-          LogManager.instance().debug(this, "Shutdown handler %s completed", handler);
+          LogManager.instance().debug(this, "Shutdown handler %s completed", logger, handler);
         } catch (Exception e) {
           LogManager.instance()
               .error(this, "Exception during calling of shutdown handler %s", e, handler);
@@ -383,6 +389,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       shutdownHandlers.clear();
+      weakShutdownListeners.clear();
+      weakStartupListeners.clear();
 
       LogManager.instance().info(this, "Clearing byte buffer pool");
       ByteBufferPool.instance(null).clear();
@@ -391,7 +399,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       DirectMemoryAllocator.instance().checkMemoryLeaks();
 
       LogManager.instance().info(this, "YouTrackDB Engine shutdown complete");
-      LogManager.instance().flush();
+      LogManager.flush();
     } finally {
       try {
         removeShutdownHook();
@@ -407,90 +415,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     return this;
   }
 
-  public TimerTask scheduleTask(final Runnable task, final long delay, final long period) {
-    engineLock.readLock().lock();
-    try {
-      final TimerTask timerTask =
-          new TimerTask() {
-            @Override
-            public void run() {
-              try {
-                task.run();
-              } catch (Exception e) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error during execution of task " + task.getClass().getSimpleName(),
-                        e);
-              } catch (Error e) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error during execution of task " + task.getClass().getSimpleName(),
-                        e);
-                throw e;
-              }
-            }
-          };
-
-      if (active) {
-        if (period > 0) {
-          timer.schedule(timerTask, delay, period);
-        } else {
-          timer.schedule(timerTask, delay);
-        }
-      } else {
-        LogManager.instance().warn(this, "YouTrackDB engine is down. Task will not be scheduled.");
-      }
-
-      return timerTask;
-    } finally {
-      engineLock.readLock().unlock();
-    }
-  }
-
-  public TimerTask scheduleTask(final Runnable task, final Date firstTime, final long period) {
-    engineLock.readLock().lock();
-    try {
-      final TimerTask timerTask =
-          new TimerTask() {
-            @Override
-            public void run() {
-              try {
-                task.run();
-              } catch (Exception e) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error during execution of task " + task.getClass().getSimpleName(),
-                        e);
-              } catch (Error e) {
-                LogManager.instance()
-                    .error(
-                        this,
-                        "Error during execution of task " + task.getClass().getSimpleName(),
-                        e);
-                throw e;
-              }
-            }
-          };
-
-      if (active) {
-        if (period > 0) {
-          timer.schedule(timerTask, firstTime, period);
-        } else {
-          timer.schedule(timerTask, firstTime);
-        }
-      } else {
-        LogManager.instance().warn(this, "YouTrackDB engine is down. Task will not be scheduled.");
-      }
-
-      return timerTask;
-    } finally {
-      engineLock.readLock().unlock();
-    }
-  }
-
   public boolean isActive() {
     return active;
   }
@@ -500,7 +424,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   }
 
   public void registerEngine(final Engine iEngine) throws IllegalArgumentException {
-    Engine engine = engines.get(iEngine.getName());
+    var engine = engines.get(iEngine.getName());
 
     if (engine != null) {
       if (!engine.getClass().isAssignableFrom(iEngine.getClass())) {
@@ -533,10 +457,11 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
    * @return the obtained engine instance or {@code null} if no such engine known or the engine is
    * not running.
    */
+  @Nullable
   public Engine getEngineIfRunning(final String engineName) {
     engineLock.readLock().lock();
     try {
-      final Engine engine = engines.get(engineName);
+      final var engine = engines.get(engineName);
       return engine == null || !engine.isRunning() ? null : engine;
     } finally {
       engineLock.readLock().unlock();
@@ -554,7 +479,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   public Engine getRunningEngine(final String engineName) {
     engineLock.readLock().lock();
     try {
-      Engine engine = engines.get(engineName);
+      var engine = engines.get(engineName);
       if (engine == null) {
         throw new IllegalStateException("Engine '" + engineName + "' is not found.");
       }
@@ -580,7 +505,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   public Collection<Storage> getStorages() {
     List<Storage> storages = new ArrayList<>();
-    for (YouTrackDBEmbedded factory : factories) {
+    for (var factory : factories) {
       storages.addAll(factory.getStorages());
     }
     return storages;
@@ -609,32 +534,52 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   }
 
   public Iterator<DatabaseLifecycleListener> getDbLifecycleListeners() {
-    return new LinkedHashSet<>(dbLifecycleListeners.keySet()).iterator();
-  }
-
-  public void addDbLifecycleListener(final DatabaseLifecycleListener iListener) {
-    final Map<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY> tmp =
-        new LinkedHashMap<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>(
-            dbLifecycleListeners);
-    if (iListener.getPriority() == null) {
-      throw new IllegalArgumentException(
-          "Priority of DatabaseLifecycleListener '" + iListener + "' cannot be null");
+    if (dbLifecycleListeners.get().isEmpty()) {
+      return IteratorUtils.emptyIterator();
     }
 
-    tmp.put(iListener, iListener.getPriority());
-    dbLifecycleListeners.clear();
-    for (DatabaseLifecycleListener.PRIORITY p : DatabaseLifecycleListener.PRIORITY.values()) {
-      for (Map.Entry<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY> e :
-          tmp.entrySet()) {
-        if (e.getValue() == p) {
-          dbLifecycleListeners.put(e.getKey(), e.getValue());
+    return dbLifecycleListeners.get().stream().map(RawPair::first).iterator();
+  }
+
+  public void addDbLifecycleListener(final DatabaseLifecycleListener listener) {
+    List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>> initialRef;
+    ArrayList<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>> newRef;
+    do {
+      initialRef = dbLifecycleListeners.get();
+      newRef = new ArrayList<>(initialRef.size() + 1);
+
+      final var tmp = new ArrayList<>(initialRef);
+      if (listener.getPriority() == null) {
+        throw new IllegalArgumentException(
+            "Priority of DatabaseLifecycleListener '" + listener + "' cannot be null");
+      }
+
+      tmp.add(new RawPair<>(listener, listener.getPriority()));
+
+      for (var p : DatabaseLifecycleListener.PRIORITY.values()) {
+        for (var e : tmp) {
+          if (e.second() == p) {
+            newRef.add(e);
+          }
         }
       }
-    }
+
+    } while (!dbLifecycleListeners.compareAndSet(initialRef, newRef));
   }
 
-  public void removeDbLifecycleListener(final DatabaseLifecycleListener iListener) {
-    dbLifecycleListeners.remove(iListener);
+  public void removeDbLifecycleListener(final DatabaseLifecycleListener listener) {
+    List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>> initialRef;
+    ArrayList<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>> newRef;
+    do {
+      initialRef = dbLifecycleListeners.get();
+      newRef = new ArrayList<>(initialRef.size() - 1);
+
+      for (var e : initialRef) {
+        if (e.first() != listener) {
+          newRef.add(e);
+        }
+      }
+    } while (!dbLifecycleListeners.compareAndSet(initialRef, newRef));
   }
 
   public ThreadGroup getThreadGroup() {
@@ -653,12 +598,12 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     recordFactoryManager = iRecordFactoryManager;
   }
 
-  public Profiler getProfiler() {
-    return profiler;
+  public YouTrackDBScheduler getScheduler() {
+    return scheduler;
   }
 
-  public void setProfiler(final AbstractProfiler iProfiler) {
-    profiler = iProfiler;
+  public MetricsRegistry getMetricsRegistry() {
+    return profiler.getMetricsRegistry();
   }
 
   public void registerThreadDatabaseFactory(final DatabaseThreadLocalFactory iDatabaseFactory) {
@@ -733,7 +678,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private void purgeWeakStartupListeners() {
     synchronized (removedStartupListenersQueue) {
-      WeakHashSetValueHolder<YouTrackDBStartupListener> ref =
+      var ref =
           (WeakHashSetValueHolder<YouTrackDBStartupListener>) removedStartupListenersQueue.poll();
       while (ref != null) {
         weakStartupListeners.remove(ref);
@@ -744,7 +689,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private void purgeWeakShutdownListeners() {
     synchronized (removedShutdownListenersQueue) {
-      WeakHashSetValueHolder<YouTrackDBShutdownListener> ref =
+      var ref =
           (WeakHashSetValueHolder<YouTrackDBShutdownListener>) removedShutdownListenersQueue.poll();
       while (ref != null) {
         weakShutdownListeners.remove(ref);
@@ -755,7 +700,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   }
 
   private boolean startEngine(Engine engine) {
-    final String name = engine.getName();
+    final var name = engine.getName();
 
     try {
       engine.startup();
@@ -789,7 +734,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
     @Override
     public void shutdown() throws Exception {
-      for (YouTrackDBInternal internal : runningInstances) {
+      for (var internal : runningInstances) {
         internal.internalClose();
       }
       runningInstances.clear();
@@ -802,8 +747,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   }
 
   /**
-   * Interrupts all threads in YouTrackDB thread group and stops timer is used in methods
-   * {@link #scheduleTask(Runnable, Date, long)} and {@link #scheduleTask(Runnable, long, long)}.
+   * Interrupts all threads in YouTrackDB thread group and stops all tasks that are being run on the
+   * YouTrackDB scheduler.
    */
   private class ShutdownPendingThreadsHandler implements ShutdownHandler {
 
@@ -820,10 +765,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         threadGroup.interrupt();
       }
 
-      if (timer != null) {
-        timer.cancel();
-        timer = null;
-      }
+      scheduler.shutdown();
     }
 
     @Override
@@ -831,28 +773,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       // it is strange but windows defender block compilation if we get class name programmatically
       // using Class instance
       return "ShutdownPendingThreadsHandler";
-    }
-  }
-
-  /**
-   * Shutdown YouTrackDB profiler.
-   */
-  private class ShutdownProfilerHandler implements ShutdownHandler {
-
-    @Override
-    public int getPriority() {
-      return SHUTDOWN_PROFILER_PRIORITY;
-    }
-
-    @Override
-    public void shutdown() throws Exception {
-      // NOTE: DON'T REMOVE PROFILER TO AVOID NPE AROUND THE CODE IF ANY THREADS IS STILL WORKING
-      profiler.shutdown();
-    }
-
-    @Override
-    public String toString() {
-      return getClass().getSimpleName();
     }
   }
 
@@ -869,10 +789,10 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     @Override
     public void shutdown() throws Exception {
       purgeWeakShutdownListeners();
-      for (final WeakHashSetValueHolder<YouTrackDBShutdownListener> wl : weakShutdownListeners) {
+      for (final var wl : weakShutdownListeners) {
         try {
           if (wl != null) {
-            final YouTrackDBShutdownListener l = wl.get();
+            final var l = wl.get();
             if (l != null) {
               l.onShutdown();
             }
@@ -884,7 +804,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       }
 
       // CALL THE SHUTDOWN ON ALL THE LISTENERS
-      for (YouTrackDBListener l : browseListeners()) {
+      for (var l : browseListeners()) {
         if (l != null) {
           try {
             l.onShutdown();
@@ -903,26 +823,26 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
   }
 
-  public void onEmbeddedFactoryInit(YouTrackDBEmbedded embeddedFactory) {
-    Engine memory = engines.get("memory");
+  public void onEmbeddedFactoryInit(YouTrackDBInternalEmbedded embeddedFactory) {
+    var memory = engines.get("memory");
     if (memory != null && !memory.isRunning()) {
       memory.startup();
     }
-    Engine disc = engines.get("plocal");
+    var disc = engines.get("disk");
     if (disc != null && !disc.isRunning()) {
       disc.startup();
     }
     factories.add(embeddedFactory);
   }
 
-  public void onEmbeddedFactoryClose(YouTrackDBEmbedded embeddedFactory) {
+  public void onEmbeddedFactoryClose(YouTrackDBInternalEmbedded embeddedFactory) {
     factories.remove(embeddedFactory);
     if (factories.isEmpty()) {
-      Engine memory = engines.get("memory");
+      var memory = engines.get("memory");
       if (memory != null && memory.isRunning()) {
         memory.shutdown();
       }
-      Engine disc = engines.get("plocal");
+      var disc = engines.get("disk");
       if (disc != null && disc.isRunning()) {
         disc.shutdown();
       }

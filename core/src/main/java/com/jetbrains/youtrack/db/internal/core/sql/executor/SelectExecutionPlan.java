@@ -6,17 +6,16 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-/**
- *
- */
 public class SelectExecutionPlan implements InternalExecutionPlan {
-
   private String location;
 
   protected CommandContext ctx;
@@ -48,10 +47,10 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public String prettyPrint(int depth, int indent) {
-    StringBuilder result = new StringBuilder();
-    for (int i = 0; i < steps.size(); i++) {
-      ExecutionStepInternal step = steps.get(i);
+  public @Nonnull String prettyPrint(int depth, int indent) {
+    var result = new StringBuilder();
+    for (var i = 0; i < steps.size(); i++) {
+      var step = steps.get(i);
       result.append(step.prettyPrint(depth, indent));
       if (i < steps.size() - 1) {
         result.append("\n");
@@ -75,7 +74,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public List<ExecutionStep> getSteps() {
+  public @Nonnull List<ExecutionStep> getSteps() {
     // TODO do a copy of the steps
     return (List) steps;
   }
@@ -90,9 +89,9 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   }
 
   @Override
-  public Result toResult(DatabaseSession db) {
+  public @Nonnull Result toResult(@Nullable DatabaseSession db) {
     var session = (DatabaseSessionInternal) db;
-    ResultInternal result = new ResultInternal(session);
+    var result = new ResultInternal(session);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty(JAVA_TYPE, getClass().getName());
     result.setProperty("cost", getCost());
@@ -110,8 +109,9 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     return 0L;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  @Override
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("type", "QueryExecutionPlan");
     result.setProperty(JAVA_TYPE, getClass().getName());
     result.setProperty("cost", getCost());
@@ -119,30 +119,32 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     result.setProperty(
         "steps",
         steps == null ? null
-            : steps.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+            : steps.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     return result;
   }
 
-  public void deserialize(Result serializedExecutionPlan) {
+  @Override
+  public void deserialize(Result serializedExecutionPlan, DatabaseSessionInternal session) {
     List<Result> serializedSteps = serializedExecutionPlan.getProperty("steps");
-    for (Result serializedStep : serializedSteps) {
+    for (var serializedStep : serializedSteps) {
       try {
         String className = serializedStep.getProperty(JAVA_TYPE);
-        ExecutionStepInternal step =
+        var step =
             (ExecutionStepInternal) Class.forName(className).newInstance();
-        step.deserialize(serializedStep);
+        step.deserialize(serializedStep, session);
         chain(step);
       } catch (Exception e) {
         throw BaseException.wrapException(
-            new CommandExecutionException("Cannot deserialize execution step:" + serializedStep),
-            e);
+            new CommandExecutionException(session,
+                "Cannot deserialize execution step:" + serializedStep),
+            e, session);
       }
     }
   }
 
   @Override
   public InternalExecutionPlan copy(CommandContext ctx) {
-    SelectExecutionPlan copy = new SelectExecutionPlan(ctx);
+    var copy = new SelectExecutionPlan(ctx);
     copyOn(copy, ctx);
     return copy;
   }
@@ -150,7 +152,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   protected void copyOn(SelectExecutionPlan copy, CommandContext ctx) {
     ExecutionStep lastStep = null;
     for (ExecutionStep step : this.steps) {
-      ExecutionStepInternal newStep =
+      var newStep =
           (ExecutionStepInternal) ((ExecutionStepInternal) step).copy(ctx);
       newStep.setPrevious((ExecutionStepInternal) lastStep);
       if (lastStep != null) {
@@ -166,7 +168,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
 
   @Override
   public boolean canBeCached() {
-    for (ExecutionStepInternal step : steps) {
+    for (var step : steps) {
       if (!step.canBeCached()) {
         return false;
       }

@@ -24,11 +24,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionUUID;
 import org.junit.Before;
 import org.junit.Test;
@@ -44,27 +42,28 @@ public class SQLFunctionUUIDTest {
 
   @Test
   public void testEmpty() {
-    Object result = uuid.getResult();
+    var result = uuid.getResult();
     assertNull(result);
   }
 
   @Test
   public void testResult() {
-    String result = (String) uuid.execute(null, null, null, null, null);
+    var result = (String) uuid.execute(null, null, null, null, null);
     assertNotNull(result);
   }
 
   @Test
   public void testQuery() {
-    try (YouTrackDB ctx = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var db = ctx.open("test", "admin", "adminpwd")) {
-
-        try (final ResultSet result = db.query("select uuid() as uuid")) {
-          assertNotNull(result.next().getProperty("uuid"));
-          assertFalse(result.hasNext());
-        }
+        db.executeInTx(transaction -> {
+          try (final var result = transaction.query("select uuid() as uuid")) {
+            assertNotNull(result.next().getProperty("uuid"));
+            assertFalse(result.hasNext());
+          }
+        });
       }
       ctx.drop("test");
     }

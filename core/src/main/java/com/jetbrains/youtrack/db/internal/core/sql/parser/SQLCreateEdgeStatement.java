@@ -2,12 +2,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.CreateEdgeExecutionPlanner;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InsertExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -15,8 +15,6 @@ import java.util.Objects;
 public class SQLCreateEdgeStatement extends SQLStatement {
 
   protected SQLIdentifier targetClass;
-  protected SQLIdentifier targetClusterName;
-
   protected boolean upsert = false;
 
   protected SQLExpression leftExpression;
@@ -38,16 +36,16 @@ public class SQLCreateEdgeStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -59,17 +57,18 @@ public class SQLCreateEdgeStatement extends SQLStatement {
       executionPlan = createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map params, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(params);
     InsertExecutionPlan executionPlan;
     if (usePlanCache) {
@@ -78,35 +77,34 @@ public class SQLCreateEdgeStatement extends SQLStatement {
       executionPlan = createExecutionPlanNoCache(ctx, false);
     }
     executionPlan.executeInternal();
-    return new LocalResultSet(executionPlan);
+    return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public InsertExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    CreateEdgeExecutionPlanner planner = new CreateEdgeExecutionPlanner(this);
-    InsertExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling, true);
+    var planner = new CreateEdgeExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, true);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
   }
 
+  @Override
   public InsertExecutionPlan createExecutionPlanNoCache(
       CommandContext ctx, boolean enableProfiling) {
-    CreateEdgeExecutionPlanner planner = new CreateEdgeExecutionPlanner(this);
-    InsertExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling, false);
+    var planner = new CreateEdgeExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling, false);
     result.setStatement(this.originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("CREATE EDGE");
     if (targetClass != null) {
       builder.append(" ");
       targetClass.toString(params, builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toString(params, builder);
-      }
     }
     if (upsert) {
       builder.append(" UPSERT");
@@ -140,10 +138,6 @@ public class SQLCreateEdgeStatement extends SQLStatement {
     if (targetClass != null) {
       builder.append(" ");
       targetClass.toGenericStatement(builder);
-      if (targetClusterName != null) {
-        builder.append(" CLUSTER ");
-        targetClusterName.toGenericStatement(builder);
-      }
     }
     if (upsert) {
       builder.append(" UPSERT");
@@ -172,7 +166,7 @@ public class SQLCreateEdgeStatement extends SQLStatement {
   }
 
   @Override
-  public boolean executinPlanCanBeCached(DatabaseSessionInternal session) {
+  public boolean executinPlanCanBeCached(DatabaseSessionEmbedded session) {
     if (this.leftExpression != null && !this.leftExpression.isCacheable(session)) {
       return false;
     }
@@ -192,7 +186,6 @@ public class SQLCreateEdgeStatement extends SQLStatement {
     }
 
     result.targetClass = targetClass == null ? null : targetClass.copy();
-    result.targetClusterName = targetClusterName == null ? null : targetClusterName.copy();
 
     result.upsert = this.upsert;
 
@@ -216,15 +209,12 @@ public class SQLCreateEdgeStatement extends SQLStatement {
       return false;
     }
 
-    SQLCreateEdgeStatement that = (SQLCreateEdgeStatement) o;
+    var that = (SQLCreateEdgeStatement) o;
 
     if (upsert != that.upsert) {
       return false;
     }
     if (!Objects.equals(targetClass, that.targetClass)) {
-      return false;
-    }
-    if (!Objects.equals(targetClusterName, that.targetClusterName)) {
       return false;
     }
     if (!Objects.equals(leftExpression, that.leftExpression)) {
@@ -247,8 +237,7 @@ public class SQLCreateEdgeStatement extends SQLStatement {
 
   @Override
   public int hashCode() {
-    int result = targetClass != null ? targetClass.hashCode() : 0;
-    result = 31 * result + (targetClusterName != null ? targetClusterName.hashCode() : 0);
+    var result = targetClass != null ? targetClass.hashCode() : 0;
     result = 31 * result + (upsert ? 1 : 0);
     result = 31 * result + (leftExpression != null ? leftExpression.hashCode() : 0);
     result = 31 * result + (rightExpression != null ? rightExpression.hashCode() : 0);
@@ -267,13 +256,6 @@ public class SQLCreateEdgeStatement extends SQLStatement {
     this.targetClass = targetClass;
   }
 
-  public SQLIdentifier getTargetClusterName() {
-    return targetClusterName;
-  }
-
-  public void setTargetClusterName(SQLIdentifier targetClusterName) {
-    this.targetClusterName = targetClusterName;
-  }
 
   public SQLExpression getLeftExpression() {
     return leftExpression;

@@ -19,13 +19,13 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 
 /**
  * Represent a value inside a query condition.
  */
 public interface SQLFilterItem {
 
-  Object getValue(Identifiable iRecord, Object iCurrentResult, CommandContext iContetx);
+  Object getValue(Result iRecord, Object iCurrentResult, CommandContext iContetx);
 }

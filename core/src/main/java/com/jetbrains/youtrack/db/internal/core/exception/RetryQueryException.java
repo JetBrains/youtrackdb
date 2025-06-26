@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.exception;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
 
 /**
@@ -9,12 +10,11 @@ import com.jetbrains.youtrack.db.internal.core.index.IndexAbstract;
  * @see IndexAbstract#getRebuildVersion()
  */
 public abstract class RetryQueryException extends CoreException {
-
   public RetryQueryException(RetryQueryException exception) {
     super(exception);
   }
 
-  public RetryQueryException(String message) {
-    super(message);
+  public RetryQueryException(DatabaseSessionInternal db, String message) {
+    super(db, message);
   }
 }

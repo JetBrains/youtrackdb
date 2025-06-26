@@ -51,11 +51,11 @@ public class LDAPServer {
     LDAPServer server = null;
 
     try {
-      URI uri = new URI(url);
+      var uri = new URI(url);
 
-      String scheme = uri.getScheme();
-      String host = uri.getHost();
-      int port = uri.getPort();
+      var scheme = uri.getScheme();
+      var host = uri.getHost();
+      var port = uri.getPort();
       if (port == -1) {
         port = 389; // Default to standard LDAP port.
       }

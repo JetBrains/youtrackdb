@@ -18,13 +18,9 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.tests;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Before;
@@ -37,54 +33,58 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
 
   @Before
   public void init() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass song = db.createVertexClass("City");
-    song.createProperty(db, "name", PropertyType.STRING);
+    Schema schema = session.getMetadata().getSchema();
+    var song = session.createVertexClass("City");
+    song.createProperty("name", PropertyType.STRING);
 
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
   public void loadCloseDelete() {
 
-    int size = 1000;
-    for (int i = 0; i < size; i++) {
-      Vertex city = db.newVertex("City");
+    var size = 1000;
+    for (var i = 0; i < size; i++) {
+      session.begin();
+      var city = session.newVertex("City");
       city.setProperty("name", "Rome " + i);
 
-      db.begin();
-      db.save(city);
-      db.commit();
+      session.commit();
     }
-    String query = "select * from City where search_class('name:Rome')=true";
-    ResultSet docs = db.query(query);
+
+    session.begin();
+    var query = "select * from City where search_class('name:Rome')=true";
+    var docs = session.query(query);
     Assertions.assertThat(docs).hasSize(size);
     docs.close();
-    db.close();
+    session.commit();
+    session.close();
 
-    db = (DatabaseSessionInternal) pool.acquire();
-    docs = db.query(query);
+    session = (DatabaseSessionEmbedded) pool.acquire();
+    session.begin();
+    docs = session.query(query);
     Assertions.assertThat(docs).hasSize(size);
     docs.close();
+    session.commit();
 
-    db.begin();
-    db.command("delete vertex City");
-    db.commit();
+    session.begin();
+    session.execute("delete vertex City");
+    session.commit();
 
-    docs = db.query(query);
+    docs = session.query(query);
     Assertions.assertThat(docs).hasSize(0);
     docs.close();
-    db.close();
-    db = (DatabaseSessionInternal) pool.acquire();
-    docs = db.query(query);
+    session.close();
+    session = (DatabaseSessionEmbedded) pool.acquire();
+    docs = session.query(query);
     Assertions.assertThat(docs).hasSize(0);
     docs.close();
-    db.getMetadata().reload();
+    session.getMetadata().reload();
 
-    db.begin();
-    Index idx = db.getMetadata().getSchema().getClassInternal("City")
-        .getClassIndex(db, "City.name");
-    Assert.assertEquals(0, idx.getInternal().size(db));
-    db.commit();
+    session.begin();
+    var idx = session.getMetadata().getSchema().getClassInternal("City")
+        .getClassIndex(session, "City.name");
+    Assert.assertEquals(0, idx.size(session));
+    session.commit();
   }
 }

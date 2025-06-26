@@ -17,7 +17,6 @@ package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -28,8 +27,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nonnull;
 import org.testng.Assert;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -47,67 +46,66 @@ public class LiveQuery30TxTest extends BaseDBTest implements CommandOutputListen
     public int unsubscribe;
 
     @Override
-    public void onCreate(DatabaseSession database, Result data) {
+    public void onCreate(@Nonnull DatabaseSession session, @Nonnull Result data) {
       ops.add(new Pair<>("create", data));
       latch.countDown();
     }
 
     @Override
-    public void onUpdate(DatabaseSession database, Result before, Result after) {
+    public void onUpdate(@Nonnull DatabaseSession session, @Nonnull Result before,
+        @Nonnull Result after) {
       ops.add(new Pair<>("update", after));
       latch.countDown();
     }
 
     @Override
-    public void onDelete(DatabaseSession database, Result data) {
+    public void onDelete(@Nonnull DatabaseSession session, @Nonnull Result data) {
       ops.add(new Pair<>("delete", data));
       latch.countDown();
     }
 
     @Override
-    public void onError(DatabaseSession database, BaseException exception) {
+    public void onError(@Nonnull DatabaseSession session, @Nonnull BaseException exception) {
     }
 
     @Override
-    public void onEnd(DatabaseSession database) {
+    public void onEnd(@Nonnull DatabaseSession session) {
       unsubscribe = 1;
       unLatch.countDown();
     }
   }
 
-  @Parameters(value = {"remote"})
-  public LiveQuery30TxTest(boolean remote) {
-    super(remote);
-  }
 
   @Test
   public void checkLiveQueryTx() throws IOException, InterruptedException {
-    final String className1 = "LiveQuery30Test_checkLiveQueryTx_1";
-    final String className2 = "LiveQuery30Test_checkLiveQueryTx_2";
-    database.getMetadata().getSchema().createClass(className1);
-    database.getMetadata().getSchema().createClass(className2);
+    final var className1 = "LiveQuery30Test_checkLiveQueryTx_1";
+    final var className2 = "LiveQuery30Test_checkLiveQueryTx_2";
+    session.getMetadata().getSchema().createClass(className1);
+    session.getMetadata().getSchema().createClass(className2);
 
-    MyLiveQueryListener listener = new MyLiveQueryListener();
+    var listener = new MyLiveQueryListener();
 
-    LiveQueryMonitor monitor = database.live("live select from " + className1, listener);
+    var monitor = session.live("live select from " + className1, listener);
     Assert.assertNotNull(monitor);
-    database.begin();
-    database.command("insert into " + className1 + " set name = 'foo', surname = 'bar'");
-    database.command("insert into  " + className1 + " set name = 'foo', surname = 'baz'");
-    database.command("insert into " + className2 + " set name = 'foo'");
-    database.commit();
+    session.begin();
+    session.execute("insert into " + className1 + " set name = 'foo', surname = 'bar'");
+    session.execute("insert into  " + className1 + " set name = 'foo', surname = 'baz'");
+    session.execute("insert into " + className2 + " set name = 'foo'");
+    session.commit();
     latch.await(1, TimeUnit.MINUTES);
 
     monitor.unSubscribe();
-    database.command("insert into " + className1 + " set name = 'foo', surname = 'bax'");
+    session.begin();
+    session.execute("insert into " + className1 + " set name = 'foo', surname = 'bax'");
     Assert.assertEquals(listener.ops.size(), 2);
     for (Pair doc : listener.ops) {
       Assert.assertEquals(doc.getKey(), "create");
-      Result res = (Result) doc.getValue();
+      var res = (Result) doc.getValue();
       Assert.assertEquals((res).getProperty("name"), "foo");
       Assert.assertNotNull(res.getProperty("@rid"));
-      Assert.assertTrue(((RID) res.getProperty("@rid")).getClusterPosition() >= 0);
+      Assert.assertTrue(((RID) res.getProperty("@rid")).getCollectionPosition() >= 0);
     }
+    session.commit();
     unLatch.await(1, TimeUnit.MINUTES);
   }
 

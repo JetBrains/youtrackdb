@@ -2,13 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityPolicyImpl;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -51,30 +47,31 @@ public class SQLAlterSystemRoleStatement extends SQLSimpleExecServerStatement {
   @Override
   public ExecutionStream executeSimple(ServerCommandContext ctx) {
 
-    SystemDatabase systemDb = ctx.getServer().getSystemDatabase();
+    var systemDb = ctx.getYouTrackDB().getSystemDatabase();
 
     return systemDb.executeWithDB(
-        (db) -> {
+        (session) -> {
           List<Result> rs = new ArrayList<>();
 
-          SecurityInternal security = db.getSharedContext().getSecurity();
+          var security = session.getSharedContext().getSecurity();
 
-          Role role = db.getMetadata().getSecurity().getRole(name.getStringValue());
+          var role = session.getMetadata().getSecurity().getRole(name.getStringValue());
           if (role == null) {
-            throw new CommandExecutionException("role not found: " + name.getStringValue());
+            throw new CommandExecutionException(session,
+                "role not found: " + name.getStringValue());
           }
-          for (Op op : operations) {
-            ResultInternal result = new ResultInternal(db);
+          for (var op : operations) {
+            var result = new ResultInternal(session);
             result.setProperty("operation", "alter system role");
             result.setProperty("name", name.getStringValue());
             result.setProperty("resource", op.resource.toString());
             if (op.type == Op.TYPE_ADD) {
-              SecurityPolicyImpl policy =
-                  security.getSecurityPolicy(db, op.policyName.getStringValue());
+              var policy =
+                  security.getSecurityPolicy(session, op.policyName.getStringValue());
               result.setProperty("operation", "ADD POLICY");
               result.setProperty("policyName", op.policyName.getStringValue());
               try {
-                security.setSecurityPolicy(db, role, op.resource.toString(), policy);
+                security.setSecurityPolicy(session, role, op.resource.toString(), policy);
                 result.setProperty("result", "OK");
               } catch (Exception e) {
                 result.setProperty("result", "failure");
@@ -82,13 +79,13 @@ public class SQLAlterSystemRoleStatement extends SQLSimpleExecServerStatement {
             } else {
               result.setProperty("operation", "REMOVE POLICY");
               try {
-                security.removeSecurityPolicy(db, role, op.resource.toString());
+                security.removeSecurityPolicy(session, role, op.resource.toString());
                 result.setProperty("result", "OK");
               } catch (Exception e) {
                 result.setProperty("result", "failure");
               }
             }
-            rs.add(result);
+            rs.add(result.detach());
           }
           return ExecutionStream.resultIterator(rs.iterator());
         });
@@ -99,7 +96,7 @@ public class SQLAlterSystemRoleStatement extends SQLSimpleExecServerStatement {
     builder.append("ALTER SYSTEM ROLE ");
     name.toString(params, builder);
 
-    for (Op operation : operations) {
+    for (var operation : operations) {
       if (operation.type == SQLAlterRoleStatement.Op.TYPE_ADD) {
         builder.append(" SET POLICY ");
         operation.policyName.toString(params, builder);

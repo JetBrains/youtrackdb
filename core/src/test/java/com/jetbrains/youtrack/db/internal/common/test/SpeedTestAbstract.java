@@ -49,7 +49,7 @@ public abstract class SpeedTestAbstract implements SpeedTest {
       throws IllegalArgumentException, IllegalAccessException, InvocationTargetException {
     data.startTimer(getClass().getSimpleName());
 
-    int percent = 0;
+    var percent = 0;
     for (data.cyclesDone = 0; data.cyclesDone < data.cycles; ++data.cyclesDone) {
       iMethod.invoke(this, iArgs);
 

@@ -4,8 +4,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Security;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,7 +46,7 @@ public class SQLCreateUserStatement extends SQLSimpleExecStatement {
 
     List<Object> params = new ArrayList<>();
     // INSERT INTO OUser SET
-    StringBuilder sb = new StringBuilder();
+    var sb = new StringBuilder();
     sb.append("INSERT INTO OUser SET ");
 
     sb.append(USER_FIELD_NAME);
@@ -90,12 +88,12 @@ public class SQLCreateUserStatement extends SQLSimpleExecStatement {
     sb.append(" WHERE ");
     sb.append(ROLE_FIELD_NAME);
     sb.append(" IN [");
-    Security security = ctx.getDatabase().getMetadata().getSecurity();
-    for (int i = 0; i < this.roles.size(); ++i) {
-      String roleName = this.roles.get(i).getStringValue();
-      Role role = security.getRole(roleName);
+    var security = ctx.getDatabaseSession().getMetadata().getSecurity();
+    for (var i = 0; i < this.roles.size(); ++i) {
+      var roleName = this.roles.get(i).getStringValue();
+      var role = security.getRole(roleName);
       if (role == null) {
-        throw new CommandExecutionException(
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Cannot create user " + this.name + ": role " + roleName + " does not exist");
       }
       if (i > 0) {
@@ -112,7 +110,7 @@ public class SQLCreateUserStatement extends SQLSimpleExecStatement {
     }
     sb.append("])");
     return ExecutionStream.resultIterator(
-        ctx.getDatabase().command(sb.toString(), params.toArray()).stream().iterator());
+        ctx.getDatabaseSession().execute(sb.toString(), params.toArray()).stream().iterator());
   }
 
   @Override
@@ -129,8 +127,8 @@ public class SQLCreateUserStatement extends SQLSimpleExecStatement {
     }
     if (!roles.isEmpty()) {
       builder.append("ROLE [");
-      boolean first = true;
-      for (SQLIdentifier role : roles) {
+      var first = true;
+      for (var role : roles) {
         if (!first) {
           builder.append(", ");
         }
@@ -155,8 +153,8 @@ public class SQLCreateUserStatement extends SQLSimpleExecStatement {
     }
     if (!roles.isEmpty()) {
       builder.append("ROLE [");
-      boolean first = true;
-      for (SQLIdentifier role : roles) {
+      var first = true;
+      for (var role : roles) {
         if (!first) {
           builder.append(", ");
         }
@@ -169,7 +167,7 @@ public class SQLCreateUserStatement extends SQLSimpleExecStatement {
 
   @Override
   public SQLCreateUserStatement copy() {
-    SQLCreateUserStatement result = new SQLCreateUserStatement(-1);
+    var result = new SQLCreateUserStatement(-1);
     result.name = name == null ? null : name.copy();
     result.passwordIdentifier = passwordIdentifier == null ? null : passwordIdentifier.copy();
     result.passwordString = passwordString;
@@ -186,7 +184,7 @@ public class SQLCreateUserStatement extends SQLSimpleExecStatement {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SQLCreateUserStatement that = (SQLCreateUserStatement) o;
+    var that = (SQLCreateUserStatement) o;
     return Objects.equals(name, that.name)
         && Objects.equals(passwordIdentifier, that.passwordIdentifier)
         && Objects.equals(passwordString, that.passwordString)

@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get;
 
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 
 public class ServerCommandGetStorageAllocation extends ServerCommandAuthenticatedDbAbstract {
@@ -28,9 +28,9 @@ public class ServerCommandGetStorageAllocation extends ServerCommandAuthenticate
   private static final String[] NAMES = {"GET|allocation/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, final HttpResponse iResponse)
+  public boolean execute(final HttpRequest iRequest, final HttpResponse iResponse)
       throws Exception {
-    String[] urlParts = checkSyntax(iRequest.getUrl(), 2, "Syntax error: allocation/<database>");
+    var urlParts = checkSyntax(iRequest.getUrl(), 2, "Syntax error: allocation/<database>");
 
     iRequest.getData().commandInfo = "Storage allocation";
     iRequest.getData().commandDetail = urlParts[1];

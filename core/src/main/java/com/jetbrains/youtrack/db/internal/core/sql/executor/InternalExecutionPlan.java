@@ -3,8 +3,10 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -30,11 +32,11 @@ public interface InternalExecutionPlan extends ExecutionPlan {
 
   long getCost();
 
-  default Result serialize(DatabaseSessionInternal db) {
+  default Result serialize(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
-  default void deserialize(Result serializedExecutionPlan) {
+  default void deserialize(Result serializedExecutionPlan, DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
 
@@ -44,6 +46,7 @@ public interface InternalExecutionPlan extends ExecutionPlan {
 
   boolean canBeCached();
 
+  @Nullable
   default String getStatement() {
     return null;
   }
@@ -51,6 +54,7 @@ public interface InternalExecutionPlan extends ExecutionPlan {
   default void setStatement(String stm) {
   }
 
+  @Nullable
   default String getGenericStatement() {
     return null;
   }

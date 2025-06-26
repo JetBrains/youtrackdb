@@ -26,15 +26,18 @@ import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.security.SecureRandom;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Handles the HTTP sessions such as a real HTTP Server.
  */
 public class HttpSessionManager extends SharedResourceAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(HttpSessionManager.class);
 
   private final Map<String, HttpSession> sessions = new HashMap<String, HttpSession>();
   private int expirationTime;
@@ -48,13 +51,15 @@ public class HttpSessionManager extends SharedResourceAbstract {
             * 1000;
 
     YouTrackDBEnginesManager.instance()
+        .getScheduler()
         .scheduleTask(
             new Runnable() {
               @Override
               public void run() {
-                final int expired = checkSessionsValidity();
+                final var expired = checkSessionsValidity();
                 if (expired > 0) {
-                  LogManager.instance().debug(this, "Removed %d session because expired", expired);
+                  LogManager.instance().debug(this, "Removed %d session because expired", logger,
+                      expired);
                 }
               }
             },
@@ -63,14 +68,14 @@ public class HttpSessionManager extends SharedResourceAbstract {
   }
 
   public int checkSessionsValidity() {
-    int expired = 0;
+    var expired = 0;
 
     acquireExclusiveLock();
     try {
-      final long now = System.currentTimeMillis();
+      final var now = System.currentTimeMillis();
 
       Entry<String, HttpSession> s;
-      for (Iterator<Map.Entry<String, HttpSession>> it = sessions.entrySet().iterator();
+      for (var it = sessions.entrySet().iterator();
           it.hasNext(); ) {
         s = it.next();
 
@@ -103,7 +108,7 @@ public class HttpSessionManager extends SharedResourceAbstract {
     acquireSharedLock();
     try {
 
-      final HttpSession sess = sessions.get(iId);
+      final var sess = sessions.get(iId);
       if (sess != null) {
         sess.updateLastUpdatedOn();
       }
@@ -118,7 +123,7 @@ public class HttpSessionManager extends SharedResourceAbstract {
       final String iDatabaseName, final String iUserName, final String iUserPassword) {
     acquireExclusiveLock();
     try {
-      final String id = "OS" + System.currentTimeMillis() + random.nextLong();
+      final var id = "OS" + System.currentTimeMillis() + random.nextLong();
       sessions.put(id, new HttpSession(id, iDatabaseName, iUserName, iUserPassword));
       return id;
 

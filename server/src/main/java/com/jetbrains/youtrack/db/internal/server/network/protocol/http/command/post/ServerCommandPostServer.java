@@ -22,7 +22,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
 import java.io.IOException;
@@ -36,9 +36,9 @@ public class ServerCommandPostServer extends ServerCommandAuthenticatedServerAbs
   }
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, final HttpResponse iResponse)
+  public boolean execute(final HttpRequest iRequest, final HttpResponse iResponse)
       throws Exception {
-    final String[] urlParts =
+    final var urlParts =
         checkSyntax(iRequest.getUrl(), 3, "Syntax error: server/<setting-name>/<setting-value>");
 
     iRequest.getData().commandInfo = "Change server settings";
@@ -47,17 +47,12 @@ public class ServerCommandPostServer extends ServerCommandAuthenticatedServerAbs
       throw new IllegalArgumentException("setting-name is null or empty");
     }
 
-    final String settingName = urlParts[1];
-    final String settingValue = urlParts[2];
+    final var settingName = urlParts[1];
+    final var settingValue = urlParts[2];
 
     if (settingName.startsWith("configuration.")) {
-
       changeConfiguration(
           iResponse, settingName.substring("configuration.".length()), settingValue);
-
-    } else if (settingName.startsWith("log.")) {
-
-      changeLogLevel(iResponse, settingName.substring("log.".length()), settingValue);
 
     } else {
       iResponse.send(
@@ -74,9 +69,9 @@ public class ServerCommandPostServer extends ServerCommandAuthenticatedServerAbs
   private void changeConfiguration(
       final HttpResponse iResponse, final String settingName, final String settingValue)
       throws IOException {
-    final GlobalConfiguration cfg = GlobalConfiguration.findByKey(settingName);
+    final var cfg = GlobalConfiguration.findByKey(settingName);
     if (cfg != null) {
-      final Object oldValue = cfg.getValue();
+      final var oldValue = cfg.getValue();
 
       cfg.setValue(settingValue);
 
@@ -100,30 +95,6 @@ public class ServerCommandPostServer extends ServerCommandAuthenticatedServerAbs
           "Server global configuration '" + settingName + "' is invalid",
           null);
     }
-  }
-
-  private void changeLogLevel(
-      final HttpResponse iResponse, final String settingName, final String settingValue)
-      throws IOException {
-    if (settingName.equals("console")) {
-      LogManager.instance().setConsoleLevel(settingValue);
-    } else if (settingName.equals("file")) {
-      LogManager.instance().setFileLevel(settingValue);
-    } else {
-      iResponse.send(
-          HttpUtils.STATUS_BADREQ_CODE,
-          HttpUtils.STATUS_BADREQ_DESCRIPTION,
-          HttpUtils.CONTENT_TEXT_PLAIN,
-          "log name '" + settingName + "' is not supported. Use 'console' or 'log'",
-          null);
-    }
-
-    iResponse.send(
-        HttpUtils.STATUS_OK_CODE,
-        HttpUtils.STATUS_OK_DESCRIPTION,
-        HttpUtils.CONTENT_TEXT_PLAIN,
-        "Server log configuration '" + settingName + "' update successfully",
-        null);
   }
 
   @Override

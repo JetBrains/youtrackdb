@@ -26,6 +26,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Case insensitive collate.
@@ -34,18 +36,20 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
 
   public static final String NAME = "ci";
 
-  public String getName() {
+  @Override
+  public @Nonnull String getName() {
     return NAME;
   }
 
-  public Object transform(final Object obj) {
+  @Override
+  public @Nullable Object transform(final @Nullable Object obj) {
     if (obj instanceof String) {
       return ((String) obj).toLowerCase(Locale.ENGLISH);
     }
 
     if (obj instanceof Set) {
       Set result = new HashSet();
-      for (Object o : (Set) obj) {
+      for (var o : (Set) obj) {
         result.add(transform(o));
       }
       return result;
@@ -53,7 +57,7 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
 
     if (obj instanceof List) {
       List result = new ArrayList();
-      for (Object o : (List) obj) {
+      for (var o : (List) obj) {
         result.add(transform(o));
       }
       return result;
@@ -72,16 +76,16 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
       return false;
     }
 
-    final CaseInsensitiveCollate that = (CaseInsensitiveCollate) obj;
+    final var that = (CaseInsensitiveCollate) obj;
 
     return NAME.equals(NAME);
   }
 
   @Override
-  public int compareForOrderBy(Object objectOne, Object objectTwo) {
-    Object newObj1 = transform(objectOne);
-    Object newObj2 = transform(objectTwo);
-    int result = super.compare(newObj1, newObj2);
+  public int compareForOrderBy(@Nonnull Object objectOne, @Nonnull Object objectTwo) {
+    var newObj1 = transform(objectOne);
+    var newObj2 = transform(objectTwo);
+    var result = super.compare(newObj1, newObj2);
     if (result == 0) {
       // case insensitive are the same, fall back to case sensitive to have a decent ordering of
       // upper vs lower case

@@ -4,12 +4,12 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.security.SecurityUser;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityRole.ALLOW_MODES;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,67 +20,28 @@ public interface SecurityInternal {
       DatabaseSessionInternal session, Set<Identifiable> iAllowAll,
       Set<Identifiable> iAllowOperation);
 
-  @Deprecated
-  Identifiable allowUser(
-      DatabaseSession session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iUserName);
-
-  @Deprecated
-  Identifiable allowRole(
-      DatabaseSession session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iRoleName);
-
-  @Deprecated
-  Identifiable denyUser(
-      DatabaseSessionInternal session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iUserName);
-
-  @Deprecated
-  Identifiable denyRole(
-      DatabaseSessionInternal session,
-      EntityImpl entity,
-      RestrictedOperation iOperationType,
-      String iRoleName);
-
-  @Deprecated
-  Identifiable allowIdentity(
-      DatabaseSession session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId);
-
-  @Deprecated
-  Identifiable disallowIdentity(
-      DatabaseSessionInternal session, EntityImpl entity, String iAllowFieldName,
-      Identifiable iId);
-
-  SecurityUserIml authenticate(DatabaseSessionInternal session, String iUsername,
+  SecurityUserImpl authenticate(DatabaseSessionInternal session, String iUsername,
       String iUserPassword);
 
-  SecurityUserIml createUser(
+  SecurityUserImpl createUser(
       DatabaseSessionInternal session, String iUserName, String iUserPassword, String[] iRoles);
 
-  SecurityUserIml createUser(
+  SecurityUserImpl createUser(
       DatabaseSessionInternal session, String iUserName, String iUserPassword, Role[] iRoles);
 
-  SecurityUserIml authenticate(DatabaseSessionInternal session, Token authToken);
+  SecurityUserImpl authenticate(DatabaseSessionInternal session, Token authToken);
 
   Role createRole(
       DatabaseSessionInternal session,
       String iRoleName,
-      Role iParent,
-      ALLOW_MODES iAllowMode);
+      Role iParent);
 
   Role createRole(
-      DatabaseSessionInternal session, String iRoleName, ALLOW_MODES iAllowMode);
+      DatabaseSessionInternal session, String iRoleName);
 
-  SecurityUserIml getUser(DatabaseSession session, String iUserName);
+  SecurityUserImpl getUser(DatabaseSession session, String iUserName);
 
-  SecurityUserIml getUser(DatabaseSession session, RID userId);
+  SecurityUserImpl getUser(DatabaseSession session, RID userId);
 
   Role getRole(DatabaseSession session, String iRoleName);
 
@@ -90,7 +51,8 @@ public interface SecurityInternal {
 
   List<EntityImpl> getAllRoles(DatabaseSession session);
 
-  Map<String, SecurityPolicy> getSecurityPolicies(DatabaseSession session, SecurityRole role);
+  Map<String, ? extends SecurityPolicy> getSecurityPolicies(DatabaseSession session,
+      SecurityRole role);
 
   /**
    * Returns the security policy policy assigned to a role for a specific resource (not recursive on
@@ -146,13 +108,11 @@ public interface SecurityInternal {
 
   boolean dropRole(DatabaseSession session, String iRoleName);
 
-  void createClassTrigger(DatabaseSessionInternal session);
-
   long getVersion(DatabaseSession session);
 
   void incrementVersion(DatabaseSession session);
 
-  SecurityUserIml create(DatabaseSessionInternal session);
+  SecurityUserImpl create(DatabaseSessionInternal session);
 
   void load(DatabaseSessionInternal session);
 
@@ -162,33 +122,31 @@ public interface SecurityInternal {
    * For property-level security. Returns the list of the properties that are hidden (ie. not
    * allowed to be read) for current session, regarding a specific entity
    *
-   * @param session  the db session
-   * @param entity the entity to filter
+   * @param session the db session
+   * @param entity  the entity to filter
    * @return the list of the properties that are hidden (ie. not allowed to be read) on current
    * entity for current session
    */
-  Set<String> getFilteredProperties(DatabaseSessionInternal session, EntityImpl entity);
+  Set<String> getFilteredProperties(DatabaseSessionEmbedded session, EntityImpl entity);
 
   /**
    * For property-level security
    *
-   * @param session
-   * @param entity     current entity to check for proeprty-level security
+   * @param entity       current entity to check for proeprty-level security
    * @param propertyName the property to check for write access
-   * @return
    */
-  boolean isAllowedWrite(DatabaseSessionInternal session, EntityImpl entity,
+  boolean isAllowedWrite(DatabaseSessionEmbedded session, EntityImpl entity,
       String propertyName);
 
-  boolean canCreate(DatabaseSessionInternal session, DBRecord record);
+  boolean canCreate(DatabaseSessionEmbedded session, DBRecord record);
 
-  boolean canRead(DatabaseSessionInternal session, DBRecord record);
+  boolean canRead(DatabaseSessionEmbedded session, DBRecord record);
 
-  boolean canUpdate(DatabaseSessionInternal session, DBRecord record);
+  boolean canUpdate(DatabaseSessionEmbedded session, DBRecord record);
 
-  boolean canDelete(DatabaseSessionInternal session, DBRecord record);
+  boolean canDelete(DatabaseSessionEmbedded session, DBRecord record);
 
-  boolean canExecute(DatabaseSessionInternal session, Function function);
+  boolean canExecute(DatabaseSessionEmbedded session, Function function);
 
   /**
    * checks if for current session a resource is restricted by security resources (ie. READ policies
@@ -199,19 +157,16 @@ public interface SecurityInternal {
    * @return true if a restriction of any type exists for this session and this resource. False
    * otherwise
    */
-  boolean isReadRestrictedBySecurityPolicy(DatabaseSession session, String resource);
+  boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource);
 
   /**
-   * returns the list of all the filtered properties (for any role defined in the db)
-   *
-   * @param database
-   * @return
+   * Returns the list of all the filtered properties (for any role defined in the db)
    */
-  Set<SecurityResourceProperty> getAllFilteredProperties(DatabaseSessionInternal database);
+  Set<SecurityResourceProperty> getAllFilteredProperties(DatabaseSessionEmbedded database);
 
-  SecurityUser securityAuthenticate(DatabaseSessionInternal session, String userName,
+  SecurityUser securityAuthenticate(DatabaseSessionEmbedded session, String userName,
       String password);
 
   SecurityUser securityAuthenticate(
-      DatabaseSessionInternal session, AuthenticationInfo authenticationInfo);
+      DatabaseSessionEmbedded session, AuthenticationInfo authenticationInfo);
 }

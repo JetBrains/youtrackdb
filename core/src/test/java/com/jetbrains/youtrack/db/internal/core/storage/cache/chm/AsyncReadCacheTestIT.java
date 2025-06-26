@@ -3,11 +3,9 @@ package com.jetbrains.youtrack.db.internal.core.storage.cache.chm;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAllocator.Intention;
-import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CachePointer;
-import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.BackgroundExceptionListener;
@@ -21,7 +19,6 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
@@ -33,29 +30,29 @@ public class AsyncReadCacheTestIT {
 
   @Test
   public void testEvenDistribution() throws Exception {
-    final int pageSize = 4 * 1024;
+    final var pageSize = 4 * 1024;
 
-    final DirectMemoryAllocator allocator = new DirectMemoryAllocator();
-    final ByteBufferPool byteBufferPool = new ByteBufferPool(pageSize, allocator, 256);
+    final var allocator = new DirectMemoryAllocator();
+    final var byteBufferPool = new ByteBufferPool(pageSize, allocator, 256);
     final long maxMemory = 1024 * 1024 * 1024;
 
-    final AsyncReadCache readCache = new AsyncReadCache(byteBufferPool, maxMemory, pageSize, true);
+    final var readCache = new LockFreeReadCache(byteBufferPool, maxMemory, pageSize);
     final WriteCache writeCache = new MockedWriteCache(byteBufferPool);
 
-    final ExecutorService executor = Executors.newCachedThreadPool();
+    final var executor = Executors.newCachedThreadPool();
     final List<Future<Void>> futures = new ArrayList<>();
 
-    final int fileLimit = 10;
-    final int pageLimit = (int) (5L * 1024 * 1024 * 1024 / pageSize / fileLimit);
-    final int pageCount = (int) (1024L * 1024 * 1024 * 1024 / pageSize / 8);
-    final Timer timer = new Timer();
+    final var fileLimit = 10;
+    final var pageLimit = (int) (5L * 1024 * 1024 * 1024 / pageSize / fileLimit);
+    final var pageCount = (int) (1024L * 1024 * 1024 * 1024 / pageSize / 8);
+    final var timer = new Timer();
 
-    final AtomicBoolean memoryAboveLimit = new AtomicBoolean();
+    final var memoryAboveLimit = new AtomicBoolean();
     timer.schedule(
         new TimerTask() {
           @Override
           public void run() {
-            final long memoryConsumption = allocator.getMemoryConsumption();
+            final var memoryConsumption = allocator.getMemoryConsumption();
             memoryAboveLimit.set(memoryAboveLimit.get() || memoryConsumption > maxMemory * 1.1);
 
             if (memoryConsumption > maxMemory * 1.1) {
@@ -66,17 +63,17 @@ public class AsyncReadCacheTestIT {
         1000,
         1000);
 
-    for (int i = 0; i < 4; i++) {
+    for (var i = 0; i < 4; i++) {
       futures.add(
           executor.submit(new PageReader(fileLimit, pageLimit, writeCache, pageCount, readCache)));
     }
 
-    for (int i = 0; i < 4; i++) {
+    for (var i = 0; i < 4; i++) {
       futures.add(
           executor.submit(new PageWriter(fileLimit, pageLimit, writeCache, pageCount, readCache)));
     }
 
-    for (Future<Void> future : futures) {
+    for (var future : futures) {
       future.get();
     }
 
@@ -96,7 +93,6 @@ public class AsyncReadCacheTestIT {
             + " megabytes, "
             + ((long) pageCount * pageSize) / 1024 / 1024
             + " megabytes were accessed.");
-    System.out.println("Hit rate " + readCache.hitRate());
 
     timer.cancel();
 
@@ -109,28 +105,28 @@ public class AsyncReadCacheTestIT {
 
   @Test
   public void testZiphianDistribution() throws Exception {
-    final int pageSize = 4 * 1024;
+    final var pageSize = 4 * 1024;
 
-    final DirectMemoryAllocator allocator = new DirectMemoryAllocator();
-    final ByteBufferPool byteBufferPool = new ByteBufferPool(pageSize, allocator, 2048);
+    final var allocator = new DirectMemoryAllocator();
+    final var byteBufferPool = new ByteBufferPool(pageSize, allocator, 2048);
     final long maxMemory = 1024 * 1024 * 1024;
 
-    final AsyncReadCache readCache = new AsyncReadCache(byteBufferPool, maxMemory, pageSize, true);
+    final var readCache = new LockFreeReadCache(byteBufferPool, maxMemory, pageSize);
     final WriteCache writeCache = new MockedWriteCache(byteBufferPool);
 
-    final ExecutorService executor = Executors.newCachedThreadPool();
+    final var executor = Executors.newCachedThreadPool();
     final List<Future<Void>> futures = new ArrayList<>();
 
-    final int pageLimit = (int) (5 * 1024L * 1024 * 1024 / pageSize);
-    final int pageCount = (int) (1024L * 1024 * 1024 * 1024 / pageSize / 8);
-    final Timer timer = new Timer();
+    final var pageLimit = (int) (5 * 1024L * 1024 * 1024 / pageSize);
+    final var pageCount = (int) (1024L * 1024 * 1024 * 1024 / pageSize / 8);
+    final var timer = new Timer();
 
-    final AtomicBoolean memoryAboveLimit = new AtomicBoolean();
+    final var memoryAboveLimit = new AtomicBoolean();
     timer.schedule(
         new TimerTask() {
           @Override
           public void run() {
-            final long memoryConsumption = allocator.getMemoryConsumption();
+            final var memoryConsumption = allocator.getMemoryConsumption();
             memoryAboveLimit.set(memoryAboveLimit.get() || memoryConsumption > maxMemory * 1.1);
 
             if (memoryConsumption > maxMemory * 1.1) {
@@ -141,21 +137,21 @@ public class AsyncReadCacheTestIT {
         1000,
         1000);
 
-    long start = System.nanoTime();
-    for (int i = 0; i < 4; i++) {
+    var start = System.nanoTime();
+    for (var i = 0; i < 4; i++) {
       futures.add(
           executor.submit(new ZiphianPageReader(pageLimit, writeCache, pageCount, readCache)));
     }
 
-    for (int i = 0; i < 4; i++) {
+    for (var i = 0; i < 4; i++) {
       futures.add(
           executor.submit(new ZiphianPageWriter(pageLimit, writeCache, pageCount, readCache)));
     }
 
-    for (Future<Void> future : futures) {
+    for (var future : futures) {
       future.get();
     }
-    long end = System.nanoTime();
+    var end = System.nanoTime();
 
     readCache.assertSize();
     readCache.assertConsistency();
@@ -173,7 +169,6 @@ public class AsyncReadCacheTestIT {
             + " megabytes, "
             + ((long) pageCount) * pageSize / 1024 / 1024
             + " megabytes were accessed.");
-    System.out.println("Hit rate " + readCache.hitRate());
     final long total = end - start;
     final long nsPerPage = total / pageCount;
     final long opPerSec = 1_000_000_000 / nsPerPage;
@@ -195,14 +190,14 @@ public class AsyncReadCacheTestIT {
     private final WriteCache writeCache;
     private final int pageCount;
 
-    private final AsyncReadCache readCache;
+    private final LockFreeReadCache readCache;
 
     private PageWriter(
         final int fileLimit,
         final int pageLimit,
         final WriteCache writeCache,
         final int pageCount,
-        final AsyncReadCache readCache) {
+        final LockFreeReadCache readCache) {
       this.fileLimit = fileLimit;
       this.pageLimit = pageLimit;
       this.writeCache = writeCache;
@@ -212,14 +207,14 @@ public class AsyncReadCacheTestIT {
 
     @Override
     public Void call() {
-      int pageCounter = 0;
+      var pageCounter = 0;
 
-      final ThreadLocalRandom random = ThreadLocalRandom.current();
+      final var random = ThreadLocalRandom.current();
       while (pageCounter < pageCount) {
-        final int fileId = random.nextInt(fileLimit);
-        final int pageIndex = random.nextInt(pageLimit);
+        final var fileId = random.nextInt(fileLimit);
+        final var pageIndex = random.nextInt(pageLimit);
 
-        final CacheEntry cacheEntry =
+        final var cacheEntry =
             readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
         readCache.releaseFromWrite(cacheEntry, writeCache, true);
         pageCounter++;
@@ -236,14 +231,14 @@ public class AsyncReadCacheTestIT {
     private final WriteCache writeCache;
     private final int pageCount;
 
-    private final AsyncReadCache readCache;
+    private final LockFreeReadCache readCache;
 
     private PageReader(
         final int fileLimit,
         final int pageLimit,
         final WriteCache writeCache,
         final int pageCount,
-        final AsyncReadCache readCache) {
+        final LockFreeReadCache readCache) {
       this.fileLimit = fileLimit;
       this.pageLimit = pageLimit;
       this.writeCache = writeCache;
@@ -253,14 +248,14 @@ public class AsyncReadCacheTestIT {
 
     @Override
     public Void call() {
-      int pageCounter = 0;
+      var pageCounter = 0;
 
-      final ThreadLocalRandom random = ThreadLocalRandom.current();
+      final var random = ThreadLocalRandom.current();
       while (pageCounter < pageCount) {
-        final int fileId = random.nextInt(fileLimit);
-        final int pageIndex = random.nextInt(pageLimit);
+        final var fileId = random.nextInt(fileLimit);
+        final var pageIndex = random.nextInt(pageLimit);
 
-        final CacheEntry cacheEntry = readCache.loadForRead(fileId, pageIndex, writeCache, true);
+        final var cacheEntry = readCache.loadForRead(fileId, pageIndex, writeCache, true);
         readCache.releaseFromRead(cacheEntry);
         pageCounter++;
       }
@@ -275,13 +270,13 @@ public class AsyncReadCacheTestIT {
     private final WriteCache writeCache;
     private final int pageCount;
 
-    private final AsyncReadCache readCache;
+    private final LockFreeReadCache readCache;
 
     private ZiphianPageWriter(
         final int pageLimit,
         final WriteCache writeCache,
         final int pageCount,
-        final AsyncReadCache readCache) {
+        final LockFreeReadCache readCache) {
       this.pageLimit = pageLimit;
       this.writeCache = writeCache;
       this.pageCount = pageCount;
@@ -290,13 +285,13 @@ public class AsyncReadCacheTestIT {
 
     @Override
     public Void call() {
-      int pageCounter = 0;
+      var pageCounter = 0;
 
-      final ScrambledZipfianGenerator random = new ScrambledZipfianGenerator(pageLimit);
+      final var random = new ScrambledZipfianGenerator(pageLimit);
       while (pageCounter < pageCount) {
-        final int pageIndex = random.nextInt();
+        final var pageIndex = random.nextInt();
         assert pageIndex < pageLimit;
-        final CacheEntry cacheEntry = readCache.loadForWrite(0, pageIndex, writeCache, true, null);
+        final var cacheEntry = readCache.loadForWrite(0, pageIndex, writeCache, true, null);
         readCache.releaseFromWrite(cacheEntry, writeCache, true);
         pageCounter++;
       }
@@ -311,13 +306,13 @@ public class AsyncReadCacheTestIT {
     private final WriteCache writeCache;
     private final int pageCount;
 
-    private final AsyncReadCache readCache;
+    private final LockFreeReadCache readCache;
 
     private ZiphianPageReader(
         final int pageLimit,
         final WriteCache writeCache,
         final int pageCount,
-        final AsyncReadCache readCache) {
+        final LockFreeReadCache readCache) {
       this.pageLimit = pageLimit;
       this.writeCache = writeCache;
       this.pageCount = pageCount;
@@ -326,13 +321,13 @@ public class AsyncReadCacheTestIT {
 
     @Override
     public Void call() {
-      int pageCounter = 0;
+      var pageCounter = 0;
 
-      final ScrambledZipfianGenerator random = new ScrambledZipfianGenerator(pageLimit);
+      final var random = new ScrambledZipfianGenerator(pageLimit);
       while (pageCounter < pageCount) {
-        final int pageIndex = random.nextInt();
+        final var pageIndex = random.nextInt();
         assert pageIndex < pageLimit;
-        final CacheEntry cacheEntry = readCache.loadForRead(0, pageIndex, writeCache, true);
+        final var cacheEntry = readCache.loadForRead(0, pageIndex, writeCache, true);
         readCache.releaseFromRead(cacheEntry);
         pageCounter++;
       }
@@ -432,8 +427,8 @@ public class AsyncReadCacheTestIT {
         final long startPageIndex,
         final ModifiableBoolean cacheHit,
         final boolean verifyChecksums) {
-      final Pointer pointer = byteBufferPool.acquireDirect(true, Intention.TEST);
-      final CachePointer cachePointer =
+      final var pointer = byteBufferPool.acquireDirect(true, Intention.TEST);
+      final var cachePointer =
           new CachePointer(pointer, byteBufferPool, fileId, (int) startPageIndex);
       cachePointer.incrementReadersReferrer();
       return cachePointer;
@@ -568,6 +563,11 @@ public class AsyncReadCacheTestIT {
     @Override
     public void replaceFileId(long fileId, long newFileId) {
     }
+
+    @Override
+    public String getStorageName() {
+      return null;
+    }
   }
 
   private static final class ScrambledZipfianGenerator {
@@ -606,17 +606,17 @@ public class AsyncReadCacheTestIT {
     }
 
     public long nextLong() {
-      long ret = gen.nextLong();
+      var ret = gen.nextLong();
       ret = _min + FNVhash64(ret) % _itemcount;
       return ret;
     }
 
     static long FNVhash64(long val) {
       // from http://en.wikipedia.org/wiki/Fowler_Noll_Vo_hash
-      long hashval = FNV_offset_basis_64;
+      var hashval = FNV_offset_basis_64;
 
-      for (int i = 0; i < 8; i++) {
-        long octet = val & 0x00ff;
+      for (var i = 0; i < 8; i++) {
+        var octet = val & 0x00ff;
         val = val >> 8;
 
         hashval = hashval ^ octet;
@@ -679,8 +679,8 @@ public class AsyncReadCacheTestIT {
     }
 
     static double zetastatic(long st, long n, double theta, double initialsum) {
-      double sum = initialsum;
-      for (long i = st; i < n; i++) {
+      var sum = initialsum;
+      for (var i = st; i < n; i++) {
 
         sum += 1 / (Math.pow(i + 1, theta));
       }
@@ -715,8 +715,8 @@ public class AsyncReadCacheTestIT {
         }
       }
 
-      double u = ThreadLocalRandom.current().nextDouble();
-      double uz = u * zetan;
+      var u = ThreadLocalRandom.current().nextDouble();
+      var uz = u * zetan;
 
       if (uz < 1.0) {
         return base;

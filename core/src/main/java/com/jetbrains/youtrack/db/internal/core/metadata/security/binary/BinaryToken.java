@@ -4,7 +4,7 @@ import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
+import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.BinaryTokenPayload;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.jwt.TokenHeader;
@@ -43,22 +43,26 @@ public class BinaryToken implements Token {
   }
 
   @Override
-  public SecurityUserIml getUser(DatabaseSessionInternal db) {
-    if (this.payload.getUserRid() != null) {
-      try {
-        EntityImpl result = db.load(new RecordId(this.payload.getUserRid()));
-        if (result.getClassName().equals(SecurityUserIml.CLASS_NAME)) {
-          return new SecurityUserIml(db, result);
+  public SecurityUserImpl getUser(DatabaseSessionInternal session) {
+    return session.computeInTx(transaction -> {
+      if (this.payload.getUserRid() != null) {
+        try {
+          EntityImpl result = transaction.load(new RecordId(this.payload.getUserRid()));
+          if (result.getSchemaClassName().equals(SecurityUserImpl.CLASS_NAME)) {
+            return new SecurityUserImpl(session, result);
+          }
+        } catch (RecordNotFoundException e) {
+          //noinspection ReturnOfNull
+          return null;
         }
-      } catch (RecordNotFoundException e) {
-        return null;
       }
-    }
-    return null;
+      //noinspection ReturnOfNull
+      return null;
+    });
   }
 
   @Override
-  public String getDatabase() {
+  public String getDatabaseName() {
     return this.payload.getDatabase();
   }
 
@@ -112,13 +116,13 @@ public class BinaryToken implements Token {
 
   @Override
   public boolean isNowValid() {
-    long now = System.currentTimeMillis();
+    var now = System.currentTimeMillis();
     return getExpiry() > now;
   }
 
   @Override
   public boolean isCloseToExpire() {
-    long now = System.currentTimeMillis();
+    var now = System.currentTimeMillis();
     return getExpiry() - 120000 <= now;
   }
 

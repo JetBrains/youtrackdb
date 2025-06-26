@@ -32,25 +32,25 @@ import com.jetbrains.youtrack.db.internal.core.exception.CoreException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AtomicOperationIdGen;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.OperationsFreezer;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurableComponent;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.Objects;
+import java.util.function.Supplier;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * @since 12/3/13
  */
 public class AtomicOperationsManager {
-
   private final ThreadLocal<AtomicOperation> currentOperation = new ThreadLocal<>();
 
-  private final AbstractPaginatedStorage storage;
+  private final AbstractStorage storage;
 
   @Nonnull
   private final WriteAheadLog writeAheadLog;
@@ -68,7 +68,7 @@ public class AtomicOperationsManager {
   private final AtomicOperationsTable atomicOperationsTable;
 
   public AtomicOperationsManager(
-      AbstractPaginatedStorage storage, AtomicOperationsTable atomicOperationsTable) {
+      AbstractStorage storage, AtomicOperationsTable atomicOperationsTable) {
     this.storage = storage;
     this.writeAheadLog = storage.getWALInstance();
     this.readCache = storage.getReadCache();
@@ -79,9 +79,9 @@ public class AtomicOperationsManager {
   }
 
   public AtomicOperation startAtomicOperation(final byte[] metadata) throws IOException {
-    AtomicOperation operation = currentOperation.get();
+    var operation = currentOperation.get();
     if (operation != null) {
-      throw new StorageException("Atomic operation already started");
+      throw new StorageException(storage.getName(), "Atomic operation already started");
     }
 
     atomicOperationsFreezer.startOperation();
@@ -113,16 +113,16 @@ public class AtomicOperationsManager {
   public <T> T calculateInsideAtomicOperation(final byte[] metadata, final TxFunction<T> function)
       throws IOException {
     Throwable error = null;
-    final AtomicOperation atomicOperation = startAtomicOperation(metadata);
+    final var atomicOperation = startAtomicOperation(metadata);
     try {
       return function.accept(atomicOperation);
     } catch (Exception e) {
       error = e;
       throw BaseException.wrapException(
-          new StorageException(
+          new StorageException(storage.getName(),
               "Exception during execution of atomic operation inside of storage "
                   + storage.getName()),
-          e);
+          e, storage.getName());
     } finally {
       endAtomicOperation(error);
     }
@@ -131,16 +131,16 @@ public class AtomicOperationsManager {
   public void executeInsideAtomicOperation(final byte[] metadata, final TxConsumer consumer)
       throws IOException {
     Throwable error = null;
-    final AtomicOperation atomicOperation = startAtomicOperation(metadata);
+    final var atomicOperation = startAtomicOperation(metadata);
     try {
       consumer.accept(atomicOperation);
     } catch (Exception e) {
       error = e;
       throw BaseException.wrapException(
-          new StorageException(
+          new StorageException(storage.getName(),
               "Exception during execution of atomic operation inside of storage "
                   + storage.getName()),
-          e);
+          e, storage.getName());
     } finally {
       endAtomicOperation(error);
     }
@@ -171,7 +171,7 @@ public class AtomicOperationsManager {
                   + lockName
                   + " in storage "
                   + storage.getName(), lockName, storage.getName()),
-          e);
+          e, storage.getName());
     } finally {
       endComponentOperation(atomicOperation);
     }
@@ -197,7 +197,7 @@ public class AtomicOperationsManager {
                   + lockName
                   + " in storage "
                   + storage.getName(), lockName, storage.getName()),
-          e);
+          e, storage.getName());
     } finally {
       endComponentOperation(atomicOperation);
     }
@@ -218,16 +218,15 @@ public class AtomicOperationsManager {
   }
 
   public void alarmClearOfAtomicOperation() {
-    final AtomicOperation current = currentOperation.get();
+    final var current = currentOperation.get();
 
     if (current != null) {
       currentOperation.set(null);
     }
   }
 
-  public long freezeAtomicOperations(Class<? extends BaseException> exceptionClass,
-      String message) {
-    return atomicOperationsFreezer.freezeOperations(exceptionClass, message);
+  public long freezeAtomicOperations(@Nullable Supplier<? extends BaseException> throwException) {
+    return atomicOperationsFreezer.freezeOperations(throwException);
   }
 
   public void releaseAtomicOperations(long id) {
@@ -242,11 +241,11 @@ public class AtomicOperationsManager {
    * Ends the current atomic operation on this manager.
    */
   public void endAtomicOperation(final Throwable error) throws IOException {
-    final AtomicOperation operation = currentOperation.get();
+    final var operation = currentOperation.get();
 
     if (operation == null) {
       LogManager.instance().error(this, "There is no atomic operation active", null);
-      throw new DatabaseException("There is no atomic operation active");
+      throw new DatabaseException(storage.getName(), "There is no atomic operation active");
     }
 
     try {
@@ -264,7 +263,7 @@ public class AtomicOperationsManager {
           lsn = null;
         }
 
-        final long operationId = operation.getOperationUnitId();
+        final var operationId = operation.getOperationUnitId();
         if (error != null) {
           atomicOperationsTable.rollbackOperation(operationId);
         } else {
@@ -273,11 +272,11 @@ public class AtomicOperationsManager {
         }
 
       } finally {
-        final Iterator<String> lockedObjectIterator = operation.lockedObjects().iterator();
+        final var lockedObjectIterator = operation.lockedObjects().iterator();
 
         try {
           while (lockedObjectIterator.hasNext()) {
-            final String lockedObject = lockedObjectIterator.next();
+            final var lockedObject = lockedObjectIterator.next();
             lockedObjectIterator.remove();
 
             lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
@@ -293,12 +292,12 @@ public class AtomicOperationsManager {
   }
 
   public void ensureThatComponentsUnlocked() {
-    final AtomicOperation operation = currentOperation.get();
+    final var operation = currentOperation.get();
     if (operation != null) {
-      final Iterator<String> lockedObjectIterator = operation.lockedObjects().iterator();
+      final var lockedObjectIterator = operation.lockedObjects().iterator();
 
       while (lockedObjectIterator.hasNext()) {
-        final String lockedObject = lockedObjectIterator.next();
+        final var lockedObject = lockedObjectIterator.next();
         lockedObjectIterator.remove();
 
         lockManager.releaseLock(this, lockedObject, OneEntryPerKeyLockManager.LOCK.EXCLUSIVE);
@@ -329,7 +328,7 @@ public class AtomicOperationsManager {
    * {@code durableComponent}.
    */
   public void acquireExclusiveLockTillOperationComplete(DurableComponent durableComponent) {
-    final AtomicOperation operation = currentOperation.get();
+    final var operation = currentOperation.get();
     assert operation != null;
     acquireExclusiveLockTillOperationComplete(operation, durableComponent.getLockName());
   }

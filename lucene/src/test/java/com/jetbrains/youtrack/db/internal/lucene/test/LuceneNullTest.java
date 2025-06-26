@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -13,54 +12,51 @@ public class LuceneNullTest extends BaseLuceneTest {
   @Test
   public void testNullChangeToNotNullWithLists() {
 
-    db.command("create class Test extends V").close();
+    session.execute("create class Test extends V").close();
 
-    db.command("create property Test.names EMBEDDEDLIST STRING").close();
+    session.execute("create property Test.names EMBEDDEDLIST STRING").close();
 
-    db.command("create index Test.names on Test (names) fulltext engine lucene").close();
+    session.execute("create index Test.names on Test (names) fulltext engine lucene").close();
 
-    db.begin();
-    EntityImpl doc = new EntityImpl("Test");
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Test"));
+    session.commit();
 
-    db.begin();
-    doc = db.bindToSession(doc);
-    doc.field("names", new String[]{"foo"});
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    doc.newEmbeddedList("names", new String[]{"foo"});
+    session.commit();
 
-    db.begin();
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Test.names");
-    Assert.assertEquals(1, index.getInternal().size(db));
-    db.commit();
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex("Test.names");
+    Assert.assertEquals(1, index.size(session));
+    session.commit();
   }
 
   @Test
   public void testNotNullChangeToNullWithLists() {
 
-    db.command("create class Test extends V").close();
-    db.command("create property Test.names EMBEDDEDLIST STRING").close();
-    db.command("create index Test.names on Test (names) fulltext engine lucene").close();
+    session.execute("create class Test extends V").close();
+    session.execute("create property Test.names EMBEDDEDLIST STRING").close();
+    session.execute("create index Test.names on Test (names) fulltext engine lucene").close();
 
-    EntityImpl doc = new EntityImpl("Test");
+    session.begin();
+    var doc = ((EntityImpl) session.newVertex("Test"));
+    doc.newEmbeddedList("names", new String[]{"foo"});
+    session.commit();
 
-    db.begin();
-    doc.field("names", new String[]{"foo"});
-    db.save(doc);
-    db.commit();
+    session.begin();
 
-    db.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    doc.removeProperty("names");
 
-    doc = db.bindToSession(doc);
-    doc.removeField("names");
+    session.commit();
 
-    db.save(doc);
-    db.commit();
-
-    db.begin();
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "Test.names");
-    Assert.assertEquals(index.getInternal().size(db), 0);
-    db.commit();
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex("Test.names");
+    Assert.assertEquals(index.size(session), 0);
+    session.commit();
   }
 }

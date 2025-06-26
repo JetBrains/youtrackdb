@@ -1,8 +1,6 @@
 package com.jetbrains.youtrack.db.internal.common.collection.closabledictionary;
 
 import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -10,8 +8,8 @@ public class ClosableLRUListTest {
 
   @Test
   public void tesMoveToTail() {
-    ClosableLRUList<Long, CIItem> lruList = new ClosableLRUList<Long, CIItem>();
-    ClosableEntry<Long, CIItem> firstEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var lruList = new ClosableLRUList<Long, CIItem>();
+    var firstEntry = new ClosableEntry<Long, CIItem>(new CIItem());
 
     Assert.assertFalse(lruList.contains(firstEntry));
     Assert.assertEquals(lruList.size(), 0);
@@ -24,7 +22,7 @@ public class ClosableLRUListTest {
     Assert.assertTrue(lruList.assertBackwardStructure());
     Assert.assertTrue(lruList.assertForwardStructure());
 
-    ClosableEntry<Long, CIItem> secondEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var secondEntry = new ClosableEntry<Long, CIItem>(new CIItem());
 
     lruList.moveToTheTail(secondEntry);
 
@@ -36,7 +34,7 @@ public class ClosableLRUListTest {
     Assert.assertTrue(lruList.assertBackwardStructure());
     Assert.assertTrue(lruList.assertForwardStructure());
 
-    ClosableEntry<Long, CIItem> thirdEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var thirdEntry = new ClosableEntry<Long, CIItem>(new CIItem());
     lruList.moveToTheTail(thirdEntry);
 
     Assert.assertEquals(lruList.size(), 3);
@@ -81,11 +79,11 @@ public class ClosableLRUListTest {
 
   @Test
   public void tesRemove() {
-    ClosableLRUList<Long, CIItem> lruList = new ClosableLRUList<Long, CIItem>();
+    var lruList = new ClosableLRUList<Long, CIItem>();
 
-    ClosableEntry<Long, CIItem> firstEntry = new ClosableEntry<Long, CIItem>(new CIItem());
-    ClosableEntry<Long, CIItem> secondEntry = new ClosableEntry<Long, CIItem>(new CIItem());
-    ClosableEntry<Long, CIItem> thirdEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var firstEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var secondEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var thirdEntry = new ClosableEntry<Long, CIItem>(new CIItem());
 
     lruList.moveToTheTail(firstEntry);
     lruList.moveToTheTail(secondEntry);
@@ -168,17 +166,17 @@ public class ClosableLRUListTest {
 
   @Test
   public void testPool() {
-    ClosableLRUList<Long, CIItem> lruList = new ClosableLRUList<Long, CIItem>();
+    var lruList = new ClosableLRUList<Long, CIItem>();
 
-    ClosableEntry<Long, CIItem> firstEntry = new ClosableEntry<Long, CIItem>(new CIItem());
-    ClosableEntry<Long, CIItem> secondEntry = new ClosableEntry<Long, CIItem>(new CIItem());
-    ClosableEntry<Long, CIItem> thirdEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var firstEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var secondEntry = new ClosableEntry<Long, CIItem>(new CIItem());
+    var thirdEntry = new ClosableEntry<Long, CIItem>(new CIItem());
 
     lruList.moveToTheTail(firstEntry);
     lruList.moveToTheTail(secondEntry);
     lruList.moveToTheTail(thirdEntry);
 
-    ClosableEntry<Long, CIItem> removed = lruList.poll();
+    var removed = lruList.poll();
     Assert.assertSame(removed, firstEntry);
     Assert.assertEquals(lruList.size(), 2);
 
@@ -243,10 +241,10 @@ public class ClosableLRUListTest {
 
   private void assertContent(
       ClosableLRUList<Long, CIItem> lruList, ClosableEntry<Long, CIItem>[] entries) {
-    final List<ClosableEntry<Long, CIItem>> entryList = Arrays.asList(entries);
+    final var entryList = Arrays.asList(entries);
 
-    final Iterator<ClosableEntry<Long, CIItem>> iterator = entryList.iterator();
-    for (ClosableEntry<Long, CIItem> entry : lruList) {
+    final var iterator = entryList.iterator();
+    for (var entry : lruList) {
       Assert.assertTrue(iterator.hasNext());
       Assert.assertSame(entry, iterator.next());
     }

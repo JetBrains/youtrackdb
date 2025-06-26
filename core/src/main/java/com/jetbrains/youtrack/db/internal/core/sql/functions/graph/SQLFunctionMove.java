@@ -1,23 +1,24 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.graph;
 
-import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
-import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Relation;
+import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
+import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
 import java.util.ArrayList;
-import java.util.List;
+import javax.annotation.Nullable;
 
-/**
- *
- */
 public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
   public static final String NAME = "move";
@@ -31,62 +32,87 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
   }
 
   protected abstract Object move(
-      final DatabaseSession db, final Identifiable iRecord, final String[] iLabels);
+      final DatabaseSessionEmbedded db, final Identifiable record, final String[] labels);
 
+  protected abstract Object move(
+      final DatabaseSessionEmbedded db, final Relation<?> bidirectionalLink,
+      final String[] labels);
+
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "Syntax error: " + name + "([<labels>])";
   }
 
+  @Override
   public Object execute(
       final Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       final Object iCurrentResult,
       final Object[] iParameters,
       final CommandContext iContext) {
 
-    DatabaseSession db =
-        iContext != null
-            ? iContext.getDatabase()
-            : DatabaseRecordThreadLocal.instance().getIfDefined();
-
+    var db = iContext.getDatabaseSession();
     final String[] labels;
     if (iParameters != null && iParameters.length > 0 && iParameters[0] != null) {
       labels =
           MultiValue.array(
               iParameters,
               String.class,
-              new CallableFunction<Object, Object>() {
-
-                @Override
-                public Object call(final Object iArgument) {
-                  return IOUtils.getStringContent(iArgument);
-                }
-              });
+              IOUtils::getStringContent);
     } else {
       labels = null;
     }
 
     return SQLEngine.foreachRecord(
-        new CallableFunction<Object, Identifiable>() {
-          @Override
-          public Object call(final Identifiable iArgument) {
-            return move(db, iArgument, labels);
+        iArgument -> {
+          if (iArgument instanceof Relation<?> bidirectionalLink) {
+            return move(db, bidirectionalLink, labels);
+          } else if (iArgument instanceof Identifiable identifiable) {
+            return move(db, identifiable, labels);
+          } else {
+            throw new IllegalArgumentException(
+                "Invalid argument type: " + iArgument.getClass().getName());
           }
         },
         iThis,
         iContext);
   }
 
-  protected Object v2v(
+  @Nullable
+  protected static Object v2v(
+      final DatabaseSessionInternal graph,
+      final Identifiable iRecord,
+      final Direction iDirection,
+      final String[] labels) {
+    if (iRecord != null) {
+      try {
+        var transaction = graph.getActiveTransaction();
+        var rec = (EntityImpl) transaction.loadEntity(iRecord);
+        if (rec.isEdge()) {
+          return null;
+        } else {
+          return rec.getEntities(iDirection, labels);
+        }
+      } catch (RecordNotFoundException rnf) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  @Nullable
+  protected static Object v2e(
       final DatabaseSession graph,
       final Identifiable iRecord,
       final Direction iDirection,
-      final String[] iLabels) {
+      final String[] labels) {
     if (iRecord != null) {
       try {
-        Entity rec = iRecord.getRecord();
-        if (rec.isVertex()) {
-          return rec.asVertex().get().getVertices(iDirection, iLabels);
+        var transaction = graph.getActiveTransaction();
+        var rec = (EntityImpl) transaction.loadEntity(iRecord);
+        if (!rec.isEdge()) {
+          return rec.getBidirectionalLinks(iDirection, labels);
         } else {
           return null;
         }
@@ -98,47 +124,48 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
     }
   }
 
-  protected Object v2e(
+  @Nullable
+  protected static Object e2v(
       final DatabaseSession graph,
       final Identifiable iRecord,
-      final Direction iDirection,
-      final String[] iLabels) {
-    if (iRecord != null) {
-      try {
-        Entity rec = iRecord.getRecord();
-        if (rec.isVertex()) {
-          return rec.asVertex().get().getEdges(iDirection, iLabels);
-        } else {
-          return null;
-        }
-      } catch (RecordNotFoundException rnf) {
-        return null;
-      }
-    } else {
-      return null;
-    }
-  }
-
-  protected Object e2v(
-      final DatabaseSession graph,
-      final Identifiable iRecord,
-      final Direction iDirection,
-      final String[] iLabels) {
+      final Direction iDirection) {
     if (iRecord != null) {
 
       try {
-        Entity rec = iRecord.getRecord();
+        var transaction = graph.getActiveTransaction();
+        Entity rec = transaction.load(iRecord);
         if (rec.isEdge()) {
           if (iDirection == Direction.BOTH) {
-            List results = new ArrayList();
-            results.add(rec.asEdge().get().getVertex(Direction.OUT));
-            results.add(rec.asEdge().get().getVertex(Direction.IN));
+            var results = new ArrayList<Vertex>();
+            results.add(rec.asEdge().getVertex(Direction.OUT));
+            results.add(rec.asEdge().getVertex(Direction.IN));
             return results;
           }
-          return rec.asEdge().get().getVertex(iDirection);
+          return rec.asEdge().getVertex(iDirection);
         } else {
           return null;
         }
+      } catch (RecordNotFoundException e) {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  @Nullable
+  protected static Object e2v(
+      final Relation<?> bidirectionalLink,
+      final Direction iDirection) {
+    if (bidirectionalLink != null) {
+      try {
+        if (iDirection == Direction.BOTH) {
+          var results = new ArrayList<Entity>(2);
+          results.add(bidirectionalLink.getEntity(Direction.OUT));
+          results.add(bidirectionalLink.getEntity(Direction.IN));
+          return results;
+        }
+        return bidirectionalLink.getEntity(iDirection);
       } catch (RecordNotFoundException e) {
         return null;
       }

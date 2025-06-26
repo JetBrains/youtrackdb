@@ -2,25 +2,27 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
-public class SQLNotBlock extends SQLBooleanExpression {
+public final class SQLNotBlock extends SQLBooleanExpression {
 
-  protected SQLBooleanExpression sub;
+  SQLBooleanExpression sub;
 
-  protected boolean negate = false;
+  boolean negate = false;
 
   public SQLNotBlock(int id) {
     super(id);
@@ -35,7 +37,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
     if (sub == null) {
       return true;
     }
-    boolean result = sub.evaluate(currentRecord, ctx);
+    var result = sub.evaluate(currentRecord, ctx);
     if (negate) {
       return !result;
     }
@@ -47,7 +49,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
     if (sub == null) {
       return true;
     }
-    boolean result = sub.evaluate(currentRecord, ctx);
+    var result = sub.evaluate(currentRecord, ctx);
     if (negate) {
       return !result;
     }
@@ -70,6 +72,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
     this.negate = negate;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (negate) {
       builder.append("NOT ");
@@ -77,6 +80,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
     sub.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (negate) {
       builder.append("NOT ");
@@ -99,23 +103,26 @@ public class SQLNotBlock extends SQLBooleanExpression {
     return sub.getExternalCalculationConditions();
   }
 
+  @Override
+  @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
-      SchemaClass iSchemaClass, DatabaseSessionInternal database) {
+      SchemaClass iSchemaClass, DatabaseSessionEmbedded session) {
     if (sub == null) {
       return null;
     }
     if (negate) {
       return null;
     }
-    return sub.getIndexedFunctionConditions(iSchemaClass, database);
+    return sub.getIndexedFunctionConditions(iSchemaClass, session);
   }
 
   @Override
-  public List<SQLAndBlock> flatten() {
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
     if (!negate) {
-      return sub.flatten();
+      return sub.flatten(ctx, schemaClass);
     }
-    return super.flatten();
+
+    return super.flatten(ctx, schemaClass);
   }
 
   @Override
@@ -125,7 +132,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
 
   @Override
   public SQLNotBlock copy() {
-    SQLNotBlock result = new SQLNotBlock(-1);
+    var result = new SQLNotBlock(-1);
     result.sub = sub.copy();
     result.negate = negate;
     return result;
@@ -150,7 +157,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
       return false;
     }
 
-    SQLNotBlock oNotBlock = (SQLNotBlock) o;
+    var oNotBlock = (SQLNotBlock) o;
 
     if (negate != oNotBlock.negate) {
       return false;
@@ -160,7 +167,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
 
   @Override
   public int hashCode() {
-    int result = sub != null ? sub.hashCode() : 0;
+    var result = sub != null ? sub.hashCode() : 0;
     result = 31 * result + (negate ? 1 : 0);
     return result;
   }
@@ -176,7 +183,7 @@ public class SQLNotBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return sub.isCacheable(session);
   }
 
@@ -189,20 +196,44 @@ public class SQLNotBlock extends SQLBooleanExpression {
     return this;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    Optional<IndexCandidate> found = sub.findIndex(info, ctx);
-    if (negate && found.isPresent()) {
-      found = found.get().invert();
+  @Override
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var found = sub.findIndex(info, ctx);
+    if (negate && found != null) {
+      found = found.invert();
     }
     return found;
   }
 
   @Override
-  public boolean isAlwaysTrue() {
+  public boolean isConstantExpression() {
     if (negate) {
       return false;
     }
-    return sub.isAlwaysTrue();
+    return sub.isConstantExpression();
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Override
+  @Nullable
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=1926313b3f854235aaa20811c22d583b (do not edit this line) */

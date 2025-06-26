@@ -92,7 +92,7 @@ public class SQLIndexIdentifier extends SimpleNode {
   }
 
   public SQLIndexIdentifier copy() {
-    SQLIndexIdentifier result = new SQLIndexIdentifier(-1);
+    var result = new SQLIndexIdentifier(-1);
     result.type = type;
     result.indexNameString = indexNameString;
     result.indexName = indexName.copy();
@@ -108,7 +108,7 @@ public class SQLIndexIdentifier extends SimpleNode {
       return false;
     }
 
-    SQLIndexIdentifier that = (SQLIndexIdentifier) o;
+    var that = (SQLIndexIdentifier) o;
 
     if (type != that.type) {
       return false;
@@ -121,14 +121,14 @@ public class SQLIndexIdentifier extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = type != null ? type.hashCode() : 0;
+    var result = type != null ? type.hashCode() : 0;
     result = 31 * result + (indexNameString != null ? indexNameString.hashCode() : 0);
     result = 31 * result + (indexName != null ? indexName.hashCode() : 0);
     return result;
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("type", type.toString());
     result.setProperty("indexNameString", indexNameString);
 

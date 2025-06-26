@@ -19,11 +19,12 @@
  */
 package com.jetbrains.youtrack.db.internal.core.record.impl;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import javax.annotation.Nullable;
 
 /**
  * Entity entry. Used by EntityImpl.
@@ -32,7 +33,7 @@ public class EntityEntry {
 
   public Object value;
   public Object original;
-  public PropertyType type;
+  public PropertyTypeInternal type;
   public SchemaProperty property;
   private boolean changed = false;
   private boolean exists = true;
@@ -70,7 +71,7 @@ public class EntityEntry {
 
   @SuppressWarnings({"CloneDoesntDeclareCloneNotSupportedException", "MethodDoesntCallSuperMethod"})
   protected EntityEntry clone() {
-    final EntityEntry entry = new EntityEntry();
+    final var entry = new EntityEntry();
     entry.type = type;
     entry.property = property;
     entry.value = value;
@@ -83,6 +84,7 @@ public class EntityEntry {
     return entry;
   }
 
+  @Nullable
   public MultiValueChangeTimeLine<Object, Object> getTimeLine() {
     //noinspection rawtypes
     if (!changed && value instanceof TrackedMultiValue trackedMultiValue) {
@@ -203,10 +205,10 @@ public class EntityEntry {
       //noinspection rawtypes
       if (onLoadValue instanceof TrackedMultiValue trackedOnLoadValue) {
         //noinspection rawtypes
-        MultiValueChangeTimeLine transactionTimeLine = trackedOnLoadValue.getTransactionTimeLine();
+        var transactionTimeLine = trackedOnLoadValue.getTransactionTimeLine();
         //noinspection unchecked
         return transactionTimeLine != null
-            ? trackedOnLoadValue.returnOriginalState(session,
+            ? trackedOnLoadValue.returnOriginalState(session.getActiveTransaction(),
             transactionTimeLine.getMultiValueChangeEvents())
             : onLoadValue;
       } else {
@@ -214,12 +216,12 @@ public class EntityEntry {
       }
     } else {
       //noinspection rawtypes
-      TrackedMultiValue trackedOnLoadValue = (TrackedMultiValue) value;
+      var trackedOnLoadValue = (TrackedMultiValue) value;
       //noinspection rawtypes
-      MultiValueChangeTimeLine transactionTimeLine = trackedOnLoadValue.getTransactionTimeLine();
+      var transactionTimeLine = trackedOnLoadValue.getTransactionTimeLine();
       //noinspection unchecked
       return transactionTimeLine != null
-          ? trackedOnLoadValue.returnOriginalState(session,
+          ? trackedOnLoadValue.returnOriginalState(session.getActiveTransaction(),
           transactionTimeLine.getMultiValueChangeEvents())
           : trackedOnLoadValue;
     }

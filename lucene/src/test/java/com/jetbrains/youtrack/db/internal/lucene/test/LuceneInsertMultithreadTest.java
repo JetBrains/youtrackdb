@@ -18,22 +18,14 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.test;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.engine.local.EngineLocalPaginated;
-import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
 
@@ -56,19 +48,16 @@ public class LuceneInsertMultithreadTest {
       buildDirectory = ".";
     }
 
-    String config = System.getProperty("youtrackdb.test.env");
+    var config = System.getProperty("youtrackdb.test.env");
 
-    String storageType;
     if ("ci".equals(config) || "release".equals(config)) {
-      storageType = EngineLocalPaginated.NAME;
-      databaseType = DatabaseType.PLOCAL;
+      databaseType = DatabaseType.DISK;
     } else {
-      storageType = EngineMemory.NAME;
       databaseType = DatabaseType.MEMORY;
     }
 
     dbName = "multiThread";
-    YOUTRACKDB = new YouTrackDBImpl(storageType + ":" + buildDirectory,
+    YOUTRACKDB = YourTracks.embedded(buildDirectory,
         YouTrackDBConfig.defaultConfig());
   }
 
@@ -85,42 +74,42 @@ public class LuceneInsertMultithreadTest {
         "create database ? " + databaseType + " users(admin identified by 'admin' role admin)",
         dbName);
     Schema schema;
-    try (DatabaseSessionInternal databaseDocumentTx = (DatabaseSessionInternal) YOUTRACKDB.open(
+    try (var session = (DatabaseSessionEmbedded) YOUTRACKDB.open(
         dbName, "admin", "admin")) {
-      schema = databaseDocumentTx.getMetadata().getSchema();
+      schema = session.getMetadata().getSchema();
 
       if (schema.getClass("City") == null) {
-        SchemaClass oClass = schema.createClass("City");
+        var oClass = schema.createClass("City");
 
-        oClass.createProperty(databaseDocumentTx, "name", PropertyType.STRING);
-        oClass.createIndex(databaseDocumentTx, "City.name", "FULLTEXT", null, null, "LUCENE",
+        oClass.createProperty("name", PropertyType.STRING);
+        oClass.createIndex("City.name", "FULLTEXT", null, null, "LUCENE",
             new String[]{"name"});
       }
 
-      Thread[] threads = new Thread[THREADS + RTHREADS];
-      for (int i = 0; i < THREADS; ++i) {
+      var threads = new Thread[THREADS + RTHREADS];
+      for (var i = 0; i < THREADS; ++i) {
         threads[i] = new Thread(new LuceneInsertThread(CYCLE), "ConcurrentWriteTest" + i);
       }
 
-      for (int i = THREADS; i < THREADS + RTHREADS; ++i) {
+      for (var i = THREADS; i < THREADS + RTHREADS; ++i) {
         threads[i] = new Thread(new LuceneReadThread(CYCLE), "ConcurrentReadTest" + i);
       }
 
-      for (int i = 0; i < THREADS + RTHREADS; ++i) {
+      for (var i = 0; i < THREADS + RTHREADS; ++i) {
         threads[i].start();
       }
 
-      for (int i = 0; i < THREADS + RTHREADS; ++i) {
+      for (var i = 0; i < THREADS + RTHREADS; ++i) {
         threads[i].join();
       }
 
-      Index idx = databaseDocumentTx.getClassInternal("City")
-          .getClassIndex(databaseDocumentTx, "City.name");
+      var idx = session.getClassInternal("City")
+          .getClassIndex(session, "City.name");
 
-      databaseDocumentTx.begin();
-      Assertions.assertThat(idx.getInternal().size(databaseDocumentTx))
+      session.begin();
+      Assertions.assertThat(idx.size(session))
           .isEqualTo(THREADS * CYCLE);
-      databaseDocumentTx.commit();
+      session.commit();
     }
     YOUTRACKDB.drop(dbName);
   }
@@ -136,23 +125,22 @@ public class LuceneInsertMultithreadTest {
     @Override
     public void run() {
 
-      try (DatabaseSession db = YOUTRACKDB.open(dbName, "admin", "admin")) {
-        db.begin();
-        for (int i = 0; i < cycle; i++) {
-          EntityImpl doc = new EntityImpl("City");
+      try (var db = YOUTRACKDB.open(dbName, "admin", "admin")) {
+        var tx = db.begin();
+        for (var i = 0; i < cycle; i++) {
+          var doc = ((EntityImpl) tx.newEntity("City"));
 
-          doc.field("name", "Rome");
+          doc.setProperty("name", "Rome");
 
-          db.begin();
-          db.save(doc);
-          db.commit();
-          int commitBuf = 500;
+          tx = db.begin();
+          tx.commit();
+          var commitBuf = 500;
           if (i % commitBuf == 0) {
-            db.commit();
-            db.begin();
+            tx.commit();
+            tx = db.begin();
           }
         }
-        db.commit();
+        tx.commit();
       }
     }
   }
@@ -167,19 +155,16 @@ public class LuceneInsertMultithreadTest {
 
     @Override
     public void run() {
-      Schema schema;
-      try (DatabaseSessionInternal databaseDocumentTx = (DatabaseSessionInternal) YOUTRACKDB.open(
+      try (var session = (DatabaseSessionEmbedded) YOUTRACKDB.open(
           dbName, "admin", "admin")) {
-        schema = databaseDocumentTx.getMetadata().getSchema();
+        var idx = session.getClassInternal("City")
+            .getClassIndex(session, "City.name");
 
-        Index idx = databaseDocumentTx.getClassInternal("City")
-            .getClassIndex(databaseDocumentTx, "City.name");
-
-        for (int i = 0; i < cycle; i++) {
-          try (Stream<RID> stream = idx.getInternal()
-              .getRids(databaseDocumentTx, "Rome")) {
+        for (var i = 0; i < cycle; i++) {
+          try (var stream = idx
+              .getRids(session, "Rome")) {
             //noinspection ResultOfMethodCallIgnored
-            stream.collect(Collectors.toList());
+            stream.toList();
           }
         }
       }

@@ -13,11 +13,12 @@
  */
 package com.jetbrains.youtrack.db.internal.spatial.shape;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -48,20 +49,19 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
 
   @Override
   public ShapeCollection<Shape> fromMapGeoJson(Map<String, Object> geoJsonMap) {
-    EntityImpl doc = new EntityImpl(getName());
-    doc.field("geometries", geoJsonMap.get("geometries"));
-    return fromDoc(doc);
+    var result =  new ResultInternal(null);
+    result.setMetadata(ShapeBuilder.SHAPE_NAME, getName());
+    result.setProperty("geometries", geoJsonMap.get("geometries"));
+    return fromResult(result);
   }
 
   @Override
-  public ShapeCollection<Shape> fromDoc(EntityImpl doc) {
-
-    List<Object> geometries = doc.field("geometries");
-
+  public ShapeCollection<Shape> fromResult(Result result) {
+    List<Object> geometries = result.getProperty("geometries");
     List<Shape> shapes = new ArrayList<Shape>();
 
-    for (Object geometry : geometries) {
-      Shape shape = shapeFactory.fromObject(geometry);
+    for (var geometry : geometries) {
+      var shape = shapeFactory.fromObject(geometry);
       shapes.add(shape);
     }
 
@@ -72,17 +72,17 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
   public void initClazz(DatabaseSessionInternal db) {
 
     Schema schema = db.getMetadata().getSchema();
-    SchemaClass shape = superClass(db);
-    SchemaClass polygon = schema.createAbstractClass(getName(), shape);
-    polygon.createProperty(db, "geometries", PropertyType.EMBEDDEDLIST, shape);
+    var shape = superClass(db);
+    var polygon = schema.createAbstractClass(getName(), shape);
+    polygon.createProperty("geometries", PropertyType.EMBEDDEDLIST, shape);
   }
 
   @Override
   public String asText(ShapeCollection<Shape> shapes) {
 
-    Geometry[] geometries = new Geometry[shapes.size()];
-    int i = 0;
-    for (Shape shape : shapes) {
+    var geometries = new Geometry[shapes.size()];
+    var i = 0;
+    for (var shape : shapes) {
       geometries[i] = SPATIAL_CONTEXT.getGeometryFrom(shape);
       i++;
     }
@@ -90,14 +90,17 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
   }
 
   @Override
-  public EntityImpl toDoc(ShapeCollection<Shape> shapes) {
+  public EmbeddedEntity toEmbeddedEntity(ShapeCollection<Shape> shapes,
+      DatabaseSessionInternal session) {
+    var result = session.newEmbeddedEntity(getName());
 
-    EntityImpl doc = new EntityImpl(getName());
-    List<EntityImpl> geometries = new ArrayList<EntityImpl>(shapes.size());
-    for (Shape s : shapes) {
-      geometries.add(shapeFactory.toDoc(s));
+    List<EmbeddedEntity> geometries = new ArrayList<>(shapes.size());
+    for (var s : shapes) {
+      geometries.add(shapeFactory.toEmbeddedEntity(s, session));
     }
-    doc.field("geometries", geometries);
-    return doc;
+
+    result.newEmbeddedList("geometries", geometries);
+
+    return result;
   }
 }

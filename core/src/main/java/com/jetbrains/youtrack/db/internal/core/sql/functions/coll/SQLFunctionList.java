@@ -19,15 +19,11 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -44,7 +40,7 @@ public class SQLFunctionList extends SQLFunctionMultiValueAbstract<List<Object>>
 
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       CommandContext iContext) {
@@ -54,7 +50,7 @@ public class SQLFunctionList extends SQLFunctionMultiValueAbstract<List<Object>>
       context = new ArrayList<Object>();
     }
 
-    for (Object value : iParams) {
+    for (var value : iParams) {
       if (value != null) {
         if (iParams.length == 1 && context == null)
         // AGGREGATION MODE (STATEFULL)
@@ -82,39 +78,13 @@ public class SQLFunctionList extends SQLFunctionMultiValueAbstract<List<Object>>
 
   @Override
   public List<Object> getResult() {
-    final List<Object> res = context;
+    final var res = context;
     context = null;
     return prepareResult(res);
   }
 
-  @SuppressWarnings("unchecked")
-  @Override
-  public Object mergeDistributedResult(List<Object> resultsToMerge) {
-    if (returnDistributedResult()) {
-      final Collection<Object> result = new HashSet<Object>();
-      for (Object iParameter : resultsToMerge) {
-        final Map<String, Object> container =
-            (Map<String, Object>) ((Collection<?>) iParameter).iterator().next();
-        result.addAll((Collection<?>) container.get("context"));
-      }
-      return result;
-    }
-
-    if (!resultsToMerge.isEmpty()) {
-      return resultsToMerge.get(0);
-    }
-
-    return null;
-  }
 
   protected List<Object> prepareResult(List<Object> res) {
-    if (returnDistributedResult()) {
-      final Map<String, Object> entity = new HashMap<String, Object>();
-      entity.put("node", getDistributedStorageId());
-      entity.put("context", res);
-      return Collections.singletonList(entity);
-    } else {
-      return res;
-    }
+    return res;
   }
 }

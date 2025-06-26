@@ -13,8 +13,8 @@ public interface LiveQueryBatchResultListener extends LiveQueryResultListener {
   /**
    * invoked at the end of a logical batch of live query events
    *
-   * @param database the instance of the active datatabase connection where the live query operation
+   * @param session the instance of the active datatabase connection where the live query operation
    *                 is being performed
    */
-  void onBatchEnd(DatabaseSession database);
+  void onBatchEnd(DatabaseSession session);
 }

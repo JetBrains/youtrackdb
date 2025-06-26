@@ -12,7 +12,7 @@ public class YouTrackDBConstants {
   private static final Properties properties = new Properties();
 
   static {
-    try (final InputStream inputStream =
+    try (final var inputStream =
         YouTrackDBConstants.class.getResourceAsStream(
             "/com/jetbrains/youtrack/db/youtrackdb.properties")) {
       if (inputStream != null) {
@@ -28,7 +28,7 @@ public class YouTrackDBConstants {
    * @return Major part of YouTrackDB version
    */
   public static int getVersionMajor() {
-    final String[] versions = properties.getProperty("version").split("\\.");
+    final var versions = properties.getProperty("version").split("\\.");
     if (versions.length == 0) {
       LogManager.instance()
           .error(YouTrackDBConstants.class, "Can not retrieve version information for this build",
@@ -51,7 +51,7 @@ public class YouTrackDBConstants {
    * @return Minor part of YouTrackDB version
    */
   public static int getVersionMinor() {
-    final String[] versions = properties.getProperty("version").split("\\.");
+    final var versions = properties.getProperty("version").split("\\.");
     if (versions.length < 2) {
       LogManager.instance()
           .error(
@@ -76,14 +76,14 @@ public class YouTrackDBConstants {
    */
   @SuppressWarnings("unused")
   public static int getVersionHotfix() {
-    final String[] versions = properties.getProperty("version").split("\\.");
+    final var versions = properties.getProperty("version").split("\\.");
     if (versions.length < 3) {
       return 0;
     }
 
     try {
-      String hotfix = versions[2];
-      int snapshotIndex = hotfix.indexOf("-SNAPSHOT");
+      var hotfix = versions[2];
+      var snapshotIndex = hotfix.indexOf("-SNAPSHOT");
 
       if (snapshotIndex != -1) {
         hotfix = hotfix.substring(0, snapshotIndex);

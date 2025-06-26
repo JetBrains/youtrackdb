@@ -24,59 +24,110 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.DB_POOL_M
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.DB_POOL_MIN;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.AcquireTimeoutException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePool;
 import com.jetbrains.youtrack.db.internal.common.concur.resource.ResourcePoolListener;
 
-/**
- *
- */
-public class DatabasePoolImpl implements DatabasePoolInternal {
+public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
+    DatabasePoolInternal<S> {
 
-  private volatile ResourcePool<Void, DatabaseSessionInternal> pool;
-  private final YouTrackDBInternal factory;
+  private volatile ResourcePool<Void, S> pool;
+  private final YouTrackDBInternal<S> factory;
   private final YouTrackDBConfigImpl config;
+  private final String databaseName;
+  private final String userName;
+
   private volatile long lastCloseTime = System.currentTimeMillis();
 
+
   public DatabasePoolImpl(
-      YouTrackDBInternal factory,
+      YouTrackDBInternal<S> factory,
       String database,
       String user,
       String password,
       YouTrackDBConfigImpl config) {
-    int max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
-    int min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
+    var max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
+    var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
     this.factory = factory;
     this.config = config;
+    this.databaseName = database;
+    this.userName = user;
+
     pool =
-        new ResourcePool(
+        new ResourcePool<>(
             min,
             max,
-            new ResourcePoolListener<Void, DatabaseSessionInternal>() {
+            new ResourcePoolListener<>() {
               @Override
-              public DatabaseSessionInternal createNewResource(
+              public S createNewResource(
                   Void iKey, Object... iAdditionalArgs) {
                 return factory.poolOpen(database, user, password, DatabasePoolImpl.this);
               }
 
               @Override
               public boolean reuseResource(
-                  Void iKey, Object[] iAdditionalArgs, DatabaseSessionInternal iValue) {
-                if (iValue.getStorage().isClosed(iValue)) {
+                  Void iKey, Object[] iAdditionalArgs, S iValue) {
+                var polledSession = (PooledSession) iValue;
+                if (polledSession.isBackendClosed()) {
                   return false;
                 }
-                iValue.reuse();
+                polledSession.reuse();
                 return true;
               }
             });
-
-    DatabaseRecordThreadLocal.instance().remove();
   }
 
+  public DatabasePoolImpl(
+      YouTrackDBInternal<S> factory,
+      String database,
+      String user,
+      YouTrackDBConfigImpl config) {
+
+    var max = config.getConfiguration().getValueAsInteger(DB_POOL_MAX);
+    var min = config.getConfiguration().getValueAsInteger(DB_POOL_MIN);
+    this.factory = factory;
+    this.config = config;
+    this.databaseName = database;
+    this.userName = user;
+
+    pool =
+        new ResourcePool<>(
+            min,
+            max,
+            new ResourcePoolListener<>() {
+              @Override
+              public S createNewResource(
+                  Void iKey, Object... iAdditionalArgs) {
+                if (factory instanceof YouTrackDBInternalEmbedded embedded) {
+                  //noinspection unchecked
+                  return (S) embedded.poolOpenNoAuthenticate(database, user,
+                      (DatabasePoolInternal<DatabaseSession>) DatabasePoolImpl.this);
+                } else {
+                  throw new UnsupportedOperationException(
+                      "Opening database without password is not supported");
+                }
+              }
+
+              @Override
+              public boolean reuseResource(
+                  Void iKey, Object[] iAdditionalArgs, S iValue) {
+                var pooledSession = (PooledSession) iValue;
+                if (pooledSession.isBackendClosed()) {
+                  return false;
+                }
+
+                pooledSession.reuse();
+                return true;
+              }
+            });
+  }
+
+
   @Override
-  public DatabaseSession acquire() throws AcquireTimeoutException {
-    ResourcePool<Void, DatabaseSessionInternal> p;
+  public S acquire() throws AcquireTimeoutException {
+    ResourcePool<Void, S> p;
     synchronized (this) {
       p = pool;
     }
@@ -90,33 +141,35 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
 
   @Override
   public synchronized void close() {
-    ResourcePool<Void, DatabaseSessionInternal> p;
+    ResourcePool<Void, S> p;
     synchronized (this) {
       p = pool;
       pool = null;
     }
     if (p != null) {
-      for (DatabaseSessionInternal res : p.getAllResources()) {
-        res.realClose();
+      for (var res : p.getAllResources()) {
+        ((PooledSession) res).realClose();
       }
       p.close();
       factory.removePool(this);
     }
   }
 
-  public void release(DatabaseSessionInternal database) {
-    ResourcePool<Void, DatabaseSessionInternal> p;
+  @Override
+  public void release(S database) {
+    ResourcePool<Void, S> p;
     synchronized (this) {
       p = pool;
     }
     if (p != null) {
       pool.returnResource(database);
     } else {
-      throw new DatabaseException("The pool is closed");
+      throw new DatabaseException(database.getDatabaseName(), "The pool is closed");
     }
     lastCloseTime = System.currentTimeMillis();
   }
 
+  @Override
   public boolean isUnused() {
     if (pool == null) {
       return true;
@@ -125,10 +178,22 @@ public class DatabasePoolImpl implements DatabasePoolInternal {
     }
   }
 
+  @Override
   public long getLastCloseTime() {
     return lastCloseTime;
   }
 
+  @Override
+  public String getDatabaseName() {
+    return databaseName;
+  }
+
+  @Override
+  public String getUserName() {
+    return userName;
+  }
+
+  @Override
   public YouTrackDBConfigImpl getConfig() {
     return config;
   }

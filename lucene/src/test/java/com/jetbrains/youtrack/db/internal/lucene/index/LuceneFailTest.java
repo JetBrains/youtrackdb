@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.lucene.index;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -15,7 +14,7 @@ public class LuceneFailTest {
 
   @Before
   public void before() {
-    odb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    odb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     odb.execute("create database tdb memory users (admin identified by 'admpwd' role admin)")
         .close();
@@ -28,14 +27,20 @@ public class LuceneFailTest {
 
   @Test
   public void test() {
-    try (DatabaseSession session = odb.open("tdb", "admin", "admpwd")) {
-      session.command("create property V.text string").close();
-      session.command("create index lucene_index on V(text) FULLTEXT ENGINE LUCENE").close();
-      try {
-        session.query("select from V where search_class('*this breaks') = true").close();
-      } catch (Exception e) {
-      }
-      session.query("select from V ").close();
+    try (var session = odb.open("tdb", "admin", "admpwd")) {
+      session.computeScript("sql", "create property V.text string").close();
+      session.computeScript("sql", "create index lucene_index on V(text) FULLTEXT ENGINE LUCENE")
+          .close();
+
+      session.executeInTx(transaction -> {
+        try {
+          transaction.query("select from V where search_class('*this breaks') = true").close();
+        } catch (Exception e) {
+        }
+      });
+      session.executeInTx(transaction -> {
+        transaction.query("select from V ").close();
+      });
     }
   }
 }

@@ -124,7 +124,5 @@ public interface RecordCache {
    */
   void unloadRecords();
 
-  void clearRecords();
-
   void unloadNotModifiedRecords();
 }

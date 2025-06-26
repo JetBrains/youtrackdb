@@ -1,32 +1,26 @@
 package com.jetbrains.youtrack.db.internal.core.query.live;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 
-/**
- *
- */
 public class YTLiveQueryMonitorEmbedded implements LiveQueryMonitor {
 
   private final int token;
-  private final DatabaseSessionInternal db;
+  private final DatabasePoolInternal<DatabaseSession> pool;
 
-  public YTLiveQueryMonitorEmbedded(int token, DatabaseSessionInternal dbCopy) {
+  public YTLiveQueryMonitorEmbedded(int token, DatabasePoolInternal<DatabaseSession> pool) {
     this.token = token;
-    this.db = dbCopy;
+    this.pool = pool;
   }
 
   @Override
   public void unSubscribe() {
-    DatabaseSessionInternal prev = DatabaseRecordThreadLocal.instance().getIfDefined();
-    db.activateOnCurrentThread();
-    LiveQueryHookV2.unsubscribe(token, db);
-    if (prev != null) {
-      DatabaseRecordThreadLocal.instance().set(prev);
-    } else {
-      DatabaseRecordThreadLocal.instance().remove();
+    try (var session = pool.acquire()) {
+      LiveQueryHookV2.unsubscribe(token, (DatabaseSessionEmbedded) session);
     }
+
   }
 
   @Override

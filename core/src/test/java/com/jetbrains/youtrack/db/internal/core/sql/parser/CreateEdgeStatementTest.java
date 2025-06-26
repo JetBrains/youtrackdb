@@ -9,7 +9,7 @@ import org.junit.Test;
 public class CreateEdgeStatementTest {
 
   protected SimpleNode checkRightSyntax(String query) {
-    SimpleNode result = checkSyntax(query, true);
+    var result = checkSyntax(query, true);
     return checkSyntax(result.toString(), true);
   }
 
@@ -18,7 +18,7 @@ public class CreateEdgeStatementTest {
   }
 
   protected SimpleNode checkSyntax(String query, boolean isCorrect) {
-    YouTrackDBSql osql = getParserFor(query);
+    var osql = getParserFor(query);
     try {
       SimpleNode result = osql.parse();
       if (!isCorrect) {
@@ -92,7 +92,7 @@ public class CreateEdgeStatementTest {
   }
 
   private void printTree(String s) {
-    YouTrackDBSql osql = getParserFor(s);
+    var osql = getParserFor(s);
     try {
       SimpleNode n = osql.parse();
     } catch (ParseException e) {
@@ -102,7 +102,7 @@ public class CreateEdgeStatementTest {
 
   protected YouTrackDBSql getParserFor(String string) {
     InputStream is = new ByteArrayInputStream(string.getBytes());
-    YouTrackDBSql osql = new YouTrackDBSql(is);
+    var osql = new YouTrackDBSql(is);
     return osql;
   }
 }

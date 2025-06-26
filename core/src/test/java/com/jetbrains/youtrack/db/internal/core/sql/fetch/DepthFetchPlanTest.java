@@ -15,80 +15,99 @@ public class DepthFetchPlanTest extends DbTestBase {
 
   @Test
   public void testFetchPlanDepth() {
-    db.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSchema().createClass("Test");
 
-    db.begin();
-    EntityImpl doc = new EntityImpl("Test");
-    EntityImpl doc1 = new EntityImpl("Test");
-    EntityImpl doc2 = new EntityImpl("Test");
-    doc.field("name", "name");
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Test"));
+    var doc1 = ((EntityImpl) session.newEntity("Test"));
+    var doc2 = ((EntityImpl) session.newEntity("Test"));
+    doc.setProperty("name", "name");
+    session.commit();
 
-    db.begin();
-    doc = db.bindToSession(doc);
-    doc1.field("name", "name1");
-    doc1.field("ref", doc);
-    db.save(doc1);
-    db.commit();
+    session.begin();
+    var activeTx4 = session.getActiveTransaction();
+    doc = activeTx4.load(doc);
+    var activeTx3 = session.getActiveTransaction();
+    doc1 = activeTx3.load(doc1);
 
-    db.begin();
-    doc1 = db.bindToSession(doc1);
-    doc2.field("name", "name2");
-    doc2.field("ref", doc1);
-    db.save(doc2);
-    db.commit();
+    doc1.setProperty("name", "name1");
+    doc1.setProperty("ref", doc);
+    session.commit();
 
-    doc2 = db.bindToSession(doc2);
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    doc1 = activeTx2.load(doc1);
+    var activeTx1 = session.getActiveTransaction();
+    doc2 = activeTx1.load(doc2);
+
+    doc2.setProperty("name", "name2");
+    doc2.setProperty("ref", doc1);
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc2 = activeTx.load(doc2);
     FetchContext context = new RemoteFetchContext();
-    CountFetchListener listener = new CountFetchListener();
-    FetchHelper.fetch(
+    var listener = new CountFetchListener();
+    FetchHelper.fetch(session,
         doc2, doc2, FetchHelper.buildFetchPlan("ref:1 *:-2"), listener, context, "");
 
     assertEquals(1, listener.count);
+    session.commit();
   }
 
   @Test
   public void testFullDepthFetchPlan() {
-    db.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSchema().createClass("Test");
 
-    db.begin();
-    EntityImpl doc = new EntityImpl("Test");
-    EntityImpl doc1 = new EntityImpl("Test");
-    EntityImpl doc2 = new EntityImpl("Test");
-    EntityImpl doc3 = new EntityImpl("Test");
-    doc.field("name", "name");
-    db.save(doc);
-    db.commit();
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Test"));
+    var doc1 = ((EntityImpl) session.newEntity("Test"));
+    var doc2 = ((EntityImpl) session.newEntity("Test"));
+    var doc3 = ((EntityImpl) session.newEntity("Test"));
+    doc.setProperty("name", "name");
+    session.commit();
 
-    db.begin();
-    doc = db.bindToSession(doc);
-    doc1.field("name", "name1");
-    doc1.field("ref", doc);
-    db.save(doc1);
-    db.commit();
+    session.begin();
+    var activeTx6 = session.getActiveTransaction();
+    doc = activeTx6.load(doc);
+    var activeTx5 = session.getActiveTransaction();
+    doc1 = activeTx5.load(doc1);
 
-    db.begin();
-    doc1 = db.bindToSession(doc1);
+    doc1.setProperty("name", "name1");
+    doc1.setProperty("ref", doc);
+    session.commit();
 
-    doc2.field("name", "name2");
-    doc2.field("ref", doc1);
-    db.save(doc2);
-    db.commit();
+    session.begin();
+    var activeTx4 = session.getActiveTransaction();
+    doc1 = activeTx4.load(doc1);
+    var activeTx3 = session.getActiveTransaction();
+    doc2 = activeTx3.load(doc2);
 
-    db.begin();
-    doc2 = db.bindToSession(doc2);
+    doc2.setProperty("name", "name2");
+    doc2.setProperty("ref", doc1);
+    session.commit();
 
-    doc3.field("name", "name2");
-    doc3.field("ref", doc2);
-    db.save(doc3);
-    db.commit();
+    session.begin();
+    var activeTx2 = session.getActiveTransaction();
+    doc2 = activeTx2.load(doc2);
+    var activeTx1 = session.getActiveTransaction();
+    doc3 = activeTx1.load(doc3);
 
-    doc3 = db.bindToSession(doc3);
+    doc3.setProperty("name", "name2");
+    doc3.setProperty("ref", doc2);
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc3 = activeTx.load(doc3);
     FetchContext context = new RemoteFetchContext();
-    CountFetchListener listener = new CountFetchListener();
-    FetchHelper.fetch(doc3, doc3, FetchHelper.buildFetchPlan("[*]ref:-1"), listener, context, "");
+    var listener = new CountFetchListener();
+    FetchHelper.fetch(session, doc3, doc3, FetchHelper.buildFetchPlan("[*]ref:-1"), listener,
+        context,
+        "");
     assertEquals(3, listener.count);
+    session.commit();
   }
 
   private final class CountFetchListener extends RemoteFetchListener {

@@ -3,12 +3,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal.ATTRIBUTES_INTERNAL;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -37,11 +35,11 @@ public class SQLAlterDatabaseStatement extends DDLStatement {
   private static Result executeSimpleAlter(
       SQLIdentifier settingName, SQLExpression settingValue, CommandContext ctx) {
 
-    DatabaseSessionInternal db = ctx.getDatabase();
+    var db = ctx.getDatabaseSession();
     Object oldValue;
     Object finalValue;
     try {
-      ATTRIBUTES attribute =
+      var attribute =
           DatabaseSession.ATTRIBUTES.valueOf(
               settingName.getStringValue().toUpperCase(Locale.ENGLISH));
 
@@ -51,7 +49,7 @@ public class SQLAlterDatabaseStatement extends DDLStatement {
       finalValue = settingValue.execute((Identifiable) null, ctx);
       db.setInternal(attribute, finalValue);
     } catch (IllegalArgumentException e) {
-      ATTRIBUTES_INTERNAL attributesInternal =
+      var attributesInternal =
           DatabaseSessionInternal.ATTRIBUTES_INTERNAL.valueOf(
               settingName.getStringValue().toUpperCase(Locale.ENGLISH));
       db.checkSecurity(Rule.ResourceGeneric.DATABASE, Role.PERMISSION_UPDATE);
@@ -61,7 +59,7 @@ public class SQLAlterDatabaseStatement extends DDLStatement {
       db.set(attributesInternal, finalValue);
     }
 
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     result.setProperty("operation", "alter database");
     result.setProperty("attribute", settingName.getStringValue());
     result.setProperty("oldValue", oldValue);
@@ -91,7 +89,7 @@ public class SQLAlterDatabaseStatement extends DDLStatement {
 
   @Override
   public SQLAlterDatabaseStatement copy() {
-    SQLAlterDatabaseStatement result = new SQLAlterDatabaseStatement(-1);
+    var result = new SQLAlterDatabaseStatement(-1);
     result.settingName = settingName == null ? null : settingName.copy();
     result.settingValue = settingValue == null ? null : settingValue.copy();
     return result;
@@ -106,7 +104,7 @@ public class SQLAlterDatabaseStatement extends DDLStatement {
       return false;
     }
 
-    SQLAlterDatabaseStatement that = (SQLAlterDatabaseStatement) o;
+    var that = (SQLAlterDatabaseStatement) o;
 
     if (!Objects.equals(settingName, that.settingName)) {
       return false;
@@ -116,7 +114,7 @@ public class SQLAlterDatabaseStatement extends DDLStatement {
 
   @Override
   public int hashCode() {
-    int result = (settingName != null ? settingName.hashCode() : 0);
+    var result = (settingName != null ? settingName.hashCode() : 0);
     result = 31 * result + (settingValue != null ? settingValue.hashCode() : 0);
     return result;
   }

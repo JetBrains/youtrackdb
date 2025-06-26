@@ -35,6 +35,7 @@ public class DefaultComparator implements Comparator<Object> {
 
   public static final DefaultComparator INSTANCE = new DefaultComparator();
 
+  @Override
   @SuppressWarnings("unchecked")
   public int compare(final Object objectOne, final Object objectTwo) {
     if (objectOne == null) {
@@ -57,7 +58,7 @@ public class DefaultComparator implements Comparator<Object> {
       return ((Comparable<Object>) objectOne).compareTo(objectTwo);
     }
 
-    final Comparator<?> comparator =
+    final var comparator =
         ComparatorFactory.INSTANCE.getComparator(objectOne.getClass());
 
     if (comparator != null) {

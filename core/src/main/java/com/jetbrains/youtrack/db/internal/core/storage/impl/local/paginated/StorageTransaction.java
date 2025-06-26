@@ -13,20 +13,20 @@
  */
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
-import com.jetbrains.youtrack.db.internal.core.tx.TransactionInternal;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 
 /**
  * @since 12.06.13
  */
 public class StorageTransaction {
 
-  private final TransactionInternal clientTx;
+  private final FrontendTransaction clientTx;
 
-  public StorageTransaction(TransactionInternal clientTx) {
+  public StorageTransaction(FrontendTransaction clientTx) {
     this.clientTx = clientTx;
   }
 
-  public TransactionInternal getClientTx() {
+  public FrontendTransaction getClientTx() {
     return clientTx;
   }
 }

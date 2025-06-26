@@ -1,14 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -19,29 +15,29 @@ public class DropDatabaseStatementExecutionTest {
 
   @Test
   public void testPlain() {
-    String dbName = "ODropDatabaseStatementExecutionTest_testPlain";
-    YouTrackDB youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+    var dbName = "ODropDatabaseStatementExecutionTest_testPlain";
+    var youTrackDb =
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
     try {
-      try (ResultSet result =
+      try (var result =
           youTrackDb.execute(
               "create database "
                   + dbName
-                  + " plocal"
+                  + " disk"
                   + " users ( admin identified by '"
                   + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
                   + "' role admin)")) {
         Assert.assertTrue(result.hasNext());
-        Result item = result.next();
+        var item = result.next();
         Assert.assertEquals(true, item.getProperty("created"));
       }
       Assert.assertTrue(youTrackDb.exists(dbName));
 
-      DatabaseSession session =
+      var session =
           youTrackDb.open(dbName, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
       session.close();
 
@@ -54,29 +50,29 @@ public class DropDatabaseStatementExecutionTest {
 
   @Test
   public void testIfExists1() {
-    String dbName = "ODropDatabaseStatementExecutionTest_testIfExists1";
-    final YouTrackDB youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+    var dbName = "ODropDatabaseStatementExecutionTest_testIfExists1";
+    final var youTrackDb =
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
     try {
-      try (ResultSet result =
+      try (var result =
           youTrackDb.execute(
               "create database "
                   + dbName
-                  + " plocal"
+                  + " disk"
                   + " users ( admin identified by '"
                   + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
                   + "' role admin)")) {
         Assert.assertTrue(result.hasNext());
-        Result item = result.next();
+        var item = result.next();
         Assert.assertEquals(true, item.getProperty("created"));
       }
       Assert.assertTrue(youTrackDb.exists(dbName));
 
-      DatabaseSession session =
+      var session =
           youTrackDb.open(dbName, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
       session.close();
 
@@ -89,9 +85,9 @@ public class DropDatabaseStatementExecutionTest {
 
   @Test
   public void testIfExists2() {
-    String dbName = "ODropDatabaseStatementExecutionTest_testIfExists2";
-    try (YouTrackDB youTrackDb = new YouTrackDBImpl(
-        DbTestBase.embeddedDBUrl(getClass()) + getClass().getSimpleName(),
+    var dbName = "ODropDatabaseStatementExecutionTest_testIfExists2";
+    try (var youTrackDb = YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(getClass()) + getClass().getSimpleName(),
         YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
             .build())) {

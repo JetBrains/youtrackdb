@@ -2,10 +2,6 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
-import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.Before;
 import org.junit.Test;
@@ -14,43 +10,45 @@ public class LuceneSortTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
 
-    db.command("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE ");
   }
 
   @Test
   public void shouldSortByReverseDocScore() throws Exception {
 
-    db.command("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
 
-    ResultSet resultSet =
-        db.query(
+    session.begin();
+    var resultSet =
+        session.query(
             "SELECT score, name from Author where SEARCH_CLASS('*:* ', {"
-                + "sort: [ { reverse:true, type:'DOC' }]"
+                + "sort: [ { 'field': 'score', reverse:true, type:'INT' }]"
                 + "} ) = true ");
 
-    List<Integer> scores =
+    var scores =
         resultSet.stream().map(o -> o.<Integer>getProperty("score")).collect(Collectors.toList());
 
-    assertThat(scores).containsExactly(4, 5, 10, 10, 7);
+    assertThat(scores).containsExactly(10, 10, 7, 5, 4);
     resultSet.close();
+    session.commit();
   }
 
   @Test
   public void shouldSortByReverseScoreFieldValue() throws Exception {
 
-    db.command("create index Author.ft on Author (score) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (score) FULLTEXT ENGINE LUCENE ");
 
-    ResultSet resultSet =
-        db.query(
+    var resultSet =
+        session.query(
             "SELECT score, name from Author where SEARCH_CLASS('*:* ', {"
                 + "sort: [ { 'field': 'score', reverse:true, type:'INT' }]"
                 + "} ) = true ");
 
-    List<Integer> scores =
+    var scores =
         resultSet.stream().map(o -> o.<Integer>getProperty("score")).collect(Collectors.toList());
 
     assertThat(scores).containsExactly(10, 10, 7, 5, 4);
@@ -60,15 +58,15 @@ public class LuceneSortTest extends LuceneBaseTest {
   @Test
   public void shouldSortByReverseNameValue() throws Exception {
 
-    db.command("create index Author.ft on Author (name) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (name) FULLTEXT ENGINE LUCENE ");
 
-    ResultSet resultSet =
-        db.query(
+    var resultSet =
+        session.query(
             "SELECT score, name from Author where SEARCH_CLASS('*:* ', {"
                 + "sort: [ {field: 'name', type:'STRING' , reverse:true}] "
                 + "} ) = true ");
 
-    List<String> names =
+    var names =
         resultSet.stream().map(o -> o.<String>getProperty("name")).collect(Collectors.toList());
 
     assertThat(names)
@@ -80,23 +78,21 @@ public class LuceneSortTest extends LuceneBaseTest {
   @Test
   public void shouldSortByReverseNameValueWithTxRollback() throws Exception {
 
-    db.command("create index Author.ft on Author (name) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (name) FULLTEXT ENGINE LUCENE ");
 
-    db.begin();
+    session.begin();
 
-    Vertex artist = db.newVertex("Author");
+    var artist = session.newVertex("Author");
 
     artist.setProperty("name", "Jimi Hendrix");
 
-    db.save(artist);
-
-    ResultSet resultSet =
-        db.query(
+    var resultSet =
+        session.query(
             "SELECT score, name from Author where SEARCH_CLASS('*:* ', {"
                 + "sort: [ {field: 'name', type:'STRING' , reverse:true}] "
                 + "} ) = true ");
 
-    List<String> names =
+    var names =
         resultSet.stream().map(o -> o.<String>getProperty("name")).collect(Collectors.toList());
 
     assertThat(names)
@@ -108,11 +104,11 @@ public class LuceneSortTest extends LuceneBaseTest {
             "Chuck Berry",
             "Bob Dylan");
 
-    db.rollback();
+    session.rollback();
 
     resultSet.close();
     resultSet =
-        db.query(
+        session.query(
             "SELECT score, name from Author where SEARCH_CLASS('*:* ', {"
                 + "sort: [ {field: 'name', type:'STRING' , reverse:true}] "
                 + "} ) = true ");
@@ -128,15 +124,15 @@ public class LuceneSortTest extends LuceneBaseTest {
   @Test
   public void shouldSortByReverseScoreFieldValueAndThenReverseName() throws Exception {
 
-    db.command("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
+    session.execute("create index Author.ft on Author (name,score) FULLTEXT ENGINE LUCENE ");
 
-    ResultSet resultSet =
-        db.query(
+    var resultSet =
+        session.query(
             "SELECT score, name from Author where SEARCH_CLASS('*:* ', {sort: [ { 'field': 'score',"
                 + " reverse:true, type:'INT' },{field: 'name', type:'STRING' , reverse:true}] } ) ="
                 + " true ");
 
-    List<String> names =
+    var names =
         resultSet.stream()
             .map(o -> o.<Integer>getProperty("score") + o.<String>getProperty("name"))
             .collect(Collectors.toList());

@@ -17,14 +17,15 @@ public class SQLUpdateEdgeStatement extends SQLUpdateStatement {
     super(p, id);
   }
 
+  @Override
   protected String getStatementType() {
     return "UPDATE EDGE ";
   }
 
   @Override
   public UpdateExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    UpdateExecutionPlanner planner = new UpdateExecutionPlanner(this);
-    UpdateExecutionPlan result = planner.createExecutionPlan(ctx, enableProfiling);
+    var planner = new UpdateExecutionPlanner(this);
+    var result = planner.createExecutionPlan(ctx, enableProfiling);
     result.setStatement(originalStatement);
     result.setGenericStatement(this.toGenericStatement());
     return result;
@@ -32,7 +33,7 @@ public class SQLUpdateEdgeStatement extends SQLUpdateStatement {
 
   @Override
   public SQLUpdateEdgeStatement copy() {
-    SQLUpdateEdgeStatement result = new SQLUpdateEdgeStatement(-1);
+    var result = new SQLUpdateEdgeStatement(-1);
     result.target = target == null ? null : target.copy();
     result.operations =
         operations == null

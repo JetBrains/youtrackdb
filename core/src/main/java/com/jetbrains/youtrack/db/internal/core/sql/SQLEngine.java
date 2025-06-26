@@ -22,26 +22,23 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 import static com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper.lookupProviderWithYouTrackDBClassLoader;
 
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.Collections;
-import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.collate.CollateFactory;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutor;
 import com.jetbrains.youtrack.db.internal.core.command.CommandExecutorAbstract;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilter;
-import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLTarget;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionFactory;
 import com.jetbrains.youtrack.db.internal.core.sql.method.SQLMethod;
@@ -55,7 +52,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLServerStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.YouTrackDBSql;
-import com.jetbrains.youtrack.db.internal.core.sql.query.SQLSynchQuery;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -64,19 +60,24 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 import javax.annotation.Nonnull;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 public class SQLEngine {
 
-  protected static final SQLEngine INSTANCE = new SQLEngine();
+  protected static final ReentrantLock LOCK = new ReentrantLock();
+
+  private static final Pattern REPLACE_PATTERN = Pattern.compile(" +");
   private static volatile List<SQLFunctionFactory> FUNCTION_FACTORIES = null;
-  private static List<SQLMethodFactory> METHOD_FACTORIES = null;
-  private static List<CommandExecutorSQLFactory> EXECUTOR_FACTORIES = null;
-  private static List<QueryOperatorFactory> OPERATOR_FACTORIES = null;
-  private static List<CollateFactory> COLLATE_FACTORIES = null;
-  private static QueryOperator[] SORTED_OPERATORS = null;
+  private static volatile List<SQLMethodFactory> METHOD_FACTORIES = null;
+  private static volatile List<CommandExecutorSQLFactory> EXECUTOR_FACTORIES = null;
+  private static volatile List<QueryOperatorFactory> OPERATOR_FACTORIES = null;
+  private static volatile List<CollateFactory> COLLATE_FACTORIES = null;
+  private static volatile QueryOperator[] SORTED_OPERATORS = null;
   private static final ClassLoader youTrackDbClassLoader = SQLEngine.class.getClassLoader();
 
   public static SQLStatement parse(String query, DatabaseSessionInternal db) {
@@ -87,40 +88,39 @@ public class SQLEngine {
     return StatementCache.getServerStatement(query, db);
   }
 
+
   public static List<SQLStatement> parseScript(String script, DatabaseSessionInternal db) {
     final InputStream is = new ByteArrayInputStream(script.getBytes());
     return parseScript(is, db);
   }
 
-  public static List<SQLStatement> parseScript(InputStream script, DatabaseSessionInternal db) {
+  public static List<SQLStatement> parseScript(InputStream script,
+      DatabaseSessionInternal session) {
     try {
-      final YouTrackDBSql osql = new YouTrackDBSql(script);
-      List<SQLStatement> result = osql.parseScript();
-      return result;
+      final var osql = new YouTrackDBSql(script);
+      return osql.parseScript();
     } catch (ParseException e) {
-      throw new CommandSQLParsingException(e, "");
+      throw new CommandSQLParsingException(session.getDatabaseName(), e, "");
     }
   }
 
   public static SQLOrBlock parsePredicate(String predicate) throws CommandSQLParsingException {
     final InputStream is = new ByteArrayInputStream(predicate.getBytes());
     try {
-      final YouTrackDBSql osql = new YouTrackDBSql(is);
-      SQLOrBlock result = osql.OrBlock();
-      return result;
+      final var osql = new YouTrackDBSql(is);
+      return osql.OrBlock();
     } catch (ParseException e) {
-      throw new CommandSQLParsingException(e, "");
+      throw new CommandSQLParsingException(null, e, "");
     }
   }
 
   public static SQLSecurityResourceSegment parseSecurityResource(String exp) {
     final InputStream is = new ByteArrayInputStream(exp.getBytes());
     try {
-      final YouTrackDBSql osql = new YouTrackDBSql(is);
-      SQLSecurityResourceSegment result = osql.SecurityResourceSegment();
-      return result;
+      final var osql = new YouTrackDBSql(is);
+      return osql.SecurityResourceSegment();
     } catch (ParseException e) {
-      throw new CommandSQLParsingException(e, "");
+      throw new CommandSQLParsingException(null, e, "");
     }
   }
 
@@ -170,13 +170,15 @@ public class SQLEngine {
   public static Iterator<SQLFunctionFactory> getFunctionFactories(
       DatabaseSessionInternal session) {
     if (FUNCTION_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+
+      try {
         if (FUNCTION_FACTORIES == null) {
-          final Iterator<SQLFunctionFactory> ite =
+          final var ite =
               lookupProviderWithYouTrackDBClassLoader(SQLFunctionFactory.class,
                   youTrackDbClassLoader);
 
-          final List<SQLFunctionFactory> factories = new ArrayList<SQLFunctionFactory>();
+          final List<SQLFunctionFactory> factories = new ArrayList<>();
           while (ite.hasNext()) {
             var factory = ite.next();
             try {
@@ -189,6 +191,8 @@ public class SQLEngine {
           }
           FUNCTION_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return FUNCTION_FACTORIES.iterator();
@@ -196,19 +200,21 @@ public class SQLEngine {
 
   public static Iterator<SQLMethodFactory> getMethodFactories() {
     if (METHOD_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (METHOD_FACTORIES == null) {
-
-          final Iterator<SQLMethodFactory> ite =
+          final var ite =
               lookupProviderWithYouTrackDBClassLoader(SQLMethodFactory.class,
                   youTrackDbClassLoader);
 
-          final List<SQLMethodFactory> factories = new ArrayList<SQLMethodFactory>();
+          final List<SQLMethodFactory> factories = new ArrayList<>();
           while (ite.hasNext()) {
             factories.add(ite.next());
           }
           METHOD_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return METHOD_FACTORIES.iterator();
@@ -219,18 +225,21 @@ public class SQLEngine {
    */
   public static Iterator<CollateFactory> getCollateFactories() {
     if (COLLATE_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (COLLATE_FACTORIES == null) {
 
-          final Iterator<CollateFactory> ite =
+          final var ite =
               lookupProviderWithYouTrackDBClassLoader(CollateFactory.class, youTrackDbClassLoader);
 
-          final List<CollateFactory> factories = new ArrayList<CollateFactory>();
+          final List<CollateFactory> factories = new ArrayList<>();
           while (ite.hasNext()) {
             factories.add(ite.next());
           }
           COLLATE_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return COLLATE_FACTORIES.iterator();
@@ -241,19 +250,22 @@ public class SQLEngine {
    */
   public static Iterator<QueryOperatorFactory> getOperatorFactories() {
     if (OPERATOR_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (OPERATOR_FACTORIES == null) {
 
-          final Iterator<QueryOperatorFactory> ite =
+          final var ite =
               lookupProviderWithYouTrackDBClassLoader(QueryOperatorFactory.class,
                   youTrackDbClassLoader);
 
-          final List<QueryOperatorFactory> factories = new ArrayList<QueryOperatorFactory>();
+          final List<QueryOperatorFactory> factories = new ArrayList<>();
           while (ite.hasNext()) {
             factories.add(ite.next());
           }
           OPERATOR_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return OPERATOR_FACTORIES.iterator();
@@ -264,14 +276,15 @@ public class SQLEngine {
    */
   public static Iterator<CommandExecutorSQLFactory> getCommandFactories() {
     if (EXECUTOR_FACTORIES == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (EXECUTOR_FACTORIES == null) {
 
-          final Iterator<CommandExecutorSQLFactory> ite =
+          final var ite =
               lookupProviderWithYouTrackDBClassLoader(
                   CommandExecutorSQLFactory.class, youTrackDbClassLoader);
           final List<CommandExecutorSQLFactory> factories =
-              new ArrayList<CommandExecutorSQLFactory>();
+              new ArrayList<>();
           while (ite.hasNext()) {
             try {
               factories.add(ite.next());
@@ -286,6 +299,8 @@ public class SQLEngine {
 
           EXECUTOR_FACTORIES = java.util.Collections.unmodifiableList(factories);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return EXECUTOR_FACTORIES.iterator();
@@ -297,17 +312,17 @@ public class SQLEngine {
    * @return Set of all function names.
    */
   public static Set<String> getFunctionNames(DatabaseSessionInternal session) {
-    final Set<String> types = new HashSet<String>();
-    final Iterator<SQLFunctionFactory> ite = getFunctionFactories(session);
+    final Set<String> types = new HashSet<>();
+    final var ite = getFunctionFactories(session);
     while (ite.hasNext()) {
-      types.addAll(ite.next().getFunctionNames());
+      types.addAll(ite.next().getFunctionNames(session));
     }
     return types;
   }
 
   public static Set<String> getMethodNames() {
-    final Set<String> types = new HashSet<String>();
-    final Iterator<SQLMethodFactory> ite = getMethodFactories();
+    final Set<String> types = new HashSet<>();
+    final var ite = getMethodFactories();
     while (ite.hasNext()) {
       types.addAll(ite.next().getMethodNames());
     }
@@ -320,8 +335,8 @@ public class SQLEngine {
    * @return Set of all colate names.
    */
   public static Set<String> getCollateNames() {
-    final Set<String> types = new HashSet<String>();
-    final Iterator<CollateFactory> ite = getCollateFactories();
+    final Set<String> types = new HashSet<>();
+    final var ite = getCollateFactories();
     while (ite.hasNext()) {
       types.addAll(ite.next().getNames());
     }
@@ -334,8 +349,8 @@ public class SQLEngine {
    * @return Set of all command names.
    */
   public static Set<String> getCommandNames() {
-    final Set<String> types = new HashSet<String>();
-    final Iterator<CommandExecutorSQLFactory> ite = getCommandFactories();
+    final Set<String> types = new HashSet<>();
+    final var ite = getCommandFactories();
     while (ite.hasNext()) {
       types.addAll(ite.next().getCommandNames());
     }
@@ -355,54 +370,57 @@ public class SQLEngine {
     FUNCTION_FACTORIES = null;
   }
 
+  @Nullable
   public static Object foreachRecord(
-      final CallableFunction<Object, Identifiable> iCallable,
-      Object iCurrent,
-      final CommandContext iContext) {
-    if (iCurrent == null) {
+      final Function<Object, Object> function,
+      Object current,
+      final CommandContext context) {
+    if (current == null) {
       return null;
     }
 
-    if (!CommandExecutorAbstract.checkInterruption(iContext)) {
+    if (!CommandExecutorAbstract.checkInterruption(context)) {
       return null;
     }
 
-    if (iCurrent instanceof Iterable && !(iCurrent instanceof Identifiable)) {
-      iCurrent = ((Iterable) iCurrent).iterator();
+    if (current instanceof Iterable && !(current instanceof Identifiable)) {
+      current = ((Iterable<?>) current).iterator();
     }
-    if (MultiValue.isMultiValue(iCurrent) || iCurrent instanceof Iterator) {
-      final MultiCollectionIterator<Object> result = new MultiCollectionIterator<Object>();
-      for (Object o : MultiValue.getMultiValueIterable(iCurrent)) {
-        if (iContext != null && !iContext.checkTimeout()) {
+    if (MultiValue.isMultiValue(current) || current instanceof Iterator) {
+      final var result = new MultiCollectionIterator<>();
+      for (var o : MultiValue.getMultiValueIterable(current)) {
+        if (context != null && !context.checkTimeout()) {
           return null;
         }
 
         if (MultiValue.isMultiValue(o) || o instanceof Iterator) {
-          for (Object inner : MultiValue.getMultiValueIterable(o)) {
-            result.add(iCallable.call((Identifiable) inner));
+          for (var inner : MultiValue.getMultiValueIterable(o)) {
+            result.add(function.apply(inner));
           }
         } else {
-          result.add(iCallable.call((Identifiable) o));
+          result.add(function.apply(o));
         }
       }
       return result;
-    } else if (iCurrent instanceof Identifiable) {
-      return iCallable.call((Identifiable) iCurrent);
-    } else if (iCurrent instanceof Result) {
-      return iCallable.call(((Result) iCurrent).toEntity());
+    } else if (current instanceof Identifiable) {
+      return function.apply(current);
+    } else if (current instanceof Result result) {
+      if (result.isRelation()) {
+        return function.apply(result.asRelation());
+      } else if (result.isEntity()) {
+        return function.apply(result.asEntity());
+      }
+      return null;
     }
 
     return null;
   }
 
-  public static SQLEngine getInstance() {
-    return INSTANCE;
-  }
-
+  @Nullable
   public static Collate getCollate(final String name) {
-    for (Iterator<CollateFactory> iter = getCollateFactories(); iter.hasNext(); ) {
-      CollateFactory f = iter.next();
-      final Collate c = f.getCollate(name);
+    for (var iter = getCollateFactories(); iter.hasNext(); ) {
+      var f = iter.next();
+      final var c = f.getCollate(name);
       if (c != null) {
         return c;
       }
@@ -410,12 +428,13 @@ public class SQLEngine {
     return null;
   }
 
+  @Nullable
   public static SQLMethod getMethod(String iMethodName) {
     iMethodName = iMethodName.toLowerCase(Locale.ENGLISH);
 
-    final Iterator<SQLMethodFactory> ite = getMethodFactories();
+    final var ite = getMethodFactories();
     while (ite.hasNext()) {
-      final SQLMethodFactory factory = ite.next();
+      final var factory = ite.next();
       if (factory.hasMethod(iMethodName)) {
         return factory.createMethod(iMethodName);
       }
@@ -424,23 +443,24 @@ public class SQLEngine {
     return null;
   }
 
-  public QueryOperator[] getRecordOperators() {
+  public static QueryOperator[] getRecordOperators() {
     if (SORTED_OPERATORS == null) {
-      synchronized (INSTANCE) {
+      LOCK.lock();
+      try {
         if (SORTED_OPERATORS == null) {
           // sort operators, will happen only very few times since we cache the
           // result
-          final Iterator<QueryOperatorFactory> ite = getOperatorFactories();
-          final List<QueryOperator> operators = new ArrayList<QueryOperator>();
+          final var ite = getOperatorFactories();
+          final List<QueryOperator> operators = new ArrayList<>();
           while (ite.hasNext()) {
-            final QueryOperatorFactory factory = ite.next();
+            final var factory = ite.next();
             operators.addAll(factory.getOperators());
           }
 
-          final List<QueryOperator> sorted = new ArrayList<QueryOperator>();
-          final Set<Pair> pairs = new LinkedHashSet<Pair>();
-          for (final QueryOperator ca : operators) {
-            for (final QueryOperator cb : operators) {
+          final List<QueryOperator> sorted = new ArrayList<>();
+          final Set<Pair> pairs = new LinkedHashSet<>();
+          for (final var ca : operators) {
+            for (final var cb : operators) {
               if (ca != cb) {
                 switch (ca.compare(cb)) {
                   case BEFORE:
@@ -465,77 +485,84 @@ public class SQLEngine {
           do {
             added = false;
             scan:
-            for (final Iterator<QueryOperator> it = operators.iterator(); it.hasNext(); ) {
-              final QueryOperator candidate = it.next();
-              for (final Pair pair : pairs) {
+            for (final var it = operators.iterator(); it.hasNext(); ) {
+              final var candidate = it.next();
+              for (final var pair : pairs) {
                 if (pair.after == candidate) {
                   continue scan;
                 }
               }
               sorted.add(candidate);
               it.remove();
-              for (final Iterator<Pair> itp = pairs.iterator(); itp.hasNext(); ) {
-                if (itp.next().before == candidate) {
-                  itp.remove();
-                }
-              }
+              pairs.removeIf(pair -> pair.before == candidate);
               added = true;
             }
           } while (added);
           if (!operators.isEmpty()) {
             throw new DatabaseException("Invalid sorting. " + Collections.toString(pairs));
           }
-          SORTED_OPERATORS = sorted.toArray(new QueryOperator[sorted.size()]);
+          SORTED_OPERATORS = sorted.toArray(new QueryOperator[0]);
         }
+      } finally {
+        LOCK.unlock();
       }
     }
     return SORTED_OPERATORS;
   }
 
-  public void registerFunction(final String iName, final SQLFunction iFunction) {
+  public static void registerFunction(final String iName, final SQLFunction iFunction) {
     DynamicSQLElementFactory.FUNCTIONS.put(iName.toLowerCase(Locale.ENGLISH), iFunction);
   }
 
-  public void registerFunction(
-      final String iName, final Class<? extends SQLFunction> iFunctionClass) {
-    DynamicSQLElementFactory.FUNCTIONS.put(iName.toLowerCase(Locale.ENGLISH), iFunctionClass);
+  @Nullable
+  public static SQLFunction getFunction(DatabaseSessionEmbedded session, String functionName) {
+    var functionInstance = getFunctionOrNull(session, functionName);
+
+    if (functionInstance != null) {
+      return functionInstance;
+    }
+
+    throw new CommandSQLParsingException(session.getDatabaseName(),
+        "No function with name '"
+            + functionName
+            + "', available names are : "
+            + Collections.toString(getFunctionNames(session)));
   }
 
-  public SQLFunction getFunction(DatabaseSessionInternal session, String iFunctionName) {
-    iFunctionName = iFunctionName.toLowerCase(Locale.ENGLISH);
+  @Nullable
+  public static SQLFunction getFunctionOrNull(DatabaseSessionEmbedded session,
+      String iFunctionName) {
+    var functionName = iFunctionName.toLowerCase(Locale.ENGLISH);
 
-    if (iFunctionName.equalsIgnoreCase("any") || iFunctionName.equalsIgnoreCase("all"))
+    if (functionName.equalsIgnoreCase("any") || functionName.equalsIgnoreCase("all"))
     // SPECIAL FUNCTIONS
     {
       return null;
     }
 
-    final Iterator<SQLFunctionFactory> ite = getFunctionFactories(session);
+    final var ite = getFunctionFactories(session);
     while (ite.hasNext()) {
-      final SQLFunctionFactory factory = ite.next();
-      if (factory.hasFunction(iFunctionName)) {
-        return factory.createFunction(iFunctionName);
+      final var factory = ite.next();
+      if (factory.hasFunction(functionName, session)) {
+        return factory.createFunction(functionName, session);
       }
     }
 
-    throw new CommandSQLParsingException(
-        "No function with name '"
-            + iFunctionName
-            + "', available names are : "
-            + Collections.toString(getFunctionNames(session)));
+    return null;
   }
 
-  public void unregisterFunction(String iName) {
+  public static void unregisterFunction(String iName) {
     iName = iName.toLowerCase(Locale.ENGLISH);
     DynamicSQLElementFactory.FUNCTIONS.remove(iName);
   }
 
-  public CommandExecutor getCommand(String candidate) {
+  @Nullable
+  public static CommandExecutor getCommand(String candidate) {
     candidate = candidate.trim();
-    final Set<String> names = getCommandNames();
-    String commandName = candidate;
-    boolean found = names.contains(commandName);
-    int pos = -1;
+    final var names = getCommandNames();
+    var commandName = candidate;
+    var found = names.contains(commandName);
+    var pos = -1;
     while (!found) {
       pos =
           StringSerializerHelper.getLowerIndexOf(
@@ -543,7 +570,7 @@ public class SQLEngine {
       if (pos > -1) {
         commandName = candidate.substring(0, pos);
         // remove double spaces
-        commandName = commandName.replaceAll(" +", " ");
+        commandName = REPLACE_PATTERN.matcher(commandName).replaceAll(" ");
         found = names.contains(commandName);
       } else {
         break;
@@ -551,9 +578,9 @@ public class SQLEngine {
     }
 
     if (found) {
-      final Iterator<CommandExecutorSQLFactory> ite = getCommandFactories();
+      final var ite = getCommandFactories();
       while (ite.hasNext()) {
-        final CommandExecutorSQLFactory factory = ite.next();
+        final var factory = ite.next();
         if (factory.getCommandNames().contains(commandName)) {
           return factory.createCommand(commandName);
         }
@@ -564,69 +591,8 @@ public class SQLEngine {
   }
 
   public static SQLFilter parseCondition(
-      final String iText, @Nonnull final CommandContext iContext, final String iFilterKeyword) {
-    assert iContext != null;
-    return new SQLFilter(iText, iContext, iFilterKeyword);
+      final String iText, @Nonnull final CommandContext iContext) {
+    return new SQLFilter(iText, iContext);
   }
 
-  public static SQLTarget parseTarget(final String iText, final CommandContext iContext) {
-    return new SQLTarget(iText, iContext);
-  }
-
-  public Set<Identifiable> parseRIDTarget(
-      final DatabaseSession database,
-      String iTarget,
-      final CommandContext iContext,
-      Map<Object, Object> iArgs) {
-    final Set<Identifiable> ids;
-    if (iTarget.startsWith("(")) {
-      // SUB-QUERY
-      final SQLSynchQuery<Object> query =
-          new SQLSynchQuery<Object>(iTarget.substring(1, iTarget.length() - 1));
-      query.setContext(iContext);
-
-      final List<Identifiable> result = ((DatabaseSessionInternal) database).query(query,
-          iArgs);
-      if (result == null || result.isEmpty()) {
-        ids = java.util.Collections.emptySet();
-      } else {
-        ids = new HashSet<Identifiable>((int) (result.size() * 1.3));
-        for (Identifiable aResult : result) {
-          ids.add(aResult.getIdentity());
-        }
-      }
-    } else if (iTarget.startsWith("[")) {
-      // COLLECTION OF RIDS
-      final String[] idsAsStrings = iTarget.substring(1, iTarget.length() - 1).split(",");
-      ids = new HashSet<Identifiable>((int) (idsAsStrings.length * 1.3));
-      for (String idsAsString : idsAsStrings) {
-        if (idsAsString.startsWith("$")) {
-          Object r = iContext.getVariable(idsAsString);
-          if (r instanceof Identifiable) {
-            ids.add((Identifiable) r);
-          } else {
-            MultiValue.add(ids, r);
-          }
-        } else {
-          ids.add(new RecordId(idsAsString));
-        }
-      }
-    } else {
-      // SINGLE RID
-      if (iTarget.startsWith("$")) {
-        Object r = iContext.getVariable(iTarget);
-        if (r instanceof Identifiable) {
-          ids = java.util.Collections.singleton((Identifiable) r);
-        } else {
-          ids =
-              (Set<Identifiable>)
-                  MultiValue.add(new HashSet<Identifiable>(MultiValue.getSize(r)), r);
-        }
-
-      } else {
-        ids = java.util.Collections.singleton(new RecordId(iTarget));
-      }
-    }
-    return ids;
-  }
 }

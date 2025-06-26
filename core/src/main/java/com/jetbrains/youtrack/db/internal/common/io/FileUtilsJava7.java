@@ -39,8 +39,8 @@ public class FileUtilsJava7 {
     }
 
     try {
-      final FileSystem fileSystem = FileSystems.getDefault();
-      final Path path = fileSystem.getPath(file.getAbsolutePath());
+      final var fileSystem = FileSystems.getDefault();
+      final var path = fileSystem.getPath(file.getAbsolutePath());
 
       Files.delete(path);
 

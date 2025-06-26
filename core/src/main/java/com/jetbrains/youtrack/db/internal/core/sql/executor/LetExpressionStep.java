@@ -1,19 +1,17 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLProjectionItem;
 
-/**
- *
- */
 public class LetExpressionStep extends AbstractExecutionStep {
 
   private SQLIdentifier varname;
@@ -30,7 +28,7 @@ public class LetExpressionStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev == null) {
-      throw new CommandExecutionException(
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot execute a local LET on a query without a target");
     }
 
@@ -38,7 +36,7 @@ public class LetExpressionStep extends AbstractExecutionStep {
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
-    Object value = expression.execute(result, ctx);
+    var value = expression.execute(result, ctx);
     ((ResultInternal) result)
         .setMetadata(varname.getStringValue(), SQLProjectionItem.convert(value, ctx));
     return result;
@@ -46,26 +44,26 @@ public class LetExpressionStep extends AbstractExecutionStep {
 
   @Override
   public String prettyPrint(int depth, int indent) {
-    String spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ LET (for each record)\n" + spaces + "  " + varname + " = " + expression;
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = ExecutionStepInternal.basicSerialize(db, this);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = ExecutionStepInternal.basicSerialize(session, this);
     if (varname != null) {
-      result.setProperty("varname", varname.serialize(db));
+      result.setProperty("varname", varname.serialize(session));
     }
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     return result;
   }
 
   @Override
-  public void deserialize(Result fromResult) {
+  public void deserialize(Result fromResult, DatabaseSessionInternal session) {
     try {
-      ExecutionStepInternal.basicDeserialize(fromResult, this);
+      ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       if (fromResult.getProperty("varname") != null) {
         varname = SQLIdentifier.deserialize(fromResult.getProperty("varname"));
       }
@@ -75,7 +73,7 @@ public class LetExpressionStep extends AbstractExecutionStep {
       }
       reset();
     } catch (Exception e) {
-      throw BaseException.wrapException(new CommandExecutionException(""), e);
+      throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
   }
 }

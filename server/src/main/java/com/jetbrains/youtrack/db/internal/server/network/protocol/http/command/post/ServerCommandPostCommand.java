@@ -20,73 +20,70 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseStats;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.DDLStatement;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFetchPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLTraverseStatement;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommandAuthenticatedDbAbstract;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.TimerTask;
+import javax.annotation.Nullable;
 
 public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstract {
 
   private static final String[] NAMES = {"GET|command/*", "POST|command/*"};
 
   @Override
-  public boolean execute(final OHttpRequest iRequest, HttpResponse iResponse) throws Exception {
-    final String[] urlParts =
+  public boolean execute(final HttpRequest iRequest, HttpResponse iResponse) throws Exception {
+    final var urlParts =
         checkSyntax(
             iRequest.getUrl(),
             3,
             "Syntax error: command/<database>/<language>/<command-text>[/limit][/<fetchPlan>]");
 
     // TRY TO GET THE COMMAND FROM THE URL, THEN FROM THE CONTENT
-    final String language = urlParts.length > 2 ? urlParts[2].trim() : "sql";
-    String text = urlParts.length > 3 ? urlParts[3].trim() : iRequest.getContent();
-    int limit = urlParts.length > 4 ? Integer.parseInt(urlParts[4].trim()) : -1;
-    String fetchPlan = urlParts.length > 5 ? urlParts[5] : null;
-    final String accept = iRequest.getHeader("accept");
+    final var language = urlParts.length > 2 ? urlParts[2].trim() : "sql";
+    var text = urlParts.length > 3 ? urlParts[3].trim() : iRequest.getContent();
+    var limit = urlParts.length > 4 ? Integer.parseInt(urlParts[4].trim()) : -1;
+    var fetchPlan = urlParts.length > 5 ? urlParts[5] : null;
+    final var accept = iRequest.getHeader("accept");
 
     Object params = null;
-    String mode = "resultset";
+    var mode = "resultset";
 
-    boolean returnExecutionPlan = true;
+    var returnExecutionPlan = true;
 
-    long begin = System.currentTimeMillis();
+    var begin = System.currentTimeMillis();
     if (iRequest.getContent() != null && !iRequest.getContent().isEmpty()) {
       // CONTENT REPLACES TEXT
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
-        final EntityImpl entity = new EntityImpl();
-        entity.fromJSON(iRequest.getContent());
-        text = entity.field("command");
-        params = entity.field("parameters");
-        if (entity.containsField("mode")) {
-          mode = entity.field("mode");
+        final var map = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
+        text = (String) map.get("command");
+        params = map.get("parameters");
+        if (map.containsKey("mode")) {
+          mode = map.get("mode").toString();
         }
 
-        if ("false".equalsIgnoreCase("" + entity.field("returnExecutionPlan"))) {
+        if ("false".equalsIgnoreCase("" + map.get("returnExecutionPlan"))) {
           returnExecutionPlan = false;
         }
 
         if (params instanceof Collection) {
-          final Object[] paramArray = new Object[((Collection) params).size()];
+          final var paramArray = new Object[((Collection) params).size()];
           ((Collection) params).toArray(paramArray);
           params = paramArray;
         }
@@ -106,33 +103,35 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
     iRequest.getData().commandInfo = "Command";
     iRequest.getData().commandDetail = text;
 
-    DatabaseSessionInternal db = null;
+    DatabaseSessionInternal session = null;
 
-    boolean ok = false;
-    boolean txBegun = false;
+    var response = new ArrayList<BasicResult>();
+    Map<String, Object> additionalContent = new HashMap<>();
+    String format = null;
+
+    var ok = false;
+    var txBegun = false;
     try {
-      db = getProfiledDatabaseInstance(iRequest);
-      db.resetRecordLoadStats();
-      SQLStatement stm = parseStatement(language, text, db);
-
-      if (stm != null && !(stm instanceof DDLStatement)) {
-        db.begin();
-        txBegun = true;
-      }
-
-      ResultSet result = executeStatement(language, text, params, db);
-      limit = getLimitFromStatement(stm, limit);
-      String localFetchPlan = getFetchPlanFromStatement(stm);
-      if (localFetchPlan != null) {
-        fetchPlan = localFetchPlan;
-      }
-      int i = 0;
-      List response = new ArrayList();
-      TimerTask commandInterruptTimer = null;
-      if (db.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT) > 0
-          && !language.equalsIgnoreCase("sql")) {
-      }
+      session = getProfiledDatabaseSessionInstance(iRequest);
       try {
+
+        session.resetRecordLoadStats();
+        var stm = parseStatement(language, text, session);
+
+        if (stm != null && !(stm instanceof DDLStatement)) {
+          session.begin();
+          txBegun = true;
+        }
+
+        var result = executeStatement(language, text, params, session);
+        limit = getLimitFromStatement(stm, limit);
+        var localFetchPlan = getFetchPlanFromStatement(stm);
+        if (localFetchPlan != null) {
+          fetchPlan = localFetchPlan;
+        }
+
+        var i = 0;
+        session.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
         while (result.hasNext()) {
           if (limit >= 0 && i >= limit) {
             break;
@@ -140,68 +139,73 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
           response.add(result.next());
           i++;
         }
-      } finally {
-        if (commandInterruptTimer != null) {
-          commandInterruptTimer.cancel();
-        }
-      }
-      Map<String, Object> additionalContent = new HashMap<>();
-      if (returnExecutionPlan) {
-        var dbRef = db;
-        result
-            .getExecutionPlan()
-            .ifPresent(x -> additionalContent.put("executionPlan", x.toResult(dbRef).toEntity()));
-      }
 
-      result.close();
-      long elapsedMs = System.currentTimeMillis() - begin;
-
-      String format = null;
-      if (fetchPlan != null) {
-        format = "fetchPlan:" + fetchPlan;
-      }
-
-      if (iRequest.getHeader("TE") != null) {
-        iResponse.setStreaming(true);
-      }
-
-      additionalContent.put("elapsedMs", elapsedMs);
-      DatabaseStats dbStats = db.getStats();
-      additionalContent.put("dbStats", dbStats.toResult(db).toEntity());
-
-      iResponse.writeResult(response, format, accept, additionalContent, mode, db);
-      ok = true;
-    } finally {
-      if (db != null) {
-        db.activateOnCurrentThread();
-
-        if (txBegun && db.getTransaction().isActive()) {
-          if (ok) {
-            db.commit();
-          } else {
-            db.rollback();
+        if (returnExecutionPlan) {
+          var plan = result.getExecutionPlan();
+          if (plan != null) {
+            additionalContent.put("executionPlan", plan.toResult(session).toMap());
           }
         }
-        db.close();
+
+        var elapsedMs = System.currentTimeMillis() - begin;
+        if (fetchPlan != null) {
+          format = "fetchPlan:" + fetchPlan;
+        }
+
+        if (iRequest.getHeader("TE") != null) {
+          iResponse.setStreaming(true);
+        }
+
+        additionalContent.put("elapsedMs", elapsedMs);
+        var dbStats = session.getStats();
+        additionalContent.put("dbStats", dbStats.toResult(session).toMap());
+
+        result.close();
+
+        ok = true;
+      } finally {
+        if (session != null) {
+          if (txBegun && session.getActiveTransactionOrNull() != null) {
+            if (ok) {
+              session.commit();
+            } else {
+              session.rollback();
+            }
+          }
+
+        }
+      }
+
+      var formatCopy = format;
+      var modeCopy = mode;
+
+      session.executeInTx(transaction -> {
+        iResponse.writeResult(response, formatCopy, accept, additionalContent, modeCopy,
+            (DatabaseSessionInternal) transaction.getDatabaseSession());
+      });
+    } finally {
+      if (session != null) {
+        session.close();
       }
     }
 
     return false;
   }
 
+  @Nullable
   public static String getFetchPlanFromStatement(SQLStatement statement) {
     if (statement instanceof SQLSelectStatement) {
-      SQLFetchPlan fp = ((SQLSelectStatement) statement).getFetchPlan();
+      var fp = ((SQLSelectStatement) statement).getFetchPlan();
       if (fp != null) {
         return fp.toString().substring("FETCHPLAN ".length());
       }
-    } else if (statement instanceof SQLMatchStatement) {
-      return ((SQLMatchStatement) statement).getFetchPlan();
     }
+
     return null;
   }
 
-  public static SQLStatement parseStatement(String language, String text, DatabaseSession db) {
+  @Nullable
+  public static SQLStatement parseStatement(String language, String text, BasicDatabaseSession db) {
     try {
       if (language != null && language.equalsIgnoreCase("sql")) {
         return SQLEngine.parse(text, (DatabaseSessionInternal) db);
@@ -218,8 +222,6 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
         limit = ((SQLSelectStatement) statement).getLimit();
       } else if (statement instanceof SQLMatchStatement) {
         limit = ((SQLMatchStatement) statement).getLimit();
-      } else if (statement instanceof SQLTraverseStatement) {
-        limit = ((SQLTraverseStatement) statement).getLimit();
       }
       if (limit != null) {
         return limit.getValue(new BasicCommandContext());
@@ -233,23 +235,15 @@ public class ServerCommandPostCommand extends ServerCommandAuthenticatedDbAbstra
   protected ResultSet executeStatement(
       String language, String text, Object params, DatabaseSession db) {
     ResultSet result;
-    if ("sql".equalsIgnoreCase(language)) {
-      if (params instanceof Map) {
-        result = db.command(text, (Map) params);
-      } else if (params instanceof Object[]) {
-        result = db.command(text, (Object[]) params);
-      } else {
-        result = db.command(text, params);
-      }
+
+    if (params instanceof Map) {
+      result = db.computeScript(language, text, (Map) params);
+    } else if (params instanceof Object[]) {
+      result = db.computeScript(language, text, (Object[]) params);
     } else {
-      if (params instanceof Map) {
-        result = db.execute(language, text, (Map) params);
-      } else if (params instanceof Object[]) {
-        result = db.execute(language, text, (Object[]) params);
-      } else {
-        result = db.execute(language, text, params);
-      }
+      result = db.computeScript(language, text, params);
     }
+
     return result;
   }
 

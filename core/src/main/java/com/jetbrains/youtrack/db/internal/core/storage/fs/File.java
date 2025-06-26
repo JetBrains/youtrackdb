@@ -27,12 +27,15 @@ public interface File extends ClosableItem {
 
   void create() throws IOException;
 
+  @Override
   void open();
 
+  @Override
   void close();
 
   void delete() throws IOException, InterruptedException;
 
+  @Override
   boolean isOpen();
 
   boolean exists();

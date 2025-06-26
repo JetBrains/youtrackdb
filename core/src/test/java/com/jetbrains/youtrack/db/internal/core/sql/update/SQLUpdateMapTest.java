@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.Map;
 import org.junit.Test;
 
@@ -15,33 +14,36 @@ public class SQLUpdateMapTest extends DbTestBase {
 
     EntityImpl ret;
     EntityImpl ret1;
-    db.command("create class vRecord").close();
-    db.command("create property vRecord.attrs EMBEDDEDMAP ").close();
+    session.execute("create class vRecord").close();
+    session.execute("create property vRecord.attrs EMBEDDEDMAP ").close();
 
-    db.begin();
-    try (ResultSet rs = db.command("insert into vRecord (title) values('first record')")) {
-      ret = (EntityImpl) rs.next().getRecord().get();
+    session.begin();
+    try (var rs = session.execute("insert into vRecord (title) values('first record')")) {
+      ret = (EntityImpl) rs.next().asRecord();
     }
 
-    try (ResultSet rs = db.command("insert into vRecord (title) values('second record')")) {
-      ret1 = (EntityImpl) rs.next().getRecord().get();
+    try (var rs = session.execute("insert into vRecord (title) values('second record')")) {
+      ret1 = (EntityImpl) rs.next().asRecord();
     }
-    db.commit();
+    session.commit();
 
-    db.begin();
-    db.command(
-            "update " + ret.getIdentity() + " set attrs =  {'test1':" + ret1.getIdentity() + " }")
+    session.begin();
+    session.execute(
+            "update " + ret.getIdentity() + " set attrs =  {'test1':'first test' }")
         .close();
-    db.commit();
+    session.commit();
     reOpen("admin", "adminpwd");
 
-    db.begin();
-    db.command("update " + ret.getIdentity() + " set attrs['test'] = 'test value' ").close();
-    db.commit();
+    session.begin();
+    session.execute("update " + ret.getIdentity() + " set attrs['test'] = 'test value' ").close();
+    session.commit();
 
-    ret = db.bindToSession(ret);
-    assertEquals(2, ((Map) ret.field("attrs")).size());
-    assertEquals("test value", ((Map) ret.field("attrs")).get("test"));
-    assertEquals(ret1.getIdentity(), ((Map) ret.field("attrs")).get("test1"));
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    ret = activeTx.load(ret);
+    assertEquals(2, ((Map) ret.getProperty("attrs")).size());
+    assertEquals("test value", ((Map) ret.getProperty("attrs")).get("test"));
+    assertEquals("first test", ((Map) ret.getProperty("attrs")).get("test1"));
+    session.commit();
   }
 }

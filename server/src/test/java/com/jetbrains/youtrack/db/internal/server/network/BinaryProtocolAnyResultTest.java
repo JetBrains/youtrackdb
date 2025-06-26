@@ -2,12 +2,12 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.io.IOException;
@@ -35,8 +35,8 @@ public class BinaryProtocolAnyResultTest {
   @Test
   @Ignore
   public void scriptReturnValueTest() throws IOException {
-    YouTrackDB youTrackDB =
-        new YouTrackDBImpl("remote:localhost", "root", "root", YouTrackDBConfig.defaultConfig());
+    var youTrackDB =
+        YourTracks.remote("remote:localhost", "root", "root", YouTrackDBConfig.defaultConfig());
 
     if (youTrackDB.exists("test")) {
       youTrackDB.drop("test");
@@ -44,9 +44,9 @@ public class BinaryProtocolAnyResultTest {
 
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
-    DatabaseSession db = youTrackDB.open("test", "admin", "admin");
+    var db = youTrackDB.open("test", "admin", "admin");
 
-    Object res = db.execute("SQL", " let $one = select from OUser limit 1; return [$one,1]");
+    Object res = db.computeScript("SQL", " let $one = select from OUser limit 1; return [$one,1]");
 
     assertTrue(res instanceof List);
     assertTrue(((List) res).get(0) instanceof Collection);

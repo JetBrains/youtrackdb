@@ -5,11 +5,13 @@ import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 /**
  * Execution Steps are the building blocks of a query execution plan
@@ -43,9 +45,9 @@ public interface ExecutionStepInternal extends ExecutionStep {
   void close();
 
   static String getIndent(int depth, int indent) {
-    StringBuilder result = new StringBuilder();
-    for (int i = 0; i < depth; i++) {
-      for (int j = 0; j < indent; j++) {
+    var result = new StringBuilder();
+    for (var i = 0; i < depth; i++) {
+      for (var j = 0; j < indent; j++) {
         result.append(" ");
       }
     }
@@ -53,18 +55,21 @@ public interface ExecutionStepInternal extends ExecutionStep {
   }
 
   default String prettyPrint(int depth, int indent) {
-    String spaces = getIndent(depth, indent);
+    var spaces = getIndent(depth, indent);
     return spaces + getClass().getSimpleName();
   }
 
-  default String getName() {
+  @Override
+  default @Nonnull String getName() {
     return getClass().getSimpleName();
   }
 
-  default String getType() {
+  @Override
+  default @Nonnull String getType() {
     return getClass().getSimpleName();
   }
 
+  @Override
   default String getDescription() {
     return prettyPrint(0, 3);
   }
@@ -73,68 +78,71 @@ public interface ExecutionStepInternal extends ExecutionStep {
     return "<local>";
   }
 
+  @Override
+  @Nonnull
   default List<ExecutionStep> getSubSteps() {
-    return Collections.EMPTY_LIST;
+    return Collections.emptyList();
   }
 
   default List<ExecutionPlan> getSubExecutionPlans() {
-    return Collections.EMPTY_LIST;
+    return Collections.emptyList();
   }
 
   default void reset() {
     // do nothing
   }
 
-  default Result serialize(DatabaseSessionInternal db) {
+  default Result serialize(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
-  default void deserialize(Result fromResult) {
+  default void deserialize(Result fromResult, DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
 
-  static ResultInternal basicSerialize(DatabaseSessionInternal db,
+  static ResultInternal basicSerialize(DatabaseSessionEmbedded session,
       ExecutionStepInternal step) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(session);
     result.setProperty(InternalExecutionPlan.JAVA_TYPE, step.getClass().getName());
-    if (step.getSubSteps() != null && !step.getSubSteps().isEmpty()) {
+    if (!step.getSubSteps().isEmpty()) {
       List<Result> serializedSubsteps = new ArrayList<>();
-      for (ExecutionStep substep : step.getSubSteps()) {
-        serializedSubsteps.add(((ExecutionStepInternal) substep).serialize(db));
+      for (var substep : step.getSubSteps()) {
+        serializedSubsteps.add(((ExecutionStepInternal) substep).serialize(session));
       }
       result.setProperty("subSteps", serializedSubsteps);
     }
 
     if (step.getSubExecutionPlans() != null && !step.getSubExecutionPlans().isEmpty()) {
       List<Result> serializedSubPlans = new ArrayList<>();
-      for (ExecutionPlan substep : step.getSubExecutionPlans()) {
-        serializedSubPlans.add(((InternalExecutionPlan) substep).serialize(db));
+      for (var substep : step.getSubExecutionPlans()) {
+        serializedSubPlans.add(((InternalExecutionPlan) substep).serialize(session));
       }
       result.setProperty("subExecutionPlans", serializedSubPlans);
     }
     return result;
   }
 
-  static void basicDeserialize(Result serialized, ExecutionStepInternal step)
+  static void basicDeserialize(Result serialized, ExecutionStepInternal step,
+      DatabaseSessionInternal session)
       throws ClassNotFoundException, IllegalAccessException, InstantiationException {
     List<Result> serializedSubsteps = serialized.getProperty("subSteps");
     if (serializedSubsteps != null) {
-      for (Result serializedSub : serializedSubsteps) {
+      for (var serializedSub : serializedSubsteps) {
         String className = serializedSub.getProperty(InternalExecutionPlan.JAVA_TYPE);
-        ExecutionStepInternal subStep =
+        var subStep =
             (ExecutionStepInternal) Class.forName(className).newInstance();
-        subStep.deserialize(serializedSub);
+        subStep.deserialize(serializedSub, session);
         step.getSubSteps().add(subStep);
       }
     }
 
     List<Result> serializedPlans = serialized.getProperty("subExecutionPlans");
     if (serializedSubsteps != null) {
-      for (Result serializedSub : serializedPlans) {
+      for (var serializedSub : serializedPlans) {
         String className = serializedSub.getProperty(InternalExecutionPlan.JAVA_TYPE);
-        InternalExecutionPlan subStep =
+        var subStep =
             (InternalExecutionPlan) Class.forName(className).newInstance();
-        subStep.deserialize(serializedSub);
+        subStep.deserialize(serializedSub, session);
         step.getSubExecutionPlans().add(subStep);
       }
     }

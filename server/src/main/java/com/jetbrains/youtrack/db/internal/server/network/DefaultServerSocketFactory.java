@@ -1,6 +1,6 @@
 package com.jetbrains.youtrack.db.internal.server.network;
 
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;

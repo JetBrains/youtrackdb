@@ -15,21 +15,17 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
+import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertFalse;
+import static org.testng.Assert.assertNotNull;
+import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserIml;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionAbstract;
@@ -38,13 +34,11 @@ import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -52,12 +46,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLFunctionsTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLFunctionsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
@@ -70,413 +58,346 @@ public class SQLFunctionsTest extends BaseDBTest {
 
   @Test
   public void queryMax() {
-    ResultSet result = database.command("select max(id) as max from Account");
+    session.begin();
+    var result = session.execute("select max(id) as max from Account");
 
     assertNotNull(result.next().getProperty("max"));
     assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void queryMaxInline() {
-    List<EntityImpl> result =
-        database.query("select max(1,2,7,0,-2,3) as max").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var result =
+        session.query("select max(1,2,7,0,-2,3) as max").toList();
 
-    Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("max"));
+    assertEquals(result.size(), 1);
+    for (var r : result) {
+      assertNotNull(r.getProperty("max"));
 
-      Assert.assertEquals(((Number) d.field("max")).intValue(), 7);
+      assertEquals(((Number) r.getProperty("max")).intValue(), 7);
     }
   }
 
   @Test
   public void queryMin() {
-    ResultSet result = database.command("select min(id) as min from Account");
+    session.begin();
+    var result = session.execute("select min(id) as min from Account");
 
-    Result d = result.next();
-    Assert.assertNotNull(d.getProperty("min"));
+    var d = result.next();
+    assertNotNull(d.getProperty("min"));
 
-    Assert.assertEquals(((Number) d.getProperty("min")).longValue(), 0L);
-    Assert.assertFalse(result.hasNext());
+    assertEquals(((Number) d.getProperty("min")).longValue(), 0L);
+    assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void queryMinInline() {
-    List<EntityImpl> result =
-        database.query("select min(1,2,7,0,-2,3) as min").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var resultSet =
+        session.query("select min(1,2,7,0,-2,3) as min").toList();
 
-    Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("min"));
+    assertEquals(resultSet.size(), 1);
+    for (var r : resultSet) {
+      assertNotNull(r.getProperty("min"));
 
-      Assert.assertEquals(((Number) d.field("min")).intValue(), -2);
+      assertEquals(((Number) r.getProperty("min")).intValue(), -2);
     }
   }
 
   @Test
   public void querySum() {
-    ResultSet result = database.command("select sum(id) as sum from Account");
-    Result d = result.next();
-    Assert.assertNotNull(d.getProperty("sum"));
-    Assert.assertFalse(result.hasNext());
+    session.begin();
+    var result = session.execute("select sum(id) as sum from Account");
+    var d = result.next();
+    assertNotNull(d.getProperty("sum"));
+    assertFalse(result.hasNext());
     result.close();
+    session.commit();
   }
 
   @Test
   public void queryCount() {
-    ResultSet result = database.command("select count(*) as total from Account");
-    Result d = result.next();
-    Assert.assertNotNull(d.getProperty("total"));
-    Assert.assertTrue(((Number) d.getProperty("total")).longValue() > 0);
-    Assert.assertFalse(result.hasNext());
+    var result = session.execute("select count(*) as total from Account");
+    var d = result.next();
+    assertNotNull(d.getProperty("total"));
+    assertTrue(((Number) d.getProperty("total")).longValue() > 0);
+    assertFalse(result.hasNext());
     result.close();
-  }
-
-  public void queryCountExtendsRestricted() {
-    SchemaClass restricted = database.getMetadata().getSchema().getClass("ORestricted");
-    Assert.assertNotNull(restricted);
-
-    database.getMetadata().getSchema().createClass("QueryCountExtendsRestrictedClass", restricted);
-
-    database.begin();
-    SecurityUserIml admin = database.getMetadata().getSecurity().getUser("admin");
-    SecurityUserIml reader = database.getMetadata().getSecurity().getUser("reader");
-
-    @SuppressWarnings("deprecation")
-    Role byPassRestrictedRole =
-        database
-            .getMetadata()
-            .getSecurity()
-            .createRole("byPassRestrictedRole", Role.ALLOW_MODES.DENY_ALL_BUT);
-    byPassRestrictedRole.addRule(database,
-        Rule.ResourceGeneric.BYPASS_RESTRICTED, null, Role.PERMISSION_READ);
-    byPassRestrictedRole.save(dbName);
-
-    database
-        .getMetadata()
-        .getSecurity()
-        .createUser("superReader", "superReader", "reader", "byPassRestrictedRole");
-
-    EntityImpl docAdmin = new EntityImpl("QueryCountExtendsRestrictedClass");
-    docAdmin.field(
-        "_allowRead",
-        new HashSet<Identifiable>(
-            Collections.singletonList(admin.getIdentity(database).getIdentity())));
-
-    docAdmin.save();
-    database.commit();
-
-    database.begin();
-    EntityImpl docReader = new EntityImpl("QueryCountExtendsRestrictedClass");
-    docReader.field("_allowRead",
-        new HashSet<>(Collections.singletonList(reader.getIdentity(database))));
-    docReader.save();
-    database.commit();
-
-    List<EntityImpl> result =
-        database.query("select count(*) from QueryCountExtendsRestrictedClass").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
-    EntityImpl count = result.get(0);
-    Assert.assertEquals(2L, count.<Object>field("count(*)"));
-
-    database.close();
-    //noinspection deprecation
-    database = createSessionInstance();
-
-    result =
-        database.query("select count(*) as count from QueryCountExtendsRestrictedClass").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
-    count = result.get(0);
-    Assert.assertEquals(2L, count.<Object>field("count"));
-
-    database.close();
-    database = createSessionInstance("superReader", "superReader");
-
-    result =
-        database.query("select count(*) as count from QueryCountExtendsRestrictedClass").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
-    count = result.get(0);
-    Assert.assertEquals(2L, count.<Object>field("count"));
   }
 
   @Test
   public void queryCountWithConditions() {
-    SchemaClass indexed = database.getMetadata().getSchema().getOrCreateClass("Indexed");
-    indexed.createProperty(database, "key", PropertyType.STRING);
-    indexed.createIndex(database, "keyed", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
+    var indexed = session.getMetadata().getSchema().getOrCreateClass("Indexed");
+    indexed.createProperty("key", PropertyType.STRING);
+    indexed.createIndex("keyed", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
 
-    database.begin();
-    database.<EntityImpl>newInstance("Indexed").field("key", "one").save();
-    database.<EntityImpl>newInstance("Indexed").field("key", "two").save();
-    database.commit();
+    session.begin();
+    session.newInstance("Indexed").setProperty("key", "one");
+    session.newInstance("Indexed").setProperty("key", "two");
+    session.commit();
 
-    List<EntityImpl> result =
-        database.query("select count(*) as total from Indexed where key > 'one'").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var resultSet =
+        session.query("select count(*) as total from Indexed where key > 'one'").toList();
 
-    Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("total"));
-      Assert.assertTrue(((Number) d.field("total")).longValue() > 0);
+    assertEquals(resultSet.size(), 1);
+    for (var result : resultSet) {
+      assertNotNull(result.getProperty("total"));
+      assertTrue(((Number) result.getProperty("total")).longValue() > 0);
     }
   }
 
   @Test
   public void queryDistinct() {
-    List<EntityImpl> result =
-        database.query("select distinct(name) as name from City").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var resultSet =
+        session.query("select distinct(name) as name from City").toList();
+    assertTrue(resultSet.size() > 1);
 
-    Assert.assertTrue(result.size() > 1);
-
-    Set<String> cities = new HashSet<String>();
-    for (EntityImpl city : result) {
-      String cityName = city.field("name");
-      Assert.assertFalse(cities.contains(cityName));
+    Set<String> cities = new HashSet<>();
+    for (var city : resultSet) {
+      String cityName = city.getProperty("name");
+      assertFalse(cities.contains(cityName));
       cities.add(cityName);
     }
   }
 
   @Test
   public void queryFunctionRenamed() {
-    List<EntityImpl> result =
-        database.query("select distinct(name) as dist from City").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var result =
+        session.query("select distinct(name) as dist from City").toList();
 
-    Assert.assertTrue(result.size() > 1);
-
-    for (EntityImpl city : result) {
-      Assert.assertTrue(city.containsField("dist"));
+    assertTrue(result.size() > 1);
+    for (var city : result) {
+      assertTrue(city.hasProperty("dist"));
     }
   }
 
   @Test
+  public void queryUnionAllAsAggregationNotRemoveDuplicates() {
+    var result = session.query("select from City").toList();
+    var count = result.size();
+
+    result =
+        session.query("select unionAll(name) as name from City").toList();
+    Collection<Object> citiesFound = result.getFirst().getProperty("name");
+    assertEquals(citiesFound.size(), count);
+  }
+
+  @Test
   public void querySetNotDuplicates() {
-    List<EntityImpl> result =
-        database.query("select set(name) as name from City").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var result =
+        session.query("select set(name) as name from City").toList();
 
-    Assert.assertEquals(result.size(), 1);
+    assertEquals(result.size(), 1);
 
-    Collection<Object> citiesFound = result.get(0).field("name");
-    Assert.assertTrue(citiesFound.size() > 1);
+    Collection<Object> citiesFound = result.getFirst().getProperty("name");
+    assertTrue(citiesFound.size() > 1);
 
-    Set<String> cities = new HashSet<String>();
-    for (Object city : citiesFound) {
-      Assert.assertFalse(cities.contains(city.toString()));
+    Set<String> cities = new HashSet<>();
+    for (var city : citiesFound) {
+      assertFalse(cities.contains(city.toString()));
       cities.add(city.toString());
     }
   }
 
   @Test
   public void queryList() {
-    List<EntityImpl> result =
-        database.query("select list(name) as names from City").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var result =
+        session.query("select list(name) as names from City").toList();
 
-    Assert.assertFalse(result.isEmpty());
+    assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      List<Object> citiesFound = d.field("names");
-      Assert.assertTrue(citiesFound.size() > 1);
+    for (var d : result) {
+      List<Object> citiesFound = d.getProperty("names");
+      assertTrue(citiesFound.size() > 1);
     }
   }
 
   public void testSelectMap() {
-    List<EntityImpl> result =
-        database
+    var result =
+        session
             .query("select list( 1, 4, 5.00, 'john', map( 'kAA', 'vAA' ) ) as myresult")
-            .stream()
-            .map(r -> (EntityImpl) r.toEntity())
             .toList();
 
-    Assert.assertEquals(result.size(), 1);
+    assertEquals(result.size(), 1);
 
-    EntityImpl document = result.get(0);
+    var document = result.getFirst();
     @SuppressWarnings("rawtypes")
-    List myresult = document.field("myresult");
-    Assert.assertNotNull(myresult);
+    List myresult = document.getProperty("myresult");
+    assertNotNull(myresult);
 
-    Assert.assertTrue(myresult.remove(Integer.valueOf(1)));
-    Assert.assertTrue(myresult.remove(Integer.valueOf(4)));
-    Assert.assertTrue(myresult.remove(Float.valueOf(5)));
-    Assert.assertTrue(myresult.remove("john"));
+    assertTrue(myresult.remove(Integer.valueOf(1)));
+    assertTrue(myresult.remove(Integer.valueOf(4)));
+    assertTrue(myresult.remove(Float.valueOf(5)));
+    assertTrue(myresult.remove("john"));
 
-    Assert.assertEquals(myresult.size(), 1);
+    assertEquals(myresult.size(), 1);
 
-    Assert.assertTrue(myresult.get(0) instanceof Map, "The object is: " + myresult.getClass());
+    assertTrue(myresult.getFirst() instanceof Map, "The object is: " + myresult.getClass());
     @SuppressWarnings("rawtypes")
-    Map map = (Map) myresult.get(0);
+    var map = (Map) myresult.getFirst();
 
-    String value = (String) map.get("kAA");
-    Assert.assertEquals(value, "vAA");
+    var value = (String) map.get("kAA");
+    assertEquals(value, "vAA");
 
-    Assert.assertEquals(map.size(), 1);
+    assertEquals(map.size(), 1);
   }
 
   @Test
   public void querySet() {
-    List<EntityImpl> result =
-        database.query("select set(name) as names from City").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var result =
+        session.query("select set(name) as names from City").toList();
 
-    Assert.assertFalse(result.isEmpty());
+    assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Set<Object> citiesFound = d.field("names");
-      Assert.assertTrue(citiesFound.size() > 1);
+    for (var d : result) {
+      Set<Object> citiesFound = d.getProperty("names");
+      assertTrue(citiesFound.size() > 1);
     }
   }
 
   @Test
   public void queryMap() {
-    List<EntityImpl> result =
-        database.query("select map(name, country.name) as names from City").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    var result =
+        session.query("select map(name, country.name) as names from City").toList();
 
-    Assert.assertFalse(result.isEmpty());
+    assertFalse(result.isEmpty());
 
-    for (EntityImpl d : result) {
-      Map<Object, Object> citiesFound = d.field("names");
-      Assert.assertTrue(citiesFound.size() > 1);
+    for (var d : result) {
+      Map<Object, Object> citiesFound = d.getProperty("names");
+      assertTrue(citiesFound.size() > 1);
+    }
+  }
+
+  @Test
+  public void queryUnionAllAsInline() {
+    var result =
+        session.query("select unionAll(out, in) as edges from V").toList();
+
+    assertTrue(result.size() > 1);
+    for (var d : result) {
+      assertEquals(d.getPropertyNames().size(), 1);
+      assertTrue(d.hasProperty("edges"));
     }
   }
 
   @Test
   public void queryComposedAggregates() {
-    List<EntityImpl> result =
-        database
+    var result =
+        session
             .query(
                 "select MIN(id) as min, max(id) as max, AVG(id) as average, sum(id) as total"
-                    + " from Account")
-            .stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+                    + " from Account").toList();
 
-    Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("min"));
-      Assert.assertNotNull(d.field("max"));
-      Assert.assertNotNull(d.field("average"));
-      Assert.assertNotNull(d.field("total"));
+    assertEquals(result.size(), 1);
+    for (var d : result) {
+      assertNotNull(d.getProperty("min"));
+      assertNotNull(d.getProperty("max"));
+      assertNotNull(d.getProperty("average"));
+      assertNotNull(d.getProperty("total"));
 
-      Assert.assertTrue(
-          ((Number) d.field("max")).longValue() > ((Number) d.field("average")).longValue());
-      Assert.assertTrue(
-          ((Number) d.field("average")).longValue() >= ((Number) d.field("min")).longValue());
-      Assert.assertTrue(
-          ((Number) d.field("total")).longValue() >= ((Number) d.field("max")).longValue(),
-          "Total " + d.field("total") + " max " + d.field("max"));
+      assertTrue(
+          ((Number) d.getProperty("max")).longValue() > ((Number) d.getProperty(
+              "average")).longValue());
+      assertTrue(
+          ((Number) d.getProperty("average")).longValue() >= ((Number) d.getProperty(
+              "min")).longValue());
+      assertTrue(
+          ((Number) d.getProperty("total")).longValue() >= ((Number) d.getProperty(
+              "max")).longValue(),
+          "Total " + d.getProperty("total") + " max " + d.getProperty("max"));
     }
   }
 
   @Test
   public void queryFormat() {
-    List<EntityImpl> result =
-        database
+    var result =
+        session
             .query(
                 "select format('%d - %s (%s)', nr, street, type, dummy ) as output from"
-                    + " Account")
-            .stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+                    + " Account").toList();
 
-    Assert.assertTrue(result.size() > 1);
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("output"));
+    assertTrue(result.size() > 1);
+    for (var d : result) {
+      assertNotNull(d.getProperty("output"));
     }
   }
 
   @Test
   public void querySysdateNoFormat() {
-    ResultSet result = database.command("select sysdate() as date from Account");
+    session.begin();
+    var result = session.execute("select sysdate() as date from Account");
 
-    Assert.assertTrue(result.hasNext());
+    assertTrue(result.hasNext());
     while (result.hasNext()) {
-      Result d = result.next();
-      Assert.assertNotNull(d.getProperty("date"));
+      var d = result.next();
+      assertNotNull(d.getProperty("date"));
     }
+    session.commit();
   }
 
   @Test
   public void querySysdateWithFormat() {
-    List<EntityImpl> result =
-        database.query("select sysdate('dd-MM-yyyy') as date from Account").stream()
-            .map(r -> (EntityImpl) r.toEntity())
+    var result =
+        session.query("select sysdate('dd-MM-yyyy') as date from Account")
             .toList();
 
-    Assert.assertTrue(result.size() > 1);
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("date"));
+    assertTrue(result.size() > 1);
+    for (var d : result) {
+      assertNotNull(d.getProperty("date"));
     }
   }
 
   @Test
   public void queryDate() {
-    ResultSet result = database.command("select count(*) as tot from Account");
+    var result = session.execute("select count(*) as tot from Account");
 
-    int tot = ((Number) result.next().getProperty("tot")).intValue();
+    var tot = ((Number) result.next().getProperty("tot")).intValue();
     assertFalse(result.hasNext());
 
-    database.begin();
+    session.begin();
     long updated =
-        database.command("update Account set created = date()").next().getProperty("count");
-    database.commit();
+        session.execute("update Account set created = date()").next().getProperty("count");
+    session.commit();
 
-    Assert.assertEquals(updated, tot);
+    assertEquals(updated, tot);
 
-    String pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
-    SimpleDateFormat dateFormat = new SimpleDateFormat(pattern);
+    var pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
+    var dateFormat = new SimpleDateFormat(pattern);
 
     result =
-        database.query(
+        session.query(
             "select from Account where created <= date('"
                 + dateFormat.format(new Date())
                 + "', \""
                 + pattern
                 + "\")");
 
-    Assert.assertEquals(result.stream().count(), tot);
+    assertEquals(result.stream().count(), tot);
     result =
-        database.query(
+        session.query(
             "select from Account where created <= date('"
                 + dateFormat.format(new Date())
                 + "', \""
                 + pattern
                 + "\")");
     while (result.hasNext()) {
-      Result d = result.next();
-      Assert.assertNotNull(d.getProperty("created"));
+      var d = result.next();
+      assertNotNull(d.getProperty("created"));
     }
   }
 
   @Test(expectedExceptions = CommandSQLParsingException.class)
   public void queryUndefinedFunction() {
-    //noinspection ResultOfMethodCallIgnored
-    database.query("select blaaaa(salary) as max from Account").stream()
-        .map(r -> (EntityImpl) r.toEntity())
+    session.query("select blaaaa(salary) as max from Account")
         .toList();
   }
 
   @Test
   public void queryCustomFunction() {
-    SQLEngine.getInstance()
+    SQLEngine
         .registerFunction(
             "bigger",
             new SQLFunctionAbstract("bigger", 2, 2) {
@@ -488,7 +409,7 @@ public class SQLFunctionsTest extends BaseDBTest {
               @Override
               public Object execute(
                   Object iThis,
-                  Identifiable iCurrentRecord,
+                  Result iCurrentRecord,
                   Object iCurrentResult,
                   final Object[] iParams,
                   CommandContext iContext) {
@@ -505,131 +426,121 @@ public class SQLFunctionsTest extends BaseDBTest {
                 }
 
                 // USE DOUBLE TO AVOID LOSS OF PRECISION
-                final double v1 = ((Number) iParams[0]).doubleValue();
-                final double v2 = ((Number) iParams[1]).doubleValue();
+                final var v1 = ((Number) iParams[0]).doubleValue();
+                final var v2 = ((Number) iParams[1]).doubleValue();
 
                 return Math.max(v1, v2);
               }
             });
 
-    List<EntityImpl> result =
-        database.query("select from Account where bigger(id,1000) = 1000").stream()
-            .map(r -> (EntityImpl) r.toEntity())
-            .toList();
+    session.begin();
+    var result =
+        session.query("select from Account where bigger(id,1000) = 1000").toList();
 
-    Assert.assertFalse(result.isEmpty());
-    for (EntityImpl d : result) {
-      Assert.assertTrue((Integer) d.field("id") <= 1000);
+    assertFalse(result.isEmpty());
+    for (var d : result) {
+      assertTrue((Integer) d.getProperty("id") <= 1000);
     }
+    session.commit();
 
-    SQLEngine.getInstance().unregisterFunction("bigger");
+    SQLEngine.unregisterFunction("bigger");
   }
 
   @Test
   public void queryAsLong() {
-    long moreThanInteger = 1 + (long) Integer.MAX_VALUE;
-    String sql =
+    var moreThanInteger = 1 + (long) Integer.MAX_VALUE;
+    var sql =
         "select numberString.asLong() as value from ( select '"
             + moreThanInteger
             + "' as numberString from Account ) limit 1";
-    List<EntityImpl> result =
-        database.query(sql).stream().map(r -> (EntityImpl) r.toEntity()).toList();
+    var result = session.query(sql).toList();
 
-    Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("value"));
-      Assert.assertTrue(d.field("value") instanceof Long);
-      Assert.assertEquals(moreThanInteger, d.<Object>field("value"));
+    assertEquals(result.size(), 1);
+    for (var d : result) {
+      assertNotNull(d.getProperty("value"));
+      assertTrue(d.getProperty("value") instanceof Long);
+      assertEquals(d.<Object>getProperty("value"), moreThanInteger);
     }
   }
 
   @Test
   public void testHashMethod() throws UnsupportedEncodingException, NoSuchAlgorithmException {
-    List<EntityImpl> result =
-        database
+    var result =
+        session
             .query("select name, name.hash() as n256, name.hash('sha-512') as n512 from OUser")
-            .stream()
-            .map(r -> (EntityImpl) r.toEntity())
             .toList();
 
-    Assert.assertFalse(result.isEmpty());
-    for (EntityImpl d : result) {
-      final String name = d.field("name");
+    assertFalse(result.isEmpty());
+    for (var d : result) {
+      final String name = d.getProperty("name");
 
-      Assert.assertEquals(SecurityManager.createHash(name, "SHA-256"), d.field("n256"));
-      Assert.assertEquals(SecurityManager.createHash(name, "SHA-512"), d.field("n512"));
+      assertEquals(SecurityManager.createHash(name, "SHA-256"), d.getProperty("n256"));
+      assertEquals(SecurityManager.createHash(name, "SHA-512"), d.getProperty("n512"));
     }
   }
 
   @Test
-  public void testFirstFunction() throws UnsupportedEncodingException, NoSuchAlgorithmException {
-    List<Long> sequence = new ArrayList<Long>(100);
+  public void testFirstFunction() {
+    List<Long> sequence = new ArrayList<>(100);
     for (long i = 0; i < 100; ++i) {
       sequence.add(i);
     }
 
-    database.begin();
-    new EntityImpl("V").field("sequence", sequence, PropertyType.EMBEDDEDLIST).save();
+    session.begin();
+    session.newVertex()
+        .setProperty("sequence", session.newEmbeddedList(sequence), PropertyType.EMBEDDEDLIST);
     var newSequence = new ArrayList<>(sequence);
-    newSequence.remove(0);
-    new EntityImpl("V").field("sequence", newSequence, PropertyType.EMBEDDEDLIST).save();
-    database.commit();
+    newSequence.removeFirst();
+    session.newVertex()
+        .setProperty("sequence", session.newEmbeddedList(newSequence), PropertyType.EMBEDDEDLIST);
+    session.commit();
 
     var result =
-        database.query(
+        session.query(
                 "select first(sequence) as first from V where sequence is not null order by first")
             .toList();
 
-    Assert.assertEquals(result.size(), 2);
-    Assert.assertEquals(result.get(0).<Object>getProperty("first"), 0L);
-    Assert.assertEquals(result.get(1).<Object>getProperty("first"), 1L);
+    assertEquals(result.size(), 2);
+    assertEquals(result.get(0).<Object>getProperty("first"), 0L);
+    assertEquals(result.get(1).<Object>getProperty("first"), 1L);
   }
 
   @Test
-  public void testLastFunction() throws UnsupportedEncodingException, NoSuchAlgorithmException {
-    List<Long> sequence = new ArrayList<Long>(100);
+  public void testLastFunction() {
+    List<Long> sequence = new ArrayList<>(100);
     for (long i = 0; i < 100; ++i) {
       sequence.add(i);
     }
 
-    database.begin();
-    new EntityImpl("V").field("sequence2", sequence).save();
+    session.begin();
+    session.newVertex().setProperty("sequence2", session.newEmbeddedList(sequence));
 
     var newSequence = new ArrayList<>(sequence);
     newSequence.remove(sequence.size() - 1);
 
-    new EntityImpl("V").field("sequence2", newSequence).save();
-    database.commit();
+    session.newVertex().setProperty("sequence2", session.newEmbeddedList(newSequence));
+    session.commit();
 
     var result =
-        database.query(
+        session.query(
                 "select last(sequence2) as last from V where sequence2 is not null order by last desc")
             .toList();
 
-    Assert.assertEquals(result.size(), 2);
+    assertEquals(result.size(), 2);
 
-    Assert.assertEquals(result.get(0).<Object>getProperty("last"), 99L);
-    Assert.assertEquals(result.get(1).<Object>getProperty("last"), 98L);
+    assertEquals(result.get(0).<Object>getProperty("last"), 99L);
+    assertEquals(result.get(1).<Object>getProperty("last"), 98L);
   }
 
   @Test
   public void querySplit() {
-    String sql = "select v.split('-') as value from ( select '1-2-3' as v ) limit 1";
+    var sql = "select v.split('-') as value from ( select '1-2-3' as v ) limit 1";
 
-    List<EntityImpl> result =
-        database.query(sql).stream().map(r -> (EntityImpl) r.toEntity()).toList();
+    var result = session.query(sql).toList();
 
-    Assert.assertEquals(result.size(), 1);
-    for (EntityImpl d : result) {
-      Assert.assertNotNull(d.field("value"));
-      Assert.assertTrue(d.field("value").getClass().isArray());
-
-      Object[] array = d.field("value");
-
-      Assert.assertEquals(array.length, 3);
-      Assert.assertEquals(array[0], "1");
-      Assert.assertEquals(array[1], "2");
-      Assert.assertEquals(array[2], "3");
+    assertEquals(result.size(), 1);
+    for (var d : result) {
+      assertEquals(d.getEmbeddedList("value"), List.of("1", "2", "3"));
     }
   }
 }

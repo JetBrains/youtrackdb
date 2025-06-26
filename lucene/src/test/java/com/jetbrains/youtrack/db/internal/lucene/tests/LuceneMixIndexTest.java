@@ -20,8 +20,6 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.api.query.ResultSet;
-import java.io.InputStream;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -33,27 +31,27 @@ public class LuceneMixIndexTest extends LuceneBaseTest {
   @Before
   public void initLocal() {
 
-    InputStream stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
+    var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    db.execute("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
 
-    db.command("create index Song.author on Song (author) NOTUNIQUE");
+    session.execute("create index Song.author on Song (author) NOTUNIQUE");
 
-    db.command("create index Song.composite on Song (title,lyrics) FULLTEXT ENGINE LUCENE");
+    session.execute("create index Song.composite on Song (title,lyrics) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
   public void testMixQuery() {
 
-    ResultSet docs =
-        db.query(
+    var docs =
+        session.query(
             "select * from Song where  author = 'Hornsby' and"
                 + " search_index('Song.composite','title:mountain')=true ");
 
     assertThat(docs).hasSize(1);
     docs.close();
     docs =
-        db.query(
+        session.query(
             "select * from Song where  author = 'Hornsby' and"
                 + " search_index('Song.composite','title:ballad')=true");
     assertThat(docs).hasSize(0);
@@ -63,14 +61,14 @@ public class LuceneMixIndexTest extends LuceneBaseTest {
   @Test
   public void testMixCompositeQuery() {
 
-    ResultSet docs =
-        db.query(
+    var docs =
+        session.query(
             "select * from Song where  author = 'Hornsby' and"
                 + " search_index('Song.composite','title:mountain')=true ");
     assertThat(docs).hasSize(1);
     docs.close();
     docs =
-        db.query(
+        session.query(
             "select * from Song where author = 'Hornsby' and"
                 + " search_index('Song.composite','lyrics:happy')=true ");
 

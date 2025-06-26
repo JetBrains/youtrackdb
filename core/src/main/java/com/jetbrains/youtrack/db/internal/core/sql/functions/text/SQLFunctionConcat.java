@@ -1,9 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.functions.text;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
+import javax.annotation.Nullable;
 
 public class SQLFunctionConcat extends SQLFunctionConfigurableAbstract {
 
@@ -14,10 +15,11 @@ public class SQLFunctionConcat extends SQLFunctionConfigurableAbstract {
     super(NAME, 1, 2);
   }
 
+  @Nullable
   @Override
   public Object execute(
       Object iThis,
-      Identifiable iCurrentRecord,
+      Result iCurrentRecord,
       Object iCurrentResult,
       Object[] iParams,
       CommandContext iContext) {
@@ -32,6 +34,7 @@ public class SQLFunctionConcat extends SQLFunctionConfigurableAbstract {
     return null;
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return sb != null ? sb.toString() : null;

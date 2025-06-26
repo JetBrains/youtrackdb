@@ -1,17 +1,18 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.resultset;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Iterator;
 
 public class IteratorExecutionStream implements ExecutionStream {
 
   private final Iterator<?> iterator;
+  private final String alias;
 
-  public IteratorExecutionStream(Iterator<?> iter) {
+  public IteratorExecutionStream(Iterator<?> iter, String alias) {
     this.iterator = iter;
+    this.alias = alias;
   }
 
   @Override
@@ -21,20 +22,8 @@ public class IteratorExecutionStream implements ExecutionStream {
 
   @Override
   public Result next(CommandContext ctx) {
-    Object val = iterator.next();
-    if (val instanceof Result) {
-      return (Result) val;
-    }
-
-    ResultInternal result;
-    var db = ctx.getDatabase();
-    if (val instanceof Identifiable) {
-      result = new ResultInternal(db, (Identifiable) val);
-    } else {
-      result = new ResultInternal(db);
-      result.setProperty("value", val);
-    }
-    return result;
+    var val = iterator.next();
+    return ResultInternal.toResult(val, ctx.getDatabaseSession(), alias);
   }
 
   @Override

@@ -20,11 +20,8 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -37,112 +34,104 @@ public class LuceneFacetTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = db.getMetadata().getSchema();
-    SchemaClass oClass = schema.createClass("Item");
+    Schema schema = session.getMetadata().getSchema();
+    var oClass = schema.createClass("Item");
 
-    oClass.createProperty(db, "name", PropertyType.STRING);
-    oClass.createProperty(db, "category", PropertyType.STRING);
+    oClass.createProperty("name", PropertyType.STRING);
+    oClass.createProperty("category", PropertyType.STRING);
 
-    db.command(
+    session.execute(
             "create index Item.name_category on Item (name,category) FULLTEXT ENGINE LUCENE"
                 + " METADATA { 'facetFields' : ['category']}")
         .close();
 
-    EntityImpl doc = new EntityImpl("Item");
-    doc.field("name", "Pioneer");
-    doc.field("category", "Electronic/HiFi");
+    var doc = ((EntityImpl) session.newEntity("Item"));
+    doc.setProperty("name", "Pioneer");
+    doc.setProperty("category", "Electronic/HiFi");
 
-    db.begin();
-    db.save(doc);
-    db.commit();
+    session.begin();
+    session.commit();
 
-    doc = new EntityImpl("Item");
-    doc.field("name", "Hitachi");
-    doc.field("category", "Electronic/HiFi");
+    doc = ((EntityImpl) session.newEntity("Item"));
+    doc.setProperty("name", "Hitachi");
+    doc.setProperty("category", "Electronic/HiFi");
 
-    db.begin();
-    db.save(doc);
-    db.commit();
+    session.begin();
+    session.commit();
 
-    doc = new EntityImpl("Item");
-    doc.field("name", "Philips");
-    doc.field("category", "Electronic/HiFi");
+    doc = ((EntityImpl) session.newEntity("Item"));
+    doc.setProperty("name", "Philips");
+    doc.setProperty("category", "Electronic/HiFi");
 
-    db.begin();
-    db.save(doc);
-    db.commit();
+    session.begin();
+    session.commit();
 
-    doc = new EntityImpl("Item");
-    doc.field("name", "HP");
-    doc.field("category", "Electronic/Computer");
+    doc = ((EntityImpl) session.newEntity("Item"));
+    doc.setProperty("name", "HP");
+    doc.setProperty("category", "Electronic/Computer");
 
-    db.begin();
-    db.save(doc);
-    db.commit();
+    session.begin();
+    session.commit();
   }
 
   @Test
   @Ignore
   public void baseFacetTest() {
 
-    List<Entity> result =
-        db.command("select *,$facet from Item where name lucene '(name:P*)' limit 1 ").stream()
-            .map((o) -> o.toEntity())
-            .collect(Collectors.toList());
+    var resultSet =
+        session.execute("select *,$facet from Item where name lucene '(name:P*)' limit 1 ")
+            .toList();
 
-    Assert.assertEquals(result.size(), 1);
+    Assert.assertEquals(1, resultSet.size());
 
-    List<EntityImpl> facets = result.get(0).getProperty("$facet");
+    List<EntityImpl> facets = resultSet.getFirst().getProperty("$facet");
 
-    Assert.assertEquals(facets.size(), 1);
+    Assert.assertEquals(1, facets.size());
 
-    EntityImpl facet = facets.get(0);
-    Assert.assertEquals(facet.<Object>field("childCount"), 1);
-    Assert.assertEquals(facet.<Object>field("value"), 2);
-    Assert.assertEquals(facet.field("dim"), "category");
+    var facet = facets.getFirst();
+    Assert.assertEquals(1, facet.<Object>getProperty("childCount"));
+    Assert.assertEquals(2, facet.<Object>getProperty("value"));
+    Assert.assertEquals("category", facet.getProperty("dim"));
 
-    List<EntityImpl> labelsValues = facet.field("labelsValue");
+    List<EntityImpl> labelsValues = facet.getProperty("labelsValue");
 
-    Assert.assertEquals(labelsValues.size(), 1);
+    Assert.assertEquals(1, labelsValues.size());
 
-    EntityImpl labelValues = labelsValues.get(0);
+    var labelValues = labelsValues.getFirst();
 
-    Assert.assertEquals(labelValues.<Object>field("value"), 2);
-    Assert.assertEquals(labelValues.field("label"), "Electronic");
+    Assert.assertEquals(2, labelValues.<Object>getProperty("value"));
+    Assert.assertEquals("Electronic", labelValues.getProperty("label"));
 
-    result =
-        db
-            .command(
+    resultSet =
+        session
+            .execute(
                 "select *,$facet from Item where name lucene { 'q' : 'H*', 'drillDown' :"
-                    + " 'category:Electronic' }  limit 1 ")
-            .stream()
-            .map((o) -> o.toEntity())
-            .collect(Collectors.toList());
+                    + " 'category:Electronic' }  limit 1 ").toList();
 
-    Assert.assertEquals(result.size(), 1);
+    Assert.assertEquals(1, resultSet.size());
 
-    facets = result.get(0).getProperty("$facet");
+    facets = resultSet.getFirst().getProperty("$facet");
 
-    Assert.assertEquals(facets.size(), 1);
+    Assert.assertEquals(1, facets.size());
 
-    facet = facets.get(0);
+    facet = facets.getFirst();
 
-    Assert.assertEquals(facet.<Object>field("childCount"), 2);
-    Assert.assertEquals(facet.<Object>field("value"), 2);
-    Assert.assertEquals(facet.field("dim"), "category");
+    Assert.assertEquals(2, facet.<Object>getProperty("childCount"));
+    Assert.assertEquals(2, facet.<Object>getProperty("value"));
+    Assert.assertEquals("category", facet.getProperty("dim"));
 
-    labelsValues = facet.field("labelsValue");
+    labelsValues = facet.getProperty("labelsValue");
 
-    Assert.assertEquals(labelsValues.size(), 2);
+    Assert.assertEquals(2, labelsValues.size());
 
-    labelValues = labelsValues.get(0);
+    labelValues = labelsValues.getFirst();
 
-    Assert.assertEquals(labelValues.<Object>field("value"), 1);
-    Assert.assertEquals(labelValues.field("label"), "HiFi");
+    Assert.assertEquals(1, labelValues.<Object>getProperty("value"));
+    Assert.assertEquals("HiFi", labelValues.getProperty("label"));
 
     labelValues = labelsValues.get(1);
 
-    Assert.assertEquals(labelValues.<Object>field("value"), 1);
-    Assert.assertEquals(labelValues.field("label"), "Computer");
+    Assert.assertEquals(1, labelValues.<Object>getProperty("value"));
+    Assert.assertEquals("Computer", labelValues.getProperty("label"));
   }
 }

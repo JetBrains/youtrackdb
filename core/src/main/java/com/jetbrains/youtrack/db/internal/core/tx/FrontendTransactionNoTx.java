@@ -19,67 +19,66 @@
  */
 package com.jetbrains.youtrack.db.internal.core.tx;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.NoTxRecordReadException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 /**
  * No operation transaction.
  */
-public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
+public class FrontendTransactionNoTx implements FrontendTransaction {
 
-  private static final String NON_TX_WARNING_READ_MESSAGE =
-      "Read operation performed in no tx mode. "
-          + "Such behavior can lead to inconsistent state of the database. "
-          + "Please consider using transaction or set "
-          + GlobalConfiguration.NON_TX_READS_WARNING_MODE.getKey()
-          + " configuration parameter to "
-          + NonTxReadMode.SILENT.name()
-          + " to avoid this warning, or to "
-          + NonTxReadMode.EXCEPTION.name()
-          + " to throw an exception for such cases.";
   private static final String NON_TX_EXCEPTION_READ_MESSAGE =
       "Read operation performed in no tx mode. "
           + "Such behavior can lead to inconsistent state of the database."
-          + " Please consider using transaction or set "
-          + GlobalConfiguration.NON_TX_READS_WARNING_MODE.getKey()
-          + " configuration parameter to "
-          + NonTxReadMode.SILENT.name()
-          + " to avoid this warning, or to "
-          + NonTxReadMode.WARN.name()
-          + " to show a warning for such cases.";
+          + " Please start transaction";
 
-  private final NonTxReadMode nonTxReadMode;
+  @Nonnull
+  private DatabaseSessionEmbedded session;
 
-  public FrontendTransactionNoTx(final DatabaseSessionInternal database) {
-    super(database);
-
-    this.nonTxReadMode = database.getNonTxReadMode();
-    assert this.nonTxReadMode != null;
+  public FrontendTransactionNoTx(@Nonnull DatabaseSessionEmbedded session) {
+    this.session = session;
   }
 
-  public int begin() {
+  @Override
+  public int beginInternal() {
     throw new UnsupportedOperationException("Begin is not supported in no tx mode");
   }
 
-  public void commit() {
+  @Override
+  public Map<RID, RID> commitInternal() {
     throw new UnsupportedOperationException("Commit is not supported in no tx mode");
   }
 
@@ -89,79 +88,295 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
-  public void commit(boolean force) {
-    throw new UnsupportedOperationException("Commit is not supported in no tx mode");
-  }
-
-  public void rollback() {
-    throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
-  }
-
-  public @Nonnull DBRecord loadRecord(final RID rid) {
-    checkNonTXReads();
-    if (rid.isNew()) {
-      throw new RecordNotFoundException(rid);
-    }
-
-    return database.executeReadRecord((RecordId) rid);
-  }
-
-  private void checkNonTXReads() {
-    if (nonTxReadMode == NonTxReadMode.WARN) {
-      LogManager.instance().warn(this, NON_TX_WARNING_READ_MESSAGE);
-    } else if (nonTxReadMode == NonTxReadMode.EXCEPTION) {
-      throw new NoTxRecordReadException(NON_TX_EXCEPTION_READ_MESSAGE);
-    }
+  public boolean isActive() {
+    return false;
   }
 
   @Override
-  public boolean exists(RID rid) {
-    checkNonTXReads();
-    if (rid.isNew()) {
-      return false;
-    }
-
-    return database.executeExists(rid);
+  public @Nonnull Stream<com.jetbrains.youtrack.db.api.transaction.RecordOperation> getRecordOperations() {
+    return Stream.empty();
   }
 
-  public DBRecord saveRecord(final RecordAbstract iRecord, final String iClusterName) {
-    throw new DatabaseException("Cannot save record in no tx mode");
+  @Override
+  public int getRecordOperationsCount() {
+    return 0;
+  }
+
+  @Override
+  public int activeTxCount() {
+    return 0;
+  }
+
+
+  @Nonnull
+  @Override
+  public Entity loadEntity(RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Vertex loadVertex(RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge loadEdge(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlob(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Blob newBlob(@Nonnull byte[] bytes) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Blob newBlob() {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEntity(String className) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEntity(SchemaClass cls) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity newEntity() {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public EmbeddedEntity newEmbeddedEntity(String schemaClass) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public EmbeddedEntity newEmbeddedEntity() {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Entity createOrLoadEntityFromJson(String json) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Vertex newVertex(SchemaClass type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Vertex newVertex(String type) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends DBRecord> RET load(RID recordId) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public <RET extends DBRecord> RET loadOrNull(RID recordId) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Map<RID, RID> commitInternal(boolean force) {
+    throw new UnsupportedOperationException("Commit is not supported in no tx mode");
+  }
+
+  @Override
+  public void rollbackInternal() {
+    throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
+  }
+
+  @Override
+  public @Nonnull LoadRecordResult loadRecord(final RID rid) {
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
+  }
+
+  @Override
+  public boolean exists(@Nonnull RID rid) {
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
+  }
+
+  @Override
+  public void delete(@Nonnull DBRecord record) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public Map<RID, RID> commit() throws TransactionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public void rollback() throws TransactionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet query(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet query(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet execute(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet execute(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public void command(String query, Object... args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public void command(String query, Map args)
+      throws CommandSQLParsingException, CommandExecutionException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet computeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public GraphTraversalSource traversal() {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public ResultSet computeScript(String language, String script, Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public TXSTATUS getStatus() {
+    return TXSTATUS.INVALID;
   }
 
   /**
    * Deletes the record.
    */
+  @Override
   public void deleteRecord(final RecordAbstract iRecord) {
-    throw new DatabaseException("Cannot delete record in no tx mode");
+    throw new DatabaseException(session.getDatabaseName(), "Cannot delete record in no tx mode");
   }
 
+  @Override
   public Collection<RecordOperation> getCurrentRecordEntries() {
     return Collections.emptyList();
   }
 
-  public Collection<RecordOperation> getRecordOperations() {
+  @Override
+  public Collection<RecordOperation> getRecordOperationsInternal() {
     return Collections.emptyList();
   }
 
-  public List<RecordOperation> getNewRecordEntriesByClass(
-      final SchemaClass iClass, final boolean iPolymorphic) {
-    return Collections.emptyList();
+  @Override
+  public Map<String, FrontendTransactionIndexChanges> getIndexOperations() {
+    throw new UnsupportedOperationException("GetIndexOperations is not supported in no tx mode");
   }
 
-  public List<RecordOperation> getNewRecordEntriesByClusterIds(final int[] iIds) {
-    return Collections.emptyList();
+  @Override
+  public void setStatus(TXSTATUS iStatus) {
+    throw new UnsupportedOperationException("SetStatus is not supported in no tx mode");
   }
 
+  @Override
+  public void setSession(DatabaseSessionEmbedded session) {
+    this.session = session;
+  }
+
+  @Override
+  public void setMetadataHolder(FrontendTransacationMetadataHolder metadata) {
+    throw new UnsupportedOperationException("SetMetadataHolder is not supported in no tx mode");
+  }
+
+  @Override
+  public Iterator<byte[]> getSerializedOperations() {
+    throw new UnsupportedOperationException(
+        "getSerializedOperations is not supported in no tx mode");
+  }
+
+  @Override
   public void clearRecordEntries() {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 
+  @Override
   public RecordAbstract getRecord(final RID rid) {
-    checkNonTXReads();
-
-    return null;
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
+  @Override
   public RecordOperation getRecordEntry(final RID rid) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
@@ -172,14 +387,16 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   }
 
   @Override
+  public boolean isReadOnly() {
+    return true;
+  }
+
+  @Override
   public Object getCustomData(String iName) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 
-  public EntityImpl getIndexChanges() {
-    return null;
-  }
-
+  @Override
   public void addIndexEntry(
       final Index delegate,
       final String indexName,
@@ -189,6 +406,7 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 
+  @Override
   public void clearIndexEntries() {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
@@ -197,19 +415,23 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
   public void close() {
   }
 
+  @Override
   public FrontendTransactionIndexChanges getIndexChanges(final String iName) {
     return null;
   }
 
+  @Override
   public long getId() {
     return 0;
   }
 
+  @Override
   public List<String> getInvolvedIndexes() {
     return Collections.emptyList();
   }
 
-  public void updateIdentityAfterCommit(RecordId oldRid, RecordId newRid) {
+  @Override
+  public boolean assertIdentityChangedAfterCommit(RecordId oldRid, RecordId newRid) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 
@@ -218,9 +440,54 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
     return 0;
   }
 
+  @Nonnull
   @Override
-  public void rollback(boolean force, int commitLevelDiff) {
-    throw new UnsupportedOperationException("Rollback is not supported in no tx mode");
+  public DatabaseSessionEmbedded getDatabaseSession() {
+    return session;
+  }
+
+  @Override
+  public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
+    throw new UnsupportedOperationException("Can not modify record outside transaction");
+  }
+
+  @Nullable
+  @Override
+  public RecordId getFirstRid(int collectionId) {
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
+  }
+
+  @Nullable
+  @Override
+  public RecordId getLastRid(int collectionId) {
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
+  }
+
+  @Nullable
+  @Override
+  public RecordId getNextRidInCollection(@Nonnull RecordId rid) {
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
+  }
+
+  @Nullable
+  @Override
+  public RecordId getPreviousRidInCollection(@Nonnull RecordId rid) {
+    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
+  }
+
+  @Override
+  public boolean isDeletedInTx(@Nonnull RID rid) {
+    return false;
+  }
+
+  @Override
+  public boolean isScheduledForCallbackProcessing(RecordId rid) {
+    return false;
+  }
+
+  @Override
+  public @Nonnull RecordSerializationContext getRecordSerializationContext() {
+    throw new UnsupportedOperationException("Operation is not supported in no tx mode");
   }
 
   @Override
@@ -228,13 +495,95 @@ public class FrontendTransactionNoTx extends FrontendTransactionAbstract {
     return null;
   }
 
+  @Nullable
   @Override
-  public void internalRollback() {
+  public Entity loadEntityOrNull(RID id) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
-  public enum NonTxReadMode {
-    WARN,
-    EXCEPTION,
-    SILENT
+  @Nonnull
+  @Override
+  public Entity loadEntity(Identifiable identifiable)
+      throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public Entity loadEntityOrNull(Identifiable identifiable) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public Vertex loadVertexOrNull(RID id) throws RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Vertex loadVertex(Identifiable identifiable)
+      throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public Vertex loadVertexOrNull(Identifiable identifiable) throws RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public StatefulEdge loadEdgeOrNull(@Nonnull RID id) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge loadEdge(@Nonnull Identifiable id)
+      throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public Blob loadBlobOrNull(@Nonnull RID id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlob(@Nonnull Identifiable id) throws DatabaseException, RecordNotFoundException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nonnull
+  @Override
+  public <RET extends DBRecord> RET load(Identifiable identifiable) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Nullable
+  @Override
+  public <RET extends DBRecord> RET loadOrNull(Identifiable identifiable) {
+    throw new UnsupportedOperationException("not supported in no tx mode");
+  }
+
+  @Override
+  public boolean isCallBackProcessingInProgress() {
+    return false;
   }
 }

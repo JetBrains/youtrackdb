@@ -2,13 +2,12 @@ package com.jetbrains.youtrack.db.internal.server.network;
 
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.ArrayList;
@@ -23,28 +22,28 @@ public class TestConcurrentDBSequenceGenerationIT {
   static final int THREADS = 20;
   static final int RECORDS = 100;
   private YouTrackDBServer server;
-  private YouTrackDB youTrackDB;
+  private RemoteYouTrackDB youTrackDB;
 
   @Before
   public void before() throws Exception {
     server = new YouTrackDBServer(false);
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config.xml"));
     server.activate();
-    youTrackDB = new YouTrackDBImpl("remote:localhost", "root", "root",
+    youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
         TestConcurrentDBSequenceGenerationIT.class.getSimpleName());
-    DatabaseSession databaseSession =
+    var databaseSession =
         youTrackDB.open(TestConcurrentDBSequenceGenerationIT.class.getSimpleName(), "admin",
             "admin");
-    databaseSession.execute(
+    databaseSession.computeScript(
         "sql",
         """
             CREATE CLASS TestSequence EXTENDS V;
-             CREATE SEQUENCE TestSequenceIdSequence TYPE ORDERED;
+            CREATE SEQUENCE TestSequenceIdSequence TYPE ORDERED;
             CREATE PROPERTY TestSequence.id LONG (MANDATORY TRUE, default\
-             "sequence('TestSequenceIdSequence').next()");
+            "sequence('TestSequenceIdSequence').next()");
             CREATE INDEX TestSequence_id_index ON TestSequence (id BY VALUE) UNIQUE;""");
     databaseSession.close();
   }
@@ -58,17 +57,23 @@ public class TestConcurrentDBSequenceGenerationIT {
       var executorService = Executors.newFixedThreadPool(THREADS);
       var futures = new ArrayList<Future<Object>>();
 
-      for (int i = 0; i < THREADS; i++) {
+      for (var i = 0; i < THREADS; i++) {
         var future =
             executorService.submit(
                 () -> {
-                  try (DatabaseSession db = pool.acquire()) {
-                    for (int j = 0; j < RECORDS; j++) {
-                      db.executeInTx(() -> {
-                        Vertex vert = db.newVertex("TestSequence");
-                        assertNotNull(vert.getProperty("id"));
-                        db.save(vert);
-                      });
+                  try (var db = pool.acquire()) {
+                    for (var j = 0; j < RECORDS; j++) {
+                      var rid = db.computeSQLScript("""
+                          begin;
+                          let $v = create vertex TestSequence;
+                          commit;
+                          return $v;
+                          """).findFirst(BasicResult::getIdentity);
+
+                      db.begin();
+                      var entity = db.query("select id from ?", rid) .findFirst();
+                      assertNotNull(entity.getLong("id"));
+                      db.commit();
                     }
                   }
 

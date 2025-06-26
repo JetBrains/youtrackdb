@@ -15,15 +15,12 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.List;
 import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
@@ -32,72 +29,67 @@ import org.testng.annotations.Test;
 
 @Test
 public class DateTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public DateTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testDateConversion() throws ParseException {
-    final long begin = System.currentTimeMillis();
+    final var begin = System.currentTimeMillis();
 
-    database.createClass("Order");
-    database.begin();
-    EntityImpl doc1 = new EntityImpl("Order");
-    doc1.field("context", "test");
-    doc1.field("date", new Date());
-    doc1.save();
+    session.createClass("Order");
+    session.begin();
+    var doc1 = ((EntityImpl) session.newEntity("Order"));
+    doc1.setProperty("context", "test");
+    doc1.setProperty("date", new Date());
 
-    EntityImpl doc2 = new EntityImpl("Order");
-    doc2.field("context", "test");
-    doc2.field("date", System.currentTimeMillis());
-    doc2.save();
-    database.commit();
+    session.commit();
 
-    database.begin();
-    doc2 = database.bindToSession(doc2);
-    Assert.assertTrue(doc2.field("date", PropertyType.DATE) instanceof Date);
-    Assert.assertTrue(doc2.field("date", Date.class) instanceof Date);
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc1 = activeTx.load(doc1);
+    Assert.assertNotNull(doc1.getDate("date"));
 
-    ResultSet result =
-        database.command("select * from Order where date >= ? and context = 'test'", begin);
+    var result =
+        session.execute("select * from Order where date >= ? and context = 'test'", begin);
 
-    Assert.assertEquals(result.stream().count(), 2);
-    database.rollback();
+    Assert.assertEquals(result.stream().count(), 1);
+    session.rollback();
   }
 
   @Test
   public void testDatePrecision() throws ParseException {
-    final long begin = System.currentTimeMillis();
+    final var begin = System.currentTimeMillis();
 
-    String dateAsString =
-        database.getStorage().getConfiguration().getDateFormatInstance().format(begin);
+    var dateAsString =
+        session.getStorage().getConfiguration().getDateFormatInstance().format(begin);
 
-    database.begin();
-    EntityImpl doc = new EntityImpl("Order");
-    doc.field("context", "testPrecision");
-    doc.field("date", DateHelper.now(), PropertyType.DATETIME);
-    doc.save();
-    database.commit();
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity("Order"));
+    doc.setProperty("context", "testPrecision");
+    Object propertyValue = DateHelper.now();
+    doc.setProperty("date", propertyValue, PropertyType.DATETIME);
 
-    List<Result> result =
-        database
-            .command(
+    session.commit();
+
+    session.begin();
+    var result =
+        session
+            .execute(
                 "select * from Order where date >= ? and context = 'testPrecision'", dateAsString)
             .stream()
             .collect(Collectors.toList());
 
     Assert.assertEquals(result.size(), 1);
+    session.commit();
   }
 
   @Test
   public void testDateTypes() throws ParseException {
-    EntityImpl doc = new EntityImpl();
-    doc.field("context", "test");
-    doc.field("date", System.currentTimeMillis(), PropertyType.DATE);
+    session.begin();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("context", "test");
+    Object propertyValue = System.currentTimeMillis();
+    doc.setProperty("date", propertyValue, PropertyType.DATE);
 
-    Assert.assertTrue(doc.field("date") instanceof Date);
+    Assert.assertTrue(doc.getProperty("date") instanceof Date);
+    session.commit();
   }
 
   /**
@@ -105,18 +97,18 @@ public class DateTest extends BaseDBTest {
    */
   @Test
   public void testDateGregorianCalendar() throws ParseException {
-    database.command("CREATE CLASS TimeTest EXTENDS V").close();
+    session.execute("CREATE CLASS TimeTest EXTENDS V").close();
 
-    final SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-    final Date date = df.parse("1200-11-11 00:00:00.000");
+    final var df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+    final var date = df.parse("1200-11-11 00:00:00.000");
 
-    database.begin();
-    database
-        .command("CREATE VERTEX TimeTest SET firstname = ?, birthDate = ?", "Robert", date)
+    session.begin();
+    session
+        .execute("CREATE VERTEX TimeTest SET firstname = ?, birthDate = ?", "Robert", date)
         .close();
-    database.commit();
+    session.commit();
 
-    ResultSet result = database.query("select from TimeTest where firstname = ?", "Robert");
+    var result = session.query("select from TimeTest where firstname = ?", "Robert");
     Assert.assertEquals(result.next().getProperty("birthDate"), date);
     Assert.assertFalse(result.hasNext());
   }

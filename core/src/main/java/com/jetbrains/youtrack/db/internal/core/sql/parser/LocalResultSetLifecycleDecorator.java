@@ -1,15 +1,19 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.db.QueryLifecycleListener;
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.QueryLifecycleListener;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -18,73 +22,101 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   private static final AtomicLong counter = new AtomicLong(0);
 
-  private final ResultSet entity;
+  private final ResultSet underlyingResultSet;
   private final List<QueryLifecycleListener> lifecycleListeners = new ArrayList<>();
   private final String queryId;
 
-  private boolean hasNextPage;
-
-  public LocalResultSetLifecycleDecorator(ResultSet entity) {
-    this.entity = entity;
+  public LocalResultSetLifecycleDecorator(ResultSet underlyingResultSet) {
+    this.underlyingResultSet = underlyingResultSet;
     queryId = System.currentTimeMillis() + "_" + counter.incrementAndGet();
   }
 
-  public void addLifecycleListener(QueryLifecycleListener db) {
-    this.lifecycleListeners.add(db);
+  public void addLifecycleListener(QueryLifecycleListener queryLifecycleListener) {
+    this.lifecycleListeners.add(queryLifecycleListener);
   }
 
   @Override
   public boolean hasNext() {
-    boolean hasNext = entity.hasNext();
-    if (!hasNext) {
-      close();
-    }
-    return hasNext;
+    return underlyingResultSet.hasNext();
   }
 
   @Override
   public Result next() {
     if (!hasNext()) {
-      throw new IllegalStateException();
+      throw new NoSuchElementException();
     }
 
-    return entity.next();
+    return underlyingResultSet.next();
   }
 
   @Override
   public void close() {
-    entity.close();
+    underlyingResultSet.close();
     this.lifecycleListeners.forEach(x -> x.queryClosed(this.queryId));
     this.lifecycleListeners.clear();
   }
 
   @Override
-  public Optional<ExecutionPlan> getExecutionPlan() {
-    return entity.getExecutionPlan();
+  public DatabaseSession getBoundToSession() {
+    return underlyingResultSet.getBoundToSession();
   }
 
   @Override
-  public Map<String, Long> getQueryStats() {
-    return entity.getQueryStats();
+  public @Nullable ExecutionPlan getExecutionPlan() {
+    return underlyingResultSet.getExecutionPlan();
   }
 
   public String getQueryId() {
     return queryId;
   }
 
-  public boolean hasNextPage() {
-    return hasNextPage;
-  }
-
-  public void setHasNextPage(boolean b) {
-    this.hasNextPage = b;
-  }
-
   public boolean isDetached() {
-    return entity instanceof InternalResultSet;
+    return underlyingResultSet instanceof InternalResultSet;
   }
 
-  public ResultSet getInternal() {
-    return entity;
+  public ResultSet getUnderlying() {
+    return underlyingResultSet;
+  }
+
+  @Override
+  public boolean tryAdvance(Consumer<? super Result> action) {
+    if (hasNext()) {
+      action.accept(next());
+      return true;
+    }
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public ResultSet trySplit() {
+    var result = underlyingResultSet.trySplit();
+    if (result == null) {
+      return null;
+    }
+
+    return new LocalResultSetLifecycleDecorator((ResultSet) result);
+  }
+
+  @Override
+  public long estimateSize() {
+    return underlyingResultSet.estimateSize();
+  }
+
+  @Override
+  public int characteristics() {
+    return ORDERED;
+  }
+
+  @Override
+  public void forEachRemaining(@Nonnull Consumer<? super Result> action) {
+    while (hasNext()) {
+      action.accept(next());
+    }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return underlyingResultSet.isClosed();
   }
 }

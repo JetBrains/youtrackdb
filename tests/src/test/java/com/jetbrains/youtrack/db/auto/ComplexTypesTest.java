@@ -15,21 +15,21 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.jetbrains.youtrack.db.api.exception.SchemaException;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
+import org.apache.commons.lang.StringUtils;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
@@ -38,291 +38,334 @@ import org.testng.annotations.Test;
 @SuppressWarnings("unchecked")
 @Test
 public class ComplexTypesTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public ComplexTypesTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testBigDecimal() {
-    EntityImpl newDoc = new EntityImpl();
-    newDoc.field("integer", new BigInteger("10"));
-    newDoc.field("decimal_integer", new BigDecimal(10));
-    newDoc.field("decimal_float", new BigDecimal("10.34"));
+    final var clazz = session.createClass("BigDecimalTest");
+    clazz.createProperty("integer_schema", PropertyType.INTEGER);
+    clazz.createProperty("decimal_schema", PropertyType.DECIMAL);
 
-    database.begin();
-    database.save(newDoc, database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    final var largeNumber = new BigDecimal(Long.MAX_VALUE).multiply(new BigDecimal(Long.MAX_VALUE));
+    final var largeNumberFract = largeNumber.add(
+        new BigDecimal("0." + StringUtils.repeat("12345", 10)));
+    final var largeNumberInt = largeNumber.toBigInteger();
+    final var largeNumberIntNeg = largeNumberInt.negate();
+
+    // big integers must be converted to DECIMAL type
+    session.begin();
+    var newDoc = session.newEntity(clazz);
+    newDoc.setProperty("decimal_integer", largeNumber);
+    newDoc.setProperty("decimal_float", largeNumberFract);
+
+    newDoc.setProperty("integer_no_schema", largeNumberInt);
+    newDoc.setProperty("decimal_schema", largeNumberIntNeg);
+    try {
+      newDoc.setProperty("integer_schema", new BigInteger("10"));
+      // TODO uncomment this when YTDB-255 is resolved
+      // fail("BigInteger values should not be allowed for INTEGER schema property");
+    } catch (SchemaException ex) {
+      // ok
+    }
+    session.commit();
 
     final RID rid = newDoc.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    EntityImpl loadedDoc = database.load(rid);
-    Assert.assertEquals(((Number) loadedDoc.field("integer")).intValue(), 10);
-    Assert.assertEquals(loadedDoc.field("decimal_integer"), new BigDecimal(10));
-    Assert.assertEquals(loadedDoc.field("decimal_float"), new BigDecimal("10.34"));
+    session.begin();
+    EntityImpl loadedDoc = session.load(rid);
+
+    assertThat(loadedDoc.<BigDecimal>getProperty("decimal_integer")).isEqualTo(largeNumber);
+    assertThat(loadedDoc.<BigDecimal>getProperty("decimal_float")).isEqualTo(largeNumberFract);
+
+    assertThat(loadedDoc.<BigDecimal>getProperty("integer_no_schema")).isEqualTo(new BigDecimal(largeNumberInt));
+    assertThat(loadedDoc.<BigDecimal>getProperty("decimal_schema")).isEqualTo(new BigDecimal(largeNumberIntNeg));
+
+    session.commit();
   }
 
   @Test
-  public void testEmbeddedList() {
-    EntityImpl newDoc = new EntityImpl();
+  public void testLinkList2() {
+    session.begin();
+    var newDoc = session.newEntity();
+    final var list = session.newLinkList();
+    newDoc.setProperty("linkList", list, PropertyType.LINKLIST);
+    list.add(((EntityImpl) session.newEntity()).setPropertyInChain("name", "Luca"));
+    list.add(((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Marcus"));
 
-    final ArrayList<EntityImpl> list = new ArrayList<EntityImpl>();
-    newDoc.field("embeddedList", list, PropertyType.EMBEDDEDLIST);
-    list.add(new EntityImpl().field("name", "Luca"));
-    list.add(new EntityImpl("Account").field("name", "Marcus"));
-
-    database.begin();
-    database.save(newDoc, database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     final RID rid = newDoc.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    EntityImpl loadedDoc = database.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("embeddedList"));
-    Assert.assertTrue(loadedDoc.field("embeddedList") instanceof List<?>);
-    Assert.assertTrue(
-        ((List<EntityImpl>) loadedDoc.field("embeddedList")).get(0) instanceof EntityImpl);
+    session.executeInTx(tx -> {
+      EntityImpl loadedDoc = session.load(rid);
+      Assert.assertTrue(loadedDoc.hasProperty("linkList"));
+      Assert.assertTrue(loadedDoc.getProperty("linkList") instanceof List<?>);
+      final var id1 = (loadedDoc.getLinkList("linkList")).getFirst();
+      final var id2 = (loadedDoc.getLinkList("linkList")).get(1);
+      Assert.assertTrue(id1 instanceof RID);
+      Assert.assertTrue(id2 instanceof RID);
 
-    EntityImpl d = ((List<EntityImpl>) loadedDoc.field("embeddedList")).get(0);
-    Assert.assertEquals(d.field("name"), "Luca");
-    d = ((List<EntityImpl>) loadedDoc.field("embeddedList")).get(1);
-    Assert.assertEquals(d.getClassName(), "Account");
-    Assert.assertEquals(d.field("name"), "Marcus");
+      var d = session.<Entity>load(((RID) id1));
+      Assert.assertEquals(d.getProperty("name"), "Luca");
+      d = session.load(((RID) id2));
+      Assert.assertEquals(d.getSchemaClassName(), "Account");
+      Assert.assertEquals(d.getProperty("name"), "Marcus");
+    });
   }
 
   @Test
   public void testLinkList() {
-    EntityImpl newDoc = new EntityImpl();
+    session.begin();
+    var newDoc = ((EntityImpl) session.newEntity());
+    final var list = session.newLinkList();
+    newDoc.setProperty("linkedList", list, PropertyType.LINKLIST);
 
-    final ArrayList<EntityImpl> list = new ArrayList<EntityImpl>();
-    newDoc.field("linkedList", list, PropertyType.LINKLIST);
-    database.begin();
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("name", "Luca");
 
-    var doc = new EntityImpl();
-    doc.field("name", "Luca")
-        .save(database.getClusterNameById(database.getDefaultClusterId()));
     list.add(doc);
 
-    list.add(new EntityImpl("Account").field("name", "Marcus"));
+    list.add(((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Marcus"));
 
-    database.save(newDoc, database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     final RID rid = newDoc.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    EntityImpl loadedDoc = database.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("linkedList"));
-    Assert.assertTrue(loadedDoc.field("linkedList") instanceof List<?>);
+    session.begin();
+    EntityImpl loadedDoc = session.load(rid);
+    Assert.assertTrue(loadedDoc.hasProperty("linkedList"));
+    Assert.assertTrue(loadedDoc.getProperty("linkedList") instanceof List<?>);
     Assert.assertTrue(
-        ((List<Identifiable>) loadedDoc.field("linkedList")).get(0) instanceof Identifiable);
+        ((List<Identifiable>) loadedDoc.getProperty(
+            "linkedList")).getFirst() instanceof Identifiable);
 
-    EntityImpl d = ((List<Identifiable>) loadedDoc.field("linkedList")).get(0).getRecord();
-    Assert.assertTrue(d.getIdentity().isValid());
-    Assert.assertEquals(d.field("name"), "Luca");
-    d = ((List<Identifiable>) loadedDoc.field("linkedList")).get(1).getRecord();
-    Assert.assertEquals(d.getClassName(), "Account");
-    Assert.assertEquals(d.field("name"), "Marcus");
+    Identifiable identifiable = ((List<Identifiable>) loadedDoc.getProperty(
+        "linkedList")).getFirst();
+    var transaction1 = session.getActiveTransaction();
+    EntityImpl d = transaction1.load(identifiable);
+    Assert.assertTrue(d.getIdentity().isValidPosition());
+    Assert.assertEquals(d.getProperty("name"), "Luca");
+    var transaction = session.getActiveTransaction();
+    d = transaction.load(((List<Identifiable>) loadedDoc.getProperty("linkedList")).get(1));
+    Assert.assertEquals(d.getSchemaClassName(), "Account");
+    Assert.assertEquals(d.getProperty("name"), "Marcus");
+    session.commit();
   }
 
   @Test
-  public void testEmbeddedSet() {
-    EntityImpl newDoc = new EntityImpl();
+  public void testLinkSet2() {
+    session.begin();
+    var newDoc = session.newEntity();
 
-    final Set<EntityImpl> set = new HashSet<EntityImpl>();
-    newDoc.field("embeddedSet", set, PropertyType.EMBEDDEDSET);
-    set.add(new EntityImpl().field("name", "Luca"));
-    set.add(new EntityImpl("Account").field("name", "Marcus"));
+    final var set = session.newLinkSet();
+    newDoc.setProperty("linkSet", set, PropertyType.LINKSET);
+    set.add(((EntityImpl) session.newEntity()).setPropertyInChain("name", "Luca"));
+    set.add(((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Marcus"));
 
-    database.begin();
-    database.save(newDoc, database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     final RID rid = newDoc.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    EntityImpl loadedDoc = database.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("embeddedSet"));
-    Assert.assertTrue(loadedDoc.field("embeddedSet", Set.class) instanceof Set<?>);
+    session.begin();
+    EntityImpl loadedDoc = session.load(rid);
+    Assert.assertTrue(loadedDoc.hasProperty("linkSet"));
+    Assert.assertNotNull(loadedDoc.getLinkSet("linkSet"));
 
-    final Iterator<EntityImpl> it =
-        ((Collection<EntityImpl>) loadedDoc.field("embeddedSet")).iterator();
+    final var it = (loadedDoc.getLinkSet("linkSet")).iterator();
 
-    int tot = 0;
+    var tot = 0;
     while (it.hasNext()) {
-      EntityImpl d = it.next();
-      Assert.assertTrue(d instanceof EntityImpl);
+      Identifiable identifiable = it.next();
+      var transaction = session.getActiveTransaction();
+      var d = transaction.loadEntity(identifiable);
 
-      if (d.field("name").equals("Marcus")) {
-        Assert.assertEquals(d.getClassName(), "Account");
+      if (d.getProperty("name").equals("Marcus")) {
+        Assert.assertEquals(d.getSchemaClassName(), "Account");
       }
 
       ++tot;
     }
 
     Assert.assertEquals(tot, 2);
+    session.commit();
   }
 
   @Test
   public void testLinkSet() {
-    EntityImpl newDoc = new EntityImpl();
+    session.begin();
+    var newDoc = ((EntityImpl) session.newEntity());
 
-    final Set<EntityImpl> set = new HashSet<EntityImpl>();
-    newDoc.field("linkedSet", set, PropertyType.LINKSET);
-    database.begin();
-    var doc = new EntityImpl();
-    doc.field("name", "Luca")
-        .save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var set = session.newLinkSet();
+    newDoc.setProperty("linkedSet", set, PropertyType.LINKSET);
+    var doc = ((EntityImpl) session.newEntity());
+    doc.setProperty("name", "Luca");
+
     set.add(doc);
 
-    set.add(new EntityImpl("Account").field("name", "Marcus"));
+    set.add(((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Marcus"));
 
-    database.save(newDoc, database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     final RID rid = newDoc.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
+    session.begin();
 
-    EntityImpl loadedDoc = database.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("linkedSet"));
-    Assert.assertTrue(loadedDoc.field("linkedSet", Set.class) instanceof Set<?>);
+    EntityImpl loadedDoc = session.load(rid);
+    Assert.assertTrue(loadedDoc.hasProperty("linkedSet"));
+    Assert.assertNotNull(loadedDoc.getLinkSet("linkedSet"));
 
-    final Iterator<Identifiable> it =
-        ((Collection<Identifiable>) loadedDoc.field("linkedSet")).iterator();
+    final var it =
+        ((Collection<Identifiable>) loadedDoc.getProperty("linkedSet")).iterator();
 
-    int tot = 0;
+    var tot = 0;
     while (it.hasNext()) {
-      var d = it.next().getEntity();
+      Identifiable identifiable = it.next();
+      var transaction = session.getActiveTransaction();
+      var d = transaction.loadEntity(identifiable);
 
       if (Objects.equals(d.getProperty("name"), "Marcus")) {
-        Assert.assertEquals(d.getClassName(), "Account");
+        Assert.assertEquals(d.getSchemaClassName(), "Account");
       }
 
       ++tot;
     }
 
     Assert.assertEquals(tot, 2);
+    session.commit();
   }
 
   @Test
-  public void testEmbeddedMap() {
-    EntityImpl newDoc = new EntityImpl();
+  public void testLinkMap2() {
+    session.begin();
+    var newDoc = ((EntityImpl) session.newEntity());
 
-    final Map<String, EntityImpl> map = new HashMap<String, EntityImpl>();
-    newDoc.field("embeddedMap", map, PropertyType.EMBEDDEDMAP);
-    map.put("Luca", new EntityImpl().field("name", "Luca"));
-    map.put("Marcus", new EntityImpl().field("name", "Marcus"));
-    map.put("Cesare", new EntityImpl("Account").field("name", "Cesare"));
+    final var map = session.newLinkMap();
+    newDoc.setProperty("linkMap", map, PropertyType.LINKMAP);
+    map.put("Luca", ((EntityImpl) session.newEntity()).setPropertyInChain("name", "Luca"));
+    map.put("Marcus", ((EntityImpl) session.newEntity()).setPropertyInChain("name", "Marcus"));
+    map.put("Cesare",
+        ((EntityImpl) session.newEntity("Account")).setPropertyInChain("name", "Cesare"));
 
-    database.begin();
-    database.save(newDoc, database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     final RID rid = newDoc.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    EntityImpl loadedDoc = database.load(rid);
-    Assert.assertTrue(loadedDoc.containsField("embeddedMap"));
-    Assert.assertTrue(loadedDoc.field("embeddedMap") instanceof Map<?, ?>);
-    Assert.assertTrue(
-        ((Map<String, EntityImpl>) loadedDoc.field("embeddedMap")).values().iterator().next()
-            instanceof EntityImpl);
+    session.begin();
+    EntityImpl loadedDoc = session.load(rid);
+    Assert.assertTrue(loadedDoc.hasProperty("linkMap"));
+    Assert.assertTrue(loadedDoc.getProperty("linkMap") instanceof Map<?, ?>);
 
-    EntityImpl d = ((Map<String, EntityImpl>) loadedDoc.field("embeddedMap")).get("Luca");
-    Assert.assertEquals(d.field("name"), "Luca");
+    Identifiable identifiable2 = loadedDoc.getLinkMap("linkMap").get("Luca");
+    var transaction2 = session.getActiveTransaction();
+    var d = transaction2.loadEntity(identifiable2);
+    Assert.assertEquals(d.getProperty("name"), "Luca");
 
-    d = ((Map<String, EntityImpl>) loadedDoc.field("embeddedMap")).get("Marcus");
-    Assert.assertEquals(d.field("name"), "Marcus");
+    Identifiable identifiable1 = loadedDoc.getLinkMap("linkMap").get("Marcus");
+    var transaction1 = session.getActiveTransaction();
+    d = transaction1.loadEntity(identifiable1);
+    Assert.assertEquals(d.getProperty("name"), "Marcus");
 
-    d = ((Map<String, EntityImpl>) loadedDoc.field("embeddedMap")).get("Cesare");
-    Assert.assertEquals(d.field("name"), "Cesare");
-    Assert.assertEquals(d.getClassName(), "Account");
+    Identifiable identifiable = loadedDoc.getLinkMap("linkMap").get("Cesare");
+    var transaction = session.getActiveTransaction();
+    d = transaction.loadEntity(identifiable);
+    Assert.assertEquals(d.getProperty("name"), "Cesare");
+    Assert.assertEquals(d.getSchemaClassName(), "Account");
+    session.commit();
   }
 
   @Test
   public void testEmptyEmbeddedMap() {
-    EntityImpl newDoc = new EntityImpl();
-
-    final Map<String, EntityImpl> map = new HashMap<String, EntityImpl>();
-    newDoc.field("embeddedMap", map, PropertyType.EMBEDDEDMAP);
-
-    database.begin();
-    database.save(newDoc, database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.begin();
+    var newDoc = ((EntityImpl) session.newEntity());
+    newDoc.setProperty("embeddedMap", session.newEmbeddedMap(), PropertyType.EMBEDDEDMAP);
+    session.commit();
 
     final RID rid = newDoc.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
 
-    EntityImpl loadedDoc = database.load(rid);
+    session.begin();
+    EntityImpl loadedDoc = session.load(rid);
 
-    Assert.assertTrue(loadedDoc.containsField("embeddedMap"));
-    Assert.assertTrue(loadedDoc.field("embeddedMap") instanceof Map<?, ?>);
+    Assert.assertTrue(loadedDoc.hasProperty("embeddedMap"));
+    Assert.assertTrue(loadedDoc.getProperty("embeddedMap") instanceof Map<?, ?>);
 
-    final Map<String, EntityImpl> loadedMap = loadedDoc.field("embeddedMap");
+    final Map<String, EntityImpl> loadedMap = loadedDoc.getProperty("embeddedMap");
     Assert.assertEquals(loadedMap.size(), 0);
+    session.commit();
   }
 
   @Test
   public void testLinkMap() {
-    EntityImpl newDoc = new EntityImpl();
+    session.begin();
+    var newDoc = ((EntityImpl) session.newEntity());
 
-    final Map<String, EntityImpl> map = new HashMap<String, EntityImpl>();
-    newDoc.field("linkedMap", map, PropertyType.LINKMAP);
-    database.begin();
-    var doc1 = new EntityImpl();
-    doc1.field("name", "Luca")
-        .save(database.getClusterNameById(database.getDefaultClusterId()));
+    final var map = session.newLinkMap();
+    newDoc.setProperty("linkedMap", map, PropertyType.LINKMAP);
+    var doc1 = ((EntityImpl) session.newEntity());
+    doc1.setProperty("name", "Luca");
+
     map.put("Luca", doc1);
-    var doc2 = new EntityImpl();
-    doc2.field("name", "Marcus")
-        .save(database.getClusterNameById(database.getDefaultClusterId()));
+    var doc2 = ((EntityImpl) session.newEntity());
+    doc2.setProperty("name", "Marcus");
+
     map.put("Marcus", doc2);
 
-    var doc3 = new EntityImpl("Account");
-    doc3.field("name", "Cesare").save();
+    var doc3 = ((EntityImpl) session.newEntity("Account"));
+    doc3.setProperty("name", "Cesare");
+
     map.put("Cesare", doc3);
 
-    database.save(newDoc, database.getClusterNameById(database.getDefaultClusterId()));
-    database.commit();
+    session.commit();
 
     final RID rid = newDoc.getIdentity();
 
-    database.close();
-    database = acquireSession();
+    session.close();
+    session = acquireSession();
+    session.begin();
 
-    EntityImpl loadedDoc = database.load(rid);
-    Assert.assertNotNull(loadedDoc.field("linkedMap", PropertyType.LINKMAP));
-    Assert.assertTrue(loadedDoc.field("linkedMap") instanceof Map<?, ?>);
+    EntityImpl loadedDoc = session.load(rid);
+    Assert.assertNotNull(loadedDoc.getLinkMap("linkedMap"));
+    Assert.assertTrue(loadedDoc.getProperty("linkedMap") instanceof Map<?, ?>);
     Assert.assertTrue(
-        ((Map<String, Identifiable>) loadedDoc.field("linkedMap")).values().iterator().next()
+        ((Map<String, Identifiable>) loadedDoc.getProperty("linkedMap")).values().iterator().next()
             instanceof Identifiable);
 
+    Identifiable identifiable2 = ((Map<String, Identifiable>) loadedDoc.getProperty(
+        "linkedMap")).get("Luca");
+    var transaction2 = session.getActiveTransaction();
     EntityImpl d =
-        ((Map<String, Identifiable>) loadedDoc.field("linkedMap")).get("Luca").getRecord();
-    Assert.assertEquals(d.field("name"), "Luca");
+        transaction2.load(identifiable2);
+    Assert.assertEquals(d.getProperty("name"), "Luca");
 
-    d = ((Map<String, Identifiable>) loadedDoc.field("linkedMap")).get("Marcus").getRecord();
-    Assert.assertEquals(d.field("name"), "Marcus");
+    Identifiable identifiable1 = ((Map<String, Identifiable>) loadedDoc.getProperty(
+        "linkedMap")).get("Marcus");
+    var transaction1 = session.getActiveTransaction();
+    d = transaction1.load(identifiable1);
+    Assert.assertEquals(d.getProperty("name"), "Marcus");
 
-    d = ((Map<String, Identifiable>) loadedDoc.field("linkedMap")).get("Cesare").getRecord();
-    Assert.assertEquals(d.field("name"), "Cesare");
-    Assert.assertEquals(d.getClassName(), "Account");
+    Identifiable identifiable = ((Map<String, Identifiable>) loadedDoc.getProperty(
+        "linkedMap")).get("Cesare");
+    var transaction = session.getActiveTransaction();
+    d = transaction.load(identifiable);
+    Assert.assertEquals(d.getProperty("name"), "Cesare");
+    Assert.assertEquals(d.getSchemaClassName(), "Account");
+    session.commit();
   }
 }

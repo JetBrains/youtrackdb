@@ -20,12 +20,14 @@
 package com.jetbrains.youtrack.db.internal.common.collection;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import javax.annotation.Nonnull;
 
 public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> {
 
@@ -38,8 +40,10 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
   private final List<T> heads = new ArrayList<T>();
 
   private int status = STATUS_INIT;
+  private final DatabaseSessionInternal db;
 
-  public SortedMultiIterator(SQLOrderBy orderBy) {
+  public SortedMultiIterator(@Nonnull DatabaseSessionInternal db, SQLOrderBy orderBy) {
+    this.db = db;
     this.orderBy = orderBy;
   }
 
@@ -62,7 +66,7 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
     if (status == STATUS_INIT) {
       status = STATUS_RUNNING;
     }
-    for (T o : heads) {
+    for (var o : heads) {
       if (o != null) {
         return true;
       }
@@ -75,8 +79,8 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
     if (status == STATUS_INIT) {
       status = STATUS_RUNNING;
     }
-    int nextItemPosition = findNextPosition();
-    T result = heads.get(nextItemPosition);
+    var nextItemPosition = findNextPosition();
+    var result = heads.get(nextItemPosition);
     if (sourceIterators.get(nextItemPosition).hasNext()) {
       heads.set(nextItemPosition, sourceIterators.get(nextItemPosition).next());
     } else {
@@ -86,13 +90,13 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
   }
 
   private int findNextPosition() {
-    int lastPosition = 0;
+    var lastPosition = 0;
     while (heads.size() < lastPosition && heads.get(lastPosition) == null) {
       lastPosition++;
     }
-    T lastItem = heads.get(lastPosition);
-    for (int i = lastPosition + 1; i < heads.size(); i++) {
-      T item = heads.get(i);
+    var lastItem = heads.get(lastPosition);
+    for (var i = lastPosition + 1; i < heads.size(); i++) {
+      var item = heads.get(i);
       if (item == null) {
         continue;
       }
@@ -115,14 +119,24 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
       return false;
     }
 
-    EntityImpl leftEntity =
-        (left instanceof EntityImpl) ? (EntityImpl) left : (EntityImpl) left.getRecord();
-    EntityImpl rightEntity =
-        (right instanceof EntityImpl) ? (EntityImpl) right : (EntityImpl) right.getRecord();
+    EntityImpl leftEntity;
+    if ((left instanceof EntityImpl)) {
+      leftEntity = (EntityImpl) left;
+    } else {
+      var transaction = db.getActiveTransaction();
+      leftEntity = transaction.load(left);
+    }
+    EntityImpl rightEntity;
+    if ((right instanceof EntityImpl)) {
+      rightEntity = (EntityImpl) right;
+    } else {
+      var transaction = db.getActiveTransaction();
+      rightEntity = transaction.load(right);
+    }
 
-    for (SQLOrderByItem orderItem : orderBy.getItems()) {
-      Object leftVal = leftEntity.field(orderItem.getRecordAttr());
-      Object rightVal = rightEntity.field(orderItem.getRecordAttr());
+    for (var orderItem : orderBy.getItems()) {
+      var leftVal = leftEntity.getProperty(orderItem.getRecordAttr());
+      var rightVal = rightEntity.getProperty(orderItem.getRecordAttr());
       if (rightVal == null) {
         return true;
       }
@@ -130,11 +144,11 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
         return false;
       }
       if (leftVal instanceof Comparable) {
-        int compare = ((Comparable) leftVal).compareTo(rightVal);
+        var compare = ((Comparable) leftVal).compareTo(rightVal);
         if (compare == 0) {
           continue;
         }
-        boolean greater = compare > 0;
+        var greater = compare > 0;
         if (SQLOrderByItem.DESC.equals(orderItem.getType())) {
           return greater;
         } else {
@@ -146,6 +160,7 @@ public class SortedMultiIterator<T extends Identifiable> implements Iterator<T> 
     return false;
   }
 
+  @Override
   public void remove() {
     throw new UnsupportedOperationException("remove");
   }

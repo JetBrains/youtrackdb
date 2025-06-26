@@ -19,10 +19,10 @@ public class FrontendTransactionSequenceStatus {
   }
 
   public byte[] store() throws IOException {
-    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    var buffer = new ByteArrayOutputStream();
     DataOutput dataOutput = new DataOutputStream(buffer);
     VarIntSerializer.write(dataOutput, this.status.length);
-    for (int i = 0; i < this.status.length; i++) {
+    for (var i = 0; i < this.status.length; i++) {
       VarIntSerializer.write(dataOutput, this.status[i]);
     }
     return buffer.toByteArray();
@@ -30,9 +30,9 @@ public class FrontendTransactionSequenceStatus {
 
   public static FrontendTransactionSequenceStatus read(byte[] data) throws IOException {
     DataInput dataInput = new DataInputStream(new ByteArrayInputStream(data));
-    int len = VarIntSerializer.readAsInt(dataInput);
-    long[] newSequential = new long[len];
-    for (int i = 0; i < len; i++) {
+    var len = VarIntSerializer.readAsInt(dataInput);
+    var newSequential = new long[len];
+    for (var i = 0; i < len; i++) {
       newSequential[i] = VarIntSerializer.readAsLong(dataInput);
     }
     return new FrontendTransactionSequenceStatus(newSequential);
@@ -40,16 +40,16 @@ public class FrontendTransactionSequenceStatus {
 
   public void writeNetwork(DataOutput dataOutput) throws IOException {
     VarIntSerializer.write(dataOutput, this.status.length);
-    for (int i = 0; i < this.status.length; i++) {
+    for (var i = 0; i < this.status.length; i++) {
       VarIntSerializer.write(dataOutput, this.status[i]);
     }
   }
 
   public static FrontendTransactionSequenceStatus readNetwork(DataInput dataInput)
       throws IOException {
-    int len = VarIntSerializer.readAsInt(dataInput);
-    long[] newSequential = new long[len];
-    for (int i = 0; i < len; i++) {
+    var len = VarIntSerializer.readAsInt(dataInput);
+    var newSequential = new long[len];
+    for (var i = 0; i < len; i++) {
       newSequential[i] = VarIntSerializer.readAsLong(dataInput);
     }
     return new FrontendTransactionSequenceStatus(newSequential);
@@ -67,7 +67,7 @@ public class FrontendTransactionSequenceStatus {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    FrontendTransactionSequenceStatus that = (FrontendTransactionSequenceStatus) o;
+    var that = (FrontendTransactionSequenceStatus) o;
     return Arrays.equals(status, that.status);
   }
 

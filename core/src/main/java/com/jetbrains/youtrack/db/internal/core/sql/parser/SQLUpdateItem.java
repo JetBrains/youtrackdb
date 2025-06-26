@@ -4,27 +4,32 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkList;
-import com.jetbrains.youtrack.db.internal.core.db.record.LinkSet;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLUpdateItem extends SimpleNode {
 
@@ -98,7 +103,7 @@ public class SQLUpdateItem extends SimpleNode {
   }
 
   public SQLUpdateItem copy() {
-    SQLUpdateItem result = new SQLUpdateItem(-1);
+    var result = new SQLUpdateItem(-1);
     result.left = left == null ? null : left.copy();
     result.leftModifier = leftModifier == null ? null : leftModifier.copy();
     result.operator = operator;
@@ -115,7 +120,7 @@ public class SQLUpdateItem extends SimpleNode {
       return false;
     }
 
-    SQLUpdateItem that = (SQLUpdateItem) o;
+    var that = (SQLUpdateItem) o;
 
     if (operator != that.operator) {
       return false;
@@ -131,207 +136,265 @@ public class SQLUpdateItem extends SimpleNode {
 
   @Override
   public int hashCode() {
-    int result = left != null ? left.hashCode() : 0;
+    var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (leftModifier != null ? leftModifier.hashCode() : 0);
     result = 31 * result + operator;
     result = 31 * result + (right != null ? right.hashCode() : 0);
     return result;
   }
 
-  public void applyUpdate(ResultInternal entity, CommandContext ctx) {
-    Object rightValue = right.execute(entity, ctx);
-    SchemaClass linkedType = calculateLinkedTypeForThisItem(entity, ctx);
+  public void applyUpdate(ResultInternal result, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    var propertyName = left.getStringValue();
+
+    SchemaProperty schemaProperty = null;
+    if (result.isEntity()) {
+      var entity = (EntityImpl) result.asEntity();
+      var cls = entity.getImmutableSchemaClass(session);
+      schemaProperty = cls != null ? cls.getProperty(propertyName) : null;
+    }
+
     if (leftModifier == null) {
-      applyOperation(entity, left, rightValue, ctx);
+      var rightValue = right.execute(result, ctx);
+      applyOperation(result, left, rightValue, ctx, schemaProperty);
     } else {
-      var propertyName = left.getStringValue();
+      var rightValue = right.execute(result, ctx);
+      var linkedType = calculateLinkedTypeForThisItem(result, session);
       rightValue = convertToType(rightValue, null, linkedType, ctx);
-      Object val = entity.getProperty(propertyName);
+      var val = result.getProperty(propertyName);
       if (val == null) {
-        val = initSchemafullCollections(entity, propertyName);
+        val = initSchemafullCollections(session, result, propertyName);
       }
-      leftModifier.setValue(entity, val, rightValue, ctx);
+      leftModifier.setValue(result, val, rightValue, ctx, schemaProperty, 0);
     }
   }
 
-  private Object initSchemafullCollections(ResultInternal entity, String propName) {
-    SchemaClass oClass = entity.getEntity().flatMap(x -> x.getSchemaType()).orElse(null);
+
+  @Nullable
+  private Object initSchemafullCollections(DatabaseSessionInternal session, ResultInternal entity,
+      String propName) {
+    if (!entity.isEntity()) {
+      return null;
+    }
+    var oClass = ((EntityImpl) entity.asEntity()).getImmutableSchemaClass(session);
     if (oClass == null) {
       return null;
     }
-    SchemaProperty prop = oClass.getProperty(propName);
+    var prop = oClass.getProperty(propName);
 
     Object result = null;
     if (prop == null) {
       if (leftModifier.isArraySingleValue()) {
-        result = new HashMap<>();
+        result = session.newEmbeddedMap();
         entity.setProperty(propName, result);
       }
     } else {
-      if (prop.getType() == PropertyType.EMBEDDEDMAP || prop.getType() == PropertyType.LINKMAP) {
-        result = new HashMap<>();
-        entity.setProperty(propName, result);
-      } else if (prop.getType() == PropertyType.EMBEDDEDLIST
-          || prop.getType() == PropertyType.LINKLIST) {
-        result = new ArrayList<>();
-        entity.setProperty(propName, result);
-      } else if (prop.getType() == PropertyType.EMBEDDEDSET
-          || prop.getType() == PropertyType.LINKSET) {
-        result = new HashSet<>();
-        entity.setProperty(propName, result);
+      final var container = switch (prop.getType()) {
+        case PropertyType.EMBEDDEDMAP -> session.newEmbeddedMap();
+        case PropertyType.LINKMAP -> session.newLinkMap();
+        case PropertyType.EMBEDDEDLIST -> session.newEmbeddedList();
+        case PropertyType.LINKLIST -> session.newLinkList();
+        case PropertyType.EMBEDDEDSET -> session.newEmbeddedSet();
+        case PropertyType.LINKSET -> session.newLinkSet();
+        default -> null;
+      };
+
+      if (container != null) {
+        entity.setProperty(propName, container);
+        result = container;
       }
     }
     return result;
   }
 
-  private SchemaClass calculateLinkedTypeForThisItem(ResultInternal entity, CommandContext ctx) {
-    if (entity.isEntity()) {
-      var elem = entity.toEntity();
+  @Nullable
+  private static SchemaClass calculateLinkedTypeForThisItem(ResultInternal result,
+      DatabaseSessionInternal session) {
+    if (result.isEntity()) {
+      var entity = (EntityImpl) result.asEntityOrNull();
 
+      return entity.getImmutableSchemaClass(session);
     }
+
     return null;
   }
 
-  private PropertyType calculateTypeForThisItem(ResultInternal entity, String propertyName,
-      CommandContext ctx) {
-    Entity elem = entity.toEntity();
-    SchemaClass clazz = elem.getSchemaType().orElse(null);
-    if (clazz == null) {
-      return null;
-    }
-    return calculateTypeForThisItem(clazz, left.getStringValue(), leftModifier, ctx);
-  }
-
-  private PropertyType calculateTypeForThisItem(
-      SchemaClass clazz, String propName, SQLModifier modifier, CommandContext ctx) {
-    SchemaProperty prop = clazz.getProperty(propName);
-    if (prop == null) {
-      return null;
-    }
-    PropertyType type = prop.getType();
-    if (type == PropertyType.LINKMAP && modifier != null) {
-      if (prop.getLinkedClass() != null && modifier.next != null) {
-        if (modifier.suffix == null) {
-          return null;
-        }
-        return calculateTypeForThisItem(
-            prop.getLinkedClass(), modifier.suffix.toString(), modifier.next, ctx);
-      }
-      return PropertyType.LINK;
-    }
-    // TODO specialize more
-    return null;
-  }
-
-  public void applyOperation(
-      ResultInternal entity, SQLIdentifier attrName, Object rightValue, CommandContext ctx) {
-
+  private void applyOperation(
+      ResultInternal res, SQLIdentifier attrName, Object rightValue, CommandContext ctx,
+      @Nullable SchemaProperty schemaProperty) {
+    var session = ctx.getDatabaseSession();
     switch (operator) {
       case OPERATOR_EQ:
-        Object newValue = convertResultToDocument(rightValue);
-        newValue = convertToPropertyType(entity, attrName, newValue, ctx);
-        entity.setProperty(attrName.getStringValue(), cleanValue(newValue));
+        var newValue = convertResultToDocument(rightValue);
+        newValue = convertToPropertyType(res, attrName, newValue, ctx);
+        var propertyName = attrName.getStringValue();
+
+        if (res.isVertex() && VertexEntityImpl.isEdgeProperty(propertyName)) {
+          throw new IllegalStateException("Cannot update edges by assigning properties directly.");
+        } else if (res.isEdge() && EdgeInternal.isEdgeConnectionProperty(propertyName)) {
+          var edge = res.asEdge();
+
+          Vertex toVertex;
+          if (EdgeInternal.isInEdgeConnectionProperty(propertyName)) {
+            if (newValue instanceof Identifiable identifiable) {
+              var transaction = session.getActiveTransaction();
+              toVertex = transaction.loadVertex(identifiable);
+            } else {
+              throw new IllegalArgumentException(
+                  "Cannot assign a non-vertex to an edge connection");
+            }
+          } else {
+            toVertex = edge.getVertex(Direction.IN);
+          }
+          Vertex fromVertex;
+          if (EdgeInternal.isOutEdgeConnectionProperty(propertyName)) {
+            if (newValue instanceof Identifiable identifiable) {
+              var transaction = session.getActiveTransaction();
+              fromVertex = transaction.loadVertex(identifiable);
+            } else {
+              throw new IllegalArgumentException(
+                  "Cannot assign a non-vertex to an edge connection");
+            }
+          } else {
+            fromVertex = edge.getVertex(Direction.OUT);
+          }
+
+          if (edge.isStateful()) {
+            var statefulEdge = session.newStatefulEdge(fromVertex, toVertex, edge.getSchemaClass());
+            var EntityImpl = (EntityImpl) statefulEdge.asEntity();
+
+            EntityImpl.movePropertiesFromOtherEntity((EntityImpl)
+                edge.asStatefulEdge().asEntity(), Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
+            res.setIdentifiable(statefulEdge);
+          } else {
+            var lightweightEdge = session.newLightweightEdge(fromVertex, toVertex,
+                edge.getSchemaClass());
+            res.setRelation((EdgeInternal) lightweightEdge);
+          }
+
+          edge.delete();
+        } else {
+          res.setProperty(propertyName,
+              cleanPropertyValue(newValue, session, schemaProperty));
+        }
         break;
       case OPERATOR_MINUSASSIGN:
-        entity.setProperty(
+        res.setProperty(
             attrName.getStringValue(),
-            calculateNewValue(entity, ctx, SQLMathExpression.Operator.MINUS));
+            calculateNewValue(res, ctx, SQLMathExpression.Operator.MINUS));
         break;
       case OPERATOR_PLUSASSIGN:
-        entity.setProperty(
+        res.setProperty(
             attrName.getStringValue(),
-            calculateNewValue(entity, ctx, SQLMathExpression.Operator.PLUS));
+            calculateNewValue(res, ctx, SQLMathExpression.Operator.PLUS));
         break;
       case OPERATOR_SLASHASSIGN:
-        entity.setProperty(
+        res.setProperty(
             attrName.getStringValue(),
-            calculateNewValue(entity, ctx, SQLMathExpression.Operator.SLASH));
+            calculateNewValue(res, ctx, SQLMathExpression.Operator.SLASH));
         break;
       case OPERATOR_STARASSIGN:
-        entity.setProperty(
+        res.setProperty(
             attrName.getStringValue(),
-            calculateNewValue(entity, ctx, SQLMathExpression.Operator.STAR));
+            calculateNewValue(res, ctx, SQLMathExpression.Operator.STAR));
         break;
     }
   }
 
-  @SuppressWarnings("unchecked")
-  public static Object cleanValue(Object newValue) {
-    if (newValue instanceof Iterator) {
-      List<Object> value = new ArrayList<Object>();
-      while (((Iterator<Object>) newValue).hasNext()) {
-        value.add(((Iterator<Object>) newValue).next());
-      }
-      return value;
+  @Nullable
+  public static Object cleanPropertyValue(@Nullable Object newValue,
+      @Nonnull DatabaseSessionInternal session,
+      @Nullable SchemaProperty schemaProperty) {
+    if (newValue == null) {
+      return null;
     }
-    return newValue;
+
+    var type = schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
+        schemaProperty.getType()) : null;
+    if (type == null) {
+      type = PropertyTypeInternal.getTypeByValue(newValue);
+    }
+
+    if (type != null) {
+      return type.convert(newValue,
+          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
+              schemaProperty.getLinkedType()) : null,
+          schemaProperty != null ? schemaProperty.getLinkedClass() : null, session);
+    }
+
+    throw new IllegalStateException("Unexpected value: " + newValue);
   }
 
   public static Object convertToPropertyType(
       ResultInternal res, SQLIdentifier attrName, Object newValue, CommandContext ctx) {
-    Entity entity = res.toEntity();
-    Optional<SchemaClass> optSchema = entity.getSchemaType();
-    if (!optSchema.isPresent()) {
+
+    var session = ctx.getDatabaseSession();
+    var entity = (EntityImpl) res.asEntityOrNull();
+    var optSchema = entity.getImmutableSchemaClass(session);
+    if (optSchema == null) {
       return newValue;
     }
-    SchemaProperty prop = optSchema.get().getProperty(attrName.getStringValue());
+
+    var prop = optSchema.getProperty(attrName.getStringValue());
     if (prop == null) {
       return newValue;
     }
 
-    PropertyType type = prop.getType();
-    SchemaClass linkedClass = prop.getLinkedClass();
+    var type = PropertyTypeInternal.convertFromPublicType(prop.getType());
+    var linkedClass = prop.getLinkedClass();
     return convertToType(newValue, type, linkedClass, ctx);
   }
 
-  @SuppressWarnings("unchecked")
   private static Object convertToType(
-      Object value, PropertyType type, SchemaClass linkedClass, CommandContext ctx) {
+      Object value, PropertyTypeInternal type, SchemaClass linkedClass, CommandContext ctx) {
     if (type == null) {
       return value;
     }
     if (value instanceof Collection) {
-      if (type == PropertyType.LINK) {
+      if (type == PropertyTypeInternal.LINK) {
         if (((Collection<?>) value).isEmpty()) {
           value = null;
         } else if (((Collection<?>) value).size() == 1) {
           value = ((Collection<?>) value).iterator().next();
         } else {
-          throw new CommandExecutionException("Cannot assign a collection to a LINK property");
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
+              "Cannot assign a collection to a LINK property");
         }
       } else {
-        if (type == PropertyType.EMBEDDEDLIST && linkedClass != null) {
+        if (type == PropertyTypeInternal.EMBEDDEDLIST && linkedClass != null) {
           return ((Collection<?>) value)
               .stream()
               .map(item -> convertToType(item, linkedClass, ctx))
               .collect(Collectors.toList());
 
-        } else if (type == PropertyType.EMBEDDEDSET && linkedClass != null) {
+        } else if (type == PropertyTypeInternal.EMBEDDEDSET && linkedClass != null) {
           return ((Collection<?>) value)
               .stream()
               .map(item -> convertToType(item, linkedClass, ctx))
               .collect(Collectors.toSet());
         }
-        if (type == PropertyType.LINKSET && !(value instanceof LinkSet)) {
-          var db = ctx.getDatabase();
+        if (type == PropertyTypeInternal.LINKSET && !(value instanceof EntityLinkSetImpl)) {
+          var db = ctx.getDatabaseSession();
           return ((Collection<?>) value)
               .stream()
-              .map(item -> PropertyType.convert(db, item, Identifiable.class))
+              .map(item -> PropertyTypeInternal.convert(db, item, Identifiable.class))
               .collect(Collectors.toSet());
-        } else if (type == PropertyType.LINKLIST && !(value instanceof LinkList)) {
-          var db = ctx.getDatabase();
+        } else if (type == PropertyTypeInternal.LINKLIST
+            && !(value instanceof EntityLinkListImpl)) {
+          var db = ctx.getDatabaseSession();
           return ((Collection<?>) value)
               .stream()
-              .map(item -> PropertyType.convert(db, item, Identifiable.class))
+              .map(item -> PropertyTypeInternal.convert(db, item, Identifiable.class))
               .collect(Collectors.toList());
-        } else if (type == PropertyType.LINKBAG && !(value instanceof RidBag)) {
-          var db = ctx.getDatabase();
-          var bag = new RidBag(db);
+        } else if (type == PropertyTypeInternal.LINKBAG && !(value instanceof LinkBag)) {
+          var db = ctx.getDatabaseSession();
+          var bag = new LinkBag(db);
 
           ((Collection<?>) value)
               .stream()
-              .map(item -> (Identifiable) PropertyType.convert(db, item, Identifiable.class))
-              .forEach(bag::add);
+              .map(
+                  item -> (Identifiable) PropertyTypeInternal.convert(db, item, Identifiable.class))
+              .forEach(item -> bag.add(item.getIdentity()));
 
         }
       }
@@ -340,19 +403,23 @@ public class SQLUpdateItem extends SimpleNode {
   }
 
   private static Object convertToType(Object item, SchemaClass linkedClass, CommandContext ctx) {
-    if (item instanceof Entity) {
-      SchemaClass currentType = ((Entity) item).getSchemaType().orElse(null);
+    var session = ctx.getDatabaseSession();
+    if (item instanceof EntityImpl entity) {
+      var currentType = entity.getImmutableSchemaClass(session);
       if (currentType == null || !currentType.isSubClassOf(linkedClass)) {
-        Entity result = ctx.getDatabase().newEntity(linkedClass.getName());
-        for (String prop : ((Entity) item).getPropertyNames()) {
+        var result = session.newEmbeddedEntity(linkedClass);
+
+        for (var prop : entity.getPropertyNames()) {
           result.setProperty(prop, ((Entity) item).getProperty(prop));
         }
+
         return result;
       } else {
         return item;
       }
     } else if (item instanceof Map) {
-      Entity result = ctx.getDatabase().newEntity(linkedClass.getName());
+      var result = session.newEmbeddedEntity(linkedClass.getName());
+
       ((Map<String, Object>) item)
           .entrySet().stream().forEach(x -> result.setProperty(x.getKey(), x.getValue()));
       return result;
@@ -361,8 +428,8 @@ public class SQLUpdateItem extends SimpleNode {
   }
 
   public static Object convertResultToDocument(Object value) {
-    if (value instanceof Result) {
-      return ((Result) value).toEntity();
+    if (value instanceof Result result && result.isEntity()) {
+      return result.asEntityOrNull();
     }
     if (value instanceof Identifiable) {
       return value;
@@ -384,11 +451,11 @@ public class SQLUpdateItem extends SimpleNode {
 
   private Object calculateNewValue(
       ResultInternal entity, CommandContext ctx, SQLMathExpression.Operator explicitOperator) {
-    SQLExpression leftEx = new SQLExpression(left.copy());
+    var leftEx = new SQLExpression(left.copy());
     if (leftModifier != null) {
       ((SQLBaseExpression) leftEx.mathExpression).modifier = leftModifier.copy();
     }
-    SQLMathExpression mathExp = new SQLMathExpression(-1);
+    var mathExp = new SQLMathExpression(-1);
     mathExp.addChildExpression(leftEx.getMathExpression());
     mathExp.addChildExpression(new SQLParenthesisExpression(right.copy()));
     mathExp.addOperator(explicitOperator);

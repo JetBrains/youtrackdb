@@ -11,14 +11,14 @@ public class BytesContainerTest {
 
   @Test
   public void testSimple() {
-    BytesContainer bytesContainer = new BytesContainer();
+    var bytesContainer = new BytesContainer();
     assertNotNull(bytesContainer.bytes);
     assertEquals(bytesContainer.offset, 0);
   }
 
   @Test
   public void testReallocSimple() {
-    BytesContainer bytesContainer = new BytesContainer();
+    var bytesContainer = new BytesContainer();
     bytesContainer.alloc((short) 2050);
     assertTrue(bytesContainer.bytes.length > 2050);
     assertEquals(bytesContainer.offset, 2050);
@@ -26,9 +26,9 @@ public class BytesContainerTest {
 
   @Test
   public void testBorderReallocSimple() {
-    BytesContainer bytesContainer = new BytesContainer();
+    var bytesContainer = new BytesContainer();
     bytesContainer.alloc((short) 1024);
-    int pos = bytesContainer.alloc((short) 1);
+    var pos = bytesContainer.alloc((short) 1);
     bytesContainer.bytes[pos] = 0;
     assertTrue(bytesContainer.bytes.length >= 1025);
     assertEquals(bytesContainer.offset, 1025);
@@ -36,7 +36,7 @@ public class BytesContainerTest {
 
   @Test
   public void testReadSimple() {
-    BytesContainer bytesContainer = new BytesContainer();
+    var bytesContainer = new BytesContainer();
     bytesContainer.skip((short) 100);
     assertEquals(bytesContainer.offset, 100);
   }

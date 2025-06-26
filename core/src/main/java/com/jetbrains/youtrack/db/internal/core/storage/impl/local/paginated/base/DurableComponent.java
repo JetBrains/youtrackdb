@@ -26,7 +26,7 @@ import com.jetbrains.youtrack.db.internal.common.function.TxFunction;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractPaginatedStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
@@ -40,9 +40,8 @@ import javax.annotation.Nonnull;
  * @since 8/27/13
  */
 public abstract class DurableComponent extends SharedResourceAbstract {
-
   protected final AtomicOperationsManager atomicOperationsManager;
-  protected final AbstractPaginatedStorage storage;
+  protected final AbstractStorage storage;
   protected final ReadCache readCache;
   protected final WriteCache writeCache;
 
@@ -54,7 +53,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   private final String lockName;
 
   public DurableComponent(
-      @Nonnull final AbstractPaginatedStorage storage,
+      @Nonnull final AbstractStorage storage,
       @Nonnull final String name,
       final String extension,
       final String lockName) {
@@ -121,7 +120,7 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   protected CacheEntry loadOrAddPageForWrite(
       final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
       throws IOException {
-    CacheEntry entry = atomicOperation.loadPageForWrite(fileId, pageIndex, 1, true);
+    var entry = atomicOperation.loadPageForWrite(fileId, pageIndex, 1, true);
     if (entry == null) {
       entry = addPage(atomicOperation, fileId);
     }

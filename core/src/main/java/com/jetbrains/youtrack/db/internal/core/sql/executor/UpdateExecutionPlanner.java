@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLProjection;
@@ -65,7 +65,7 @@ public class UpdateExecutionPlanner {
   }
 
   public UpdateExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
-    UpdateExecutionPlan result = new UpdateExecutionPlan(ctx);
+    var result = new UpdateExecutionPlan(ctx);
 
     handleTarget(result, ctx, this.target, this.whereClause, this.timeout, enableProfiling);
     if (updateEdge) {
@@ -77,7 +77,6 @@ public class UpdateExecutionPlanner {
     handleLimit(result, ctx, this.limit, enableProfiling);
     handleReturnBefore(result, ctx, this.returnBefore, enableProfiling);
     handleOperations(result, ctx, this.operations, enableProfiling);
-    handleSave(result, ctx, enableProfiling);
     handleResultForReturnBefore(result, ctx, this.returnBefore, returnProjection, enableProfiling);
     handleResultForReturnAfter(result, ctx, this.returnAfter, returnProjection, enableProfiling);
     handleResultForReturnCount(result, ctx, this.returnCount, enableProfiling);
@@ -135,11 +134,6 @@ public class UpdateExecutionPlanner {
     }
   }
 
-  private void handleSave(
-      UpdateExecutionPlan result, CommandContext ctx, boolean profilingEnabled) {
-    result.chain(new SaveElementStep(ctx, profilingEnabled));
-  }
-
   private void handleTimeout(
       UpdateExecutionPlan result,
       CommandContext ctx,
@@ -185,13 +179,10 @@ public class UpdateExecutionPlanner {
       List<SQLUpdateOperations> ops,
       boolean profilingEnabled) {
     if (ops != null) {
-      for (SQLUpdateOperations op : ops) {
+      for (var op : ops) {
         switch (op.getType()) {
           case SQLUpdateOperations.TYPE_SET:
             plan.chain(new UpdateSetStep(op.getUpdateItems(), ctx, profilingEnabled));
-            if (updateEdge) {
-              plan.chain(new UpdateEdgePointersStep(ctx, profilingEnabled));
-            }
             break;
           case SQLUpdateOperations.TYPE_REMOVE:
             plan.chain(new UpdateRemoveStep(op.getUpdateRemoveItems(), ctx, profilingEnabled));
@@ -205,7 +196,7 @@ public class UpdateExecutionPlanner {
           case SQLUpdateOperations.TYPE_PUT:
           case SQLUpdateOperations.TYPE_INCREMENT:
           case SQLUpdateOperations.TYPE_ADD:
-            throw new CommandExecutionException(
+            throw new CommandExecutionException(ctx.getDatabaseSession(),
                 "Cannot execute with UPDATE PUT/ADD/INCREMENT new executor: " + op);
         }
       }
@@ -219,13 +210,13 @@ public class UpdateExecutionPlanner {
       SQLWhereClause whereClause,
       SQLTimeout timeout,
       boolean profilingEnabled) {
-    SQLSelectStatement sourceStatement = new SQLSelectStatement(-1);
+    var sourceStatement = new SQLSelectStatement(-1);
     sourceStatement.setTarget(target);
     sourceStatement.setWhereClause(whereClause);
     if (timeout != null) {
       sourceStatement.setTimeout(this.timeout.copy());
     }
-    SelectExecutionPlanner planner = new SelectExecutionPlanner(sourceStatement);
+    var planner = new SelectExecutionPlanner(sourceStatement);
     result.chain(
         new SubQueryStep(
             planner.createExecutionPlan(ctx, profilingEnabled, false), ctx, ctx, profilingEnabled));

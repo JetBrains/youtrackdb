@@ -1,19 +1,19 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
-import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37Client;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
@@ -32,7 +32,7 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
 
   public SubscribeLiveQueryRequest(String query, Object[] params) {
     this.query = query;
-    this.params = StorageRemote.paramsArrayToParamsMap(params);
+    this.params = RemoteCommandsDispatcherImpl.paramsArrayToParamsMap(params);
     this.namedParams = false;
   }
 
@@ -40,28 +40,28 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
   }
 
   @Override
-  public void write(DatabaseSessionInternal database, ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException {
-    RecordSerializerNetworkV37Client serializer = new RecordSerializerNetworkV37Client();
+  public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
+      BinaryProtocolSession session) throws IOException {
     network.writeString(query);
     // params
-    EntityImpl parms = new EntityImpl();
-    parms.field("params", this.params);
+    var paramsResult = new RemoteResultImpl(databaseSession);
+    paramsResult.setProperty("params", this.params);
 
-    byte[] bytes = MessageHelper.getRecordBytes(database, parms, serializer);
-    network.writeBytes(bytes);
+    MessageHelper.writeResult(paramsResult, network, databaseSession.getDatabaseTimeZone());
+
     network.writeBoolean(namedParams);
   }
 
   @Override
-  public void read(DatabaseSessionInternal db, ChannelDataInput channel, int protocolVersion,
-      RecordSerializer serializer)
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
       throws IOException {
     this.query = channel.readString();
-    EntityImpl paramsEntity = new EntityImpl();
-    byte[] bytes = channel.readBytes();
-    serializer.fromStream(db, bytes, paramsEntity, null);
-    this.params = paramsEntity.field("params");
+
+    var paramsResult = MessageHelper.readResult(databaseSession, channel,
+        databaseSession.getDatabaseTimeZone());
+    this.params = paramsResult.getProperty("params");
+
     this.namedParams = channel.readBoolean();
   }
 
@@ -80,6 +80,7 @@ public class SubscribeLiveQueryRequest implements BinaryRequest<SubscribeLiveQue
     return executor.executeSubscribeLiveQuery(this);
   }
 
+  @Nullable
   @Override
   public String getDescription() {
     return null;

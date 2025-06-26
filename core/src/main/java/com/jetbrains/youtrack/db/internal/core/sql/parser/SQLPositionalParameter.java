@@ -25,7 +25,7 @@ public class SQLPositionalParameter extends SQLInputParameter {
   }
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    Object finalValue = bindFromInputParams(params);
+    var finalValue = bindFromInputParams(params);
     if (finalValue == this) {
       builder.append("?");
     } else if (finalValue instanceof String) {
@@ -53,8 +53,8 @@ public class SQLPositionalParameter extends SQLInputParameter {
 
   public Object bindFromInputParams(Map<Object, Object> params) {
     if (params != null) {
-      Object value = params.get(paramNumber);
-      Object result = toParsedTree(value);
+      var value = params.get(paramNumber);
+      var result = toParsedTree(value);
       return result;
     }
     return this;
@@ -62,7 +62,7 @@ public class SQLPositionalParameter extends SQLInputParameter {
 
   @Override
   public SQLPositionalParameter copy() {
-    SQLPositionalParameter result = new SQLPositionalParameter(-1);
+    var result = new SQLPositionalParameter(-1);
     result.paramNumber = paramNumber;
     return result;
   }
@@ -76,7 +76,7 @@ public class SQLPositionalParameter extends SQLInputParameter {
       return false;
     }
 
-    SQLPositionalParameter that = (SQLPositionalParameter) o;
+    var that = (SQLPositionalParameter) o;
 
     return paramNumber == that.paramNumber;
   }
@@ -87,7 +87,7 @@ public class SQLPositionalParameter extends SQLInputParameter {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = (ResultInternal) super.serialize(db);
+    var result = (ResultInternal) super.serialize(db);
     result.setProperty("paramNumber", paramNumber);
     return result;
   }

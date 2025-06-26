@@ -23,19 +23,21 @@ import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.CLIENT_CH
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.CLIENT_CHANNEL_IDLE_TIMEOUT;
 import static com.jetbrains.youtrack.db.api.config.GlobalConfiguration.NETWORK_LOCK_TIMEOUT;
 
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.internal.client.binary.SocketChannelBinaryAsynchClient;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Manages network connections against YouTrackDB servers. All the connection pools are managed in a
@@ -44,6 +46,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class RemoteConnectionManager {
 
+  private static final Logger logger = LoggerFactory.getLogger(RemoteConnectionManager.class);
   public static final String PARAM_MAX_POOL = "maxpool";
 
   protected final ConcurrentMap<String, RemoteConnectionPool> connections;
@@ -54,7 +57,7 @@ public class RemoteConnectionManager {
   public RemoteConnectionManager(final ContextConfiguration clientConfiguration, Timer timer) {
     connections = new ConcurrentHashMap<>();
     timeout = clientConfiguration.getValueAsLong(NETWORK_LOCK_TIMEOUT);
-    int idleSecs = clientConfiguration.getValueAsInteger(CLIENT_CHANNEL_IDLE_TIMEOUT);
+    var idleSecs = clientConfiguration.getValueAsInteger(CLIENT_CHANNEL_IDLE_TIMEOUT);
     this.idleTimeout = TimeUnit.MILLISECONDS.convert(idleSecs, TimeUnit.SECONDS);
     if (clientConfiguration.getValueAsBoolean(CLIENT_CHANNEL_IDLE_CLOSE)) {
       idleTask =
@@ -64,7 +67,7 @@ public class RemoteConnectionManager {
               checkIdle();
             }
           };
-      long delay = this.idleTimeout / 3;
+      var delay = this.idleTimeout / 3;
       timer.schedule(this.idleTask, delay, delay);
     } else {
       idleTask = null;
@@ -72,7 +75,7 @@ public class RemoteConnectionManager {
   }
 
   public void close() {
-    for (Map.Entry<String, RemoteConnectionPool> entry : connections.entrySet()) {
+    for (var entry : connections.entrySet()) {
       closePool(entry.getValue());
     }
 
@@ -82,30 +85,31 @@ public class RemoteConnectionManager {
     }
   }
 
+  @Nullable
   public SocketChannelBinaryAsynchClient acquire(
       String iServerURL, final ContextConfiguration clientConfiguration) {
 
-    long localTimeout = timeout;
+    var localTimeout = timeout;
 
-    RemoteConnectionPool pool = connections.get(iServerURL);
+    var pool = connections.get(iServerURL);
     if (pool == null) {
-      int maxPool = 8;
+      var maxPool = 8;
 
       if (clientConfiguration != null) {
-        final Object max =
+        final var max =
             clientConfiguration.getValue(GlobalConfiguration.CLIENT_CHANNEL_MAX_POOL);
         if (max != null) {
           maxPool = Integer.parseInt(max.toString());
         }
 
-        final Object netLockTimeout = clientConfiguration.getValue(NETWORK_LOCK_TIMEOUT);
+        final var netLockTimeout = clientConfiguration.getValue(NETWORK_LOCK_TIMEOUT);
         if (netLockTimeout != null) {
           localTimeout = Integer.parseInt(netLockTimeout.toString());
         }
       }
 
       pool = new RemoteConnectionPool(maxPool);
-      final RemoteConnectionPool prev = connections.putIfAbsent(iServerURL, pool);
+      final var prev = connections.putIfAbsent(iServerURL, pool);
       if (prev != null) {
         // ALREADY PRESENT, DESTROY IT AND GET THE ALREADY EXISTENT OBJ
         pool.getPool().close();
@@ -115,7 +119,7 @@ public class RemoteConnectionManager {
 
     try {
       // RETURN THE RESOURCE
-      SocketChannelBinaryAsynchClient ret = pool.acquire(iServerURL, localTimeout,
+      var ret = pool.acquire(iServerURL, localTimeout,
           clientConfiguration);
       ret.markInUse();
       return ret;
@@ -126,7 +130,7 @@ public class RemoteConnectionManager {
     } catch (Exception e) {
       // ERROR ON RETRIEVING THE INSTANCE FROM THE POOL
       LogManager.instance()
-          .debug(this, "Error on retrieving the connection from pool: " + iServerURL, e);
+          .debug(this, "Error on retrieving the connection from pool: " + iServerURL, logger, e);
     }
     return null;
   }
@@ -137,13 +141,14 @@ public class RemoteConnectionManager {
     }
 
     conn.markReturned();
-    final RemoteConnectionPool pool = connections.get(conn.getServerURL());
+    final var pool = connections.get(conn.getServerURL());
     if (pool != null) {
       if (!conn.isConnected()) {
         LogManager.instance()
             .debug(
                 this,
-                "Network connection pool is receiving a closed connection to reuse: discard it");
+                "Network connection pool is receiving a closed connection to reuse: discard it",
+                logger);
         remove(conn);
       } else {
         pool.getPool().returnResource(conn);
@@ -156,7 +161,7 @@ public class RemoteConnectionManager {
       return;
     }
 
-    final RemoteConnectionPool pool = connections.get(conn.getServerURL());
+    final var pool = connections.get(conn.getServerURL());
     if (pool == null) {
       throw new IllegalStateException(
           "Connection cannot be released because the pool doesn't exist anymore");
@@ -167,13 +172,13 @@ public class RemoteConnectionManager {
     try {
       conn.unlock();
     } catch (Exception e) {
-      LogManager.instance().debug(this, "Cannot unlock connection lock", e);
+      LogManager.instance().debug(this, "Cannot unlock connection lock", logger, e);
     }
 
     try {
       conn.close();
     } catch (Exception e) {
-      LogManager.instance().debug(this, "Cannot close connection", e);
+      LogManager.instance().debug(this, "Cannot close connection", logger, e);
     }
   }
 
@@ -182,7 +187,7 @@ public class RemoteConnectionManager {
   }
 
   public int getMaxResources(final String url) {
-    final RemoteConnectionPool pool = connections.get(url);
+    final var pool = connections.get(url);
     if (pool == null) {
       return 0;
     }
@@ -191,7 +196,7 @@ public class RemoteConnectionManager {
   }
 
   public int getAvailableConnections(final String url) {
-    final RemoteConnectionPool pool = connections.get(url);
+    final var pool = connections.get(url);
     if (pool == null) {
       return 0;
     }
@@ -203,7 +208,7 @@ public class RemoteConnectionManager {
     if (url == null) {
       return 0;
     }
-    final RemoteConnectionPool pool = connections.get(url);
+    final var pool = connections.get(url);
     if (pool == null) {
       return 0;
     }
@@ -212,7 +217,7 @@ public class RemoteConnectionManager {
   }
 
   public int getCreatedInstancesInPool(final String url) {
-    final RemoteConnectionPool pool = connections.get(url);
+    final var pool = connections.get(url);
     if (pool == null) {
       return 0;
     }
@@ -221,7 +226,7 @@ public class RemoteConnectionManager {
   }
 
   public void closePool(final String url) {
-    final RemoteConnectionPool pool = connections.remove(url);
+    final var pool = connections.remove(url);
     if (pool == null) {
       return;
     }
@@ -232,12 +237,12 @@ public class RemoteConnectionManager {
   protected void closePool(RemoteConnectionPool pool) {
     final List<SocketChannelBinaryAsynchClient> conns =
         new ArrayList<SocketChannelBinaryAsynchClient>(pool.getPool().getAllResources());
-    for (SocketChannelBinaryAsynchClient c : conns) {
+    for (var c : conns) {
       try {
         // Unregister the listener that make the connection return to the closing pool.
         c.close();
       } catch (Exception e) {
-        LogManager.instance().debug(this, "Cannot close binary channel", e);
+        LogManager.instance().debug(this, "Cannot close binary channel", logger, e);
       }
     }
     pool.getPool().close();
@@ -248,7 +253,7 @@ public class RemoteConnectionManager {
   }
 
   public void checkIdle() {
-    for (Map.Entry<String, RemoteConnectionPool> entry : connections.entrySet()) {
+    for (var entry : connections.entrySet()) {
       entry.getValue().checkIdle(idleTimeout);
     }
   }

@@ -26,15 +26,14 @@ import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.thread.NonDaemonThreadFactory;
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutorWithLogging;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseRecordThreadLocal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.exception.SequenceException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Objects;
 import java.util.Random;
@@ -226,14 +225,13 @@ public abstract class DBSequence {
     entityRid = entity.getIdentity();
   }
 
-  protected DBSequence(CreateParams params, @Nonnull String name) {
+  protected DBSequence(DatabaseSessionInternal session, CreateParams params, @Nonnull String name) {
     Objects.requireNonNull(name);
-    var db = getDatabase();
 
     entityRid =
-        db.computeInTx(
-            () -> {
-              var entity = new EntityImpl(CLASS_NAME);
+        session.computeInTx(
+            transaction -> {
+              var entity = session.newInstance(CLASS_NAME);
 
               CreateParams currentParams;
               if (params == null) {
@@ -244,7 +242,6 @@ public abstract class DBSequence {
 
               initSequence(entity, currentParams);
               setName(entity, name);
-              entity.save();
 
               return entity.getIdentity();
             });
@@ -265,49 +262,49 @@ public abstract class DBSequence {
     setSequenceType(entity);
   }
 
-  public boolean updateParams(CreateParams params) throws DatabaseException {
-    var db = getDatabase();
+  public boolean updateParams(DatabaseSessionInternal db, CreateParams params)
+      throws DatabaseException {
     var entity = db.<EntityImpl>load(entityRid);
     var result = updateParams(entity, params, false);
-    entity.save();
+
     return result;
   }
 
   boolean updateParams(EntityImpl entity, CreateParams params, boolean executeViaDistributed)
       throws DatabaseException {
-    boolean any = false;
+    var any = false;
 
-    if (params.start != null && this.getStart(entity) != params.start) {
-      this.setStart(entity, params.start);
+    if (params.start != null && DBSequence.getStart(entity) != params.start) {
+      DBSequence.setStart(entity, params.start);
       any = true;
     }
 
-    if (params.increment != null && this.getIncrement(entity) != params.increment) {
-      this.setIncrement(entity, params.increment);
+    if (params.increment != null && DBSequence.getIncrement(entity) != params.increment) {
+      DBSequence.setIncrement(entity, params.increment);
       any = true;
     }
 
-    if (params.limitValue != null && !params.limitValue.equals(this.getLimitValue(entity))) {
-      this.setLimitValue(entity, params.limitValue);
+    if (params.limitValue != null && !params.limitValue.equals(DBSequence.getLimitValue(entity))) {
+      DBSequence.setLimitValue(entity, params.limitValue);
       any = true;
     }
 
-    if (params.orderType != null && this.getOrderType(entity) != params.orderType) {
-      this.setOrderType(entity, params.orderType);
+    if (params.orderType != null && DBSequence.getOrderType(entity) != params.orderType) {
+      DBSequence.setOrderType(entity, params.orderType);
       any = true;
     }
 
-    if (params.recyclable != null && this.getRecyclable(entity) != params.recyclable) {
-      this.setRecyclable(entity, params.recyclable);
+    if (params.recyclable != null && DBSequence.getRecyclable(entity) != params.recyclable) {
+      DBSequence.setRecyclable(entity, params.recyclable);
       any = true;
     }
 
     if (params.turnLimitOff != null && params.turnLimitOff) {
-      this.setLimitValue(entity, null);
+      DBSequence.setLimitValue(entity, null);
     }
 
     if (params.currentValue != null && getValue(entity) != params.currentValue) {
-      this.setValue(entity, params.currentValue);
+      DBSequence.setValue(entity, params.currentValue);
     }
 
     return any;
@@ -315,45 +312,47 @@ public abstract class DBSequence {
 
   protected static long getValue(EntityImpl entity) {
     if (!entity.hasProperty(FIELD_VALUE)) {
-      throw new SequenceException("Value property not found in entity");
+      var boundedSession = entity.getBoundedToSession();
+      throw new SequenceException(boundedSession != null ? boundedSession.getDatabaseName() : null,
+          "Value property not found in entity");
     }
     return entity.getProperty(FIELD_VALUE);
   }
 
-  protected void setValue(EntityImpl entity, long value) {
+  protected static void setValue(EntityImpl entity, long value) {
     entity.setProperty(FIELD_VALUE, value);
   }
 
-  protected int getIncrement(EntityImpl entity) {
+  protected static int getIncrement(EntityImpl entity) {
     return entity.getProperty(FIELD_INCREMENT);
   }
 
-  protected void setLimitValue(EntityImpl entity, Long limitValue) {
+  protected static void setLimitValue(EntityImpl entity, Long limitValue) {
     entity.setProperty(FIELD_LIMIT_VALUE, limitValue);
   }
 
-  protected Long getLimitValue(EntityImpl entity) {
+  protected static Long getLimitValue(EntityImpl entity) {
     return entity.getProperty(FIELD_LIMIT_VALUE);
   }
 
-  protected void setOrderType(EntityImpl entity, SequenceOrderType orderType) {
+  protected static void setOrderType(EntityImpl entity, SequenceOrderType orderType) {
     entity.setProperty(FIELD_ORDER_TYPE, orderType.getValue());
   }
 
-  protected SequenceOrderType getOrderType(EntityImpl entity) {
+  protected static SequenceOrderType getOrderType(EntityImpl entity) {
     Byte val = entity.getProperty(FIELD_ORDER_TYPE);
     return val == null ? SequenceOrderType.ORDER_POSITIVE : SequenceOrderType.fromValue(val);
   }
 
-  protected void setIncrement(EntityImpl entity, int value) {
+  protected static void setIncrement(EntityImpl entity, int value) {
     entity.setProperty(FIELD_INCREMENT, value);
   }
 
-  protected long getStart(EntityImpl entity) {
+  protected static long getStart(EntityImpl entity) {
     return entity.getProperty(FIELD_START);
   }
 
-  protected void setStart(EntityImpl entity, long value) {
+  protected static void setStart(EntityImpl entity, long value) {
     entity.setProperty(FIELD_START, value);
   }
 
@@ -365,19 +364,19 @@ public abstract class DBSequence {
     this.maxRetry = maxRetry;
   }
 
-  public String getName() {
-    return getSequenceName(getDatabase().load(entityRid));
+  public String getName(DatabaseSessionInternal db) {
+    return getSequenceName(db.load(entityRid));
   }
 
-  protected void setName(EntityImpl entity, final String name) {
+  protected static void setName(EntityImpl entity, final String name) {
     entity.setProperty(FIELD_NAME, name);
   }
 
-  protected boolean getRecyclable(EntityImpl entity) {
+  protected static boolean getRecyclable(EntityImpl entity) {
     return entity.getProperty(FIELD_RECYCLABLE);
   }
 
-  protected void setRecyclable(EntityImpl entity, final boolean recyclable) {
+  protected static void setRecyclable(EntityImpl entity, final boolean recyclable) {
     entity.setProperty(FIELD_RECYCLABLE, recyclable);
   }
 
@@ -385,180 +384,152 @@ public abstract class DBSequence {
     entity.setProperty(FIELD_TYPE, getSequenceType());
   }
 
-  protected final DatabaseSessionInternal getDatabase() {
-    return DatabaseRecordThreadLocal.instance().get();
-  }
-
   public static String getSequenceName(final EntityImpl entity) {
     return entity.getProperty(FIELD_NAME);
   }
 
   public static SEQUENCE_TYPE getSequenceType(final EntityImpl entity) {
-    String sequenceTypeStr = entity.field(FIELD_TYPE);
+    String sequenceTypeStr = entity.getProperty(FIELD_TYPE);
     if (sequenceTypeStr != null) {
       return SEQUENCE_TYPE.valueOf(sequenceTypeStr);
     }
 
-    throw new SequenceException("Sequence type not found in entity");
+    var boundedSession = entity.getBoundedToSession();
+    throw new SequenceException(boundedSession != null ? boundedSession.getDatabaseName() : null,
+        "Sequence type not found in entity");
   }
 
-  public static void initClass(DatabaseSession session, SchemaClassImpl sequenceClass) {
-    sequenceClass.createProperty(session, DBSequence.FIELD_START, PropertyType.LONG,
-        (PropertyType) null, true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_INCREMENT, PropertyType.INTEGER,
-        (PropertyType) null,
+  public static void initClass(SchemaClassInternal sequenceClass) {
+    sequenceClass.createProperty(DBSequence.FIELD_START, PropertyTypeInternal.LONG,
+        (PropertyTypeInternal) null, true);
+    sequenceClass.createProperty(DBSequence.FIELD_INCREMENT, PropertyTypeInternal.INTEGER,
+        (PropertyTypeInternal) null,
         true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_VALUE, PropertyType.LONG,
-        (PropertyType) null, true);
+    sequenceClass.createProperty(DBSequence.FIELD_VALUE, PropertyTypeInternal.LONG,
+        (PropertyTypeInternal) null, true);
 
-    sequenceClass.createProperty(session, DBSequence.FIELD_NAME, PropertyType.STRING,
-        (PropertyType) null,
+    sequenceClass.createProperty(DBSequence.FIELD_NAME, PropertyTypeInternal.STRING,
+        (PropertyTypeInternal) null,
         true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_TYPE, PropertyType.STRING,
-        (PropertyType) null,
+    sequenceClass.createProperty(DBSequence.FIELD_TYPE, PropertyTypeInternal.STRING,
+        (PropertyTypeInternal) null,
         true);
 
-    sequenceClass.createProperty(session, DBSequence.FIELD_LIMIT_VALUE, PropertyType.LONG,
-        (PropertyType) null,
+    sequenceClass.createProperty(DBSequence.FIELD_LIMIT_VALUE, PropertyTypeInternal.LONG,
+        (PropertyTypeInternal) null,
         true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_ORDER_TYPE, PropertyType.BYTE,
-        (PropertyType) null,
+    sequenceClass.createProperty(DBSequence.FIELD_ORDER_TYPE, PropertyTypeInternal.BYTE,
+        (PropertyTypeInternal) null,
         true);
-    sequenceClass.createProperty(session, DBSequence.FIELD_RECYCLABLE, PropertyType.BOOLEAN,
-        (PropertyType) null,
+    sequenceClass.createProperty(DBSequence.FIELD_RECYCLABLE, PropertyTypeInternal.BOOLEAN,
+        (PropertyTypeInternal) null,
         true);
   }
 
   /*
    * Forwards the sequence by one, and returns the new value.
    */
-  public long next() throws SequenceLimitReachedException, DatabaseException {
-    return nextWork();
+  public long next(DatabaseSessionInternal db)
+      throws SequenceLimitReachedException, DatabaseException {
+    return nextWork(db);
   }
 
-  public abstract long nextWork() throws SequenceLimitReachedException;
+  public abstract long nextWork(DatabaseSessionInternal session)
+      throws SequenceLimitReachedException;
 
   /*
    * Returns the current sequence value. If next() was never called, returns null
    */
-  public long current() throws DatabaseException {
-    return currentWork();
+  public long current(DatabaseSessionInternal db) throws DatabaseException {
+    return currentWork(db);
   }
 
-  protected abstract long currentWork();
+  protected abstract long currentWork(DatabaseSessionInternal session);
 
-  public long reset() throws DatabaseException {
-    return resetWork();
+  public long reset(DatabaseSessionInternal db) throws DatabaseException {
+    return resetWork(db);
   }
 
-  public abstract long resetWork();
+  public abstract long resetWork(DatabaseSessionInternal session);
 
   /*
    * Returns the sequence type
    */
   public abstract SEQUENCE_TYPE getSequenceType();
 
-  protected long callRetry(final SequenceCallable callable, final String method) {
+  protected long callRetry(DatabaseSessionInternal db, final SequenceCallable callable,
+      final String method) {
+    try (var dbCopy = db.copy()) {
+      for (var retry = 0; retry < maxRetry; ++retry) {
+        updateLock.lock();
+        try {
+          return dbCopy.computeInTx(
+              transaction -> {
+                var entity = transaction.<EntityImpl>load(entityRid);
+                return callable.call(dbCopy, entity);
+              });
+        } catch (ConcurrentModificationException ignore) {
+          try {
+            //noinspection BusyWait
+            Thread.sleep(
+                1
+                    + new Random()
+                    .nextInt(
+                        dbCopy
+                            .getConfiguration()
+                            .getValueAsInteger(
+                                GlobalConfiguration.SEQUENCE_RETRY_DELAY)));
+          } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+            break;
+          }
 
-    var oldDb = getDatabase();
-    var db = oldDb.copy();
-    oldDb.activateOnCurrentThread();
-
-    var future =
-        sequenceExecutor.submit(
-            () -> {
-              db.activateOnCurrentThread();
-              try (db) {
-                for (int retry = 0; retry < maxRetry; ++retry) {
-                  updateLock.lock();
-                  try {
-                    return db.computeInTx(
-                        () -> {
-                          var entity = entityRid.<EntityImpl>getRecord();
-                          var result = callable.call(db, entity);
-                          entity.save();
-                          return result;
-                        });
-                  } catch (ConcurrentModificationException ignore) {
-                    try {
-                      //noinspection BusyWait
-                      Thread.sleep(
-                          1
-                              + new Random()
-                              .nextInt(
-                                  getDatabase()
-                                      .getConfiguration()
-                                      .getValueAsInteger(
-                                          GlobalConfiguration.SEQUENCE_RETRY_DELAY)));
-                    } catch (InterruptedException ignored) {
-                      Thread.currentThread().interrupt();
-                      break;
-                    }
-
-                  } catch (StorageException e) {
-                    if (!(e.getCause() instanceof ConcurrentModificationException)) {
-                      throw BaseException.wrapException(
-                          new SequenceException(
-                              "Error in transactional processing of "
-                                  + getName()
-                                  + "."
-                                  + method
-                                  + "()"),
-                          e);
-                    }
-                  } catch (Exception e) {
-                    db.executeInTx(
-                        () -> {
-                          throw BaseException.wrapException(
-                              new SequenceException(
-                                  "Error in transactional processing of "
-                                      + getName()
-                                      + "."
-                                      + method
-                                      + "()"),
-                              e);
-                        });
-                  } finally {
-                    updateLock.unlock();
-                  }
-                }
-                updateLock.lock();
-                try {
-                  return db.computeInTx(
-                      () -> {
-                        var entity = entityRid.<EntityImpl>getRecord();
-                        var result = callable.call(db, entity);
-                        entity.save();
-                        return result;
-                      });
-                } catch (Exception e) {
-                  throw BaseException.wrapException(
-                      new SequenceException(
-                          "Error in transactional processing of "
-                              + getName()
-                              + "."
-                              + method
-                              + "()"),
-                      e);
-                } finally {
-                  updateLock.unlock();
-                }
-              }
-            });
-    try {
-      return future.get();
-    } catch (InterruptedException e) {
-      throw BaseException.wrapException(
-          new DatabaseException("Sequence operation was interrupted"), e);
-    } catch (ExecutionException e) {
-      var cause = e.getCause();
-      if (cause == null) {
-        cause = e;
+        } catch (StorageException e) {
+          if (!(e.getCause() instanceof ConcurrentModificationException)) {
+            throw BaseException.wrapException(
+                new SequenceException(db.getDatabaseName(),
+                    "Error in transactional processing of "
+                        + getName(dbCopy)
+                        + "."
+                        + method
+                        + "()"),
+                e, db.getDatabaseName());
+          }
+        } catch (Exception e) {
+          dbCopy.executeInTx(
+              transaction -> {
+                throw BaseException.wrapException(
+                    new SequenceException(db.getDatabaseName(),
+                        "Error in transactional processing of "
+                            + getName(dbCopy)
+                            + "."
+                            + method
+                            + "()"),
+                    e, db.getDatabaseName());
+              });
+        } finally {
+          updateLock.unlock();
+        }
       }
-      throw BaseException.wrapException(
-          new SequenceException(
-              "Error in transactional processing of " + getName() + "." + method + "()"),
-          cause);
+      updateLock.lock();
+      try {
+        return dbCopy.computeInTx(
+            transaction -> {
+              var entity = (EntityImpl) transaction.loadEntity(entityRid);
+              return callable.call(dbCopy, entity);
+            });
+      } catch (Exception e) {
+        throw BaseException.wrapException(
+            new SequenceException(db.getDatabaseName(),
+                "Error in transactional processing of "
+                    + getName(dbCopy)
+                    + "."
+                    + method
+                    + "()"),
+            e, db.getDatabaseName());
+      } finally {
+        updateLock.unlock();
+      }
     }
   }
 

@@ -24,12 +24,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
@@ -39,7 +36,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -58,21 +54,21 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
 
   @Override
   protected DatabaseType calculateDbType() {
-    return DatabaseType.PLOCAL;
+    return DatabaseType.DISK;
   }
 
   @Before
   public void before() {
-    final long seed = System.currentTimeMillis();
+    final var seed = System.currentTimeMillis();
     System.out.println(
         FreezeAndDBRecordInsertAtomicityTest.class.getSimpleName() + " seed: " + seed);
     random = new Random(seed);
 
-    db.getMetadata()
+    session.getMetadata()
         .getSchema()
         .createClass("Person")
-        .createProperty(db, "name", PropertyType.STRING)
-        .createIndex(db, SchemaClass.INDEX_TYPE.UNIQUE);
+        .createProperty("name", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
 
     executorService = Executors.newFixedThreadPool(THREADS);
     countDownLatch = new CountDownLatch(THREADS);
@@ -88,37 +84,43 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
   public void test() throws InterruptedException, ExecutionException {
     final Set<Future<?>> futures = new HashSet<Future<?>>();
 
-    for (int i = 0; i < THREADS; ++i) {
-      final int thread = i;
+    for (var i = 0; i < THREADS; ++i) {
+      final var thread = i;
 
       futures.add(
           executorService.submit(
               () -> {
-                try (final DatabaseSessionInternal db = openDatabase()) {
-                  final Index index =
-                      db.getMetadata().getIndexManagerInternal().getIndex(db, "Person.name");
-                  for (int i1 = 0; i1 < ITERATIONS; ++i1) {
+                try (final var session = openDatabase()) {
+                  final var index =
+                      session.getSharedContext().getIndexManager()
+                          .getIndex("Person.name");
+                  for (var i1 = 0; i1 < ITERATIONS; ++i1) {
                     switch (random.nextInt(2)) {
                       case 0:
                         var val = i1;
-                        db.executeInTx(
-                            () ->
-                                db.<EntityImpl>newInstance("Person")
-                                    .field("name", "name-" + thread + "-" + val)
-                                    .save());
+                        session.executeInTx(
+                            transaction ->
+                            {
+                              session.newInstance("Person")
+                                  .setProperty("name", "name-" + thread + "-" + val);
+                            });
                         break;
 
                       case 1:
-                        db.freeze();
+                        session.freeze();
                         try {
-                          for (EntityImpl document : db.browseClass("Person")) {
-                            try (Stream<RID> rids =
-                                index.getInternal().getRids(db, document.field("name"))) {
-                              assertEquals(document.getIdentity(), rids.findFirst().orElse(null));
+                          session.begin();
+                          var entityIterator = session.browseClass("Person");
+                          while (entityIterator.hasNext()) {
+                            var entity = entityIterator.next();
+                            try (var rids =
+                                index.getRids(session, entity.getProperty("name"))) {
+                              assertEquals(entity.getIdentity(), rids.findFirst().orElse(null));
                             }
                           }
+                          session.commit();
                         } finally {
-                          db.release();
+                          session.release();
                         }
 
                         break;
@@ -135,7 +137,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
 
     countDownLatch.await();
 
-    for (Future<?> future : futures) {
+    for (var future : futures) {
       future.get(); // propagate exceptions, if there are any
     }
   }

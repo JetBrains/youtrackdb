@@ -37,7 +37,7 @@ public class SQLFunctionIntervalTest {
   }
 
   private void doTest(int expectedResult, Object... params) {
-    final Object result = function.execute(null, null, null, params, null);
+    final var result = function.execute(null, null, null, params, null);
     assertEquals(expectedResult, result);
   }
 }

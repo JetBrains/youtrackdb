@@ -1,7 +1,8 @@
 package com.jetbrains.youtrack.db.internal.lucene.parser;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.lucene.builder.LuceneDateTools;
 import java.util.Map;
 import java.util.Optional;
@@ -20,34 +21,31 @@ import org.apache.lucene.search.Query;
  */
 public class LuceneMultiFieldQueryParser extends MultiFieldQueryParser {
 
-  private final Map<String, PropertyType> types;
+  private final Map<String, PropertyTypeInternal> types;
+  private final DatabaseSessionInternal session;
 
   public LuceneMultiFieldQueryParser(
-      final Map<String, PropertyType> types, final String[] fields, final Analyzer analyzer) {
-    this(types, fields, analyzer, null);
-  }
-
-  public LuceneMultiFieldQueryParser(
-      final Map<String, PropertyType> types,
+      final Map<String, PropertyTypeInternal> types,
       final String[] fields,
       final Analyzer analyzer,
-      final Map<String, Float> boosts) {
+      final Map<String, Float> boosts, DatabaseSessionInternal session) {
     super(fields, analyzer, boosts);
     this.types = types;
+    this.session = session;
   }
 
   @Override
   protected Query getFieldQuery(final String field, final String queryText, final int slop)
       throws ParseException {
-    final Optional<Query> query = getQuery(field, queryText, queryText, true, true);
+    final var query = getQuery(field, queryText, queryText, true, true, session);
     return handleBoost(field, query.orElse(super.getFieldQuery(field, queryText, slop)));
   }
 
   @Override
   protected Query getFieldQuery(final String field, final String queryText, final boolean quoted)
       throws ParseException {
-    final Optional<Query> query = getQuery(field, queryText, queryText, true, true);
-    final Query q = query.orElse(super.getFieldQuery(field, queryText, quoted));
+    final var query = getQuery(field, queryText, queryText, true, true, session);
+    final var q = query.orElse(super.getFieldQuery(field, queryText, quoted));
     return handleBoost(field, q);
   }
 
@@ -66,7 +64,7 @@ public class LuceneMultiFieldQueryParser extends MultiFieldQueryParser {
       final boolean startInclusive,
       final boolean endInclusive)
       throws ParseException {
-    final Optional<Query> query = getQuery(field, part1, part2, startInclusive, endInclusive);
+    final var query = getQuery(field, part1, part2, startInclusive, endInclusive, session);
     return query.orElse(super.getRangeQuery(field, part1, part2, startInclusive, endInclusive));
   }
 
@@ -75,10 +73,10 @@ public class LuceneMultiFieldQueryParser extends MultiFieldQueryParser {
       final String part1,
       final String part2,
       final boolean startInclusive,
-      final boolean endInclusive)
+      final boolean endInclusive, DatabaseSessionInternal session)
       throws ParseException {
-    int start = 0;
-    int end = 0;
+    var start = 0;
+    var end = 0;
     if (!startInclusive) {
       start = 1;
     }
@@ -114,8 +112,8 @@ public class LuceneMultiFieldQueryParser extends MultiFieldQueryParser {
             return Optional.of(
                 LongPoint.newRangeQuery(
                     field,
-                    Math.addExact(LuceneDateTools.stringToTime(part1), start),
-                    Math.addExact(LuceneDateTools.stringToTime(part2), end)));
+                    Math.addExact(LuceneDateTools.stringToTime(part1, session), start),
+                    Math.addExact(LuceneDateTools.stringToTime(part2, session), end)));
 
           } catch (final java.text.ParseException e) {
             LogManager.instance()

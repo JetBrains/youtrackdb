@@ -11,9 +11,9 @@ public abstract class AbstractConverterTest {
   protected BinaryConverter converter;
 
   public void testPutIntBigEndian() {
-    int value = 0xFE23A067;
+    var value = 0xFE23A067;
 
-    byte[] result = new byte[4];
+    var result = new byte[4];
     converter.putInt(result, 0, value, ByteOrder.BIG_ENDIAN);
 
     Assert.assertEquals(result, new byte[]{(byte) 0xFE, 0x23, (byte) 0xA0, 0x67});
@@ -22,9 +22,9 @@ public abstract class AbstractConverterTest {
   }
 
   public void testPutIntLittleEndian() {
-    int value = 0xFE23A067;
+    var value = 0xFE23A067;
 
-    byte[] result = new byte[4];
+    var result = new byte[4];
     converter.putInt(result, 0, value, ByteOrder.LITTLE_ENDIAN);
 
     Assert.assertEquals(result, new byte[]{0x67, (byte) 0xA0, 0x23, (byte) 0xFE});
@@ -33,9 +33,9 @@ public abstract class AbstractConverterTest {
   }
 
   public void testPutLongBigEndian() {
-    long value = 0xFE23A067ED890C14L;
+    var value = 0xFE23A067ED890C14L;
 
-    byte[] result = new byte[8];
+    var result = new byte[8];
     converter.putLong(result, 0, value, ByteOrder.BIG_ENDIAN);
 
     Assert.assertEquals(
@@ -45,9 +45,9 @@ public abstract class AbstractConverterTest {
   }
 
   public void testPutLongLittleEndian() {
-    long value = 0xFE23A067ED890C14L;
+    var value = 0xFE23A067ED890C14L;
 
-    byte[] result = new byte[8];
+    var result = new byte[8];
     converter.putLong(result, 0, value, ByteOrder.LITTLE_ENDIAN);
 
     Assert.assertEquals(
@@ -58,8 +58,8 @@ public abstract class AbstractConverterTest {
   }
 
   public void testPutShortBigEndian() {
-    short value = (short) 0xA028;
-    byte[] result = new byte[2];
+    var value = (short) 0xA028;
+    var result = new byte[2];
 
     converter.putShort(result, 0, value, ByteOrder.BIG_ENDIAN);
 
@@ -68,8 +68,8 @@ public abstract class AbstractConverterTest {
   }
 
   public void testPutShortLittleEndian() {
-    short value = (short) 0xA028;
-    byte[] result = new byte[2];
+    var value = (short) 0xA028;
+    var result = new byte[2];
 
     converter.putShort(result, 0, value, ByteOrder.LITTLE_ENDIAN);
 
@@ -78,8 +78,8 @@ public abstract class AbstractConverterTest {
   }
 
   public void testPutCharBigEndian() {
-    char value = (char) 0xA028;
-    byte[] result = new byte[2];
+    var value = (char) 0xA028;
+    var result = new byte[2];
 
     converter.putChar(result, 0, value, ByteOrder.BIG_ENDIAN);
 
@@ -88,8 +88,8 @@ public abstract class AbstractConverterTest {
   }
 
   public void testPutCharLittleEndian() {
-    char value = (char) 0xA028;
-    byte[] result = new byte[2];
+    var value = (char) 0xA028;
+    var result = new byte[2];
 
     converter.putChar(result, 0, value, ByteOrder.LITTLE_ENDIAN);
 

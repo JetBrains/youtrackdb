@@ -2,18 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Security;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.ServerCommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Stream;
 
 public class SQLCreateSystemUserStatement extends SQLSimpleExecServerStatement {
 
@@ -45,79 +40,82 @@ public class SQLCreateSystemUserStatement extends SQLSimpleExecServerStatement {
   @Override
   public ExecutionStream executeSimple(ServerCommandContext ctx) {
 
-    SystemDatabase systemDb = ctx.getServer().getSystemDatabase();
+    var systemDb = ctx.getYouTrackDB().getSystemDatabase();
 
     return systemDb.executeWithDB(
-        (db) -> {
-          List<Object> params = new ArrayList<>();
-          // INSERT INTO OUser SET
-          StringBuilder sb = new StringBuilder();
-          sb.append("INSERT INTO OUser SET ");
+        (session) -> {
+          var result =
+              session.computeInTx(
+                  transaction -> {
+                    List<Object> params = new ArrayList<>();
+                    // INSERT INTO OUser SET
+                    var sb = new StringBuilder();
+                    sb.append("INSERT INTO OUser SET ");
 
-          sb.append(USER_FIELD_NAME);
-          sb.append("=?");
-          params.add(this.name.getStringValue());
+                    sb.append(USER_FIELD_NAME);
+                    sb.append("=?");
+                    params.add(this.name.getStringValue());
 
-          // pass=<pass>
-          sb.append(',');
-          sb.append(USER_FIELD_PASSWORD);
-          sb.append("=");
-          if (passwordString != null) {
-            sb.append(passwordString);
-          } else if (passwordIdentifier != null) {
-            sb.append("?");
-            params.add(passwordIdentifier.getStringValue());
-          } else {
-            sb.append("?");
-            params.add(passwordParam.getValue(ctx.getInputParameters()));
-          }
+                    // pass=<pass>
+                    sb.append(',');
+                    sb.append(USER_FIELD_PASSWORD);
+                    sb.append("=");
+                    if (passwordString != null) {
+                      sb.append(passwordString);
+                    } else if (passwordIdentifier != null) {
+                      sb.append("?");
+                      params.add(passwordIdentifier.getStringValue());
+                    } else {
+                      sb.append("?");
+                      params.add(passwordParam.getValue(ctx.getInputParameters()));
+                    }
 
-          // status=ACTIVE
-          sb.append(',');
-          sb.append(USER_FIELD_STATUS);
-          sb.append("='");
-          sb.append(DEFAULT_STATUS);
-          sb.append("'");
+                    // status=ACTIVE
+                    sb.append(',');
+                    sb.append(USER_FIELD_STATUS);
+                    sb.append("='");
+                    sb.append(DEFAULT_STATUS);
+                    sb.append("'");
 
-          // role=(select from Role where name in [<input_role || 'writer'>)]
-          List<SQLIdentifier> roles = new ArrayList<>();
-          roles.addAll(this.roles);
-          if (roles.size() == 0) {
-            roles.add(new SQLIdentifier(DEFAULT_ROLE));
-          }
+                    // role=(select from Role where name in [<input_role || 'writer'>)]
+                    List<SQLIdentifier> roles = new ArrayList<>(this.roles);
+                    if (roles.isEmpty()) {
+                      roles.add(new SQLIdentifier(DEFAULT_ROLE));
+                    }
 
-          sb.append(',');
-          sb.append(USER_FIELD_ROLES);
-          sb.append("=(SELECT FROM ");
-          sb.append(ROLE_CLASS);
-          sb.append(" WHERE ");
-          sb.append(ROLE_FIELD_NAME);
-          sb.append(" IN [");
-          Security security = db.getMetadata().getSecurity();
-          for (int i = 0; i < this.roles.size(); ++i) {
-            String roleName = this.roles.get(i).getStringValue();
-            Role role = security.getRole(roleName);
-            if (role == null) {
-              throw new CommandExecutionException(
-                  "Cannot create user " + this.name + ": role " + roleName + " does not exist");
-            }
-            if (i > 0) {
-              sb.append(", ");
-            }
+                    sb.append(',');
+                    sb.append(USER_FIELD_ROLES);
+                    sb.append("=(SELECT FROM ");
+                    sb.append(ROLE_CLASS);
+                    sb.append(" WHERE ");
+                    sb.append(ROLE_FIELD_NAME);
+                    sb.append(" IN [");
+                    var security = session.getMetadata().getSecurity();
+                    for (var i = 0; i < this.roles.size(); ++i) {
+                      var roleName = this.roles.get(i).getStringValue();
+                      var role = security.getRole(roleName);
+                      if (role == null) {
+                        throw new CommandExecutionException(session,
+                            "Cannot create user " + this.name + ": role " + roleName
+                                + " does not exist");
+                      }
+                      if (i > 0) {
+                        sb.append(", ");
+                      }
 
-            if (roleName.startsWith("'") || roleName.startsWith("\"")) {
-              sb.append(roleName);
-            } else {
-              sb.append("'");
-              sb.append(roleName);
-              sb.append("'");
-            }
-          }
-          sb.append("])");
-          Stream<Result> stream =
-              db.computeInTx(() -> db.command(sb.toString(), params.toArray()).stream());
-          return ExecutionStream.resultIterator(stream.iterator())
-              .onClose((context) -> stream.close());
+                      if (!roleName.isEmpty() && roleName.charAt(0) == '\'' || !roleName.isEmpty()
+                          && roleName.charAt(0) == '\"') {
+                        sb.append(roleName);
+                      } else {
+                        sb.append("'");
+                        sb.append(roleName);
+                        sb.append("'");
+                      }
+                    }
+                    sb.append("])");
+                    return session.execute(sb.toString(), params.toArray()).detach();
+                  });
+          return ExecutionStream.resultIterator(result.iterator());
         });
   }
 
@@ -135,8 +133,8 @@ public class SQLCreateSystemUserStatement extends SQLSimpleExecServerStatement {
     }
     if (!roles.isEmpty()) {
       builder.append(" ROLE [");
-      boolean first = true;
-      for (SQLIdentifier role : roles) {
+      var first = true;
+      for (var role : roles) {
         if (!first) {
           builder.append(", ");
         }
@@ -149,7 +147,7 @@ public class SQLCreateSystemUserStatement extends SQLSimpleExecServerStatement {
 
   @Override
   public SQLCreateSystemUserStatement copy() {
-    SQLCreateSystemUserStatement result = new SQLCreateSystemUserStatement(-1);
+    var result = new SQLCreateSystemUserStatement(-1);
     result.name = name == null ? null : name.copy();
     result.passwordIdentifier = passwordIdentifier == null ? null : passwordIdentifier.copy();
     result.passwordString = passwordString;
@@ -158,25 +156,49 @@ public class SQLCreateSystemUserStatement extends SQLSimpleExecServerStatement {
     return result;
   }
 
+//  @Override
+//  public boolean equals(Object o) {
+//    if (this == o) {
+//      return true;
+//    }
+//    if (o == null || getClass() != o.getClass()) {
+//      return false;
+//    }
+//    var that = (SQLCreateSystemUserStatement) o;
+//    return Objects.equals(name, that.name)
+//        && Objects.equals(passwordIdentifier, that.passwordIdentifier)
+//        && Objects.equals(passwordString, that.passwordString)
+//        && Objects.equals(passwordParam, that.passwordParam)
+//        && Objects.equals(roles, that.roles);
+//  }
+//
+//  @Override
+//  public int hashCode() {
+//    return Objects.hash(name, passwordIdentifier, passwordString, passwordParam, roles);
+//  }
+
+
   @Override
   public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SQLCreateSystemUserStatement that = (SQLCreateSystemUserStatement) o;
-    return Objects.equals(name, that.name)
-        && Objects.equals(passwordIdentifier, that.passwordIdentifier)
-        && Objects.equals(passwordString, that.passwordString)
-        && Objects.equals(passwordParam, that.passwordParam)
-        && Objects.equals(roles, that.roles);
+
+    var that = (SQLCreateSystemUserStatement) o;
+    return Objects.equals(name, that.name) && Objects.equals(passwordIdentifier,
+        that.passwordIdentifier) && Objects.equals(passwordString, that.passwordString)
+        && Objects.equals(passwordParam, that.passwordParam) && Objects.equals(
+        roles, that.roles);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(name, passwordIdentifier, passwordString, passwordParam, roles);
+    var result = Objects.hashCode(name);
+    result = 31 * result + Objects.hashCode(passwordIdentifier);
+    result = 31 * result + Objects.hashCode(passwordString);
+    result = 31 * result + Objects.hashCode(passwordParam);
+    result = 31 * result + Objects.hashCode(roles);
+    return result;
   }
 
   public void addRole(SQLIdentifier identifer) {

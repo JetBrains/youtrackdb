@@ -15,12 +15,7 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import org.testng.Assert;
@@ -30,53 +25,32 @@ import org.testng.annotations.Test;
 
 @Test
 public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
-
-  @Parameters(value = {"remote"})
-  public DbCopyTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
-  @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.NON_TX_READS_WARNING_MODE,
-        "EXCEPTION");
-    return builder.build();
-  }
-
   @Test
   public void checkCopy() throws IOException {
-    final String className = "DbCopyTest";
-    database.getMetadata().getSchema().createClass(className);
+    final var className = "DbCopyTest";
+    session.getMetadata().getSchema().createClass(className);
 
-    Thread thread =
-        new Thread() {
-          @Override
-          public void run() {
-            final DatabaseSessionInternal otherDB = database.copy();
-            otherDB.activateOnCurrentThread();
-            for (int i = 0; i < 5; i++) {
-              otherDB.begin();
-              EntityImpl doc = otherDB.newInstance(className);
-              doc.field("num", i);
-              doc.save();
-              otherDB.commit();
-              try {
-                Thread.sleep(10);
-              } catch (InterruptedException e) {
-                e.printStackTrace();
-              }
-            }
-            otherDB.close();
-          }
-        };
-    thread.start();
+    try (final var otherDB = session.copy()) {
+      for (var i = 0; i < 5; i++) {
+        otherDB.begin();
+        var doc = otherDB.newInstance(className);
+        doc.setProperty("num", 20 + i);
 
-    for (int i = 0; i < 20; i++) {
-      database.begin();
-      EntityImpl doc = database.newInstance(className);
-      doc.field("num", i);
-      doc.save();
-      database.commit();
+        otherDB.commit();
+        try {
+          Thread.sleep(10);
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+
+    for (var i = 0; i < 20; i++) {
+      session.begin();
+      var doc = session.newInstance(className);
+      doc.setProperty("num", i);
+
+      session.commit();
       try {
         Thread.sleep(10);
       } catch (InterruptedException e) {
@@ -84,16 +58,10 @@ public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
       }
     }
 
-    try {
-      thread.join();
-    } catch (InterruptedException e) {
-      Assert.fail();
-    }
-
-    database.begin();
-    ResultSet result = database.query("SELECT FROM " + className);
+    session.begin();
+    var result = session.query("SELECT FROM " + className);
     Assert.assertEquals(result.stream().count(), 25);
-    database.commit();
+    session.commit();
   }
 
   @Override

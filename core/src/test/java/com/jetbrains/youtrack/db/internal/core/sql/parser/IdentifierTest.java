@@ -10,7 +10,7 @@ public class IdentifierTest {
 
   @Test
   public void testBackTickQuoted() {
-    SQLIdentifier identifier = new SQLIdentifier("foo`bar");
+    var identifier = new SQLIdentifier("foo`bar");
 
     Assert.assertEquals(identifier.getStringValue(), "foo`bar");
     Assert.assertEquals(identifier.getValue(), "foo\\`bar");

@@ -36,7 +36,7 @@ public class LuceneIndexEngineUtils {
       long startFetching) {
     if (context != null) {
 
-      final long finalTime = System.currentTimeMillis() - startFetching;
+      final var finalTime = System.currentTimeMillis() - startFetching;
       context.setVariable(
           (indexName + ".lookupTime").replace(".", "_"),
           new HashMap<String, Object>() {
@@ -55,7 +55,7 @@ public class LuceneIndexEngineUtils {
 
   public static List<SortField> buildSortFields(Map<String, ?> metadata) {
     @SuppressWarnings("unchecked")
-    List<Map<String, Object>> sortConf =
+    var sortConf =
         Optional.ofNullable((List<Map<String, Object>>) metadata.get("sort"))
             .orElse(Collections.emptyList());
 
@@ -83,13 +83,13 @@ public class LuceneIndexEngineUtils {
    */
   public static SortField buildSortField(Map<String, Object> conf) {
 
-    final String field = Optional.ofNullable((String) conf.get("field")).orElse(null);
-    final String type =
+    final var field = Optional.ofNullable((String) conf.get("field")).orElse(null);
+    final var type =
         Optional.ofNullable(((String) conf.get("type")).toUpperCase())
             .orElse(SortField.Type.STRING.name());
-    final Boolean reverse = Optional.ofNullable((Boolean) conf.get("reverse")).orElse(false);
+    final var reverse = Optional.ofNullable((Boolean) conf.get("reverse")).orElse(false);
 
-    SortField sortField = new SortField(field, SortField.Type.valueOf(type), reverse);
+    var sortField = new SortField(field, SortField.Type.valueOf(type), reverse);
 
     return sortField;
   }

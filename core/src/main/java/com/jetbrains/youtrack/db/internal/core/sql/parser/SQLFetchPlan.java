@@ -29,8 +29,8 @@ public class SQLFetchPlan extends SimpleNode {
 
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("FETCHPLAN ");
-    boolean first = true;
-    for (SQLFetchPlanItem item : items) {
+    var first = true;
+    for (var item : items) {
       if (!first) {
         builder.append(" ");
       }
@@ -43,8 +43,8 @@ public class SQLFetchPlan extends SimpleNode {
   @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("FETCHPLAN ");
-    boolean first = true;
-    for (SQLFetchPlanItem item : items) {
+    var first = true;
+    for (var item : items) {
       if (!first) {
         builder.append(" ");
       }
@@ -55,7 +55,7 @@ public class SQLFetchPlan extends SimpleNode {
   }
 
   public SQLFetchPlan copy() {
-    SQLFetchPlan result = new SQLFetchPlan(-1);
+    var result = new SQLFetchPlan(-1);
     result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
     return result;
   }
@@ -69,7 +69,7 @@ public class SQLFetchPlan extends SimpleNode {
       return false;
     }
 
-    SQLFetchPlan that = (SQLFetchPlan) o;
+    var that = (SQLFetchPlan) o;
 
     return Objects.equals(items, that.items);
   }
@@ -80,7 +80,7 @@ public class SQLFetchPlan extends SimpleNode {
   }
 
   public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(db);
     if (items != null) {
       result.setProperty(
           "items", items.stream().map(oFetchPlanItem -> oFetchPlanItem.serialize(db))
@@ -94,8 +94,8 @@ public class SQLFetchPlan extends SimpleNode {
     if (fromResult.getProperty("items") != null) {
       List<Result> ser = fromResult.getProperty("items");
       items = new ArrayList<>();
-      for (Result r : ser) {
-        SQLFetchPlanItem exp = new SQLFetchPlanItem(-1);
+      for (var r : ser) {
+        var exp = new SQLFetchPlanItem(-1);
         exp.deserialize(r);
         items.add(exp);
       }

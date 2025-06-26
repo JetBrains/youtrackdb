@@ -38,8 +38,8 @@ public class MultiKey {
   }
 
   private int generateHashCode(final Collection<?> objects) {
-    int total = 0;
-    for (final Object object : objects) {
+    var total = 0;
+    for (final var object : objects) {
       total ^= object.hashCode();
     }
     return total;
@@ -70,13 +70,13 @@ public class MultiKey {
       return false;
     }
 
-    final MultiKey multiKey = (MultiKey) o;
+    final var multiKey = (MultiKey) o;
 
     if (keys.size() != multiKey.keys.size()) {
       return false;
     }
 
-    for (final Object inKey : keys) {
+    for (final var inKey : keys) {
       if (!multiKey.keys.contains(inKey)) {
         return false;
       }

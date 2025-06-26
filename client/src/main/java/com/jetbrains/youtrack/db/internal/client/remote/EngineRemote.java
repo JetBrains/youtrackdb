@@ -16,7 +16,7 @@
 
 package com.jetbrains.youtrack.db.internal.client.remote;
 
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
@@ -32,13 +32,14 @@ public class EngineRemote extends EngineAbstract {
   public EngineRemote() {
   }
 
+  @Override
   public Storage createStorage(
       final String iURL,
       long maxWalSegSize,
       long doubleWriteLogMaxSegSize,
       int storageId,
-      YouTrackDBInternal context) {
-    throw new StorageException("deprecated");
+      YouTrackDBInternalEmbedded context) {
+    throw new StorageException(null, "deprecated");
   }
 
   @Override
@@ -56,6 +57,7 @@ public class EngineRemote extends EngineAbstract {
     return dbPath;
   }
 
+  @Override
   public String getName() {
     return NAME;
   }

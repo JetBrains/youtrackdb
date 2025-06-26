@@ -22,6 +22,7 @@ package com.jetbrains.youtrack.db.internal.core.metadata.sequence;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -44,34 +45,27 @@ public class SequenceCached extends DBSequence {
     cacheStart = cacheEnd = getValue(entity);
   }
 
-  public SequenceCached(DBSequence.CreateParams params, @Nonnull String name) {
-    super(params, name);
-    var entity = (EntityImpl) entityRid.getRecord();
+  public SequenceCached(DatabaseSessionInternal db, CreateParams params, @Nonnull String name) {
+    super(db, params, name);
 
     if (params == null) {
       params = new CreateParams().setDefaults();
     }
 
-    var db = getDatabase();
     var currentParams = params;
     db.executeInTx(
-        () -> {
-          EntityImpl boundEntity;
+        transaction -> {
+          var transaction1 = db.getActiveTransaction();
+          var entity = (EntityImpl) transaction1.load(entityRid);
 
-          if (entity.isNotBound(db)) {
-            boundEntity = db.bindToSession(entity);
-          } else {
-            boundEntity = entity;
-          }
-
-          setCacheSize(boundEntity, currentParams.cacheSize);
+          setCacheSize(entity, currentParams.cacheSize);
           cacheStart = cacheEnd = 0L;
           allocateCache(
-              boundEntity,
+              entity,
               currentParams.cacheSize,
-              getOrderType(boundEntity),
-              getLimitValue(boundEntity));
-          boundEntity.save();
+              getOrderType(entity),
+              getLimitValue(entity));
+
         });
   }
 
@@ -79,7 +73,7 @@ public class SequenceCached extends DBSequence {
   boolean updateParams(
       EntityImpl entity, DBSequence.CreateParams params, boolean executeViaDistributed)
       throws DatabaseException {
-    boolean any = super.updateParams(entity, params, executeViaDistributed);
+    var any = super.updateParams(entity, params, executeViaDistributed);
     if (params.cacheSize != null && this.getCacheSize(entity) != params.cacheSize) {
       this.setCacheSize(entity, params.cacheSize);
       any = true;
@@ -117,22 +111,24 @@ public class SequenceCached extends DBSequence {
   }
 
   @Override
-  public long next() throws SequenceLimitReachedException, DatabaseException {
-    checkSecurity();
-    return nextWork();
+  public long next(DatabaseSessionInternal db)
+      throws SequenceLimitReachedException, DatabaseException {
+    checkSecurity(db);
+    return nextWork(db);
   }
 
-  private void checkSecurity() {
-    getDatabase()
+  private void checkSecurity(DatabaseSessionInternal db) {
+    var transaction = db.getActiveTransaction();
+    db
         .checkSecurity(
             Rule.ResourceGeneric.CLASS,
             Role.PERMISSION_UPDATE,
-            this.entityRid.<EntityImpl>getRecord().getClassName());
+            transaction.<EntityImpl>load(this.entityRid).getSchemaClassName());
   }
 
   @Override
-  public long nextWork() throws SequenceLimitReachedException {
-    return callRetry(
+  public long nextWork(DatabaseSessionInternal session) throws SequenceLimitReachedException {
+    return callRetry(session,
         (db, entity) -> {
           var orderType = getOrderType(entity);
           var limitValue = getLimitValue(entity);
@@ -143,7 +139,7 @@ public class SequenceCached extends DBSequence {
 
           if (orderType == SequenceOrderType.ORDER_POSITIVE) {
             if (signalToAllocateCache(orderType, increment, limitValue)) {
-              boolean cachedbefore = !firstCache;
+              var cachedbefore = !firstCache;
               allocateCache(entity, cacheSize, orderType, limitValue);
               if (!cachedbefore) {
                 if (limitValue != null && cacheStart + increment > limitValue) {
@@ -159,7 +155,7 @@ public class SequenceCached extends DBSequence {
             }
           } else {
             if (signalToAllocateCache(orderType, increment, limitValue)) {
-              boolean cachedbefore = !firstCache;
+              var cachedbefore = !firstCache;
               allocateCache(entity, cacheSize, orderType, limitValue);
               if (!cachedbefore) {
                 if (limitValue != null && cacheStart - increment < limitValue) {
@@ -176,11 +172,11 @@ public class SequenceCached extends DBSequence {
           }
 
           if (limitValue != null && !recyble) {
-            float tillEnd = Math.abs(limitValue - cacheStart) / (float) increment;
-            float delta = Math.abs(limitValue - start) / (float) increment;
+            var tillEnd = Math.abs(limitValue - cacheStart) / (float) increment;
+            var delta = Math.abs(limitValue - start) / (float) increment;
             // warning on 1%
             if (tillEnd <= (delta / 100.f) || tillEnd <= 1) {
-              String warningMessage =
+              var warningMessage =
                   "Non-recyclable sequence: "
                       + getSequenceName(entity)
                       + " reaching limt, current value: "
@@ -195,26 +191,24 @@ public class SequenceCached extends DBSequence {
 
           firstCache = false;
           return cacheStart;
-        },
-        "next");
+        }, "next");
   }
 
   @Override
-  protected long currentWork() {
+  protected long currentWork(DatabaseSessionInternal session) {
     return this.cacheStart;
   }
 
   @Override
-  public long resetWork() {
-    return callRetry(
+  public long resetWork(DatabaseSessionInternal session) {
+    return callRetry(session,
         (db, entity) -> {
-          long newValue = getStart(entity);
+          var newValue = getStart(entity);
           setValue(entity, newValue);
           firstCache = true;
           allocateCache(entity, getCacheSize(entity), getOrderType(entity), getLimitValue(entity));
           return newValue;
-        },
-        "reset");
+        }, "reset");
   }
 
   @Override
@@ -232,7 +226,7 @@ public class SequenceCached extends DBSequence {
 
   private void allocateCache(
       EntityImpl entity, int cacheSize, SequenceOrderType orderType, Long limitValue) {
-    long value = getValue(entity);
+    var value = getValue(entity);
     long newValue;
     if (orderType == SequenceOrderType.ORDER_POSITIVE) {
       newValue = value + ((long) getIncrement(entity) * cacheSize);

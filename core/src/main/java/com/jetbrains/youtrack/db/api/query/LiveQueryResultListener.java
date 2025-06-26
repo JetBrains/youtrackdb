@@ -1,20 +1,9 @@
 package com.jetbrains.youtrack.db.api.query;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
 
-/**
- *
- */
-public interface LiveQueryResultListener {
+public interface LiveQueryResultListener extends
+    BasicLiveQueryResultListener<DatabaseSession, Result> {
 
-  void onCreate(DatabaseSession database, Result data);
-
-  void onUpdate(DatabaseSession database, Result before, Result after);
-
-  void onDelete(DatabaseSession database, Result data);
-
-  void onError(DatabaseSession database, BaseException exception);
-
-  void onEnd(DatabaseSession database);
 }

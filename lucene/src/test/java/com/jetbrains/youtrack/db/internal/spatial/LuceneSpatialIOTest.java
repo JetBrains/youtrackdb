@@ -32,15 +32,8 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryCollection;
 import org.locationtech.jts.geom.LineString;
-import org.locationtech.jts.geom.MultiLineString;
-import org.locationtech.jts.geom.MultiPoint;
-import org.locationtech.jts.geom.MultiPolygon;
-import org.locationtech.jts.geom.Polygon;
 import org.locationtech.spatial4j.shape.Point;
-import org.locationtech.spatial4j.shape.Rectangle;
-import org.locationtech.spatial4j.shape.Shape;
 import org.locationtech.spatial4j.shape.jts.JtsGeometry;
 
 /**
@@ -52,48 +45,45 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   @Test
   public void testPointIO() throws ParseException, org.locationtech.jts.io.ParseException {
 
-    EntityImpl doc = new EntityImpl("OPoint");
-    doc.field(
-        "coordinates",
-        new ArrayList<Double>() {
-          {
-            add(-100d);
-            add(45d);
-          }
-        });
-    PointShapeBuilder builder = new PointShapeBuilder();
+    var doc = session.newEmbeddedEntity("OPoint");
+    doc.newEmbeddedList("coordinates", new ArrayList<Double>() {
+      {
+        add(-100d);
+        add(45d);
+      }
+    });
+    var builder = new PointShapeBuilder();
 
-    String p1 = builder.asText(doc);
+    var p1 = builder.asText(doc);
     Assert.assertNotNull(p1);
 
-    Point point = context.makePoint(-100d, 45d);
+    var point = context.makePoint(-100d, 45d);
 
-    String p2 = context.getGeometryFrom(point).toText();
+    var p2 = context.getGeometryFrom(point).toText();
 
     Assert.assertEquals(p2, p1);
 
-    EntityImpl parsed = builder.toDoc(p2);
+    var parsed = builder.toEmbeddedEntity(p2, session);
 
-    Assert.assertEquals(doc.<PointShapeBuilder>field("coordinates"), parsed.field("coordinates"));
+    Assert.assertEquals(doc.<PointShapeBuilder>getProperty("coordinates"),
+        parsed.getProperty("coordinates"));
   }
 
   // MULTIPOINT
   @Test
   public void testMultiPointIO() {
 
-    EntityImpl doc = new EntityImpl("OMultiPoint");
-    doc.field(
-        "coordinates",
-        new ArrayList<List<Double>>() {
-          {
-            add(Arrays.asList(-71.160281, 42.258729));
-            add(Arrays.asList(-71.160837, 42.259113));
-            add(Arrays.asList(-71.161144, 42.25932));
-          }
-        });
+    var doc = session.newEmbeddedEntity("OMultiPoint");
+    doc.newEmbeddedList("coordinates", new ArrayList<List<Double>>() {
+      {
+        add(Arrays.asList(-71.160281, 42.258729));
+        add(Arrays.asList(-71.160837, 42.259113));
+        add(Arrays.asList(-71.161144, 42.25932));
+      }
+    });
 
-    MultiPointShapeBuilder builder = new MultiPointShapeBuilder();
-    String multiPoint = builder.asText(doc);
+    var builder = new MultiPointShapeBuilder();
+    var multiPoint = builder.asText(doc);
 
     List<Coordinate> points =
         new ArrayList<Coordinate>() {
@@ -104,7 +94,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
           }
         };
 
-    MultiPoint multiPoint1 =
+    var multiPoint1 =
         geometryFactory.createMultiPoint(points.toArray(new Coordinate[points.size()]));
 
     Assert.assertEquals(multiPoint1.toText(), multiPoint);
@@ -115,17 +105,17 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   @Ignore
   public void testRectangleIO() {
 
-    EntityImpl doc = rectangle();
+    var doc = rectangle();
 
-    RectangleShapeBuilder builder = new RectangleShapeBuilder();
+    var builder = new RectangleShapeBuilder();
 
-    String rect = builder.asText(doc);
+    var rect = builder.asText(doc);
 
     Assert.assertNotNull(rect);
 
-    Rectangle rectangle = context.makeRectangle(-45d, 45d, -30d, 30d);
+    var rectangle = context.makeRectangle(-45d, 45d, -30d, 30d);
 
-    String rect1 = context.getGeometryFrom(rectangle).toText();
+    var rect1 = context.getGeometryFrom(rectangle).toText();
 
     Assert.assertEquals(rect1, rect);
   }
@@ -134,21 +124,19 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   @Test
   public void testLineStringIO() {
 
-    EntityImpl doc = new EntityImpl("OLineString");
-    doc.field(
-        "coordinates",
-        new ArrayList<List<Double>>() {
-          {
-            add(Arrays.asList(-71.160281, 42.258729));
-            add(Arrays.asList(-71.160837, 42.259113));
-            add(Arrays.asList(-71.161144, 42.25932));
-          }
-        });
+    var doc = session.newEmbeddedEntity("OLineString");
+    doc.newEmbeddedList("coordinates", new ArrayList<List<Double>>() {
+      {
+        add(Arrays.asList(-71.160281, 42.258729));
+        add(Arrays.asList(-71.160837, 42.259113));
+        add(Arrays.asList(-71.161144, 42.25932));
+      }
+    });
 
-    LineStringShapeBuilder builder = new LineStringShapeBuilder();
-    String lineString = builder.asText(doc);
+    var builder = new LineStringShapeBuilder();
+    var lineString = builder.asText(doc);
 
-    Shape shape =
+    var shape =
         context.makeLineString(
             new ArrayList<Point>() {
               {
@@ -158,7 +146,7 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
               }
             });
 
-    String lineString1 = context.getGeometryFrom(shape).toText();
+    var lineString1 = context.getGeometryFrom(shape).toText();
 
     Assert.assertEquals(lineString1, lineString);
   }
@@ -167,26 +155,24 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   @Test
   public void testMultiLineStringIO() {
 
-    EntityImpl doc = new EntityImpl("OMultiLineString");
-    doc.field(
-        "coordinates",
-        new ArrayList<List<List<Double>>>() {
-          {
-            add(
-                new ArrayList<List<Double>>() {
-                  {
-                    add(Arrays.asList(-71.160281, 42.258729));
-                    add(Arrays.asList(-71.160837, 42.259113));
-                    add(Arrays.asList(-71.161144, 42.25932));
-                  }
-                });
-          }
-        });
+    var doc =  session.newEmbeddedEntity("OMultiLineString");
+    doc.newEmbeddedList("coordinates", new ArrayList<List<List<Double>>>() {
+      {
+        add(
+            new ArrayList<List<Double>>() {
+              {
+                add(Arrays.asList(-71.160281, 42.258729));
+                add(Arrays.asList(-71.160837, 42.259113));
+                add(Arrays.asList(-71.161144, 42.25932));
+              }
+            });
+      }
+    });
 
-    MultiLineStringShapeBuilder builder = new MultiLineStringShapeBuilder();
-    String multiLineString = builder.asText(doc);
+    var builder = new MultiLineStringShapeBuilder();
+    var multiLineString = builder.asText(doc);
 
-    Shape shape =
+    var shape =
         context.makeLineString(
             new ArrayList<Point>() {
               {
@@ -196,12 +182,12 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
               }
             });
 
-    JtsGeometry geometry = (JtsGeometry) shape;
+    var geometry = (JtsGeometry) shape;
 
-    LineString lineString = (LineString) geometry.getGeom();
-    MultiLineString multiLineString2 =
+    var lineString = (LineString) geometry.getGeom();
+    var multiLineString2 =
         geometryFactory.createMultiLineString(new LineString[]{lineString});
-    String multiLineString1 = multiLineString2.toText();
+    var multiLineString1 = multiLineString2.toText();
 
     Assert.assertEquals(multiLineString1, multiLineString);
   }
@@ -210,23 +196,21 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   @Test
   public void testPolygonNoHolesIO() {
 
-    EntityImpl doc = new EntityImpl("OPolygon");
-    doc.field(
-        "coordinates",
-        new ArrayList<List<List<Double>>>() {
-          {
-            add(
-                new ArrayList<List<Double>>() {
-                  {
-                    add(Arrays.asList(-45d, 30d));
-                    add(Arrays.asList(45d, 30d));
-                    add(Arrays.asList(45d, -30d));
-                    add(Arrays.asList(-45d, -30d));
-                    add(Arrays.asList(-45d, 30d));
-                  }
-                });
-          }
-        });
+    var doc = session.newEmbeddedEntity("OPolygon");
+    doc.newEmbeddedList("coordinates", new ArrayList<List<List<Double>>>() {
+      {
+        add(
+            new ArrayList<List<Double>>() {
+              {
+                add(Arrays.asList(-45d, 30d));
+                add(Arrays.asList(45d, 30d));
+                add(Arrays.asList(45d, -30d));
+                add(Arrays.asList(-45d, -30d));
+                add(Arrays.asList(-45d, 30d));
+              }
+            });
+      }
+    });
 
     List<Coordinate> coordinates = new ArrayList<Coordinate>();
     coordinates.add(new Coordinate(-45, 30));
@@ -235,12 +219,12 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
     coordinates.add(new Coordinate(-45, -30));
     coordinates.add(new Coordinate(-45, 30));
 
-    PolygonShapeBuilder builder = new PolygonShapeBuilder();
+    var builder = new PolygonShapeBuilder();
 
-    String p1 = builder.asText(doc);
-    Polygon polygon1 =
+    var p1 = builder.asText(doc);
+    var polygon1 =
         geometryFactory.createPolygon(coordinates.toArray(new Coordinate[coordinates.size()]));
-    String p2 = polygon1.toText();
+    var p2 = polygon1.toText();
     Assert.assertEquals(p2, p1);
   }
 
@@ -248,15 +232,15 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   @Test
   public void testPolygonHolesIO() {
 
-    EntityImpl doc = new EntityImpl("OPolygon");
-    doc.field("coordinates", polygonCoordTestHole());
+    var doc = session.newEmbeddedEntity("OPolygon");
+    doc.newEmbeddedList("coordinates", polygonCoordTestHole());
 
-    Polygon polygon1 = polygonTestHole();
+    var polygon1 = polygonTestHole();
 
-    PolygonShapeBuilder builder = new PolygonShapeBuilder();
-    String p1 = builder.asText(doc);
+    var builder = new PolygonShapeBuilder();
+    var p1 = builder.asText(doc);
 
-    String p2 = polygon1.toText();
+    var p2 = polygon1.toText();
     Assert.assertEquals(p2, p1);
   }
 
@@ -264,12 +248,12 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   @Test
   public void testMultiPolygon() throws IOException {
 
-    MultiPolygonShapeBuilder builder = new MultiPolygonShapeBuilder();
-    EntityImpl multiPolygon = loadMultiPolygon();
-    MultiPolygon multiPolygon1 = createMultiPolygon();
+    var builder = new MultiPolygonShapeBuilder();
+    var multiPolygon = loadMultiPolygon();
+    var multiPolygon1 = createMultiPolygon();
 
-    String m1 = builder.asText(multiPolygon);
-    String m2 = multiPolygon1.toText();
+    var m1 = builder.asText(multiPolygon);
+    var m2 = multiPolygon1.toText();
     Assert.assertEquals(m2, m1);
   }
 
@@ -277,13 +261,13 @@ public class LuceneSpatialIOTest extends BaseSpatialLuceneTest {
   @Test
   public void testGeometryCollection() throws IOException {
 
-    GeometryCollectionShapeBuilder builder =
+    var builder =
         new GeometryCollectionShapeBuilder(ShapeFactory.INSTANCE);
-    EntityImpl geometryCollection = geometryCollection();
-    GeometryCollection collection = createGeometryCollection();
+    var geometryCollection = geometryCollection();
+    var collection = createGeometryCollection();
 
-    String m1 = builder.asText(geometryCollection);
-    String m2 = collection.toText();
+    var m1 = builder.asText(geometryCollection);
+    var m2 = collection.toText();
     Assert.assertEquals(m2, m1);
   }
 }

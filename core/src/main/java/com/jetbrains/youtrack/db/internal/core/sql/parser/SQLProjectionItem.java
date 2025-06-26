@@ -2,19 +2,19 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.RidBag;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinkToEntityIterator;
+import com.jetbrains.youtrack.db.internal.core.record.impl.BidirectionalLinksIterable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeToVertexIterable;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeToVertexIterator;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -82,6 +82,7 @@ public class SQLProjectionItem extends SimpleNode {
     this.expression = expression;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (all) {
       builder.append("*");
@@ -104,6 +105,7 @@ public class SQLProjectionItem extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (all) {
       builder.append("*");
@@ -140,26 +142,26 @@ public class SQLProjectionItem extends SimpleNode {
   }
 
   public static Object convert(Object value, CommandContext context) {
-    if (value instanceof RidBag) {
+    if (value instanceof LinkBag) {
       List result = new ArrayList();
-      ((RidBag) value).iterator().forEachRemaining(result::add);
+      ((LinkBag) value).iterator().forEachRemaining(result::add);
       return result;
     }
-    if (value instanceof EdgeToVertexIterable) {
-      value = ((EdgeToVertexIterable) value).iterator();
+    if (value instanceof BidirectionalLinksIterable) {
+      value = ((BidirectionalLinksIterable) value).iterator();
     }
-    if (value instanceof EdgeToVertexIterator) {
+    if (value instanceof BidirectionalLinkToEntityIterator) {
       List<RID> result = new ArrayList<>();
-      while (((EdgeToVertexIterator) value).hasNext()) {
-        Vertex v = ((EdgeToVertexIterator) value).next();
+      while (((BidirectionalLinkToEntityIterator) value).hasNext()) {
+        var v = ((BidirectionalLinkToEntityIterator) value).next();
         if (v != null) {
           result.add(v.getIdentity());
         }
       }
       return result;
     }
-    if (value instanceof InternalResultSet) {
-      ((InternalResultSet) value).reset();
+    if (value instanceof InternalResultSet internalResultSet) {
+      value = internalResultSet.copy(context.getDatabaseSession());
       value = ((InternalResultSet) value).stream().collect(Collectors.toList());
     }
     if (value instanceof ExecutionStream) {
@@ -183,6 +185,13 @@ public class SQLProjectionItem extends SimpleNode {
       }
     }
 
+    if (value instanceof RecordAbstract recordAbstract && recordAbstract.isUnloaded()) {
+      var record = context.getDatabaseSession().getActiveTransaction().loadOrNull(recordAbstract);
+      if (record != null) {
+        value = record;
+      }
+    }
+
     return value;
   }
 
@@ -194,8 +203,10 @@ public class SQLProjectionItem extends SimpleNode {
       result = expression.execute(iCurrentRecord, ctx);
     }
     if (nestedProjection != null) {
-      if (result instanceof EntityImpl entity && entity.isEmpty()) {
-        result = ctx.getDatabase().bindToSession(entity);
+      if (result instanceof EntityImpl entity && entity.isUnloaded()) {
+        var databaseSessionInternal = ctx.getDatabaseSession();
+        var activeTx = databaseSessionInternal.getActiveTransaction();
+        result = activeTx.<EntityImpl>load(entity);
       }
       result = nestedProjection.apply(expression, result, ctx);
     }
@@ -230,12 +241,12 @@ public class SQLProjectionItem extends SimpleNode {
   }
 
   public SQLProjectionItem getExpandContent() {
-    SQLProjectionItem result = new SQLProjectionItem(-1);
+    var result = new SQLProjectionItem(-1);
     result.expression = expression.getExpandContent();
     return result;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (aggregate != null) {
       return aggregate;
     }
@@ -258,8 +269,8 @@ public class SQLProjectionItem extends SimpleNode {
    */
   public SQLProjectionItem splitForAggregation(
       AggregateProjectionSplit aggregateSplit, CommandContext ctx) {
-    if (isAggregate(ctx.getDatabase())) {
-      SQLProjectionItem result = new SQLProjectionItem(-1);
+    if (isAggregate(ctx.getDatabaseSession())) {
+      var result = new SQLProjectionItem(-1);
       result.alias = getProjectionAlias();
       result.expression = expression.splitForAggregation(aggregateSplit, ctx);
       result.nestedProjection = nestedProjection;
@@ -271,13 +282,15 @@ public class SQLProjectionItem extends SimpleNode {
 
   public AggregationContext getAggregationContext(CommandContext ctx) {
     if (expression == null) {
-      throw new CommandExecutionException("Cannot aggregate on this projection: " + this);
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Cannot aggregate on this projection: " + this);
     }
     return expression.getAggregationContext(ctx);
   }
 
+  @Override
   public SQLProjectionItem copy() {
-    SQLProjectionItem result = new SQLProjectionItem(-1);
+    var result = new SQLProjectionItem(-1);
     result.exclude = exclude;
     result.all = all;
     result.alias = alias == null ? null : alias.copy();
@@ -295,7 +308,7 @@ public class SQLProjectionItem extends SimpleNode {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SQLProjectionItem that = (SQLProjectionItem) o;
+    var that = (SQLProjectionItem) o;
     return exclude == that.exclude
         && all == that.all
         && Objects.equals(alias, that.alias)
@@ -322,18 +335,18 @@ public class SQLProjectionItem extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("all", all);
     if (alias != null) {
-      result.setProperty("alias", alias.serialize(db));
+      result.setProperty("alias", alias.serialize(session));
     }
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     result.setProperty("aggregate", aggregate);
     if (nestedProjection != null) {
-      result.setProperty("nestedProjection", nestedProjection.serialize(db));
+      result.setProperty("nestedProjection", nestedProjection.serialize(session));
     }
     result.setProperty("exclude", exclude);
     return result;
@@ -362,7 +375,7 @@ public class SQLProjectionItem extends SimpleNode {
     this.nestedProjection = nestedProjection;
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (expression != null) {
       return expression.isCacheable(session);
     }

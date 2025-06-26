@@ -1,62 +1,74 @@
 package com.jetbrains.youtrack.db.api.query;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.Relation;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
-import java.lang.reflect.Array;
-import java.util.Base64;
-import java.util.Collection;
-import java.util.Date;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
-public interface Result {
-
+@SuppressWarnings("unused")
+public interface Result extends BasicResult {
   /**
-   * returns a property from the result
+   * Either loads the property value as an {@link Entity} if it is a {@link PropertyType#LINK} type
+   * or returns embedded entity.
    *
    * @param name the property name
-   * @param <T>
-   * @return the property value. If the property value is a persistent record, it only returns the
-   * RID. See also {@link #getEntityProperty(String)} {@link #getVertexProperty(String)}
-   * {@link #getEdgeProperty(String)} {@link #getBlobProperty(String)}
+   * @return the property value. Null if the property is not defined.
+   * @throws DatabaseException if the property is not an Entity.
    */
-  <T> T getProperty(String name);
+  @Nullable
+  Entity getEntity(@Nonnull String name);
 
   /**
-   * returns an Entity property from the result
+   * Returns the property value as a vertex. If the property is a link, it will be loaded and
+   * returned as an Vertex. If the property is not vertex, exception will be thrown.
    *
-   * @param name the property name
-   * @return the property value. Null if the property is not defined or if it's not an Entity
+   * @param propertyName the property name
+   * @return the property value as a vertex
+   * @throws DatabaseException if the property is not a vertex
    */
-  Entity getEntityProperty(String name);
+  @Nullable
+  default Vertex getVertex(@Nonnull String propertyName) {
+    var entity = getEntity(propertyName);
+    if (entity == null) {
+      return null;
+    }
+
+    return entity.asVertex();
+  }
+
 
   /**
-   * returns an Vertex property from the result
+   * Returns the property value as an Edge. If the property is a link, it will be loaded and
+   * returned as an Edge. If the property is an Edge, exception will be thrown.
    *
-   * @param name the property name
-   * @return the property value. Null if the property is not defined or if it's not an Vertex
+   * @param propertyName the property name
+   * @return the property value as an Edge
+   * @throws DatabaseException if the property is not an Edge
    */
-  Vertex getVertexProperty(String name);
+  @Nullable
+  default Edge getEdge(@Nonnull String propertyName) {
+    var entity = getEntity(propertyName);
+    if (entity == null) {
+      return null;
+    }
 
-  /**
-   * returns an Edge property from the result
-   *
-   * @param name the property name
-   * @return the property value. Null if the property is not defined or if it's not an Edge
-   */
-  Edge getEdgeProperty(String name);
+    return entity.asEdge();
+  }
 
   /**
    * returns an Blob property from the result
@@ -64,197 +76,217 @@ public interface Result {
    * @param name the property name
    * @return the property value. Null if the property is not defined or if it's not an Blob
    */
-  Blob getBlobProperty(String name);
-
-  Collection<String> getPropertyNames();
-
-  Optional<RID> getIdentity();
+  @Nullable
+  Blob getBlob(@Nonnull String name);
 
   @Nullable
-  RID getRecordId();
+  @Override
+  Result getResult(@Nonnull String name);
+
+  @Override
+  @Nullable
+  default <T> EmbeddedList<T> getEmbeddedList(@Nonnull String name) {
+    if (isEntity()) {
+      return asEntity().getEmbeddedList(name);
+    }
+
+    var value = getProperty(name);
+    if (value == null) {
+      return null;
+    }
+
+    if (value instanceof EmbeddedList<?> embeddedList) {
+      //noinspection unchecked
+      return (EmbeddedList<T>) embeddedList;
+    }
+
+    throw new DatabaseException(
+        "Property " + name + " is not a embedded list type, but " + value.getClass().getName());
+  }
+
+  @Override
+  @Nullable
+  default LinkList getLinkList(@Nonnull String name) {
+    if (isEntity()) {
+      return asEntity().getLinkList(name);
+    }
+
+    var value = getProperty(name);
+
+    if (value == null) {
+      return null;
+    }
+
+    if (value instanceof LinkList list) {
+      return list;
+    }
+
+    throw new DatabaseException(
+        "Property " + name + " is not a link list type, but " + value.getClass().getName());
+  }
+
+
+  @Override
+  @Nullable
+  default <T> EmbeddedSet<T> getEmbeddedSet(@Nonnull String name) {
+    if (isEntity()) {
+      return asEntity().getEmbeddedSet(name);
+    }
+
+    var value = getProperty(name);
+    if (value == null) {
+      return null;
+    }
+
+    if (value instanceof EmbeddedSet<?> set) {
+      //noinspection unchecked
+      return (EmbeddedSet<T>) set;
+    }
+
+    throw new DatabaseException(
+        "Property " + name + " is not a embedded set type, but " + value.getClass().getName());
+  }
+
+  @Override
+  @Nullable
+  default LinkSet getLinkSet(@Nonnull String name) {
+    if (isEntity()) {
+      return asEntity().getLinkSet(name);
+    }
+
+    var value = getProperty(name);
+    if (value == null) {
+      return null;
+    }
+
+    if (value instanceof LinkSet linkSet) {
+      return linkSet;
+    }
+
+    throw new DatabaseException(
+        "Property " + name + " is not a link set type, but " + value.getClass().getName());
+  }
+
+  @Override
+  @Nullable
+  default <T> EmbeddedMap<T> getEmbeddedMap(@Nonnull String name) {
+    if (isEntity()) {
+      return asEntity().getEmbeddedMap(name);
+    }
+
+    var value = getProperty(name);
+    if (value == null) {
+      return null;
+    }
+
+    if (value instanceof EmbeddedMap<?> map) {
+      //noinspection unchecked
+      return (EmbeddedMap<T>) map;
+    }
+
+    throw new DatabaseException(
+        "Property " + name + " is not a embedded map type, but " + value.getClass().getName());
+  }
+
+  @Override
+  @Nullable
+  default LinkMap getLinkMap(@Nonnull String name) {
+    if (isEntity()) {
+      return asEntity().getLinkMap(name);
+    }
+
+    var value = getProperty(name);
+    if (value == null) {
+      return null;
+    }
+
+    if (value instanceof LinkMap linkMap) {
+      return linkMap;
+    }
+
+    throw new DatabaseException(
+        "Property " + name + " is not a link map type, but " + value.getClass().getName());
+  }
+
 
   boolean isEntity();
 
-  Optional<Entity> getEntity();
-
-  @Nullable
+  @Nonnull
   Entity asEntity();
 
   @Nullable
-  Entity toEntity();
+  Entity asEntityOrNull();
 
-  default boolean isVertex() {
-    return getEntity().map(x -> x.isVertex()).orElse(false);
-  }
+  boolean isVertex();
 
-  default Optional<Vertex> getVertex() {
-    return getEntity().flatMap(x -> x.asVertex());
-  }
-
-  @Nullable
-  default Vertex toVertex() {
-    var element = toEntity();
-    if (element == null) {
-      return null;
-    }
-
-    return element.toVertex();
-  }
-
-  default boolean isEdge() {
-    return getEntity().map(x -> x.isEdge()).orElse(false);
-  }
-
-  default Optional<Edge> getEdge() {
-    return getEntity().flatMap(x -> x.asEdge());
+  @Nonnull
+  default Vertex asVertex() {
+    return asEntity().asVertex();
   }
 
   @Nullable
-  default Edge toEdge() {
-    var element = toEntity();
-    if (element == null) {
+  default Vertex asVertexOrNull() {
+    var entity = asEntityOrNull();
+
+    if (entity == null) {
+      return null;
+    }
+    return entity.asVertexOrNull();
+  }
+
+  boolean isRelation();
+
+  Relation<?> asRelation();
+
+  @Nullable
+  Relation<?> asRelationOrNull();
+
+  boolean isEdge();
+
+  @Nonnull
+  Edge asEdge();
+
+  @Nullable
+  Edge asEdgeOrNull();
+
+  boolean isStatefulEdge();
+
+  @Nonnull
+  default StatefulEdge asStatefulEdge() {
+    return asEntity().asStatefulEdge();
+  }
+
+  @Nullable
+  default StatefulEdge asStatefulEdgeOrNull() {
+    var entity = asEntityOrNull();
+    if (entity == null) {
       return null;
     }
 
-    return element.toEdge();
+    return entity.asStatefulEdgeOrNull();
   }
 
   boolean isBlob();
 
-  Optional<Blob> getBlob();
+  @Nonnull
+  Blob asBlob();
 
-  Optional<DBRecord> getRecord();
+  @Nullable
+  Blob asBlobOrNull();
 
-  boolean isRecord();
+  @Nonnull
+  DBRecord asRecord();
 
-  boolean isProjection();
+  @Nullable
+  DBRecord asRecordOrNull();
 
-  /**
-   * return metadata related to current result given a key
-   *
-   * @param key the metadata key
-   * @return metadata related to current result given a key
-   */
-  Object getMetadata(String key);
+  @Nonnull
+  Identifiable asIdentifiable();
 
-  /**
-   * return all the metadata keys available
-   *
-   * @return all the metadata keys available
-   */
-  Set<String> getMetadataKeys();
+  @Nullable
+  Identifiable asIdentifiableOrNull();
 
-  default String toJSON() {
-    if (isEntity()) {
-      return getEntity().get().toJSON();
-    }
-    StringBuilder result = new StringBuilder();
-    result.append("{");
-    boolean first = true;
-    for (String prop : getPropertyNames()) {
-      if (!first) {
-        result.append(", ");
-      }
-      result.append(toJson(prop));
-      result.append(": ");
-      result.append(toJson(getProperty(prop)));
-      first = false;
-    }
-    result.append("}");
-    return result.toString();
-  }
-
-  default String toJson(Object val) {
-    String jsonVal = null;
-    if (val == null) {
-      jsonVal = "null";
-    } else if (val instanceof String) {
-      jsonVal = "\"" + encode(val.toString()) + "\"";
-    } else if (val instanceof Number || val instanceof Boolean) {
-      jsonVal = val.toString();
-    } else if (val instanceof Result) {
-      jsonVal = ((Result) val).toJSON();
-    } else if (val instanceof Entity) {
-      RID id = ((Entity) val).getIdentity();
-      if (id.isPersistent()) {
-        //        jsonVal = "{\"@rid\":\"" + id + "\"}"; //TODO enable this syntax when Studio and
-        // the parsing are OK
-        jsonVal = "\"" + id + "\"";
-      } else {
-        jsonVal = ((Entity) val).toJSON();
-      }
-    } else if (val instanceof RID) {
-      //      jsonVal = "{\"@rid\":\"" + val + "\"}"; //TODO enable this syntax when Studio and the
-      // parsing are OK
-      jsonVal = "\"" + val + "\"";
-    } else if (val instanceof Iterable) {
-      StringBuilder builder = new StringBuilder();
-      builder.append("[");
-      boolean first = true;
-      Iterator iterator = ((Iterable) val).iterator();
-      while (iterator.hasNext()) {
-        if (!first) {
-          builder.append(", ");
-        }
-        builder.append(toJson(iterator.next()));
-        first = false;
-      }
-      builder.append("]");
-      jsonVal = builder.toString();
-    } else if (val instanceof Iterator iterator) {
-      StringBuilder builder = new StringBuilder();
-      builder.append("[");
-      boolean first = true;
-      while (iterator.hasNext()) {
-        if (!first) {
-          builder.append(", ");
-        }
-        builder.append(toJson(iterator.next()));
-        first = false;
-      }
-      builder.append("]");
-      jsonVal = builder.toString();
-    } else if (val instanceof Map) {
-      StringBuilder builder = new StringBuilder();
-      builder.append("{");
-      boolean first = true;
-      Map<Object, Object> map = (Map) val;
-      for (Map.Entry entry : map.entrySet()) {
-        if (!first) {
-          builder.append(", ");
-        }
-        builder.append(toJson(entry.getKey()));
-        builder.append(": ");
-        builder.append(toJson(entry.getValue()));
-        first = false;
-      }
-      builder.append("}");
-      jsonVal = builder.toString();
-    } else if (val instanceof byte[]) {
-      jsonVal = "\"" + Base64.getEncoder().encodeToString((byte[]) val) + "\"";
-    } else if (val instanceof Date) {
-      jsonVal = "\"" + DateHelper.getDateTimeFormatInstance().format(val) + "\"";
-    } else if (val.getClass().isArray()) {
-      StringBuilder builder = new StringBuilder();
-      builder.append("[");
-      for (int i = 0; i < Array.getLength(val); i++) {
-        if (i > 0) {
-          builder.append(", ");
-        }
-        builder.append(toJson(Array.get(val, i)));
-      }
-      builder.append("]");
-      jsonVal = builder.toString();
-    } else {
-      throw new UnsupportedOperationException(
-          "Cannot convert " + val + " - " + val.getClass() + " to JSON");
-    }
-    return jsonVal;
-  }
-
-  default String encode(String s) {
-    return IOUtils.encodeJsonString(s);
-  }
-
-  boolean hasProperty(String varName);
+  @Nonnull
+  @Override
+  Result detach();
 }

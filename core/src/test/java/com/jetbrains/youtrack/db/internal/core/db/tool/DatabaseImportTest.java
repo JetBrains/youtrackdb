@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -19,17 +18,19 @@ public class DatabaseImportTest {
 
   @Test
   public void exportImportOnlySchemaTest() throws IOException {
-    String databaseName = "export";
-    final String exportDbPath = "target/export_" + DatabaseImportTest.class.getSimpleName();
-    YouTrackDB youTrackDB = YourTracks.embedded(exportDbPath, YouTrackDBConfig.defaultConfig());
-    youTrackDB.createIfNotExists(databaseName, DatabaseType.PLOCAL, "admin", "admin", "admin");
+    var databaseName = "export";
+    final var exportDbPath = "target/export_" + DatabaseImportTest.class.getSimpleName();
+    var youTrackDB = YourTracks.embedded(exportDbPath, YouTrackDBConfig.defaultConfig());
+    youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
 
-    final ByteArrayOutputStream output = new ByteArrayOutputStream();
-    try (final DatabaseSession db = youTrackDB.open(databaseName, "admin", "admin")) {
-      db.createClass("SimpleClass");
+    final var output = new ByteArrayOutputStream();
+    try (final var db = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin", "admin")) {
+      db.getSchema().createClass("SimpleClass");
+      db.getSchema().createVertexClass("SimpleVertexClass");
+      db.getSchema().createEdgeClass("SimpleEdgeClass");
 
-      final DatabaseExport export =
-          new DatabaseExport((DatabaseSessionInternal) db, output, iText -> {
+      final var export =
+          new DatabaseExport(db, output, iText -> {
           });
       export.setOptions(" -excludeAll -includeSchema=true");
       export.exportDatabase();
@@ -37,21 +38,26 @@ public class DatabaseImportTest {
     youTrackDB.drop(databaseName);
     youTrackDB.close();
 
-    final String importDbPath = "target/import_" + DatabaseImportTest.class.getSimpleName();
+    final var importDbPath = "target/import_" + DatabaseImportTest.class.getSimpleName();
     youTrackDB = YourTracks.embedded(importDbPath, YouTrackDBConfig.defaultConfig());
     databaseName = "import";
 
-    youTrackDB.createIfNotExists(databaseName, DatabaseType.PLOCAL, "admin", "admin", "admin");
-    try (var db = (DatabaseSessionInternal) youTrackDB.open(databaseName, "admin",
+    youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
+    try (var db = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin",
         "admin")) {
-      final DatabaseImport importer =
+      final var importer =
           new DatabaseImport(
               db,
               new ByteArrayInputStream(output.toByteArray()),
               iText -> {
               });
       importer.importDatabase();
-      Assert.assertTrue(db.getMetadata().getSchema().existsClass("SimpleClass"));
+      final var schema = db.getMetadata().getSchema();
+      Assert.assertTrue(schema.existsClass("SimpleClass"));
+      Assert.assertTrue(schema.existsClass("SimpleVertexClass"));
+      Assert.assertTrue(schema.existsClass("SimpleEdgeClass"));
+      Assert.assertTrue(schema.getClass("SimpleVertexClass").isVertexType());
+      Assert.assertTrue(schema.getClass("SimpleEdgeClass").isEdgeType());
     }
     youTrackDB.drop(databaseName);
     youTrackDB.close();

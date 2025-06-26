@@ -19,30 +19,30 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.SocketChannel;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.NetworkProtocolException;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrack.db.internal.server.config.ServerCommandConfiguration;
-import com.jetbrains.youtrack.db.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.ServerCommand;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerCommandConfiguration;
+import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.net.BindException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.net.Socket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 
 public class ServerNetworkListener extends Thread {
 
@@ -69,7 +69,7 @@ public class ServerNetworkListener extends Thread {
       final ServerParameterConfiguration[] iParameters,
       final ServerCommandConfiguration[] iCommands) {
     super(
-        iServer.getThreadGroup(),
+        YouTrackDBServer.getThreadGroup(),
         "YouTrackDB " + iProtocol.getSimpleName() + " listen at " + iHostName + ":"
             + iHostPortRange);
     server = iServer;
@@ -82,10 +82,10 @@ public class ServerNetworkListener extends Thread {
       protocolVersion = iProtocol.getConstructor(YouTrackDBServer.class).newInstance(server)
           .getVersion();
     } catch (Exception e) {
-      final String message = "Error on reading protocol version for " + iProtocol;
+      final var message = "Error on reading protocol version for " + iProtocol;
       LogManager.instance().error(this, message, e);
 
-      throw BaseException.wrapException(new NetworkProtocolException(message), e);
+      throw BaseException.wrapException(new NetworkProtocolException(message), e, (String) null);
     }
 
     listen(iHostName, iHostPortRange, iProtocolName, iProtocol);
@@ -94,7 +94,7 @@ public class ServerNetworkListener extends Thread {
     readParameters(iServer.getContextConfiguration(), iParameters);
 
     if (iCommands != null) {
-      for (int i = 0; i < iCommands.length; ++i) {
+      for (var i = 0; i < iCommands.length; ++i) {
         if (iCommands[i].stateful)
         // SAVE STATEFUL COMMAND CFG
         {
@@ -115,19 +115,19 @@ public class ServerNetworkListener extends Thread {
 
     if (StringSerializerHelper.contains(iHostPortRange, ',')) {
       // MULTIPLE ENUMERATED PORTS
-      String[] portValues = iHostPortRange.split(",");
+      var portValues = iHostPortRange.split(",");
       ports = new int[portValues.length];
-      for (int i = 0; i < portValues.length; ++i) {
+      for (var i = 0; i < portValues.length; ++i) {
         ports[i] = Integer.parseInt(portValues[i]);
       }
 
     } else if (StringSerializerHelper.contains(iHostPortRange, '-')) {
       // MULTIPLE RANGE PORTS
-      String[] limits = iHostPortRange.split("-");
-      int lowerLimit = Integer.parseInt(limits[0]);
-      int upperLimit = Integer.parseInt(limits[1]);
+      var limits = iHostPortRange.split("-");
+      var lowerLimit = Integer.parseInt(limits[0]);
+      var upperLimit = Integer.parseInt(limits[1]);
       ports = new int[upperLimit - lowerLimit + 1];
-      for (int i = 0; i < upperLimit - lowerLimit + 1; ++i) {
+      for (var i = 0; i < upperLimit - lowerLimit + 1; ++i) {
         ports[i] = lowerLimit + i;
       }
 
@@ -143,11 +143,11 @@ public class ServerNetworkListener extends Thread {
   public static ServerCommand createCommand(
       final YouTrackDBServer server, final ServerCommandConfiguration iCommand) {
     try {
-      final Constructor<ServerCommand> c =
+      final var c =
           (Constructor<ServerCommand>)
               Class.forName(iCommand.implementation)
                   .getConstructor(ServerCommandConfiguration.class);
-      final ServerCommand cmd = c.newInstance(iCommand);
+      final var cmd = c.newInstance(iCommand);
       cmd.configure(server);
       return cmd;
     } catch (Exception e) {
@@ -176,7 +176,7 @@ public class ServerNetworkListener extends Thread {
 
   public ServerNetworkListener unregisterStatelessCommand(
       final Class<? extends ServerCommand> iCommandClass) {
-    for (ServerCommand c : statelessCommands) {
+    for (var c : statelessCommands) {
       if (c.getClass().equals(iCommandClass)) {
         statelessCommands.remove(c);
         break;
@@ -215,19 +215,19 @@ public class ServerNetworkListener extends Thread {
   @Override
   public void run() {
     try {
-      Constructor<? extends NetworkProtocol> constructor =
+      var constructor =
           protocolType.getConstructor(YouTrackDBServer.class);
       while (active) {
         try {
           // listen for and accept a client connection to serverSocket
-          final Socket socket = serverSocket.accept();
+          final var socket = serverSocket.accept();
 
-          final int max =
+          final var max =
               server
                   .getContextConfiguration()
                   .getValueAsInteger(GlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS);
 
-          int conns = server.getClientConnectionManager().getTotal();
+          var conns = server.getClientConnectionManager().getTotal();
           if (conns >= max) {
             server.getClientConnectionManager().cleanExpiredConnections();
             conns = server.getClientConnectionManager().getTotal();
@@ -256,7 +256,7 @@ public class ServerNetworkListener extends Thread {
             socket.setReceiveBufferSize(socketBufferSize);
           }
           // CREATE A NEW PROTOCOL INSTANCE
-          final NetworkProtocol protocol = constructor.newInstance(server);
+          final var protocol = constructor.newInstance(server);
 
           // CONFIGURE THE PROTOCOL FOR THE INCOMING CONNECTION
           protocol.config(this, server, socket, configuration);
@@ -289,7 +289,7 @@ public class ServerNetworkListener extends Thread {
   }
 
   public String getListeningAddress(final boolean resolveMultiIfcWithLocal) {
-    String address = serverSocket.getInetAddress().getHostAddress();
+    var address = serverSocket.getInetAddress().getHostAddress();
     if (resolveMultiIfcWithLocal && address.equals("0.0.0.0")) {
       try {
         address = SocketChannel.getLocalIpAddress(true);
@@ -312,11 +312,12 @@ public class ServerNetworkListener extends Thread {
     System.out.println(ServerNetworkListener.getLocalHostIp());
   }
 
+  @Nullable
   public static String getLocalHostIp() {
     try {
-      InetAddress host = InetAddress.getLocalHost();
-      InetAddress[] addrs = InetAddress.getAllByName(host.getHostName());
-      for (InetAddress addr : addrs) {
+      var host = InetAddress.getLocalHost();
+      var addrs = InetAddress.getAllByName(host.getHostName());
+      for (var addr : addrs) {
         if (!addr.isLoopbackAddress()) {
           return addr.toString();
         }
@@ -333,21 +334,22 @@ public class ServerNetworkListener extends Thread {
 
   @Override
   public String toString() {
-    String builder =
+    var builder =
         protocolType.getSimpleName() + " " + serverSocket.getLocalSocketAddress() + ":";
     return builder;
   }
 
+  @Nullable
   public Object getCommand(final Class<?> iCommandClass) {
     // SEARCH IN STATELESS COMMANDS
-    for (ServerCommand cmd : statelessCommands) {
+    for (var cmd : statelessCommands) {
       if (cmd.getClass().equals(iCommandClass)) {
         return cmd;
       }
     }
 
     // SEARCH IN STATEFUL COMMANDS
-    for (ServerCommandConfiguration cmd : statefulCommands) {
+    for (var cmd : statefulCommands) {
       if (cmd.implementation.equals(iCommandClass.getName())) {
         return cmd;
       }
@@ -368,7 +370,7 @@ public class ServerNetworkListener extends Thread {
       final String iProtocolName,
       Class<? extends NetworkProtocol> protocolClass) {
 
-    for (int port : getPorts(iHostPortRange)) {
+    for (var port : getPorts(iHostPortRange)) {
       inboundAddr = new InetSocketAddress(iHostName, port);
       try {
         serverSocket = socketFactory.createServerSocket(port, 0, InetAddress.getByName(iHostName));
@@ -431,7 +433,7 @@ public class ServerNetworkListener extends Thread {
     // SET PARAMETERS
     if (iParameters != null) {
       // CONVERT PARAMETERS IN MAP TO INTIALIZE THE CONTEXT-CONFIGURATION
-      for (ServerParameterConfiguration param : iParameters) {
+      for (var param : iParameters) {
         configuration.setValue(param.name, param.value);
       }
     }

@@ -19,19 +19,21 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.functions.coll;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.TraverseRecordProcess;
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityInternalUtils;
-import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Returns a traversed element from the stack. Use it with SQL traverse only.
@@ -52,6 +54,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
     return false;
   }
 
+  @Nullable
   @Override
   public Object getResult() {
     return null;
@@ -68,41 +71,47 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
 
   public Object execute(
       Object iThis,
-      final Identifiable iCurrentRecord,
+      final Result iCurrentRecord,
       Object iCurrentResult,
       final Object[] iParams,
       final CommandContext iContext) {
     return evaluate(iThis, iParams, iContext, null);
   }
 
+  @Nullable
   protected Object evaluate(
       final Object iThis,
       final Object[] iParams,
       final CommandContext iContext,
       final String iClassName) {
     final int beginIndex = (Integer) iParams[0];
-    final int items = iParams.length > 1 ? (Integer) iParams[1] : 1;
+    final var items = iParams.length > 1 ? (Integer) iParams[1] : 1;
 
-    Collection stack = (Collection) iContext.getVariable("stack");
-    if (stack == null && iThis instanceof Result) {
-      stack = (Collection) ((Result) iThis).getMetadata("$stack");
+    var stack = (Collection) iContext.getVariable("stack");
+    if (stack == null && iThis instanceof ResultInternal resultInternal) {
+      stack = (Collection) resultInternal.getMetadata("$stack");
     }
     if (stack == null) {
-      throw new CommandExecutionException(
-          "Cannot invoke " + getName(iContext.getDatabase()) + "() against non traverse command");
+      throw new CommandExecutionException(iContext.getDatabaseSession(),
+          "Cannot invoke " + getName(iContext.getDatabaseSession())
+              + "() against non traverse command");
     }
 
     final List<Identifiable> result = items > 1 ? new ArrayList<Identifiable>(items) : null;
 
+    var session = iContext.getDatabaseSession();
     if (beginIndex < 0) {
-      int i = -1;
-      for (Iterator it = stack.iterator(); it.hasNext(); ) {
-        final Object o = it.next();
+      var i = -1;
+      for (final var o : stack) {
         if (o instanceof TraverseRecordProcess) {
-          final Identifiable record = ((TraverseRecordProcess) o).getTarget();
+          final var record = ((TraverseRecordProcess) o).getTarget();
 
+          SchemaImmutableClass result1 = null;
+          var transaction = session.getActiveTransaction();
+          final EntityImpl entity = transaction.load(record);
+          result1 = entity.getImmutableSchemaClass(session);
           if (iClassName == null
-              || EntityInternalUtils.getImmutableSchemaClass(record.getRecord())
+              || result1
               .isSubClassOf(iClassName)) {
             if (i <= beginIndex) {
               if (items == 1) {
@@ -118,8 +127,14 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
         } else if (o instanceof Identifiable record) {
 
+          SchemaImmutableClass result1 = null;
+          var transaction = session.getActiveTransaction();
+          final EntityImpl entity = transaction.load(record);
+          if (entity != null) {
+            result1 = entity.getImmutableSchemaClass(session);
+          }
           if (iClassName == null
-              || EntityInternalUtils.getImmutableSchemaClass(record.getRecord())
+              || result1
               .isSubClassOf(iClassName)) {
             if (i <= beginIndex) {
               if (items == 1) {
@@ -136,15 +151,21 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
         }
       }
     } else {
-      int i = 0;
-      List listStack = stackToList(stack);
-      for (int x = listStack.size() - 1; x >= 0; x--) {
-        final Object o = listStack.get(x);
+      var i = 0;
+      var listStack = stackToList(stack);
+      for (var x = listStack.size() - 1; x >= 0; x--) {
+        final var o = listStack.get(x);
         if (o instanceof TraverseRecordProcess) {
-          final Identifiable record = ((TraverseRecordProcess) o).getTarget();
+          final var record = ((TraverseRecordProcess) o).getTarget();
 
+          SchemaImmutableClass result1 = null;
+          var transaction = session.getActiveTransaction();
+          final EntityImpl entity = transaction.load(record);
+          if (entity != null) {
+            result1 = entity.getImmutableSchemaClass(session);
+          }
           if (iClassName == null
-              || EntityInternalUtils.getImmutableSchemaClass(record.getRecord())
+              || result1
               .isSubClassOf(iClassName)) {
             if (i >= beginIndex) {
               if (items == 1) {
@@ -160,8 +181,14 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
         } else if (o instanceof Identifiable record) {
 
+          SchemaImmutableClass result1 = null;
+          var transaction = session.getActiveTransaction();
+          final EntityImpl entity = transaction.load(record);
+          if (entity != null) {
+            result1 = entity.getImmutableSchemaClass(session);
+          }
           if (iClassName == null
-              || EntityInternalUtils.getImmutableSchemaClass(record.getRecord())
+              || result1
               .isSubClassOf(iClassName)) {
             if (i >= beginIndex) {
               if (items == 1) {
@@ -185,7 +212,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
     return null;
   }
 
-  private List stackToList(Collection stack) {
+  private static List stackToList(Collection stack) {
     if (stack instanceof List) {
       return (List) stack;
     }

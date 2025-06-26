@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.common.collection;
 
 import java.util.ListIterator;
+import javax.annotation.Nullable;
 
 /**
  * Lazy iterator implementation based on List Iterator.
@@ -32,18 +33,23 @@ public class LazyIteratorListWrapper<T> implements LazyIterator<T> {
     underlying = iUnderlying;
   }
 
+  @Override
   public boolean hasNext() {
     return underlying.hasNext();
   }
 
+  @Override
   public T next() {
     return underlying.next();
   }
 
+  @Override
   public void remove() {
     underlying.remove();
   }
 
+  @Override
+  @Nullable
   public T update(T e) {
     underlying.set(e);
     return null;

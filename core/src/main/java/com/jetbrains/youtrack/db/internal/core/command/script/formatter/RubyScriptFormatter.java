@@ -28,15 +28,16 @@ import java.util.Scanner;
  */
 public class RubyScriptFormatter implements ScriptFormatter {
 
+  @Override
   public String getFunctionDefinition(DatabaseSessionInternal session, final Function f) {
 
-    final StringBuilder fCode = new StringBuilder(1024);
+    final var fCode = new StringBuilder(1024);
     fCode.append("def ");
-    fCode.append(f.getName(session));
+    fCode.append(f.getName());
     fCode.append('(');
-    int i = 0;
-    if (f.getParameters(session) != null) {
-      for (String p : f.getParameters(session)) {
+    var i = 0;
+    if (f.getParameters() != null) {
+      for (var p : f.getParameters()) {
         if (i++ > 0) {
           fCode.append(',');
         }
@@ -45,7 +46,7 @@ public class RubyScriptFormatter implements ScriptFormatter {
     }
     fCode.append(")\n");
 
-    final Scanner scanner = new Scanner(f.getCode(session));
+    final var scanner = new Scanner(f.getCode());
     try {
       scanner.useDelimiter("\n").skip("\r");
 
@@ -64,13 +65,13 @@ public class RubyScriptFormatter implements ScriptFormatter {
   @Override
   public String getFunctionInvoke(DatabaseSessionInternal session, final Function iFunction,
       final Object[] iArgs) {
-    final StringBuilder code = new StringBuilder(1024);
+    final var code = new StringBuilder(1024);
 
-    code.append(iFunction.getName(session));
+    code.append(iFunction.getName());
     code.append('(');
     if (iArgs != null) {
-      int i = 0;
-      for (Object a : iArgs) {
+      var i = 0;
+      for (var a : iArgs) {
         if (i++ > 0) {
           code.append(',');
         }

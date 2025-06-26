@@ -1,67 +1,59 @@
 package com.jetbrains.youtrack.db.internal.server.query;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.server.BaseServerMemoryDatabase;
-import java.util.HashMap;
-import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class RemoteGraphTXTest extends BaseServerMemoryDatabase {
 
+  @Override
   public void beforeTest() {
     super.beforeTest();
-    db.createClassIfNotExist("FirstV", "V");
-    db.createClassIfNotExist("SecondV", "V");
-    db.createClassIfNotExist("TestEdge", "E");
+    session.executeSQLScript("""
+        create class FirstV if not exists extends V;
+        create class SecondV if not exists extends V;
+        create class TestEdge if not exists extends E;
+        """);
   }
 
   @Test
   public void itShouldDeleteEdgesInTx() {
-    db.begin();
-    db.command("create vertex FirstV set id = '1'").close();
-    db.command("create vertex SecondV set id = '2'").close();
-    db.commit();
+    session.command("begin");
+    session.execute("create vertex FirstV set id = '1'").close();
+    session.execute("create vertex SecondV set id = '2'").close();
+    session.command("commit");
 
-    db.begin();
-    try (ResultSet resultSet =
-        db.command(
-            "create edge TestEdge  from ( select from FirstV where id = '1') to ( select from"
-                + " SecondV where id = '2')")) {
-      Result result = resultSet.stream().iterator().next();
-
-      Assert.assertTrue(result.isEdge());
+    try (var resultSet =
+        session.computeSQLScript("""
+            begin;
+            let $res = create edge TestEdge from (select from FirstV where id = '1') to (select from SecondV where id = '2');
+            commit;
+            return $res;
+            """)) {
+      var result = resultSet.stream().iterator().next();
+      Assert.assertTrue(result.isIdentifiable());
     }
-    db.commit();
 
-    db.begin();
-    db
-        .command(
-            "delete edge TestEdge from (select from FirstV where id = :param1) to (select from"
-                + " SecondV where id = :param2)",
-            new HashMap() {
-              {
-                put("param1", "1");
-                put("param2", "2");
-              }
-            })
+    session
+        .computeSQLScript("""
+                begin;
+                let $res = delete edge TestEdge from (select from FirstV where id = :param1) to (select from SecondV where id = :param2);
+                commit;
+                return $res;
+                """,
+            Map.of("param1", "1", "param2", "2"))
         .stream()
-        .collect(Collectors.toList());
-    db.commit();
+        .toList();
 
-    db.begin();
-    Assert.assertEquals(0, db.query("select from TestEdge").stream().count());
-    List<Result> results =
-        db.query("select bothE().size() as count from V").stream().collect(Collectors.toList());
+    Assert.assertEquals(0, session.query("select from TestEdge").stream().count());
+    var results =
+        session.query("select bothE().size() as count from V").stream()
+            .collect(Collectors.toList());
 
-    for (Result result : results) {
-      Assert.assertEquals(0, (int) result.getProperty("count"));
+    for (var result : results) {
+      Assert.assertEquals(0, result.getLong("count").longValue());
     }
-    db.commit();
   }
 }

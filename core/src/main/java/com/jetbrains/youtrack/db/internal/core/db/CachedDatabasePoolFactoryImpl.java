@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityManager;
@@ -10,7 +11,7 @@ import java.util.TimerTask;
 /**
  * Default implementation of {@link CachedDatabasePoolFactory}
  *
- * <p>Used in {@link YouTrackDBEmbedded} by default
+ * <p>Used in {@link YouTrackDBInternalEmbedded} by default
  *
  * <p>Works like LRU cache
  *
@@ -18,7 +19,8 @@ import java.util.TimerTask;
  * pool 4. First we will remove pool which used long time ago from pool cache 5. Then we add new
  * pool from point 3 to pool cache
  */
-public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory {
+public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>> implements
+    CachedDatabasePoolFactory<S> {
 
   /**
    * Max size of connections which one pool can contains
@@ -67,8 +69,8 @@ public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory 
 
   private void cleanUpCache() {
     synchronized (this) {
-      for (DatabasePoolInternal pool : poolCache.values()) {
-        long delta = System.currentTimeMillis() - pool.getLastCloseTime();
+      for (var pool : poolCache.values()) {
+        var delta = System.currentTimeMillis() - pool.getLastCloseTime();
         if (pool.isUnused() && delta > timeout) {
           pool.close();
         }
@@ -92,18 +94,17 @@ public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory 
    * storage
    */
   @Override
-  public DatabasePoolInternal get(
+  public DatabasePoolInternal getOrCreate(
       String database, String username, String password, YouTrackDBConfigImpl parentConfig) {
     checkForClose();
+    var key = database + "!!" + username;
 
-    String key = SecurityManager.createSHA256(database + username + password);
-
-    DatabasePoolInternal pool = poolCache.get(key);
+    var pool = poolCache.get(key);
     if (pool != null && !pool.isClosed()) {
       return pool;
     }
 
-    YouTrackDBConfigImpl config = (YouTrackDBConfigImpl)
+    var config = (YouTrackDBConfigImpl)
         YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, maxPoolSize)
             .build();
@@ -111,7 +112,35 @@ public class CachedDatabasePoolFactoryImpl implements CachedDatabasePoolFactory 
     if (parentConfig != null) {
       config.setParent(parentConfig);
     }
+
     pool = new DatabasePoolImpl(youTrackDB, database, username, password, config);
+    poolCache.put(key, pool);
+
+    return pool;
+  }
+
+  @Override
+  public DatabasePoolInternal<S> getOrCreateNoAuthentication(String database, String username,
+      YouTrackDBConfigImpl parentConfig) {
+    checkForClose();
+    var key = database + "!!" + username;
+
+    var pool = poolCache.get(key);
+    if (pool != null && !pool.isClosed()) {
+      //noinspection unchecked
+      return pool;
+    }
+
+    var config = (YouTrackDBConfigImpl)
+        YouTrackDBConfig.builder()
+            .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, maxPoolSize)
+            .build();
+
+    if (parentConfig != null) {
+      config.setParent(parentConfig);
+    }
+
+    pool = new DatabasePoolImpl(youTrackDB, database, username, config);
 
     poolCache.put(key, pool);
 

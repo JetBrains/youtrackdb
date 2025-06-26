@@ -8,14 +8,10 @@ public class CreateClassStatementTest extends ParserTestAbstract {
   public void testPlain() {
     checkRightSyntax("CREATE CLASS Foo");
     checkRightSyntax("create class Foo");
-    checkRightSyntax("create class Foo extends bar, baz cluster 12, 13, 14 clusters 5 abstract");
-    checkRightSyntax("CREATE CLASS Foo EXTENDS bar, baz CLUSTER 12, 13, 14 CLUSTERS 5 ABSTRACT");
-    checkRightSyntax("CREATE CLASS Foo EXTENDS bar, baz CLUSTER 12,13, 14 CLUSTERS 5 ABSTRACT");
+    checkRightSyntax("create class Foo extends bar, baz abstract");
+    checkRightSyntax("CREATE CLASS Foo EXTENDS bar, baz ABSTRACT");
 
     checkWrongSyntax("CREATE CLASS Foo EXTENDS ");
-    checkWrongSyntax("CREATE CLASS Foo CLUSTER ");
-    checkWrongSyntax("CREATE CLASS Foo CLUSTERS ");
-    checkWrongSyntax("CREATE CLASS Foo CLUSTERS 1,2 ");
   }
 
   @Test

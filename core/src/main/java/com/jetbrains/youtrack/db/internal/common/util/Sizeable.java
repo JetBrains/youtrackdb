@@ -24,6 +24,7 @@ package com.jetbrains.youtrack.db.internal.common.util;
  * Interface that support size()
  */
 public interface Sizeable {
-
   int size();
+
+  boolean isSizeable();
 }

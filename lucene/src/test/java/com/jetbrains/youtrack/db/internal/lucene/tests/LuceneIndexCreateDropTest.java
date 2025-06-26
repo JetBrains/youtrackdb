@@ -20,9 +20,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -36,18 +34,18 @@ public class LuceneIndexCreateDropTest extends LuceneBaseTest {
 
   @Before
   public void init() {
-    SchemaClass type = db.createVertexClass("City");
-    type.createProperty(db, "name", PropertyType.STRING);
+    var type = session.createVertexClass("City");
+    type.createProperty("name", PropertyType.STRING);
 
-    db.command("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
+    session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");
   }
 
   @Test
   public void dropIndex() {
 
-    db.command("drop index City.name");
+    session.execute("drop index City.name");
 
-    Index index = db.getMetadata().getIndexManagerInternal().getIndex(db, "City.name");
+    var index = session.getSharedContext().getIndexManager().getIndex("City.name");
 
     assertThat(index).isNull();
   }

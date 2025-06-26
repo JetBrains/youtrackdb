@@ -12,7 +12,7 @@ public class ManualIndexesAreProhibited extends CoreException implements HighLev
     super(exception);
   }
 
-  public ManualIndexesAreProhibited(String message) {
-    super(message);
+  public ManualIndexesAreProhibited(String dbName, String message) {
+    super(dbName, message);
   }
 }

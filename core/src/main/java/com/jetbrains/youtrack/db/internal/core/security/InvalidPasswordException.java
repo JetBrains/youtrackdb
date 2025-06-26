@@ -26,7 +26,6 @@ import com.jetbrains.youtrack.db.api.exception.SecurityException;
  */
 @SuppressWarnings("serial")
 public class InvalidPasswordException extends SecurityException {
-
   public InvalidPasswordException(InvalidPasswordException exception) {
     super(exception);
   }

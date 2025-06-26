@@ -2,13 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseStats;
-import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -39,16 +39,16 @@ public class SQLExplainStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
-      for (int i = 0; i < args.length; i++) {
+      for (var i = 0; i < args.length; i++) {
         params.put(i, args[i]);
       }
     }
@@ -61,18 +61,19 @@ public class SQLExplainStatement extends SQLStatement {
       executionPlan = statement.createExecutionPlanNoCache(ctx, false);
     }
 
-    ExplainResultSet result = new ExplainResultSet(db, executionPlan, new DatabaseStats());
+    var result = new ExplainResultSet(session, executionPlan, new DatabaseStats());
     return result;
   }
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal db, Map args, CommandContext parentCtx, boolean usePlanCache) {
-    BasicCommandContext ctx = new BasicCommandContext();
+      DatabaseSessionEmbedded session, Map<Object, Object> args, CommandContext parentCtx,
+      boolean usePlanCache) {
+    var ctx = new BasicCommandContext();
     if (parentCtx != null) {
       ctx.setParentWithoutOverridingChild(parentCtx);
     }
-    ctx.setDatabase(db);
+    ctx.setDatabaseSession(session);
     ctx.setInputParameters(args);
 
     ExecutionPlan executionPlan;
@@ -82,7 +83,7 @@ public class SQLExplainStatement extends SQLStatement {
       executionPlan = statement.createExecutionPlanNoCache(ctx, false);
     }
 
-    ExplainResultSet result = new ExplainResultSet(db, executionPlan, new DatabaseStats());
+    var result = new ExplainResultSet(session, executionPlan, new DatabaseStats());
     return result;
   }
 
@@ -93,7 +94,7 @@ public class SQLExplainStatement extends SQLStatement {
 
   @Override
   public SQLExplainStatement copy() {
-    SQLExplainStatement result = new SQLExplainStatement(-1);
+    var result = new SQLExplainStatement(-1);
     result.statement = statement == null ? null : statement.copy();
     return result;
   }
@@ -107,7 +108,7 @@ public class SQLExplainStatement extends SQLStatement {
       return false;
     }
 
-    SQLExplainStatement that = (SQLExplainStatement) o;
+    var that = (SQLExplainStatement) o;
 
     return Objects.equals(statement, that.statement);
   }

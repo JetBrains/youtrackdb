@@ -23,10 +23,10 @@
 
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
 public class SQLGeOperator extends SimpleNode implements SQLBinaryCompareOperator {
 
@@ -39,34 +39,11 @@ public class SQLGeOperator extends SimpleNode implements SQLBinaryCompareOperato
   }
 
   @Override
-  public boolean execute(Object iLeft, Object iRight) {
-    if (iLeft == iRight) {
-      return true;
-    }
-    if (iLeft == null || iRight == null) {
-      return false;
-    }
-    if (iLeft.getClass() != iRight.getClass()
-        && iLeft instanceof Number
-        && iRight instanceof Number) {
-      Number[] couple = PropertyType.castComparableNumber((Number) iLeft, (Number) iRight);
-      iLeft = couple[0];
-      iRight = couple[1];
-    } else {
-      try {
-        iRight = PropertyType.convert(null, iRight, iLeft.getClass());
-      } catch (RuntimeException e) {
-        iRight = null;
-        // Can't convert to the target value.
-        LogManager.instance()
-            .warn(this, "Issue converting value to target type, ignoring value", e);
-      }
-    }
-    if (iRight == null) {
-      return false;
-    }
-    return ((Comparable<Object>) iLeft).compareTo(iRight) >= 0;
+  public boolean execute(@Nonnull DatabaseSessionEmbedded session, Object left, Object right) {
+    var result = SQLBinaryCompareOperator.doCompare(left, right);
+    return result != null && result >= 0;
   }
+
 
   @Override
   public String toString() {

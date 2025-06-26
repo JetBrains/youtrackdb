@@ -2,10 +2,11 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -29,14 +30,14 @@ public class SQLCreateClassStatement extends DDLStatement {
   protected List<SQLIdentifier> superclasses;
 
   /**
-   * Cluster IDs for this class
+   * Collection IDs for this class
    */
-  protected List<SQLInteger> clusters;
+  protected List<SQLInteger> collections;
 
   /**
-   * Total number clusters for this class
+   * Total number collections for this class
    */
-  protected SQLInteger totalClusterNo;
+  protected SQLInteger totalCollectionNo;
 
   protected boolean abstractClass = false;
 
@@ -50,39 +51,37 @@ public class SQLCreateClassStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-    var db = ctx.getDatabase();
-    Schema schema = db.getMetadata().getSchema();
+    var session = ctx.getDatabaseSession();
+    var schema = session.getMetadata().getSchema();
     if (schema.existsClass(name.getStringValue())) {
       if (ifNotExists) {
         return ExecutionStream.empty();
       } else {
-        throw new CommandExecutionException("Class " + name + " already exists");
+        throw new CommandExecutionException(session, "Class " + name + " already exists");
       }
     }
     checkSuperclasses(schema, ctx);
 
-    ResultInternal result = new ResultInternal(db);
+    var result = new ResultInternal(session);
     result.setProperty("operation", "create class");
     result.setProperty("className", name.getStringValue());
 
-    SchemaClass clazz = null;
-    SchemaClass[] superclasses = getSuperClasses(schema);
+    var superclasses = getSuperClasses(schema);
     if (abstractClass) {
-      clazz = schema.createAbstractClass(name.getStringValue(), superclasses);
+      schema.createAbstractClass(name.getStringValue(), superclasses);
       result.setProperty("abstract", abstractClass);
-    } else if (totalClusterNo != null) {
-      clazz =
-          schema.createClass(
-              name.getStringValue(), totalClusterNo.getValue().intValue(), superclasses);
-    } else if (clusters != null) {
-      clusters.stream().map(x -> x.getValue().intValue()).toList();
-      int[] clusterIds = new int[clusters.size()];
-      for (int i = 0; i < clusters.size(); i++) {
-        clusterIds[i] = clusters.get(i).getValue().intValue();
+    } else if (totalCollectionNo != null) {
+      schema.createClass(
+          name.getStringValue(), totalCollectionNo.getValue().intValue(), superclasses);
+    } else if (collections != null) {
+      collections.stream().map(x -> x.getValue().intValue()).toList();
+      var collectionIds = new int[collections.size()];
+      for (var i = 0; i < collections.size(); i++) {
+        collectionIds[i] = collections.get(i).getValue().intValue();
       }
-      clazz = schema.createClass(name.getStringValue(), clusterIds, superclasses);
+      schema.createClass(name.getStringValue(), collectionIds, superclasses);
     } else {
-      clazz = schema.createClass(name.getStringValue(), superclasses);
+      schema.createClass(name.getStringValue(), superclasses);
     }
 
     return ExecutionStream.singleton(result);
@@ -101,9 +100,10 @@ public class SQLCreateClassStatement extends DDLStatement {
 
   private void checkSuperclasses(Schema schema, CommandContext ctx) {
     if (superclasses != null) {
-      for (SQLIdentifier superclass : superclasses) {
+      for (var superclass : superclasses) {
         if (!schema.existsClass(superclass.getStringValue())) {
-          throw new CommandExecutionException("Superclass " + superclass + " not found");
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
+              "Superclass " + superclass + " not found");
         }
       }
     }
@@ -116,10 +116,10 @@ public class SQLCreateClassStatement extends DDLStatement {
     if (ifNotExists) {
       builder.append(" IF NOT EXISTS");
     }
-    if (superclasses != null && superclasses.size() > 0) {
+    if (superclasses != null && !superclasses.isEmpty()) {
       builder.append(" EXTENDS ");
-      boolean first = true;
-      for (SQLIdentifier sup : superclasses) {
+      var first = true;
+      for (var sup : superclasses) {
         if (!first) {
           builder.append(", ");
         }
@@ -127,20 +127,20 @@ public class SQLCreateClassStatement extends DDLStatement {
         first = false;
       }
     }
-    if (clusters != null && clusters.size() > 0) {
-      builder.append(" CLUSTER ");
-      boolean first = true;
-      for (SQLInteger cluster : clusters) {
+    if (collections != null && collections.size() > 0) {
+      builder.append(" COLLECTION ");
+      var first = true;
+      for (var collection : collections) {
         if (!first) {
           builder.append(",");
         }
-        cluster.toString(params, builder);
+        collection.toString(params, builder);
         first = false;
       }
     }
-    if (totalClusterNo != null) {
-      builder.append(" CLUSTERS ");
-      totalClusterNo.toString(params, builder);
+    if (totalCollectionNo != null) {
+      builder.append(" COLLECTIONS ");
+      totalCollectionNo.toString(params, builder);
     }
     if (abstractClass) {
       builder.append(" ABSTRACT");
@@ -156,8 +156,8 @@ public class SQLCreateClassStatement extends DDLStatement {
     }
     if (superclasses != null && superclasses.size() > 0) {
       builder.append(" EXTENDS ");
-      boolean first = true;
-      for (SQLIdentifier sup : superclasses) {
+      var first = true;
+      for (var sup : superclasses) {
         if (!first) {
           builder.append(", ");
         }
@@ -165,20 +165,20 @@ public class SQLCreateClassStatement extends DDLStatement {
         first = false;
       }
     }
-    if (clusters != null && clusters.size() > 0) {
-      builder.append(" CLUSTER ");
-      boolean first = true;
-      for (SQLInteger cluster : clusters) {
+    if (collections != null && collections.size() > 0) {
+      builder.append(" COLLECTION ");
+      var first = true;
+      for (var collection : collections) {
         if (!first) {
           builder.append(",");
         }
-        cluster.toGenericStatement(builder);
+        collection.toGenericStatement(builder);
         first = false;
       }
     }
-    if (totalClusterNo != null) {
-      builder.append(" CLUSTERS ");
-      totalClusterNo.toGenericStatement(builder);
+    if (totalCollectionNo != null) {
+      builder.append(" COLLECTIONS ");
+      totalCollectionNo.toGenericStatement(builder);
     }
     if (abstractClass) {
       builder.append(" ABSTRACT");
@@ -187,15 +187,16 @@ public class SQLCreateClassStatement extends DDLStatement {
 
   @Override
   public SQLCreateClassStatement copy() {
-    SQLCreateClassStatement result = new SQLCreateClassStatement(-1);
+    var result = new SQLCreateClassStatement(-1);
     result.name = name == null ? null : name.copy();
     result.superclasses =
         superclasses == null
             ? null
             : superclasses.stream().map(x -> x.copy()).collect(Collectors.toList());
-    result.clusters =
-        clusters == null ? null : clusters.stream().map(x -> x.copy()).collect(Collectors.toList());
-    result.totalClusterNo = totalClusterNo == null ? null : totalClusterNo.copy();
+    result.collections =
+        collections == null ? null
+            : collections.stream().map(x -> x.copy()).collect(Collectors.toList());
+    result.totalCollectionNo = totalCollectionNo == null ? null : totalCollectionNo.copy();
     result.abstractClass = abstractClass;
     result.ifNotExists = ifNotExists;
     return result;
@@ -210,7 +211,7 @@ public class SQLCreateClassStatement extends DDLStatement {
       return false;
     }
 
-    SQLCreateClassStatement that = (SQLCreateClassStatement) o;
+    var that = (SQLCreateClassStatement) o;
 
     if (abstractClass != that.abstractClass) {
       return false;
@@ -221,10 +222,10 @@ public class SQLCreateClassStatement extends DDLStatement {
     if (!Objects.equals(superclasses, that.superclasses)) {
       return false;
     }
-    if (!Objects.equals(clusters, that.clusters)) {
+    if (!Objects.equals(collections, that.collections)) {
       return false;
     }
-    if (!Objects.equals(totalClusterNo, that.totalClusterNo)) {
+    if (!Objects.equals(totalCollectionNo, that.totalCollectionNo)) {
       return false;
     }
     return ifNotExists == that.ifNotExists;
@@ -232,10 +233,10 @@ public class SQLCreateClassStatement extends DDLStatement {
 
   @Override
   public int hashCode() {
-    int result = name != null ? name.hashCode() : 0;
+    var result = name != null ? name.hashCode() : 0;
     result = 31 * result + (superclasses != null ? superclasses.hashCode() : 0);
-    result = 31 * result + (clusters != null ? clusters.hashCode() : 0);
-    result = 31 * result + (totalClusterNo != null ? totalClusterNo.hashCode() : 0);
+    result = 31 * result + (collections != null ? collections.hashCode() : 0);
+    result = 31 * result + (totalCollectionNo != null ? totalCollectionNo.hashCode() : 0);
     result = 31 * result + (abstractClass ? 1 : 0);
     return result;
   }
@@ -251,11 +252,11 @@ public class SQLCreateClassStatement extends DDLStatement {
     this.superclasses.add(identifier);
   }
 
-  public void addCluster(SQLInteger id) {
-    if (clusters == null) {
-      this.clusters = new ArrayList<>();
+  public void addCollection(SQLInteger id) {
+    if (collections == null) {
+      this.collections = new ArrayList<>();
     }
-    this.clusters.add(id);
+    this.collections.add(id);
   }
 }
 /* JavaCC - OriginalChecksum=4043013624f55fdf0ea8fee6d4f211b0 (do not edit this line) */

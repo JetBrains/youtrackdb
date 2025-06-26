@@ -1,8 +1,10 @@
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http;
 
-import com.jetbrains.youtrack.db.api.config.ContextConfiguration;
+import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.server.ClientConnection;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -11,8 +13,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class HttpResponseImpl extends HttpResponseAbstract {
+
+  private static final Logger logger = LoggerFactory.getLogger(HttpResponseImpl.class);
 
   public HttpResponseImpl(
       OutputStream iOutStream,
@@ -44,8 +50,7 @@ public class HttpResponseImpl extends HttpResponseAbstract {
       final String iReason,
       final String iContentType,
       final Object iContent,
-      final String iHeaders)
-      throws IOException {
+      final String iHeaders) {
     if (isSendStarted()) {
       // AVOID TO SEND RESPONSE TWICE
       return;
@@ -64,49 +69,54 @@ public class HttpResponseImpl extends HttpResponseAbstract {
       }
     }
 
-    final boolean empty = getContent() == null || getContent().length() == 0;
+    final var empty = getContent() == null || getContent().length() == 0;
 
-    if (this.getCode() > 0) {
-      writeStatus(this.getCode(), iReason);
-    } else {
-      writeStatus(empty && iCode == 200 ? 204 : iCode, iReason);
-    }
-    writeHeaders(getContentType(), isKeepAlive());
-
-    if (iHeaders != null) {
-      writeLine(iHeaders);
-    }
-
-    if (getSessionId() != null) {
-      String sameSite = (isSameSiteCookie() ? "SameSite=Strict;" : "");
-      writeLine(
-          "Set-Cookie: "
-              + HttpUtils.OSESSIONID
-              + "="
-              + getSessionId()
-              + "; Path=/; HttpOnly;"
-              + sameSite);
-    }
-
-    byte[] binaryContent = null;
-    if (!empty) {
-      if (getContentEncoding() != null
-          && getContentEncoding().equals(HttpUtils.CONTENT_ACCEPT_GZIP_ENCODED)) {
-        binaryContent = compress(getContent());
+    try {
+      if (this.getCode() > 0) {
+        writeStatus(this.getCode(), iReason);
       } else {
-        binaryContent = getContent().getBytes(utf8);
+        writeStatus(empty && iCode == 200 ? 204 : iCode, iReason);
       }
+      writeHeaders(getContentType(), isKeepAlive());
+
+      if (iHeaders != null) {
+        writeLine(iHeaders);
+      }
+
+      if (getSessionId() != null) {
+        var sameSite = (isSameSiteCookie() ? "SameSite=Strict;" : "");
+        writeLine(
+            "Set-Cookie: "
+                + HttpUtils.OSESSIONID
+                + "="
+                + getSessionId()
+                + "; Path=/; HttpOnly;"
+                + sameSite);
+      }
+
+      byte[] binaryContent = null;
+      if (!empty) {
+        if (getContentEncoding() != null
+            && getContentEncoding().equals(HttpUtils.CONTENT_ACCEPT_GZIP_ENCODED)) {
+          binaryContent = compress(getContent());
+        } else {
+          binaryContent = getContent().getBytes(utf8);
+        }
+      }
+
+      writeLine(HttpUtils.HEADER_CONTENT_LENGTH + (empty ? 0 : binaryContent.length));
+
+      writeLine(null);
+
+      if (binaryContent != null) {
+        getOut().write(binaryContent);
+      }
+
+      flush();
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new CommandExecutionException("Error while sending response"), e, (String) null);
     }
-
-    writeLine(HttpUtils.HEADER_CONTENT_LENGTH + (empty ? 0 : binaryContent.length));
-
-    writeLine(null);
-
-    if (binaryContent != null) {
-      getOut().write(binaryContent);
-    }
-
-    flush();
   }
 
   @Override
@@ -156,13 +166,13 @@ public class HttpResponseImpl extends HttpResponseAbstract {
     }
 
     if (additionalHeaders != null) {
-      for (Map.Entry<String, String> entry : additionalHeaders.entrySet()) {
+      for (var entry : additionalHeaders.entrySet()) {
         writeLine(String.format("%s: %s", entry.getKey(), entry.getValue()));
       }
     }
     if (iSize < 0) {
       // SIZE UNKNOWN: USE A MEMORY BUFFER
-      final ByteArrayOutputStream o = new ByteArrayOutputStream();
+      final var o = new ByteArrayOutputStream();
       if (iContent != null) {
         int b;
         while ((b = iContent.read()) > -1) {
@@ -170,7 +180,7 @@ public class HttpResponseImpl extends HttpResponseAbstract {
         }
       }
 
-      byte[] content = o.toByteArray();
+      var content = o.toByteArray();
 
       iContent = new ByteArrayInputStream(content);
       iSize = content.length;
@@ -208,7 +218,7 @@ public class HttpResponseImpl extends HttpResponseAbstract {
 
     writeLine(null);
 
-    final ChunkedResponse chunkedOutput = new ChunkedResponse(this);
+    final var chunkedOutput = new ChunkedResponse(this);
     iWriter.call(chunkedOutput);
     chunkedOutput.close();
 
@@ -229,7 +239,7 @@ public class HttpResponseImpl extends HttpResponseAbstract {
           .debug(
               this,
               "[HttpResponse] found and removed pending closed channel %d (%s)",
-              getConnection(),
+              logger, getConnection(),
               socket);
       throw new IOException("Connection is closed");
     }

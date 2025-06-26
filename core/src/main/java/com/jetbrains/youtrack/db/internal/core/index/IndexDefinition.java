@@ -19,12 +19,15 @@
  */
 package com.jetbrains.youtrack.db.internal.core.index;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nonnull;
 
 /**
@@ -39,7 +42,7 @@ public interface IndexDefinition extends IndexCallback {
    * @return Names of fields which given index is used to calculate key value. Order of fields is
    * important.
    */
-  List<String> getFields();
+  List<String> getProperties();
 
   /**
    * @return Names of fields and their index modifiers (like "by value" for fields that hold <code>
@@ -74,11 +77,11 @@ public interface IndexDefinition extends IndexCallback {
    * <p>If it is impossible to calculate key value by given parameters <code>null</code> will be
    * returned.
    *
-   * @param session Currently active database session.
-   * @param params  Parameters from which index key will be calculated.
+   * @param transaction Currently active database session.
+   * @param params      Parameters from which index key will be calculated.
    * @return Key value or null if calculation is impossible.
    */
-  Object createValue(DatabaseSessionInternal session, List<?> params);
+  Object createValue(FrontendTransaction transaction, List<?> params);
 
   /**
    * Calculates key value by passed in parameters.
@@ -86,11 +89,11 @@ public interface IndexDefinition extends IndexCallback {
    * <p>If it is impossible to calculate key value by given parameters <code>null</code> will be
    * returned.
    *
-   * @param session Currently active database session.
-   * @param params  Parameters from which index key will be calculated.
+   * @param transaction Currently active database session.
+   * @param params      Parameters from which index key will be calculated.
    * @return Key value or null if calculation is impossible.
    */
-  Object createValue(DatabaseSessionInternal session, Object... params);
+  Object createValue(FrontendTransaction transaction, Object... params);
 
   /**
    * Returns amount of parameters that are used to calculate key value. It does not mean that all
@@ -109,22 +112,22 @@ public interface IndexDefinition extends IndexCallback {
    *
    * @return Types of values from which index key consist.
    */
-  PropertyType[] getTypes();
+  PropertyTypeInternal[] getTypes();
 
   /**
-   * Serializes internal index state to entity.
-   *
-   * @return Entity that contains internal index state.
+   * Serializes internal index state to map.
    */
   @Nonnull
-  EntityImpl toStream(@Nonnull EntityImpl entity);
+  EmbeddedMap<Object> toMap(DatabaseSessionInternal session);
+
+  void toJson(@Nonnull JsonGenerator jsonGenerator);
 
   /**
-   * Deserialize internal index state from entity.
+   * Deserialize internal index state from map.
    *
-   * @param entity Serialized index presentation.
+   * @param map Serialized index presentation.
    */
-  void fromStream(@Nonnull EntityImpl entity);
+  void fromMap(@Nonnull Map<String, ?> map);
 
   String toCreateIndexDDL(String indexName, String indexType, String engine);
 

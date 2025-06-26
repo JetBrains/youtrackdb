@@ -1,10 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import java.util.Optional;
+import javax.annotation.Nullable;
 
 public interface IndexFinder {
-
   enum Operation {
     Eq,
     Gt,
@@ -19,16 +18,18 @@ public interface IndexFinder {
     }
   }
 
-  Optional<IndexCandidate> findExactIndex(MetadataPath fieldName, Object value, CommandContext ctx);
+  @Nullable
+  IndexCandidate findExactIndex(IndexMetadataPath fieldName, Object value, CommandContext ctx);
 
-  Optional<IndexCandidate> findByKeyIndex(MetadataPath fieldName, Object value, CommandContext ctx);
-
-  Optional<IndexCandidate> findAllowRangeIndex(
-      MetadataPath fieldName, Operation operation, Object value, CommandContext ctx);
-
-  Optional<IndexCandidate> findByValueIndex(MetadataPath fieldName, Object value,
+  @Nullable
+  IndexCandidate findByKeyIndex(IndexMetadataPath fieldName, Object value,
       CommandContext ctx);
 
-  Optional<IndexCandidate> findFullTextIndex(MetadataPath fieldName, Object value,
+  @Nullable
+  IndexCandidate findAllowRangeIndex(
+      IndexMetadataPath fieldName, Operation operation, Object value, CommandContext ctx);
+
+  @Nullable
+  IndexCandidate findByValueIndex(IndexMetadataPath fieldName, Object value,
       CommandContext ctx);
 }

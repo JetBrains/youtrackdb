@@ -21,7 +21,7 @@ package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command;
 
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrack.db.internal.server.network.protocol.http.OHttpRequest;
+import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
 
 /**
  * Generic interface for server-side commands.
@@ -33,21 +33,21 @@ public interface ServerCommand {
    *
    * @param iResponse TODO
    */
-  boolean beforeExecute(OHttpRequest iRequest, HttpResponse iResponse) throws Exception;
+  boolean beforeExecute(HttpRequest iRequest, HttpResponse iResponse) throws Exception;
 
   /**
    * Called after to execute. Useful to free resources.
    *
    * @param iResponse TODO
    */
-  boolean afterExecute(OHttpRequest iRequest, HttpResponse iResponse) throws Exception;
+  boolean afterExecute(HttpRequest iRequest, HttpResponse iResponse) throws Exception;
 
   /**
    * Executes the command requested.
    *
    * @return boolean value that indicates if this command is part of a chain
    */
-  boolean execute(OHttpRequest iRequest, HttpResponse iResponse) throws Exception;
+  boolean execute(HttpRequest iRequest, HttpResponse iResponse) throws Exception;
 
   String[] getNames();
 

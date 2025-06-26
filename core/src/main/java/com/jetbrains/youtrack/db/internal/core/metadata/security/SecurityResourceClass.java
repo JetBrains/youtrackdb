@@ -26,7 +26,7 @@ public class SecurityResourceClass extends SecurityResource {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    SecurityResourceClass that = (SecurityResourceClass) o;
+    var that = (SecurityResourceClass) o;
     return Objects.equals(className, that.className);
   }
 

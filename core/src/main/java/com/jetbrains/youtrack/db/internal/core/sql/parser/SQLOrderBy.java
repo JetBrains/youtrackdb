@@ -2,9 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,10 +40,11 @@ public class SQLOrderBy extends SimpleNode {
     this.items.add(item);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
-    if (items != null && items.size() > 0) {
+    if (items != null && !items.isEmpty()) {
       builder.append("ORDER BY ");
-      for (int i = 0; i < items.size(); i++) {
+      for (var i = 0; i < items.size(); i++) {
         if (i > 0) {
           builder.append(", ");
         }
@@ -52,10 +53,11 @@ public class SQLOrderBy extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
-    if (items != null && items.size() > 0) {
+    if (items != null && !items.isEmpty()) {
       builder.append("ORDER BY ");
-      for (int i = 0; i < items.size(); i++) {
+      for (var i = 0; i < items.size(); i++) {
         if (i > 0) {
           builder.append(", ");
         }
@@ -65,8 +67,8 @@ public class SQLOrderBy extends SimpleNode {
   }
 
   public int compare(Result a, Result b, CommandContext ctx) {
-    for (SQLOrderByItem item : items) {
-      int result = item.compare(a, b, ctx);
+    for (var item : items) {
+      var result = item.compare(a, b, ctx);
       if (result != 0) {
         return result > 0 ? 1 : -1;
       }
@@ -74,10 +76,12 @@ public class SQLOrderBy extends SimpleNode {
     return 0;
   }
 
+  @Override
   public SQLOrderBy copy() {
-    SQLOrderBy result = new SQLOrderBy(-1);
+    var result = new SQLOrderBy(-1);
     result.items =
-        items == null ? null : items.stream().map(x -> x.copy()).collect(Collectors.toList());
+        items == null ? null
+            : items.stream().map(SQLOrderByItem::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -90,7 +94,7 @@ public class SQLOrderBy extends SimpleNode {
       return false;
     }
 
-    SQLOrderBy oOrderBy = (SQLOrderBy) o;
+    var oOrderBy = (SQLOrderBy) o;
 
     return Objects.equals(items, oOrderBy.items);
   }
@@ -102,7 +106,7 @@ public class SQLOrderBy extends SimpleNode {
 
   public void extractSubQueries(SubQueryCollector collector) {
     if (items != null) {
-      for (SQLOrderByItem item : items) {
+      for (var item : items) {
         item.extractSubQueries(collector);
       }
     }
@@ -110,7 +114,7 @@ public class SQLOrderBy extends SimpleNode {
 
   public boolean refersToParent() {
     if (items != null) {
-      for (SQLOrderByItem item : items) {
+      for (var item : items) {
         if (item.refersToParent()) {
           return true;
         }
@@ -119,11 +123,11 @@ public class SQLOrderBy extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    ResultInternal result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (items != null) {
       result.setProperty(
-          "items", items.stream().map(oOrderByItem -> oOrderByItem.serialize(db))
+          "items", items.stream().map(oOrderByItem -> oOrderByItem.serialize(session))
               .collect(Collectors.toList()));
     }
     return result;
@@ -134,8 +138,8 @@ public class SQLOrderBy extends SimpleNode {
     if (fromResult.getProperty("items") != null) {
       List<Result> ser = fromResult.getProperty("items");
       items = new ArrayList<>();
-      for (Result r : ser) {
-        SQLOrderByItem exp = new SQLOrderByItem();
+      for (var r : ser) {
+        var exp = new SQLOrderByItem();
         exp.deserialize(r);
         items.add(exp);
       }
@@ -148,7 +152,7 @@ public class SQLOrderBy extends SimpleNode {
 
   public boolean ordersSameDirection() {
     String order = null;
-    for (SQLOrderByItem item : items) {
+    for (var item : items) {
       if (order == null) {
         order = item.getType();
       } else if (!order.equals(item.getType())) {
@@ -160,7 +164,7 @@ public class SQLOrderBy extends SimpleNode {
 
   public List<String> getProperties() {
     List<String> orderItems = new ArrayList<>();
-    for (SQLOrderByItem item : items) {
+    for (var item : items) {
       orderItems.add(item.getAlias() != null ? item.getAlias() : item.getRecordAttr());
     }
     return orderItems;
