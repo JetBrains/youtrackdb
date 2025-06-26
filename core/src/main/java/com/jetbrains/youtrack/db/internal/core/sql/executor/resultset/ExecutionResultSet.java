@@ -33,7 +33,9 @@ public class ExecutionResultSet implements ResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      return false;
+    }
 
     return stream.hasNext(context);
   }
@@ -41,7 +43,6 @@ public class ExecutionResultSet implements ResultSet {
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
 
     if (!hasNext()) {
       throw new NoSuchElementException();
@@ -110,11 +111,5 @@ public class ExecutionResultSet implements ResultSet {
   @Override
   public boolean isClosed() {
     return closed;
-  }
-
-  private void checkClosed() {
-    if (closed) {
-      throw new IllegalStateException("ResultSet is closed and can not be used");
-    }
   }
 }

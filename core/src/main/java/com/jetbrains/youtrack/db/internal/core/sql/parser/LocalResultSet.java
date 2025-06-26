@@ -38,7 +38,9 @@ public class LocalResultSet implements ResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      return false;
+    }
 
     return stream.hasNext(executionPlan.getContext());
   }
@@ -46,7 +48,6 @@ public class LocalResultSet implements ResultSet {
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
 
     if (!hasNext()) {
       throw new NoSuchElementException();

@@ -9,6 +9,7 @@ import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.graalvm.nativeimage.c.struct.SizeOf;
 
 public class PaginatedResultSet implements RemoteResultSet {
 
@@ -38,7 +39,10 @@ public class PaginatedResultSet implements RemoteResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      return false;
+    }
+    ;
 
     if (!currentPage.isEmpty()) {
       return true;
@@ -63,7 +67,9 @@ public class PaginatedResultSet implements RemoteResultSet {
   @Override
   public RemoteResult next() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      throw new NoSuchElementException();
+    }
 
     if (currentPage.isEmpty()) {
       if (!hasNextPage()) {
@@ -104,7 +110,9 @@ public class PaginatedResultSet implements RemoteResultSet {
 
   public void add(RemoteResult item) {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      throw new IllegalStateException("ResultSet is closed and can not be used.");
+    }
 
     currentPage.add(item);
   }
@@ -165,9 +173,4 @@ public class PaginatedResultSet implements RemoteResultSet {
     return closed;
   }
 
-  private void checkClosed() {
-    if (closed) {
-      throw new IllegalStateException("ResultSet is closed and can not be used");
-    }
-  }
 }

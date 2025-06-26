@@ -10,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.transformer.Script
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import java.nio.channels.ClosedChannelException;
+import java.util.NoSuchElementException;
 import java.util.Spliterator;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
@@ -34,6 +35,9 @@ public final class YTDBGremlinScriptResultSet implements ResultSet {
 
   @Override
   public boolean hasNext() {
+    if (closed) {
+      return false;
+    }
     try {
       return traversal.hasNext();
     } catch (StorageException se) {
@@ -47,6 +51,10 @@ public final class YTDBGremlinScriptResultSet implements ResultSet {
 
   @Override
   public Result next() {
+    if (closed) {
+      throw new NoSuchElementException();
+    }
+
     try {
       var next = traversal.next();
       return transformer.toResult(session, next);
