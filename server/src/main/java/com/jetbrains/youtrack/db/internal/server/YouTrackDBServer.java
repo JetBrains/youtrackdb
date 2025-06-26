@@ -593,13 +593,15 @@ public class YouTrackDBServer {
    * Opens all the available server's databases.
    */
   protected void loadDatabases() {
+    dbNamesCache.clear();
+    dbNamesCache.addAll(databases.internal.listDatabases(null, null));
+
     if (!contextConfiguration.getValueAsBoolean(
         GlobalConfiguration.SERVER_OPEN_ALL_DATABASES_AT_STARTUP)) {
       return;
     }
 
-    dbNamesCache.clear();
-    dbNamesCache.addAll(databases.internal.listDatabases(null, null));
+
 
     databases.loadAllDatabases();
   }
