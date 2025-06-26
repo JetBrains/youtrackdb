@@ -31,7 +31,9 @@ public class IteratorResultSet implements ResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      return false;
+    }
 
     return iterator.hasNext();
   }
@@ -39,7 +41,6 @@ public class IteratorResultSet implements ResultSet {
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
 
     if (!iterator.hasNext()) {
       throw new NoSuchElementException();
@@ -102,12 +103,6 @@ public class IteratorResultSet implements ResultSet {
   public void forEachRemaining(@Nonnull Consumer<? super Result> action) {
     while (hasNext()) {
       action.accept(next());
-    }
-  }
-
-  protected void checkClosed() {
-    if (closed) {
-      throw new IllegalStateException("ResultSet is closed and can not be used");
     }
   }
 
