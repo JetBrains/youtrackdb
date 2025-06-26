@@ -10,8 +10,8 @@ import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
@@ -19,9 +19,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionConfigur
 import java.util.ArrayList;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
 
   public static final String NAME = "move";
@@ -35,16 +32,18 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
   }
 
   protected abstract Object move(
-      final DatabaseSessionInternal db, final Identifiable record, final String[] labels);
+      final DatabaseSessionEmbedded db, final Identifiable record, final String[] labels);
 
   protected abstract Object move(
-      final DatabaseSessionInternal db, final Relation<?> bidirectionalLink,
+      final DatabaseSessionEmbedded db, final Relation<?> bidirectionalLink,
       final String[] labels);
 
+  @Override
   public String getSyntax(DatabaseSession session) {
     return "Syntax error: " + name + "([<labels>])";
   }
 
+  @Override
   public Object execute(
       final Object iThis,
       final Result iCurrentRecord,
@@ -59,13 +58,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
           MultiValue.array(
               iParameters,
               String.class,
-              new CallableFunction<Object, Object>() {
-
-                @Override
-                public Object call(final Object iArgument) {
-                  return IOUtils.getStringContent(iArgument);
-                }
-              });
+              IOUtils::getStringContent);
     } else {
       labels = null;
     }
@@ -90,7 +83,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
       final DatabaseSessionInternal graph,
       final Identifiable iRecord,
       final Direction iDirection,
-      final String[] iLabels) {
+      final String[] labels) {
     if (iRecord != null) {
       try {
         var transaction = graph.getActiveTransaction();
@@ -98,7 +91,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
         if (rec.isEdge()) {
           return null;
         } else {
-          return rec.getEntities(iDirection, iLabels);
+          return rec.getEntities(iDirection, labels);
         }
       } catch (RecordNotFoundException rnf) {
         return null;
@@ -113,13 +106,13 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
       final DatabaseSession graph,
       final Identifiable iRecord,
       final Direction iDirection,
-      final String[] iLabels) {
+      final String[] labels) {
     if (iRecord != null) {
       try {
         var transaction = graph.getActiveTransaction();
         var rec = (EntityImpl) transaction.loadEntity(iRecord);
         if (!rec.isEdge()) {
-          return rec.getBidirectionalLinks(iDirection, iLabels);
+          return rec.getBidirectionalLinks(iDirection, labels);
         } else {
           return null;
         }

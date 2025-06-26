@@ -3,10 +3,10 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,7 +21,7 @@ public class UpdateSetUnionCollectionsTest {
 
   @Before
   public void before() {
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     youTrackDB
         .execute(
@@ -39,10 +39,10 @@ public class UpdateSetUnionCollectionsTest {
   public void updateMapElementWithUnionMap() {
     try (var session =
         youTrackDB.open(UpdateSetUnionCollectionsTest.class.getSimpleName(), "admin", "admpwd")) {
-      session.runScript("sql", "create class example extends V").close();
-      session.runScript("sql", "create property example.metadata EMBEDDEDMAP").close();
+      session.computeScript("sql", "create class example extends V").close();
+      session.computeScript("sql", "create property example.metadata EMBEDDEDMAP").close();
       session
-          .runScript(
+          .computeScript(
               "SQL",
               """
                     begin; \
@@ -75,7 +75,7 @@ public class UpdateSetUnionCollectionsTest {
           var expandedValues = transaction.query(
                   "select expand(metadata." + field + ") from example")
               .stream()
-              .map(Result::toMap)
+              .map(BasicResult::toMap)
               .collect(Collectors.toSet());
 
           assertThat(expandedValues).isEqualTo(
@@ -96,14 +96,14 @@ public class UpdateSetUnionCollectionsTest {
     try (var session =
         youTrackDB.open(UpdateSetUnionCollectionsTest.class.getSimpleName(), "admin", "admpwd")) {
 
-      session.runScript("sql", "create class example_schema extends V").close();
-      session.runScript("sql", "create property example_schema.metadata EMBEDDEDMAP").close();
-      session.runScript("sql", "create class example_schemaless extends V").close();
+      session.computeScript("sql", "create class example_schema extends V").close();
+      session.computeScript("sql", "create property example_schema.metadata EMBEDDEDMAP").close();
+      session.computeScript("sql", "create class example_schemaless extends V").close();
 
       for (var clazz : List.of("example_schema", "example_schemaless")) {
 
         session
-            .runScript(
+            .computeScript(
                 "SQL",
                 """
                     begin;
@@ -134,7 +134,7 @@ public class UpdateSetUnionCollectionsTest {
           var expandedValues = transaction.query(
                   "select expand(metadata) from " + clazz)
               .stream()
-              .map(Result::toMap)
+              .map(BasicResult::toMap)
               .collect(Collectors.toSet());
 
           assertThat(expandedValues).isEqualTo(
@@ -154,10 +154,10 @@ public class UpdateSetUnionCollectionsTest {
   public void updateMapElementWithUnionList() {
     try (var session =
         youTrackDB.open(UpdateSetUnionCollectionsTest.class.getSimpleName(), "admin", "admpwd")) {
-      session.runScript("sql", "create class example extends V").close();
-      session.runScript("sql", "create property example.metadata EMBEDDEDMAP").close();
+      session.computeScript("sql", "create class example extends V").close();
+      session.computeScript("sql", "create property example.metadata EMBEDDEDMAP").close();
       session
-          .runScript(
+          .computeScript(
               "SQL",
               """
                     begin; \
@@ -186,7 +186,7 @@ public class UpdateSetUnionCollectionsTest {
           var expandedValues = transaction.query(
                   "select expand(metadata." + field + ") from example")
               .stream()
-              .map(Result::toMap)
+              .map(BasicResult::toMap)
               .collect(Collectors.toSet());
 
           assertThat(expandedValues).isEqualTo(
@@ -207,17 +207,17 @@ public class UpdateSetUnionCollectionsTest {
     try (var session =
         youTrackDB.open(UpdateSetUnionCollectionsTest.class.getSimpleName(), "admin", "admpwd")) {
 
-      session.runScript("sql", "create class example_schema extends V").close();
-      session.runScript("sql", "create property example_schema.metadata EMBEDDEDLIST").close();
-      session.runScript("sql", "create class example_schemaless extends V").close();
+      session.computeScript("sql", "create class example_schema extends V").close();
+      session.computeScript("sql", "create property example_schema.metadata EMBEDDEDLIST").close();
+      session.computeScript("sql", "create class example_schemaless extends V").close();
 
       for (var clazz : List.of("example_schema", "example_schemaless")) {
         session
-            .runScript(
+            .computeScript(
                 "SQL",
                 """
-                      begin; \
-                      let $example = create vertex""" + " " + clazz + ";" + """
+                    begin; \
+                    let $example = create vertex""" + " " + clazz + ";" + """
                       let $a = ["value1", "value2"];
                       let $b = ["value3"];
                       let $u = unionAll($a, $b);\s
@@ -240,7 +240,7 @@ public class UpdateSetUnionCollectionsTest {
           var expandedValues = transaction.query(
                   "select expand(metadata) from " + clazz)
               .stream()
-              .map(Result::toMap)
+              .map(BasicResult::toMap)
               .collect(Collectors.toSet());
 
           assertThat(expandedValues).isEqualTo(

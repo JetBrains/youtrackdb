@@ -15,20 +15,12 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
 import org.testng.Assert;
 import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 public class SQLCreateClassTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLCreateClassTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void testSimpleCreate() {
     Assert.assertFalse(session.getMetadata().getSchema().existsClass("testSimpleCreate"));

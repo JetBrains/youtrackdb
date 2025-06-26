@@ -1,8 +1,15 @@
 package com.jetbrains.youtrack.db.api.transaction;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.TransactionException;
@@ -16,12 +23,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.util.Collection;
@@ -30,6 +31,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 @SuppressWarnings("unused")
 public interface Transaction {
@@ -45,7 +47,6 @@ public interface Transaction {
 
   @Nonnull
   DatabaseSession getDatabaseSession();
-
 
   /**
    * Loads an element by its id, throws an exception if record is not an element or does not exist.
@@ -241,6 +242,7 @@ public interface Transaction {
    */
   @Nonnull
   <RET extends DBRecord> RET load(RID recordId);
+
   /**
    * Loads the record by the Record ID, unlike {@link  #load(RID)} method does not throw exception
    * if record not found but returns <code>null</code> instead.
@@ -283,11 +285,12 @@ public interface Transaction {
    * transaction context will be effective. If the operation fails, all the changed entities will be
    * restored in the data store.
    *
-   * @return true if the transaction is the last nested transaction and thus cmd can be committed,
-   * otherwise false. If false is returned, then there are still nested transaction that have to be
-   * committed.
+   * @return Map between the synthetic RIDs of new records created inside transaction and the
+   * persistent RIDs assigned to records during commit or <code>null</code> if transaction is not
+   * the highest level transaction and changes are not commited yet as a result.
    */
-  boolean commit() throws TransactionException;
+  @Nullable
+  Map<RID, RID> commit() throws TransactionException;
 
   /**
    * Aborts the current running transaction. All the pending changed entities will be restored in
@@ -393,6 +396,102 @@ public interface Transaction {
   @SuppressWarnings("rawtypes")
   void command(String query, Map args)
       throws CommandSQLParsingException, CommandExecutionException;
+
+  /**
+   * Execute a script in a specified query language. The result set has to be closed after usage
+   * <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * String script = "INSERT INTO Person SET name = 'foo', surname = ?;"+ "INSERT INTO Person SET
+   * name = 'bar', surname = ?;"+ "INSERT INTO Person SET name = 'baz', surname = ?;";
+   * <p>
+   * ResultSet rs = db.runScript("sql", script, "Surname1", "Surname2", "Surname3"); ...
+   * rs.close();
+   * </code>
+   */
+  ResultSet computeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException;
+
+  GraphTraversalSource traversal();
+
+  default ResultSet computeSQLScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("sql", script, args);
+  }
+
+  default ResultSet computeGremlinScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("gremlin", script, args);
+  }
+
+  default void executeScript(String language, String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    computeScript(language, script, args).close();
+  }
+
+  default void executeSQLScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("sql", script, args);
+  }
+
+  default void executeGremlinScript(String script, Object... args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("gremlin", script, args);
+  }
+
+
+  /**
+   * Execute a script of a specified query language The result set has to be closed after usage
+   * <br>
+   * <br>
+   * Sample usage:
+   *
+   * <p><code>
+   * Map&lt;String, Object&gt params = new HashMapMap&lt;&gt(); params.put("surname1", "Jones");
+   * params.put("surname2", "May"); params.put("surname3", "Ali");
+   * <p>
+   * String script = "INSERT INTO Person SET name = 'foo', surname = :surname1;"+ "INSERT INTO
+   * Person SET name = 'bar', surname = :surname2;"+ "INSERT INTO Person SET name = 'baz', surname =
+   * :surname3;";
+   * <p>
+   * ResultSet rs = db.runScript("sql", script, params); ... rs.close(); </code>
+   */
+  ResultSet computeScript(String language, String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException;
+
+  default ResultSet computeSQLScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("sql", script, args);
+  }
+
+  default ResultSet computeGremlinScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    return computeScript("gremlin", script, args);
+  }
+
+  default void executeScript(String language, String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    computeScript(language, script, args).close();
+  }
+
+  default void executeSQLScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("sql", script, args);
+  }
+
+  default void executeGremlinScript(String script,
+      Map<String, ?> args)
+      throws CommandExecutionException, CommandScriptException {
+    executeScript("gremlin", script, args);
+  }
+
 
   default <T> EmbeddedList<T> newEmbeddedList() {
     return getDatabaseSession().newEmbeddedList();
@@ -506,5 +605,4 @@ public interface Transaction {
   default Schema getSchema() {
     return getDatabaseSession().getSchema();
   }
-
 }

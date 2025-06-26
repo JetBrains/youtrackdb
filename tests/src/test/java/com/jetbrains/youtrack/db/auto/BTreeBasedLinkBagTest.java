@@ -19,12 +19,11 @@ package com.jetbrains.youtrack.db.auto;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.client.remote.EngineRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.File;
 import java.util.ArrayList;
@@ -37,23 +36,13 @@ import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-/**
- *
- */
+
 @Test
 public class BTreeBasedLinkBagTest extends LinkBagTest {
-
   private int topThreshold;
   private int bottomThreshold;
-
-  @Parameters(value = "remote")
-  public BTreeBasedLinkBagTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   @Override
@@ -61,6 +50,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     super.beforeClass();
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     topThreshold =
@@ -68,38 +58,17 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     bottomThreshold =
         GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
 
-    if (session.isRemote()) {
-      var server =
-          new ServerAdmin(session.getURL())
-              .connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, -1);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
-
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
     super.beforeMethod();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     super.afterMethod();
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
-
-    if (session.isRemote()) {
-      var server =
-          new ServerAdmin(session.getURL())
-              .connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, topThreshold);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, bottomThreshold);
-      server.close();
-    }
   }
 
   public void testRidBagCollectionDistribution() {
@@ -110,18 +79,16 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
 
     final var collectionIdOne = session.addCollection("collectionOne");
 
+    session.begin();
     var docCollectionOne = ((EntityImpl) session.newEntity());
     var ridBagCollectionOne = new LinkBag(session);
     docCollectionOne.setProperty("ridBag", ridBagCollectionOne);
-
-    session.begin();
-
     session.commit();
 
     final var directory = session.getStorage().getConfiguration().getDirectory();
 
     final var wowCache =
-        (WOWCache) ((LocalStorage) (session.getStorage())).getWriteCache();
+        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
 
     final var fileId =
         wowCache.fileIdByName(
@@ -260,6 +227,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
       return;
     }
 
+    session.begin();
     var realDoc = ((EntityImpl) session.newEntity());
     var realDocRidBag = new LinkBag(session);
     realDoc.setProperty("ridBag", realDocRidBag);
@@ -270,9 +238,6 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     }
 
     assertEmbedded(realDocRidBag.isEmbedded());
-
-    session.begin();
-
     session.commit();
 
     final var collectionId = session.addCollection("ridBagDeleteTest");
@@ -303,6 +268,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     session.freeze();
     session.release();
 
+    session.begin();
     testRidBagFile =
         new File(
             directory,
@@ -315,18 +281,17 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     realDoc = session.load(realDoc.getIdentity());
     LinkBag linkBag = realDoc.getProperty("ridBag");
     Assert.assertEquals(linkBag.size(), 10);
+    session.commit();
   }
 
   private EntityImpl crateTestDeleteDoc(EntityImpl realDoc) {
+    session.begin();
     var testDocument = ((EntityImpl) session.newEntity());
     var highLevelRidBag = new LinkBag(session);
     testDocument.setProperty("ridBag", highLevelRidBag);
     var activeTx = session.getActiveTransaction();
     realDoc = activeTx.load(realDoc);
     testDocument.setProperty("realDoc", realDoc);
-
-    session.begin();
-
     session.commit();
 
     return testDocument;
@@ -334,6 +299,6 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
 
   @Override
   protected void assertEmbedded(boolean isEmbedded) {
-    Assert.assertTrue((!isEmbedded || session.isRemote()));
+    Assert.assertTrue((!isEmbedded));
   }
 }

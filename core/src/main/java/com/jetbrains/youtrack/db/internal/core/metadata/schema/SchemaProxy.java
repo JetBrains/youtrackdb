@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.schema.IndexDefinition;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -45,7 +46,7 @@ import javax.annotation.Nullable;
  */
 public final class SchemaProxy extends ProxedResource<SchemaShared> implements SchemaInternal {
 
-  public SchemaProxy(final SchemaShared iDelegate, final DatabaseSessionInternal iDatabase) {
+  public SchemaProxy(final SchemaShared iDelegate, final DatabaseSessionEmbedded iDatabase) {
     super(iDelegate, iDatabase);
   }
 
@@ -87,7 +88,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
       return null;
     }
 
-    var cls = delegate.getClass(session, iClassName.toLowerCase(Locale.ENGLISH));
+    var cls = delegate.getClass(iClassName.toLowerCase(Locale.ENGLISH));
     if (cls != null) {
       return new SchemaClassProxy(cls, session);
     }
@@ -197,7 +198,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
       return false;
     }
 
-    return delegate.existsClass(session, iClassName);
+    return delegate.existsClass(iClassName);
   }
 
   @Override
@@ -208,7 +209,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
       return null;
     }
 
-    var cls = delegate.getClass(session, iClass.getName());
+    var cls = delegate.getClass(iClass.getName());
     return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
@@ -220,7 +221,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     }
 
     assert session.assertIfNotActive();
-    var cls = delegate.getClass(session, iClassName);
+    var cls = delegate.getClass(iClassName);
     return cls == null ? null : new SchemaClassProxy(cls, session);
   }
 
@@ -240,7 +241,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     assert session.assertIfNotActive();
     var indexManager = session.getSharedContext().getIndexManager();
 
-    var indexesInternal = indexManager.getIndexes(session);
+    var indexesInternal = indexManager.getIndexes();
     var indexes = new HashSet<String>(indexesInternal.size());
     for (var index : indexesInternal) {
       indexes.add(index.getName());
@@ -254,14 +255,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     assert session.assertIfNotActive();
     var indexManager = session.getSharedContext().getIndexManager();
 
-    return indexManager.existsIndex(session, indexName);
+    return indexManager.existsIndex(indexName);
   }
 
   @Override
   public @Nonnull IndexDefinition getIndexDefinition(String indexName) {
     assert session.assertIfNotActive();
     var indexManager = session.getSharedContext().getIndexManager();
-    var index = indexManager.getIndex(session, indexName);
+    var index = indexManager.getIndex(indexName);
 
     if (index == null) {
       throw new IllegalArgumentException("Index '" + indexName + "' not found");
@@ -271,12 +272,12 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
 
     var metadata = index.getMetadata();
 
-    if (metadata != null) {
+    if (metadata == null) {
       metadata = Collections.emptyMap();
     }
 
     return new IndexDefinition(indexName, indexDefinition.getClassName(),
-        Collections.unmodifiableList(indexDefinition.getFields()),
+        Collections.unmodifiableList(indexDefinition.getProperties()),
         SchemaClass.INDEX_TYPE.valueOf(index.getType()), indexDefinition.isNullValuesIgnored(),
         indexDefinition.getCollate().getName(), metadata);
   }
@@ -300,7 +301,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
 
   @Override
   public RecordId getIdentity() {
-    return delegate.getIdentity(session);
+    return delegate.getIdentity();
   }
 
   @Deprecated
@@ -345,7 +346,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   public SchemaClass getClassByCollectionId(int collectionId) {
     assert session.assertIfNotActive();
 
-    var cls = delegate.getClassByCollectionId(session, collectionId);
+    var cls = delegate.getClassByCollectionId(collectionId);
     return cls != null ? new SchemaClassProxy(cls, session) : null;
   }
 
@@ -353,13 +354,13 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   @Override
   public GlobalProperty getGlobalPropertyById(int id) {
     assert session.assertIfNotActive();
-    return delegate.getGlobalPropertyById(session, id);
+    return delegate.getGlobalPropertyById(id);
   }
 
   @Override
   public List<GlobalProperty> getGlobalProperties() {
     assert session.assertIfNotActive();
-    return delegate.getGlobalProperties(session);
+    return delegate.getGlobalProperties();
   }
 
   @Override
@@ -379,14 +380,14 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   @Override
   public SchemaClassInternal getClassInternal(String iClassName) {
     assert session.assertIfNotActive();
-    var cls = delegate.getClass(session, iClassName);
+    var cls = delegate.getClass(iClassName);
 
     return cls != null ? new SchemaClassProxy(cls, session) : null;
   }
 
   public IntSet getBlobCollections() {
     assert session.assertIfNotActive();
-    return delegate.getBlobCollections(session);
+    return delegate.getBlobCollections();
   }
 
   public int addBlobCollection(final int collectionId) {

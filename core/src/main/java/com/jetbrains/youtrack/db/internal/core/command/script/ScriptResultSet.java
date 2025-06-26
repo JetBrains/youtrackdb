@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.internal.core.command.script.transformer.Script
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.IteratorResultSet;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import javax.annotation.Nullable;
 
 /**
@@ -15,7 +16,7 @@ public class ScriptResultSet extends IteratorResultSet {
 
   protected ScriptTransformer transformer;
 
-  public ScriptResultSet(@Nullable DatabaseSessionInternal session, Iterator iter,
+  public ScriptResultSet(@Nullable DatabaseSessionInternal session, Iterator<?> iter,
       ScriptTransformer transformer) {
     super(session, iter);
     this.transformer = transformer;
@@ -24,6 +25,11 @@ public class ScriptResultSet extends IteratorResultSet {
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
+
+    if (!iterator.hasNext()) {
+      throw new NoSuchElementException();
+    }
+
     var next = iterator.next();
     return transformer.toResult(session, next);
   }

@@ -47,6 +47,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
+import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -381,7 +382,7 @@ public enum PropertyTypeInternal {
         }
         case String s -> {
           var entityImpl = session.newEmbeddedEntity(linkedClass);
-          JSONSerializerJackson.fromString(session, s, (RecordAbstract) entityImpl);
+          JSONSerializerJackson.INSTANCE.fromString(session, s, (RecordAbstract) entityImpl);
           return entityImpl;
         }
         default -> {
@@ -482,6 +483,22 @@ public enum PropertyTypeInternal {
           return embeddedList;
         }
         default -> {
+          if (value.getClass().isArray()) {
+            var size = Array.getLength(value);
+            var embeddedList = session.newEmbeddedList(size);
+
+            for (var i = 0; i < size; i++) {
+              var item = Array.get(value, i);
+              var converted = PropertyTypeInternal.convertEmbeddedCollectionItem(linkedType,
+                  linkedClass,
+                  session, item,
+                  this);
+              embeddedList.add(converted);
+            }
+
+            return embeddedList;
+          }
+
           var embeddedList = session.newEmbeddedList();
           var converted = PropertyTypeInternal.convertEmbeddedCollectionItem(linkedType,
               linkedClass,
@@ -805,7 +822,7 @@ public enum PropertyTypeInternal {
           return identifiable;
         }
         case Result result -> {
-          if (result.isRecord()) {
+          if (result.isIdentifiable()) {
             return result.asIdentifiable();
           }
           if (result.isProjection()) {
@@ -1225,13 +1242,30 @@ public enum PropertyTypeInternal {
         return linkBag;
       }
 
-      var ridBag = new LinkBag(session);
-      if (value instanceof Iterable<?> iterable) {
-        for (var item : iterable) {
-          ridBag.add(((Identifiable) LINK.convert(item, null, linkedClass, session)).getIdentity());
-        }
+      var linkBag = new LinkBag(session);
+      switch (value) {
+        case Iterable<?> iterable -> {
+          for (var item : iterable) {
+            linkBag.add(
+                ((Identifiable) LINK.convert(item, null, linkedClass, session)).getIdentity());
+          }
 
-        return ridBag;
+          return linkBag;
+        }
+        case Iterator<?> iterator -> {
+          while (iterator.hasNext()) {
+            linkBag.add(((Identifiable) LINK.convert(iterator.next(), null, linkedClass, session))
+                .getIdentity());
+          }
+
+          return linkBag;
+        }
+        case Identifiable identifiable -> {
+          linkBag.add(identifiable.getIdentity());
+          return linkBag;
+        }
+        default -> {
+        }
       }
 
       throw new DatabaseException(session, conversionErrorMessage(value, this));
@@ -1489,7 +1523,7 @@ public enum PropertyTypeInternal {
 
     if (byType == null) {
       if (value instanceof Result result) {
-        if (result.isRecord()) {
+        if (result.isIdentifiable()) {
           if (result.isEntity()) {
             var identifable = result.asIdentifiable();
             if (identifable instanceof Entity entity && entity.isEmbedded()) {
@@ -1536,7 +1570,7 @@ public enum PropertyTypeInternal {
     }
 
     if (value instanceof Result result) {
-      if (result.isRecord()) {
+      if (result.isIdentifiable()) {
         var identifiable = result.asIdentifiable();
         if (!(identifiable instanceof Entity entity)) {
           return true;

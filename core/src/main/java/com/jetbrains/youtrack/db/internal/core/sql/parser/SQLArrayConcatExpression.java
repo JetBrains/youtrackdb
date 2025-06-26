@@ -5,12 +5,13 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -176,7 +177,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     for (var expr : this.childExpressions) {
       if (expr.isAggregate(session)) {
         return true;
@@ -185,7 +186,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return false;
   }
 
-  public SimpleNode splitForAggregation(DatabaseSessionInternal session,
+  public SimpleNode splitForAggregation(DatabaseSessionEmbedded session,
       AggregateProjectionSplit aggregateProj) {
     if (isAggregate(session)) {
       throw new CommandExecutionException(session,
@@ -196,6 +197,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
   }
 
 
+  @Override
   public SQLArrayConcatExpression copy() {
     var result = new SQLArrayConcatExpression(-1);
     this.childExpressions.forEach(x -> result.childExpressions.add(x.copy()));
@@ -232,6 +234,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     for (var i = 0; i < childExpressions.size(); i++) {
       if (i > 0) {
@@ -270,12 +273,12 @@ public class SQLArrayConcatExpression extends SimpleNode {
     return childExpressions != null ? childExpressions.hashCode() : 0;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (childExpressions != null) {
       result.setProperty(
           "childExpressions",
-          childExpressions.stream().map(x -> x.serialize(db)).collect(Collectors.toList()));
+          childExpressions.stream().map(x -> x.serialize(session)).collect(Collectors.toList()));
     }
     return result;
   }
@@ -293,7 +296,7 @@ public class SQLArrayConcatExpression extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     for (var exp : childExpressions) {
       if (!exp.isCacheable(session)) {
         return false;

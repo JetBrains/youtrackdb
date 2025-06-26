@@ -3,7 +3,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -28,11 +27,6 @@ public class SQLExpressionStatement extends SQLSimpleExecStatement {
     var item = new ResultInternal(db);
     item.setProperty("result", expResult);
     return ExecutionStream.singleton(item);
-  }
-
-  @Override
-  public boolean executinPlanCanBeCached(DatabaseSessionInternal session) {
-    return false;
   }
 
   @Override
@@ -71,7 +65,7 @@ public class SQLExpressionStatement extends SQLSimpleExecStatement {
 
   @Override
   public int hashCode() {
-    return Objects.hash(expression);
+    return expression.hashCode();
   }
 }
 /* JavaCC - OriginalChecksum=c3eda193cdcf863b4ced490ef1f37734 (do not edit this line) */

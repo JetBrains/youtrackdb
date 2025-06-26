@@ -15,7 +15,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -30,8 +29,6 @@ import java.util.Map;
 import org.apache.commons.math3.util.Pair;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -39,11 +36,6 @@ public class JSONTest extends BaseDBTest {
 
   public static final String FORMAT_WITHOUT_RID =
       "version,class,type,keepTypes";
-
-  @Parameters(value = "remote")
-  public JSONTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   @Override
@@ -363,13 +355,14 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testFetchedJson() {
-    final var resultSet =
-        session
-            .query("select * from Profile where name = 'Barack' and surname = 'Obama'")
-            .toList();
+    session.begin();
+    var rs = session
+        .query("select * from Profile where name = 'Barack' and surname = 'Obama'");
+    final var resultSet = rs.toList();
+    rs.close();
+    session.commit();
 
     for (var result : resultSet) {
-
       final var entity = result.asEntity();
       checkJsonSerialization(entity.getIdentity());
     }
@@ -1078,7 +1071,7 @@ public class JSONTest extends BaseDBTest {
         );
         Assert.fail("Nested entities should not be allowed to have links inside them.");
       } catch (SerializationException ex) {
-        Assert.assertTrue(ex.getCause() instanceof DatabaseException);
+        Assert.assertTrue(ex.getCause() instanceof IllegalArgumentException);
       }
     });
   }

@@ -30,33 +30,23 @@ public class SQLReturnStatement extends SQLSimpleExecStatement {
   public ExecutionStream executeSimple(CommandContext ctx) {
     List<Result> rs = new ArrayList<>();
 
-    var database = ctx.getDatabaseSession();
+    var session = ctx.getDatabaseSession();
     var result = expression == null ? null : expression.execute((Result) null, ctx);
     if (result instanceof Result) {
       rs.add((Result) result);
     } else if (result instanceof Identifiable) {
-      var res = new ResultInternal(database, (Identifiable) result);
+      var res = new ResultInternal(session, (Identifiable) result);
       rs.add(res);
     } else if (result instanceof ResultSet) {
-      if (!((ResultSet) result).hasNext()) {
-        try {
-          if (result instanceof InternalResultSet internalResultSet) {
-            internalResultSet.reset();
-          }
-        } catch (UnsupportedOperationException ignore) {
-          // just try to reset the RS, in case it was already used during the script execution
-          // already
-          // You can have two cases here:
-          // - a result stored in a LET, that is always resettable, as it's copied
-          // - a result from a direct query (eg. RETURN SELECT...), that is new or just empty, so
-          // this operation does not hurt
-        }
+      if (result instanceof InternalResultSet internalResultSet) {
+        result = internalResultSet.copy(session);
       }
+
       return ExecutionStream.resultIterator(((ResultSet) result).stream().iterator());
     } else if (result instanceof ExecutionStream) {
       return (ExecutionStream) result;
     } else {
-      var res = new ResultInternal(database);
+      var res = new ResultInternal(session);
       res.setProperty("value", result);
       rs.add(res);
     }

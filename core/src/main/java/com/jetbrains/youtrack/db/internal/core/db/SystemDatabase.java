@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -39,11 +40,14 @@ public class SystemDatabase {
   public static final String SERVER_INFO_CLASS = "ServerInfo";
   public static final String SERVER_ID_PROPERTY = "serverId";
 
-  private final YouTrackDBInternal context;
+  private final YouTrackDBInternalEmbedded context;
+  private final boolean enabled;
   private String serverId;
 
-  public SystemDatabase(final YouTrackDBInternal context) {
+  public SystemDatabase(final YouTrackDBInternalEmbedded context) {
     this.context = context;
+    this.enabled = context.getConfiguration().getConfiguration()
+        .getValueAsBoolean(GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED);
   }
 
   /**
@@ -52,9 +56,11 @@ public class SystemDatabase {
    * called and restoring it after the database is closed.
    */
   public DatabaseSessionInternal openSystemDatabaseSession() {
+    checkIfEnabled();
     if (!exists()) {
       init();
     }
+
     return context.openNoAuthorization(SYSTEM_DB_NAME);
   }
 
@@ -83,6 +89,7 @@ public class SystemDatabase {
   }
 
   public void init() {
+    checkIfEnabled();
     if (!exists()) {
       LogManager.instance()
           .info(this, "Creating the system database '%s' for current server", SYSTEM_DB_NAME);
@@ -97,7 +104,7 @@ public class SystemDatabase {
         type = DatabaseType.MEMORY;
       }
       context.create(SYSTEM_DB_NAME, null, null, type, config);
-      try (var session = context.openNoAuthorization(SYSTEM_DB_NAME)) {
+      try (var session = (DatabaseSessionInternal) context.openNoAuthorization(SYSTEM_DB_NAME)) {
         DefaultSecuritySystem.createSystemRoles(session);
       }
     }
@@ -140,12 +147,17 @@ public class SystemDatabase {
     }
   }
 
-
   public boolean exists() {
     return context.exists(SYSTEM_DB_NAME, null, null);
   }
 
   public String getServerId() {
     return serverId;
+  }
+
+  private void checkIfEnabled() {
+    if (!enabled) {
+      throw new DatabaseException("System database is disabled");
+    }
   }
 }

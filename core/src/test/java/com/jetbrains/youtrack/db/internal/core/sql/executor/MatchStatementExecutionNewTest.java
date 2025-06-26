@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
@@ -805,7 +805,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private int size(ResultSet qResult) {
+  private int size(BasicResultSet qResult) {
     var result = 0;
     while (qResult.hasNext()) {
       result++;
@@ -1011,7 +1011,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private Result getManager2(String personName) {
+  private BasicResult getManager2(String personName) {
     var query =
         "select expand(manager) from ("
             + "  match {class:Employee, where: (name = '"
@@ -1035,7 +1035,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     return item;
   }
 
-  private Result getManager2Arrows(String personName) {
+  private BasicResult getManager2Arrows(String personName) {
     var query =
         "select expand(manager) from ("
             + "  match {class:Employee, where: (name = '"
@@ -1090,7 +1090,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private ResultSet getManagedBy(String managerName) {
+  private BasicResultSet getManagedBy(String managerName) {
     var query =
         "select expand(managed) from ("
             + "  match {class:Employee, where: (name = '"
@@ -1140,7 +1140,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private ResultSet getManagedByArrows(String managerName) {
+  private BasicResultSet getManagedByArrows(String managerName) {
     var query =
         "select expand(managed) from ("
             + "  match {class:Employee, where: (name = '"
@@ -1188,7 +1188,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private ResultSet getManagedBy2(String managerName) {
+  private BasicResultSet getManagedBy2(String managerName) {
     var query =
         "select expand(managed) from ("
             + "  match {class:Employee, where: (name = '"
@@ -1238,7 +1238,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private ResultSet getManagedBy2Arrows(String managerName) {
+  private BasicResultSet getManagedBy2Arrows(String managerName) {
     var query =
         "select expand(managed) from ("
             + "  match {class:Employee, where: (name = '"
@@ -1861,7 +1861,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private ResultSet getManagedElements(String managerName) {
+  private BasicResultSet getManagedElements(String managerName) {
     var query =
         "  match {class:Employee, as:boss, where: (name = '"
             + managerName
@@ -2035,7 +2035,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var result = session.query(query);
     Assert.assertTrue(result.hasNext());
     var item = result.next();
-    Result a = item.getProperty("a");
+    BasicResult a = item.getProperty("a");
     Assert.assertEquals("bbb", a.getProperty("name"));
     Assert.assertNull(a.getProperty("surname"));
     Assert.assertFalse(result.hasNext());
@@ -2514,7 +2514,7 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private ResultSet getManagedPathElements(String managerName) {
+  private BasicResultSet getManagedPathElements(String managerName) {
     var query =
         "  match {class:Employee, as:boss, where: (name = '"
             + managerName
@@ -2546,11 +2546,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
-  private void printExecutionPlan(ResultSet result) {
+  private void printExecutionPlan(BasicResultSet result) {
     printExecutionPlan(null, result);
   }
 
-  private void printExecutionPlan(String query, ResultSet result) {
+  private void printExecutionPlan(String query, BasicResultSet result) {
     //    if (query != null) {
     //      System.out.println(query);
     //    }

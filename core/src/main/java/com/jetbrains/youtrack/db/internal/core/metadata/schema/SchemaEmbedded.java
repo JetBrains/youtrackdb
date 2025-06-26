@@ -19,8 +19,9 @@ public class SchemaEmbedded extends SchemaShared {
     super();
   }
 
+  @Override
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int[] collectionIds,
       SchemaClassImpl... superClasses) {
@@ -51,8 +52,9 @@ public class SchemaEmbedded extends SchemaShared {
     return result;
   }
 
+  @Override
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int collections,
       SchemaClassImpl... superClasses) {
@@ -71,7 +73,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   private SchemaClassImpl doCreateClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       final int collections,
       SchemaClassImpl... superClasses) {
@@ -107,7 +109,7 @@ public class SchemaEmbedded extends SchemaShared {
         collectionIds = new int[]{-1};
       }
 
-      doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
+      doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
@@ -182,10 +184,10 @@ public class SchemaEmbedded extends SchemaShared {
       classes.put(key, cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
-        cls.setSuperClassesInternal(session, superClasses);
+        cls.setSuperClassesInternal(session, superClasses, true);
         for (var superClass : superClasses) {
           // UPDATE INDEXES
-          final var collectionsToIndex = superClass.getPolymorphicCollectionIds(session);
+          final var collectionsToIndex = superClass.getPolymorphicCollectionIds();
           final var collectionNames = new String[collectionsToIndex.length];
           for (var i = 0; i < collectionsToIndex.length; i++) {
             collectionNames[i] = session.getCollectionNameById(collectionsToIndex[i]);
@@ -197,14 +199,14 @@ public class SchemaEmbedded extends SchemaShared {
                 session
                     .getSharedContext()
                     .getIndexManager()
-                    .addCollectionToIndex(session, collectionName, index.getName());
+                    .addCollectionToIndex(session, collectionName, index.getName(), true);
               }
             }
           }
         }
       }
 
-      addCollectionClassMap(session, cls);
+      addCollectionClassMap(cls);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -215,22 +217,23 @@ public class SchemaEmbedded extends SchemaShared {
     return new SchemaClassEmbedded(this, className, collectionIds);
   }
 
+  @Override
   @Nullable
   public SchemaClassImpl getOrCreateClass(
-      DatabaseSessionInternal session, final String iClassName,
+      DatabaseSessionEmbedded session, final String iClassName,
       final SchemaClassImpl... superClasses) {
     if (iClassName == null) {
       return null;
     }
 
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       var cls = classes.get(iClassName.toLowerCase(Locale.ENGLISH));
       if (cls != null) {
         return cls;
       }
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
 
     SchemaClassImpl cls;
@@ -248,7 +251,7 @@ public class SchemaEmbedded extends SchemaShared {
           }
 
           cls = doCreateClass(session, iClassName, collectionIds, retry, superClasses);
-          addCollectionClassMap(session, cls);
+          addCollectionClassMap(cls);
         } finally {
           releaseSchemaWriteLock(session);
         }
@@ -263,7 +266,7 @@ public class SchemaEmbedded extends SchemaShared {
   }
 
   protected SchemaClassImpl doCreateClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int[] collectionIds,
       int retry,
@@ -302,7 +305,7 @@ public class SchemaEmbedded extends SchemaShared {
         }
       }
 
-      doRealCreateClass((DatabaseSessionEmbedded) session, className, superClassesList,
+      doRealCreateClass(session, className, superClassesList,
           collectionIds);
 
       result = classes.get(className.toLowerCase(Locale.ENGLISH));
@@ -387,7 +390,8 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
-  public void dropClass(DatabaseSessionInternal session, final String className) {
+  @Override
+  public void dropClass(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
       if (session.getTransactionInternal().isActive()) {
@@ -409,19 +413,19 @@ public class SchemaEmbedded extends SchemaShared {
             "Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses(session).isEmpty()) {
+      if (!cls.getSubclasses().isEmpty()) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses(session)
+                + cls.getSubclasses()
                 + ". Remove the dependencies before trying to drop it again");
       }
 
       doDropClass(session, className);
 
       var localCache = session.getLocalCache();
-      for (var collectionId : cls.getCollectionIds(session)) {
+      for (var collectionId : cls.getCollectionIds()) {
         localCache.freeCollection(collectionId);
       }
     } finally {
@@ -429,11 +433,11 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
-  protected void doDropClass(DatabaseSessionInternal session, String className) {
+  protected void doDropClass(DatabaseSessionEmbedded session, String className) {
     dropClassInternal(session, className);
   }
 
-  protected void dropClassInternal(DatabaseSessionInternal session, final String className) {
+  protected void dropClassInternal(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
       if (session.getTransactionInternal().isActive()) {
@@ -454,32 +458,32 @@ public class SchemaEmbedded extends SchemaShared {
             "Class '" + className + "' was not found in current database");
       }
 
-      if (!cls.getSubclasses(session).isEmpty()) {
+      if (!cls.getSubclasses().isEmpty()) {
         throw new SchemaException(session.getDatabaseName(),
             "Class '"
                 + className
                 + "' cannot be dropped because it has sub classes "
-                + cls.getSubclasses(session)
+                + cls.getSubclasses()
                 + ". Remove the dependencies before trying to drop it again");
       }
 
       checkEmbedded(session);
 
-      for (var superClass : cls.getSuperClasses(session)) {
+      for (var superClass : cls.getSuperClasses()) {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         superClass.removeBaseClassInternal(session, cls);
       }
-      for (var id : cls.getCollectionIds(session)) {
+      for (var id : cls.getCollectionIds()) {
         if (id != -1) {
           deleteCollection(session, id);
         }
       }
 
-      dropClassIndexes((DatabaseSessionEmbedded) session, cls);
+      dropClassIndexes(session, cls);
 
       classes.remove(key);
 
-      removeCollectionClassMap(session, cls);
+      removeCollectionClassMap(cls);
 
       // WAKE UP DB LIFECYCLE LISTENER
       for (var it = YouTrackDBEnginesManager.instance()
@@ -497,6 +501,7 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
+  @Override
   protected SchemaClassImpl createClassInstance(String name) {
     return new SchemaClassEmbedded(this, name);
   }
@@ -505,7 +510,7 @@ public class SchemaEmbedded extends SchemaShared {
   private static void dropClassIndexes(DatabaseSessionEmbedded session, final SchemaClassImpl cls) {
     final var indexManager = session.getSharedContext().getIndexManager();
 
-    for (final var index : indexManager.getClassIndexes(session, cls.getName(session))) {
+    for (final var index : indexManager.getClassIndexes(session, cls.getName())) {
       indexManager.dropIndex(session, index.getName());
     }
   }
@@ -525,9 +530,8 @@ public class SchemaEmbedded extends SchemaShared {
     session.getLocalCache().freeCollection(collectionId);
   }
 
-  private void removeCollectionClassMap(DatabaseSessionInternal session,
-      final SchemaClassImpl cls) {
-    for (var collectionId : cls.getCollectionIds(session)) {
+  private void removeCollectionClassMap(final SchemaClassImpl cls) {
+    for (var collectionId : cls.getCollectionIds()) {
       if (collectionId < 0) {
         continue;
       }
@@ -536,6 +540,7 @@ public class SchemaEmbedded extends SchemaShared {
     }
   }
 
+  @Override
   public void checkEmbedded(DatabaseSessionInternal session) {
   }
 

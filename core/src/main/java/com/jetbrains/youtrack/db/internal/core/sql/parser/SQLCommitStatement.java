@@ -2,10 +2,13 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,10 +36,30 @@ public class SQLCommitStatement extends SQLSimpleExecStatement {
 
   @Override
   public ExecutionStream executeSimple(CommandContext ctx) {
-    var db = ctx.getDatabaseSession();
-    db.commit(); // no RETRY and ELSE here, that case is allowed only for batch scripts;
-    var item = new ResultInternal(db);
+    var session = ctx.getDatabaseSession();
+    var txInternal = session.getTransactionInternal();
+
+    if (txInternal == null || !txInternal.isActive()) {
+      throw new CommandExecutionException("No active transaction");
+    }
+
+    var activeTxCount = txInternal.activeTxCount();
+    var item = new ResultInternal(session);
+    item.setProperty("txId", txInternal.getId());
+
+    var updatedRids = session.commit();
     item.setProperty("operation", "commit");
+
+    if (updatedRids != null) {
+      var updateRidsLinkMap = new HashMap<String, RID>();
+      for (var entry : updatedRids.entrySet()) {
+        updateRidsLinkMap.put(entry.getKey().toString(), entry.getValue());
+      }
+
+      item.setProperty("updatedRids", updateRidsLinkMap);
+    }
+
+    item.setProperty("activeTxCount", activeTxCount - 1);
     return ExecutionStream.singleton(item);
   }
 

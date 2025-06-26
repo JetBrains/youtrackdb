@@ -23,13 +23,12 @@ package com.jetbrains.youtrack.db.internal.core.record.impl;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import java.text.ParseException;
@@ -78,7 +77,7 @@ public class DateConversionTestCase extends DbTestBase {
 
   @Test
   public void testDateFormantWithMethod() throws ParseException {
-    try (YouTrackDB ctx = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig())) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var session = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
@@ -87,7 +86,7 @@ public class DateConversionTestCase extends DbTestBase {
         format.setTimeZone(TimeZone.getTimeZone("GMT"));
         var date = format.parse("2016-08-31 23:30:00");
 
-        session.set(DatabaseSession.ATTRIBUTES.TIMEZONE, "GMT");
+        session.set(BasicDatabaseSession.ATTRIBUTES.TIMEZONE, "GMT");
 
         var tx = session.begin();
         var doc = (EntityImpl) session.newEntity();

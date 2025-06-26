@@ -29,12 +29,6 @@ import org.testng.annotations.Test;
 
 @Test
 public class CollectionIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public CollectionIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void setupSchema() {
     if (session.getMetadata().getSchema().existsClass("Collector")) {
@@ -48,6 +42,7 @@ public class CollectionIndexTest extends BaseDBTest {
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     session.begin();

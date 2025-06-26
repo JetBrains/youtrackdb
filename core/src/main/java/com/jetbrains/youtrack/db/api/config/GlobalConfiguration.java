@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.config.ConfigurationChangeCallback;
-import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
 import java.io.PrintStream;
 import java.util.Locale;
 import java.util.Map;
@@ -173,15 +172,15 @@ public enum GlobalConfiguration {
       "Controls the per-page checksum storage and verification done by the file cache. Possible"
           + " modes: 'off' – checksums are completely off; 'store' – checksums are calculated and"
           + " stored on page flushes, no verification is done on page loads, stored checksums are"
-          + " verified only during user-initiated health checks; 'storeAndVerify' – checksums are"
+          + " verified only during user-initiated health checks; 'StoreAndVerify' – checksums are"
           + " calculated and stored on page flushes, verification is performed on each page load,"
-          + " errors are reported in the log; 'storeAndThrow' – same as `storeAndVerify` with"
+          + " errors are reported in the log; 'StoreAndThrow' – same as `storeAndVerify` with"
           + " addition of exceptions thrown on errors, this mode is useful for debugging and"
           + " testing, but should be avoided in a production environment;"
-          + " 'storeAndSwitchReadOnlyMode' (default) - Same as 'storeAndVerify' with addition that"
+          + " 'StoreAndSwitchReadOnlyMode' (default) - Same as 'StoreAndVerify' with addition that"
           + " storage will be switched in read only mode till it will not be repaired.",
-      ChecksumMode.class,
-      ChecksumMode.StoreAndSwitchReadOnlyMode,
+      String.class,
+      "StoreAndSwitchReadOnlyMode",
       false),
 
   STORAGE_EXCLUSIVE_FILE_ACCESS(
@@ -412,6 +411,13 @@ public enum GlobalConfiguration {
       "youtrackdb.db.validation", "Enables or disables validation of records", Boolean.class, true,
       true),
 
+  DB_SYSTEM_DATABASE_ENABLED(
+      "youtrack.db.systemDatabase.enabled",
+      "Enables usage of system database. If disabled, it will turn off the initialization "
+          + "of system database and system users in server mode and will initiate an error on "
+          + "all attempts to access the system database.",
+      Boolean.class, true, true),
+
   // INDEX
   INDEX_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD(
       "youtrackdb.index.embeddedToSbtreeBonsaiThreshold",
@@ -592,7 +598,7 @@ public enum GlobalConfiguration {
       "Set the minimum enabled binary protocol version and disable all backward compatible"
           + " behaviour for version previous the one specified",
       Integer.class,
-      26,
+      1,
       false),
 
   NETWORK_BINARY_DEBUG(
@@ -776,12 +782,6 @@ public enum GlobalConfiguration {
       Integer.class,
       1000),
 
-  QUERY_REMOTE_SEND_EXECUTION_PLAN(
-      "youtrackdb.query.remoteResultSet.sendExecutionPlan",
-      "Send the execution plan details or not. False by default",
-      Boolean.class,
-      false),
-
   QUERY_PARALLEL_AUTO(
       "youtrackdb.query.parallelAuto",
       "Auto enable parallel query, if requirements are met",
@@ -832,6 +832,12 @@ public enum GlobalConfiguration {
       "Enable/Disable the support of live query. (Use false to disable)",
       Boolean.class,
       true),
+
+  QUERY_RESULT_SET_OPEN_WARNING_THRESHOLD(
+      "youtrackdb.query.resultSetOpenThresholdWarning",
+      "Number of simultaneous open result sets to warn about. Negative number means no warning.",
+      Integer.class,
+      10),
 
   STATEMENT_CACHE_SIZE(
       "youtrackdb.statement.cacheSize",
@@ -920,12 +926,6 @@ public enum GlobalConfiguration {
       Boolean.class,
       Boolean.FALSE,
       true),
-
-  DB_ENTITY_SERIALIZER(
-      "youtrackdb.entity.serializer",
-      "The default record serializer used by the database",
-      String.class,
-      "RecordSerializerBinary"),
 
   CLIENT_KRB5_CONFIG(
       "youtrackdb.client.krb5.config", "Location of the Kerberos configuration file", String.class,

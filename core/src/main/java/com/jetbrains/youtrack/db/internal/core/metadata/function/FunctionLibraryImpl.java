@@ -26,6 +26,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -61,7 +62,7 @@ public class FunctionLibraryImpl {
   public void load(DatabaseSessionInternal session) {
     // COPY CALLBACK IN RAM
     final Map<String, CallableFunction<Object, Map<Object, Object>>> callbacks =
-        new HashMap<String, CallableFunction<Object, Map<Object, Object>>>();
+        new HashMap<>();
     for (var entry : functions.entrySet()) {
       if (entry.getValue().getCallback() != null) {
         callbacks.put(entry.getKey(), entry.getValue().getCallback());
@@ -72,23 +73,25 @@ public class FunctionLibraryImpl {
 
     // LOAD ALL THE FUNCTIONS IN MEMORY
     if (session.getMetadata().getImmutableSchemaSnapshot().existsClass("OFunction")) {
-      try (var result = session.query("select from OFunction order by name")) {
-        while (result.hasNext()) {
-          var res = result.next();
-          var d = (EntityImpl) res.asEntity();
-          // skip the function records which do not contain real data
-          if (d.getPropertiesCount() == 0) {
-            continue;
+      session.executeInTx(tx -> {
+        try (var result = tx.query("select from OFunction order by name")) {
+          while (result.hasNext()) {
+            var res = result.next();
+            var d = (EntityImpl) res.asEntity();
+            // skip the function records which do not contain real data
+            if (d.getPropertiesCount() == 0) {
+              continue;
+            }
+
+            final var f = new Function(d);
+
+            // RESTORE CALLBACK IF ANY
+            f.setCallback(callbacks.get(f.getName()));
+
+            functions.put(d.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
           }
-
-          final var f = new Function(session, d);
-
-          // RESTORE CALLBACK IF ANY
-          f.setCallback(callbacks.get(f.getName()));
-
-          functions.put(d.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
         }
-      }
+      });
     }
   }
 
@@ -117,7 +120,7 @@ public class FunctionLibraryImpl {
     onFunctionsChanged(session);
   }
 
-  public void createdFunction(DatabaseSessionInternal session, EntityImpl function) {
+  public void createdFunction(DatabaseSessionEmbedded session, EntityImpl function) {
     final var f = new Function(session, function.getIdentity());
     functions.put(function.getProperty("name").toString().toUpperCase(Locale.ENGLISH), f);
     onFunctionsChanged(session);
@@ -133,7 +136,7 @@ public class FunctionLibraryImpl {
   }
 
   public synchronized Function createFunction(
-      DatabaseSessionInternal session, final String iName) {
+      DatabaseSessionEmbedded session, final String iName) {
     init(session);
     reloadIfNeeded(session);
 
@@ -200,7 +203,7 @@ public class FunctionLibraryImpl {
         });
   }
 
-  public void updatedFunction(DatabaseSessionInternal session, EntityImpl function) {
+  public void updatedFunction(DatabaseSessionEmbedded session, EntityImpl function) {
     reloadIfNeeded(session);
     var oldName = (String) function.getOriginalValue("name");
     if (oldName != null) {

@@ -1,37 +1,19 @@
-/*
- *
- *
- *  *
- *  *  Licensed under the Apache License, Version 2.0 (the "License");
- *  *  you may not use this file except in compliance with the License.
- *  *  You may obtain a copy of the License at
- *  *
- *  *       http://www.apache.org/licenses/LICENSE-2.0
- *  *
- *  *  Unless required by applicable law or agreed to in writing, software
- *  *  distributed under the License is distributed on an "AS IS" BASIS,
- *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  *  See the License for the specific language governing permissions and
- *  *  limitations under the License.
- *  *
- *
- *
- */
 package com.jetbrains.youtrack.db.api;
 
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
-import com.jetbrains.youtrack.db.api.exception.CommandScriptException;
-import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException;
+import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedList;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedSet;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkList;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkMap;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
@@ -39,7 +21,6 @@ import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
 import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
 import com.jetbrains.youtrack.db.api.transaction.TxFunction;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
-import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
@@ -49,16 +30,8 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- * Session for database operations with a specific user.
- */
-public interface DatabaseSession extends AutoCloseable {
-
-  enum STATUS {
-    OPEN,
-    CLOSED,
-    IMPORTING
-  }
+@SuppressWarnings("unused")
+public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet> {
 
   /**
    * Executes the passed in code in a transaction. Starts a transaction if not already started, in
@@ -305,16 +278,8 @@ public interface DatabaseSession extends AutoCloseable {
    * @return <code>true</code> if database is obtained from the pool and <code>false</code>
    * otherwise.
    */
+  @Override
   boolean isPooled();
-
-  /**
-   * Returns the database configuration settings. If defined, any database configuration overwrites
-   * the global one.
-   *
-   * @return ContextConfiguration
-   */
-  @Nullable
-  ContextConfiguration getConfiguration();
 
   /**
    * Closes an opened database, if the database is already closed does nothing, if a transaction is
@@ -326,20 +291,15 @@ public interface DatabaseSession extends AutoCloseable {
   /**
    * Returns the current status of database.
    */
+  @Override
   STATUS getStatus();
-
-  /**
-   * Returns the database name.
-   *
-   * @return Name of the database
-   */
-  String getDatabaseName();
 
   /**
    * Returns the database URL.
    *
    * @return URL of the database
    */
+  @Override
   String getURL();
 
   /**
@@ -347,6 +307,7 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * @return true if is closed, otherwise false.
    */
+  @Override
   boolean isClosed();
 
 
@@ -363,6 +324,7 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * @see #release()
    */
+  @Override
   void freeze();
 
   /**
@@ -370,6 +332,7 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * @see #freeze()
    */
+  @Override
   void release();
 
   /**
@@ -381,11 +344,15 @@ public interface DatabaseSession extends AutoCloseable {
    *
    * <p>IMPORTANT: This command is not reentrant.
    *
-   * @param throwException If <code>true</code> {@link ModificationOperationProhibitedException}
+   * @param throwException If <code>true</code>
+   *                       {@link
+   *                       com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException}
    *                       exception will be thrown in case of write command will be performed.
    */
+  @Override
   void freeze(boolean throwException);
 
+  @Override
   @Nullable
   String getCurrentUserName();
 
@@ -397,47 +364,6 @@ public interface DatabaseSession extends AutoCloseable {
    * @return Amount of nested transaction calls. First call is 1.
    */
   Transaction begin();
-
-
-  /**
-   * Execute a script in a specified query language. The result set has to be closed after usage
-   * <br>
-   * <br>
-   * Sample usage:
-   *
-   * <p><code>
-   * String script = "INSERT INTO Person SET name = 'foo', surname = ?;"+ "INSERT INTO Person SET
-   * name = 'bar', surname = ?;"+ "INSERT INTO Person SET name = 'baz', surname = ?;";
-   * <p>
-   * ResultSet rs = db.runScript("sql", script, "Surname1", "Surname2", "Surname3"); ...
-   * rs.close();
-   * </code>
-   */
-  default ResultSet runScript(String language, String script, Object... args)
-      throws CommandExecutionException, CommandScriptException {
-    throw new UnsupportedOperationException();
-  }
-
-  /**
-   * Execute a script of a specified query language The result set has to be closed after usage
-   * <br>
-   * <br>
-   * Sample usage:
-   *
-   * <p><code>
-   * Map&lt;String, Object&gt params = new HashMapMap&lt;&gt(); params.put("surname1", "Jones");
-   * params.put("surname2", "May"); params.put("surname3", "Ali");
-   * <p>
-   * String script = "INSERT INTO Person SET name = 'foo', surname = :surname1;"+ "INSERT INTO
-   * Person SET name = 'bar', surname = :surname2;"+ "INSERT INTO Person SET name = 'baz', surname =
-   * :surname3;";
-   * <p>
-   * ResultSet rs = db.runScript("sql", script, params); ... rs.close(); </code>
-   */
-  default ResultSet runScript(String language, String script, Map<String, ?> args)
-      throws CommandExecutionException, CommandScriptException {
-    throw new UnsupportedOperationException();
-  }
 
   /**
    * Registers a hook to listen all events for Records.
@@ -460,17 +386,6 @@ public interface DatabaseSession extends AutoCloseable {
    */
   Iterable<SessionListener> getListeners();
 
-  /**
-   * Performs incremental backup of database content to the selected folder. This is thread safe
-   * operation and can be done in normal operational mode.
-   *
-   * <p>If it will be first backup of data full content of database will be copied into folder
-   * otherwise only changes after last backup in the same folder will be copied.
-   *
-   * @param path Path to backup folder.
-   * @return File name of the backup
-   */
-  String incrementalBackup(Path path);
 
   /**
    * Returns a database attribute value
@@ -493,6 +408,35 @@ public interface DatabaseSession extends AutoCloseable {
 
   @Nullable
   Transaction getActiveTransactionOrNull();
+
+  /**
+   * Returns the database configuration settings. If defined, any database configuration overwrites
+   * the global one.
+   *
+   * @return ContextConfiguration
+   */
+  @Nullable
+  ContextConfiguration getConfiguration();
+
+  /**
+   * Returns the database name.
+   *
+   * @return Name of the database
+   */
+  @Override
+  String getDatabaseName();
+
+  /// Returns **single-threaded** version of TinkerPop graph that is allowed to be used inside of
+  /// the current thread only.
+  YTDBGraph asGraph();
+
+  /**
+   * Opens the current session in remote mode. This instance cannot be used until the remote session
+   * returned will not be closed.
+   *
+   * @return remote session wrapper around the current instance.
+   */
+  RemoteDatabaseSession asRemoteSession();
 
   <T> EmbeddedList<T> newEmbeddedList();
 
@@ -545,13 +489,4 @@ public interface DatabaseSession extends AutoCloseable {
   LinkMap newLinkMap(int size);
 
   LinkMap newLinkMap(Map<String, ? extends Identifiable> source);
-
-  enum ATTRIBUTES {
-    DATEFORMAT,
-    DATE_TIME_FORMAT,
-    TIMEZONE,
-    LOCALE_COUNTRY,
-    LOCALE_LANGUAGE,
-    CHARSET,
-  }
 }

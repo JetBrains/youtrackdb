@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atom
 import java.io.IOException;
 import java.util.Arrays;
 import javax.annotation.Nullable;
+import org.apache.commons.lang.ArrayUtils;
 
 /**
  * @since 10/7/13
@@ -480,6 +481,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       result = CommonConst.EMPTY_LONG_ARRAY;
     }
 
+    ArrayUtils.reverse(result);
     return result;
   }
 

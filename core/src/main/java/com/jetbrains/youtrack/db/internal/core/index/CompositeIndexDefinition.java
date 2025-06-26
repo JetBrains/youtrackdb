@@ -20,8 +20,8 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.MultiValueChangeEvent;
@@ -125,10 +125,10 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
-  public List<String> getFields() {
+  public List<String> getProperties() {
     final List<String> fields = new LinkedList<>();
     for (final var indexDefinition : indexDefinitions) {
-      fields.addAll(indexDefinition.getFields());
+      fields.addAll(indexDefinition.getProperties());
     }
     return Collections.unmodifiableList(fields);
   }
@@ -187,7 +187,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   @Nullable
   public String getMultiValueField() {
     if (multiValueDefinitionIndex >= 0) {
-      return indexDefinitions.get(multiValueDefinitionIndex).getFields().getFirst();
+      return indexDefinitions.get(multiValueDefinitionIndex).getProperties().getFirst();
     }
 
     return null;

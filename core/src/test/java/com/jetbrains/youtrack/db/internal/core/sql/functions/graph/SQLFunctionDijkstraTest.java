@@ -8,7 +8,8 @@ import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.util.List;
 import org.junit.After;
 import org.junit.Before;
@@ -40,7 +41,7 @@ public class SQLFunctionDijkstraTest {
 
   private void setUpDatabase() {
     youTrackDB =
-        CreateDatabaseUtil.createDatabase(
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
             "SQLFunctionDijkstraTest", DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
     session =
@@ -83,7 +84,7 @@ public class SQLFunctionDijkstraTest {
     v4 = tx.load(v4);
 
     var context = new BasicCommandContext();
-    context.setDatabaseSession((DatabaseSessionInternal) session);
+    context.setDatabaseSession((DatabaseSessionEmbedded) session);
 
     final List<Vertex> result =
         functionDijkstra.execute(

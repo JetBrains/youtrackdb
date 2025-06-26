@@ -85,7 +85,7 @@ public class LuceneExportImportTest extends LuceneBaseTest {
     }
 
     assertThat(session.countClass("City")).isEqualTo(1);
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "City.name");
+    var index = session.getSharedContext().getIndexManager().getIndex("City.name");
 
     assertThat(index.getType()).isEqualTo(FULLTEXT.toString());
 

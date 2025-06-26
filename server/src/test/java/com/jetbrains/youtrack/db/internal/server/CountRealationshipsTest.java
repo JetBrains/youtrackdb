@@ -2,26 +2,25 @@ package com.jetbrains.youtrack.db.internal.server;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.record.Direction;
-import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import java.io.File;
+import java.util.List;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class CountRealationshipsTest {
 
   private static final String SERVER_DIRECTORY = "./target/collection";
   private YouTrackDBServer server;
-  private YouTrackDB youTrackDB;
+  private RemoteYouTrackDB youTrackDB;
 
   @Before
   public void before() throws Exception {
@@ -30,7 +29,7 @@ public class CountRealationshipsTest {
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config-tree-ridbag.xml"));
     server.activate();
 
-    youTrackDB = new YouTrackDBImpl("remote:localhost", "root", "root",
+    youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
         YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
@@ -40,86 +39,43 @@ public class CountRealationshipsTest {
   @Test
   public void test() throws Exception {
     var session =
-        youTrackDB.open(CountRealationshipsTest.class.getSimpleName(), "admin", "admin");
-    var tx = session.begin();
-    var vertex1 = tx.newVertex("V");
-    var vertex2 = tx.newVertex("V");
-    tx.commit();
+        youTrackDB.open(CountRealationshipsTest.class.getSimpleName(),
+            "admin", "admin");
+    var res = session.computeSQLScript("""
+        begin;
+        let $v1 = create vertex V;
+        let $v2 = create vertex V;
+        commit;
+        return {"v1" : $v1, "v2" : $v2};
+        """).findFirst().getEmbeddedMap("value");
 
-    tx = session.begin();
-    vertex1 = tx.load(vertex1.getIdentity());
-    vertex2 = tx.load(vertex2.getIdentity());
+    @SuppressWarnings("unchecked")
+    var vertex1 = ((List<Identifiable>) res.get("v1")).getFirst().getIdentity();
+    @SuppressWarnings("unchecked")
+    var vertex2 = ((List<Identifiable>) res.get("v2")).getFirst().getIdentity();
 
-    int version = vertex1.getProperty("@version");
-    assertEquals(0, countEdges(vertex1, Direction.OUT));
-    assertEquals(0, countEdges(vertex1, Direction.OUT));
-    System.out.println("Version: " + version);
-    System.out.println("vertex1 out: " + countEdges(vertex1, Direction.OUT));
-    System.out.println("vertex2 in: " + countEdges(vertex2, Direction.IN));
-    /*
-     * output: Version: 1 vertex1 out: 0 vertex2 in: 0
-     */
+    assertEquals(0, countOutEdges(session, vertex1));
 
-    vertex2 = tx.load(vertex2.getIdentity());
-    vertex1 = tx.load(vertex1.getIdentity());
+    session.command("begin");
+    session.command("create edge from ? to ?", vertex1, vertex2);
+    assertEquals(1, countOutEdges(session, vertex1));
+    session.command("commit");
 
-    vertex1.addStateFulEdge(vertex2);
-
-    version = vertex1.getProperty("@version");
-    assertEquals(1, countEdges(vertex1, Direction.OUT));
-    assertEquals(1, countEdges(vertex1, Direction.OUT));
-    System.out.println("Pre-commit:");
-    System.out.println("Version: " + version);
-    System.out.println("vertex1 out: " + countEdges(vertex1, Direction.OUT));
-    System.out.println("vertex2 in: " + countEdges(vertex2, Direction.IN));
-    /*
-     * output: Pre-commit: Version: 1 vertex1 out: 1 vertex2 in: 1
-     */
-
-    tx.commit();
-
-    tx = session.begin();
-    vertex1 = tx.load(vertex1.getIdentity());
-    vertex2 = tx.load(vertex2.getIdentity());
-
-    version = vertex1.getProperty("@version");
-    assertEquals(1, countEdges(vertex1, Direction.OUT));
-    assertEquals(1, countEdges(vertex1, Direction.OUT));
-    System.out.println("Post-commit:");
-    System.out.println("Version: " + version);
-    System.out.println("vertex1 out: " + countEdges(vertex1, Direction.OUT));
-    System.out.println("vertex2 in: " + countEdges(vertex2, Direction.IN));
-    /*
-     * output: Post-commit: Version: 2 vertex1 out: 0 <- INCORRECT vertex2 in: 0 <- INCORRECT
-     */
-
-    tx.commit();
+    assertEquals(1, countOutEdges(session, vertex1));
     session.close();
 
     session = youTrackDB.open(CountRealationshipsTest.class.getSimpleName(), "admin", "admin");
-    tx = session.begin();
-    vertex1 = tx.load(vertex1.getIdentity());
-    vertex2 = tx.load(vertex2.getIdentity());
-
-    version = vertex1.getProperty("@version");
-    assertEquals(1, countEdges(vertex1, Direction.OUT));
-    assertEquals(1, countEdges(vertex1, Direction.OUT));
-    System.out.println("Reload in new transaction:");
-    System.out.println("Version: " + version);
-    System.out.println("vertex1 out: " + countEdges(vertex1, Direction.OUT));
-    System.out.println("vertex2 in: " + countEdges(vertex2, Direction.IN));
-    /*
-     * output: Reload in new transaction: Version: 2 vertex1 out: 1 vertex2 in: 1
-     */
-    tx.commit();
+    assertEquals(1, countOutEdges(session, vertex1));
+    session.close();
   }
 
-  private int countEdges(Vertex v, Direction dir) throws Exception {
-    var c = 0;
-    for (var oEdge : v.getEdges(dir)) {
-      c++;
+  private static long countOutEdges(RemoteDatabaseSession session, RID v) {
+    session.begin();
+    try {
+      return session.query("select out().size() as size from ?", v).findFirst().getLong("size");
+    } finally {
+      session.commit();
     }
-    return c;
   }
 
   @After

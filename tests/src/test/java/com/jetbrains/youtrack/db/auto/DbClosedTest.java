@@ -21,13 +21,7 @@ import org.testng.annotations.Optional;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(groups = "db")
 public class DbClosedTest extends BaseDBTest {
-
-  @Parameters(value = {"remote"})
-  public DbClosedTest(@Optional Boolean remote) {
-    super(remote != null && remote, "db-closed-test");
-  }
 
   public void testDoubleDb() {
     DatabaseSession db = acquireSession();
@@ -51,11 +45,7 @@ public class DbClosedTest extends BaseDBTest {
 
   @Test
   public void testRemoteConns() {
-    if (remoteDB) {
-      return;
-    }
-
-    final var max = GlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger();
+        final var max = GlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger();
     for (var i = 0; i < max * 2; ++i) {
       final DatabaseSession db = acquireSession();
       db.close();

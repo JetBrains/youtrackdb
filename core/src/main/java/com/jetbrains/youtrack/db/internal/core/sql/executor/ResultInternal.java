@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -22,6 +23,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.query.BasicResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
@@ -44,7 +46,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 
-public class ResultInternal implements Result {
+public class ResultInternal implements Result, BasicResultInternal {
+
   protected Map<String, Object> content;
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
@@ -184,6 +187,7 @@ public class ResultInternal implements Result {
     };
   }
 
+  @Override
   public void setProperty(@Nonnull String name, Object value) {
     assert checkSession();
 
@@ -203,7 +207,7 @@ public class ResultInternal implements Result {
   }
 
   @Override
-  public boolean isRecord() {
+  public boolean isIdentifiable() {
     assert checkSession();
 
     return identifiable != null;
@@ -298,8 +302,11 @@ public class ResultInternal implements Result {
             }
           } else {
             if (allIdentifiable) {
-              throw new IllegalArgumentException(
-                  "Invalid property value, if list contains identifiables, it should contain only them");
+              var lst = new EmbeddedListResultImpl<>(array.length);
+              lst.addAll(listCopy);
+
+              listCopy = lst;
+              allIdentifiable = false;
             }
             if (listCopy == null) {
               listCopy = new EmbeddedListResultImpl<>(array.length);
@@ -328,8 +335,11 @@ public class ResultInternal implements Result {
             }
           } else {
             if (allIdentifiable) {
-              throw new IllegalArgumentException(
-                  "Invalid property value, if list contains identifiables, it should contain only them");
+              var lst = new EmbeddedListResultImpl<>(collection.size());
+              lst.addAll(listCopy);
+
+              listCopy = lst;
+              allIdentifiable = false;
             }
             if (listCopy == null) {
               listCopy = new EmbeddedListResultImpl<>(collection.size());
@@ -343,6 +353,11 @@ public class ResultInternal implements Result {
           listCopy = new EmbeddedListResultImpl<>();
         }
         return listCopy;
+      }
+      case ResultSet resultSet -> {
+        var resultList = new ArrayList<>();
+        resultSet.forEachRemaining(result -> resultList.add(convertPropertyValue(result)));
+        return resultList;
       }
       case Set<?> set -> {
         Set<Object> setCopy = null;
@@ -762,7 +777,16 @@ public class ResultInternal implements Result {
     }
 
     if (isEntity()) {
-      var transaction = session.getActiveTransaction();
+      var transaction = session.getActiveTransactionOrNull();
+
+      if (transaction == null) {
+        if (identifiable instanceof Entity entity) {
+          return entity;
+        }
+
+        return null;
+      }
+
       this.identifiable = transaction.loadEntity(identifiable);
       return asEntityOrNull();
     }
@@ -818,7 +842,15 @@ public class ResultInternal implements Result {
       return (DBRecord) identifiable;
     }
 
-    var transaction = session.getActiveTransaction();
+    var transaction = session.getActiveTransactionOrNull();
+    if (transaction == null) {
+      if (identifiable instanceof DBRecord record) {
+        return record;
+      }
+
+      return null;
+    }
+
     this.identifiable = transaction.load(this.identifiable);
     return asRecordOrNull();
   }
@@ -872,7 +904,16 @@ public class ResultInternal implements Result {
     }
 
     if (isBlob()) {
-      var transaction = session.getActiveTransaction();
+      var transaction = session.getActiveTransactionOrNull();
+
+      if (transaction == null) {
+        if (identifiable instanceof Blob blob) {
+          return blob;
+        }
+
+        return null;
+      }
+
       this.identifiable = transaction.loadBlob(this.identifiable);
       return asBlobOrNull();
     }
@@ -889,6 +930,7 @@ public class ResultInternal implements Result {
     return metadata == null ? null : metadata.get(key);
   }
 
+  @Override
   public void setMetadata(String key, Object value) {
     assert checkSession();
     if (key == null) {
@@ -915,6 +957,11 @@ public class ResultInternal implements Result {
   public Set<String> getMetadataKeys() {
     assert checkSession();
     return metadata == null ? Collections.emptySet() : metadata.keySet();
+  }
+
+  @Override
+  public void setIdentity(@Nonnull RID identity) {
+    setIdentifiable(identity);
   }
 
   public void setIdentifiable(Identifiable identifiable) {
@@ -1255,7 +1302,7 @@ public class ResultInternal implements Result {
 
     if (!(obj instanceof ResultInternal resultObj)) {
       if (obj instanceof Result result) {
-        if (result.isRecord() && identifiable != null) {
+        if (result.isIdentifiable() && identifiable != null) {
           return identifiable.equals(result.getIdentity());
         } else if (result.isEdge() && relation instanceof Edge edge) {
           return edge.equals(result.getIdentity());

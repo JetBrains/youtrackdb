@@ -1,15 +1,14 @@
 package com.jetbrains.youtrack.db.auto;
 
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.internal.client.remote.EngineRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.ServerAdmin;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.File;
@@ -22,8 +21,6 @@ import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 public class BTreeLinkSetTest extends AbstractLinkSetTest {
@@ -31,11 +28,7 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
   private int topThreshold;
   private int bottomThreshold;
 
-  @Parameters(value = "remote")
-  public BTreeLinkSetTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     topThreshold =
@@ -43,39 +36,18 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
     bottomThreshold =
         GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.getValueAsInteger();
 
-    if (session.isRemote()) {
-      var server =
-          new ServerAdmin(session.getURL())
-              .connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, -1);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, -1);
-      server.close();
-    }
-
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(-1);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(-1);
 
     super.beforeMethod();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() throws Exception {
     super.afterMethod();
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(topThreshold);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
-
-    if (session.isRemote()) {
-      var server =
-          new ServerAdmin(session.getURL())
-              .connect("root", SERVER_PASSWORD);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD, topThreshold);
-      server.setGlobalConfiguration(
-          GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD, bottomThreshold);
-      server.close();
-    }
   }
 
   @Test
@@ -93,7 +65,7 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
 
     final var directory = session.getStorage().getConfiguration().getDirectory();
     final var wowCache =
-        (WOWCache) ((LocalStorage) (session.getStorage())).getWriteCache();
+        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
 
     final var fileId =
         wowCache.fileIdByName(
@@ -224,10 +196,6 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
 
   @Test
   public void testRemoveLinkSet() {
-    if (session.isRemote()) {
-      return;
-    }
-
     var rid = session.computeInTx(transaction -> {
       var linkSet = session.newLinkSet();
       var entityHolder = session.newEntity();

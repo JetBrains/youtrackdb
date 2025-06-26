@@ -21,8 +21,8 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -74,7 +74,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     }
   }
 
-  public List<String> getFields() {
+  public List<String> getProperties() {
     return Collections.emptyList();
   }
 

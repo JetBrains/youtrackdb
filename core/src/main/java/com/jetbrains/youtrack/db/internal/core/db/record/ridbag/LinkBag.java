@@ -88,13 +88,16 @@ public class LinkBag
   private int topThreshold;
   private int bottomThreshold;
 
-  @Nonnull
   private final DatabaseSessionInternal session;
 
-  public LinkBag(@Nonnull DatabaseSessionInternal session, final LinkBag linkBag) {
+  protected LinkBag() {
+    session = null;
+  }
+
+  public LinkBag(@Nonnull DatabaseSessionInternal session, final LinkBag source) {
     initThresholds(session);
     init();
-    for (var identifiable : linkBag) {
+    for (var identifiable : source) {
       add(identifiable);
     }
     this.session = session;
@@ -185,14 +188,12 @@ public class LinkBag
   }
 
   public void checkAndConvert() {
-    if (!session.isRemote()) {
-      if (isEmbedded()
-          && session.getBTreeCollectionManager() != null
-          && delegate.size() >= topThreshold) {
-        convertToTree();
-      } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
-        convertToEmbedded();
-      }
+    if (isEmbedded()
+        && session.getBTreeCollectionManager() != null
+        && delegate.size() >= topThreshold) {
+      convertToTree();
+    } else if (bottomThreshold >= 0 && !isEmbedded() && delegate.size() <= bottomThreshold) {
+      convertToEmbedded();
     }
   }
 
@@ -291,7 +292,7 @@ public class LinkBag
   }
 
   protected void init() {
-    delegate = topThreshold >= 0 || session.isRemote() ?
+    delegate = topThreshold >= 0 ?
         new EmbeddedLinkBag(session, Integer.MAX_VALUE) :
         new BTreeBasedLinkBag(session, Integer.MAX_VALUE);
   }

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.sbtree.singlevalue.v3;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.HighLevelException;
@@ -9,7 +10,7 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -30,7 +31,7 @@ public class BTreeTestIT {
 
   private AtomicOperationsManager atomicOperationsManager;
   private BTree<String> singleValueTree;
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
 
   private String dbName;
 
@@ -46,7 +47,7 @@ public class BTreeTestIT {
     FileUtils.deleteRecursively(dbDirectory);
 
     final var config = YouTrackDBConfig.builder().build();
-    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
+    youTrackDB = YourTracks.embedded(buildDirectory, config);
     youTrackDB.execute(
         "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 

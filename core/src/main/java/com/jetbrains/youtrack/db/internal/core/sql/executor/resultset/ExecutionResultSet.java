@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -17,6 +18,8 @@ public class ExecutionResultSet implements ResultSet {
   private final ExecutionPlan plan;
   @Nullable
   private DatabaseSessionInternal session;
+
+  private boolean closed = false;
 
   public ExecutionResultSet(
       ExecutionStream stream, CommandContext context, ExecutionPlan plan) {
@@ -30,24 +33,39 @@ public class ExecutionResultSet implements ResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
+    if (closed) {
+      return false;
+    }
+
     return stream.hasNext(context);
   }
 
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
+
+    if (!hasNext()) {
+      throw new NoSuchElementException();
+    }
+
     return stream.next(context);
   }
 
   @Override
   public void close() {
+    if (closed) {
+      return;
+    }
+
     assert session == null || session.assertIfNotActive();
     stream.close(context);
+
     this.session = null;
+    this.closed = true;
   }
 
   @Override
-  public ExecutionPlan getExecutionPlan() {
+  public @Nullable ExecutionPlan getExecutionPlan() {
     assert session == null || session.assertIfNotActive();
     return plan;
   }
@@ -88,5 +106,10 @@ public class ExecutionResultSet implements ResultSet {
     while (hasNext()) {
       action.accept(next());
     }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return closed;
   }
 }

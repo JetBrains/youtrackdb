@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.db.QueryLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
@@ -21,14 +22,12 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   private static final AtomicLong counter = new AtomicLong(0);
 
-  private final ResultSet entity;
+  private final ResultSet underlyingResultSet;
   private final List<QueryLifecycleListener> lifecycleListeners = new ArrayList<>();
   private final String queryId;
 
-  private boolean hasNextPage;
-
-  public LocalResultSetLifecycleDecorator(ResultSet entity) {
-    this.entity = entity;
+  public LocalResultSetLifecycleDecorator(ResultSet underlyingResultSet) {
+    this.underlyingResultSet = underlyingResultSet;
     queryId = System.currentTimeMillis() + "_" + counter.incrementAndGet();
   }
 
@@ -38,65 +37,45 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   @Override
   public boolean hasNext() {
-    var hasNext = entity.hasNext();
-    if (!hasNext) {
-      close();
-    }
-    return hasNext;
+    return underlyingResultSet.hasNext();
   }
 
   @Override
   public Result next() {
     if (!hasNext()) {
-      throw new IllegalStateException();
+      throw new NoSuchElementException();
     }
 
-    return entity.next();
+    return underlyingResultSet.next();
   }
 
   @Override
   public void close() {
-    var session = (DatabaseSessionInternal) entity.getBoundToSession();
-    entity.close();
+    underlyingResultSet.close();
     this.lifecycleListeners.forEach(x -> x.queryClosed(this.queryId));
     this.lifecycleListeners.clear();
-    if (session != null) {
-      var tx = session.getTransactionInternal();
-      //read only transactions are initiated only for queries and only if there is no active transaction
-      if (tx.isActive() && tx.isReadOnly()) {
-        tx.rollbackInternal();
-      }
-    }
   }
 
   @Override
   public DatabaseSession getBoundToSession() {
-    return entity.getBoundToSession();
+    return underlyingResultSet.getBoundToSession();
   }
 
   @Override
-  public ExecutionPlan getExecutionPlan() {
-    return entity.getExecutionPlan();
+  public @Nullable ExecutionPlan getExecutionPlan() {
+    return underlyingResultSet.getExecutionPlan();
   }
 
   public String getQueryId() {
     return queryId;
   }
 
-  public boolean hasNextPage() {
-    return hasNextPage;
-  }
-
-  public void setHasNextPage(boolean b) {
-    this.hasNextPage = b;
-  }
-
   public boolean isDetached() {
-    return entity instanceof InternalResultSet;
+    return underlyingResultSet instanceof InternalResultSet;
   }
 
-  public ResultSet getInternal() {
-    return entity;
+  public ResultSet getUnderlying() {
+    return underlyingResultSet;
   }
 
   @Override
@@ -111,12 +90,17 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
   @Nullable
   @Override
   public ResultSet trySplit() {
-    return null;
+    var result = underlyingResultSet.trySplit();
+    if (result == null) {
+      return null;
+    }
+
+    return new LocalResultSetLifecycleDecorator((ResultSet) result);
   }
 
   @Override
   public long estimateSize() {
-    return Long.MAX_VALUE;
+    return underlyingResultSet.estimateSize();
   }
 
   @Override
@@ -129,5 +113,10 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
     while (hasNext()) {
       action.accept(next());
     }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return underlyingResultSet.isClosed();
   }
 }

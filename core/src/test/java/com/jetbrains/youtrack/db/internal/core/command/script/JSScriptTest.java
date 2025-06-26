@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -13,14 +14,10 @@ import javax.script.ScriptException;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class JSScriptTest extends DbTestBase {
-
   @Test
   public void jsSimpleTest() {
-    var resultSet = session.runScript("javascript", "'foo'");
+    var resultSet = session.computeScript("javascript", "'foo'");
     Assert.assertTrue(resultSet.hasNext());
     var result = resultSet.next();
     String ret = result.getProperty("value");
@@ -31,7 +28,7 @@ public class JSScriptTest extends DbTestBase {
   public void jsQueryTest() {
     session.begin();
     var script = "db.query('select from OUser')";
-    var resultSet = session.runScript("javascript", script);
+    var resultSet = session.computeScript("javascript", script);
     Assert.assertTrue(resultSet.hasNext());
 
     var results = resultSet.stream().toList();
@@ -50,7 +47,7 @@ public class JSScriptTest extends DbTestBase {
   public void jsScriptTest() throws IOException {
     var stream = ClassLoader.getSystemResourceAsStream("fixtures/scriptTest.js");
     session.begin();
-    var resultSet = session.runScript("javascript", IOUtils.readStreamAsString(stream));
+    var resultSet = session.computeScript("javascript", IOUtils.readStreamAsString(stream));
     Assert.assertTrue(resultSet.hasNext());
 
     var results = resultSet.stream().toList();
@@ -72,7 +69,7 @@ public class JSScriptTest extends DbTestBase {
   @Test
   public void jsScriptCountTest() throws IOException {
     var stream = ClassLoader.getSystemResourceAsStream("fixtures/scriptCountTest.js");
-    var resultSet = session.runScript("javascript", IOUtils.readStreamAsString(stream));
+    var resultSet = session.computeScript("javascript", IOUtils.readStreamAsString(stream));
     Assert.assertTrue(resultSet.hasNext());
 
     var results = resultSet.stream().toList();
@@ -85,7 +82,7 @@ public class JSScriptTest extends DbTestBase {
   @Test
   public void jsSandboxTestWithJavaType() {
     try {
-      session.runScript(
+      session.computeScript(
           "javascript", "var File = Java.type(\"java.io.File\");\n  File.pathSeparator;");
 
       Assert.fail("It should receive a class not found exception");
@@ -98,25 +95,9 @@ public class JSScriptTest extends DbTestBase {
     }
   }
 
-  // @Test
-  // THIS TEST WONT PASS WITH GRAALVM
-  public void jsSandboxWithNativeTest() {
-    var scriptManager = YouTrackDBInternal.extract(context).getScriptManager();
-    try {
-      scriptManager.addAllowedPackages(new HashSet<>(List.of("java.lang.System")));
-
-      var resultSet =
-          session.runScript(
-              "javascript", "var System = Java.type('java.lang.System'); System.nanoTime();");
-      Assert.assertEquals(0, resultSet.stream().count());
-    } finally {
-      scriptManager.removeAllowedPackages(new HashSet<>(List.of("java.lang.System")));
-    }
-  }
-
   @Test
   public void jsSandboxWithMathTest() {
-    var resultSet = session.runScript("javascript", "Math.random()");
+    var resultSet = session.computeScript("javascript", "Math.random()");
     Assert.assertEquals(1, resultSet.stream().count());
     resultSet.close();
   }
@@ -125,7 +106,7 @@ public class JSScriptTest extends DbTestBase {
   public void jsSandboxWithDB() {
     session.begin();
     var resultSet =
-        session.runScript(
+        session.computeScript(
             "javascript",
             """
                 var rs = db.query("select from OUser");
@@ -141,12 +122,12 @@ public class JSScriptTest extends DbTestBase {
 
   @Test
   public void jsSandboxWithBigDecimal() {
-    final var scriptManager = YouTrackDBInternal.extract(context).getScriptManager();
+    final var scriptManager = ((YouTrackDBInternalEmbedded)YouTrackDBInternal.extract(youTrackDB)).getScriptManager();
     try {
       scriptManager.addAllowedPackages(new HashSet<>(List.of("java.math.BigDecimal")));
 
       try (var resultSet =
-          session.runScript(
+          session.computeScript(
               "javascript",
               "var BigDecimal = Java.type('java.math.BigDecimal'); new BigDecimal(1.0);")) {
         Assert.assertEquals(1, resultSet.stream().count());
@@ -155,7 +136,7 @@ public class JSScriptTest extends DbTestBase {
       scriptManager.closeAll();
 
       try {
-        session.runScript("javascript", "new java.math.BigDecimal(1.0);");
+        session.computeScript("javascript", "new java.math.BigDecimal(1.0);");
         Assert.fail("It should receive a class not found exception");
       } catch (RuntimeException e) {
         Assert.assertEquals(
@@ -168,7 +149,7 @@ public class JSScriptTest extends DbTestBase {
       scriptManager.addAllowedPackages(new HashSet<>(List.of("java.math.*")));
       scriptManager.closeAll();
 
-      try (var resultSet = session.runScript("javascript", "new java.math.BigDecimal(1.0);")) {
+      try (var resultSet = session.computeScript("javascript", "new java.math.BigDecimal(1.0);")) {
         Assert.assertEquals(1, resultSet.stream().count());
       }
 
@@ -181,14 +162,14 @@ public class JSScriptTest extends DbTestBase {
   @Test
   public void jsSandboxWithYouTrackDb() {
     try (var resultSet =
-        session.runScript("javascript", "youtrackdb.getScriptManager().addAllowedPackages([])")) {
+        session.computeScript("javascript", "youtrackdb.getScriptManager().addAllowedPackages([])")) {
       Assert.assertEquals(1, resultSet.stream().count());
     } catch (Exception e) {
       Assert.assertEquals(ScriptException.class, e.getCause().getClass());
     }
 
     try (var resultSet =
-        session.runScript(
+        session.computeScript(
             "javascript",
             "youtrackdb.getScriptManager().addAllowedPackages([])")) {
       Assert.assertEquals(1, resultSet.stream().count());

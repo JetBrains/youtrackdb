@@ -29,7 +29,7 @@ import javax.annotation.Nullable;
  * Cache implementation that uses Soft References.
  */
 public class RecordCacheWeakRefs extends
-    AbstractMapCache<RIDsWeakValuesHashMap<RecordAbstract>>
+    AbstractMapCache<WeakValueHashMap<RID, RecordAbstract>>
     implements RecordCache {
 
   private static final BiConsumer<RID, RecordAbstract> UNLOAD_RECORDS_CONSUMER =
@@ -47,7 +47,7 @@ public class RecordCacheWeakRefs extends
       };
 
   public RecordCacheWeakRefs() {
-    super(new RIDsWeakValuesHashMap<>());
+    super(new WeakValueHashMap<>());
   }
 
   @Nullable
@@ -96,6 +96,6 @@ public class RecordCacheWeakRefs extends
   @Override
   public void clear() {
     cache.clear();
-    cache = new RIDsWeakValuesHashMap<>();
+    cache = new WeakValueHashMap<>();
   }
 }

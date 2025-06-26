@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.storage;
 
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.Schema;
@@ -8,11 +9,9 @@ import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.io.IOException;
@@ -46,11 +45,11 @@ public class StorageTestIT {
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndSwitchReadOnlyMode)
+                ChecksumMode.StoreAndSwitchReadOnlyMode.name())
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -63,14 +62,15 @@ public class StorageTestIT {
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
 
-    for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) session.newEntity("PageBreak"));
-      document.setProperty("value", "value");
-
-    }
+    session.executeInTx(transaction -> {
+      for (var i = 0; i < 10; i++) {
+        var document = transaction.newEntity("PageBreak");
+        document.setProperty("value", "value");
+      }
+    });
 
     var storage =
-        (LocalStorage) session.getStorage();
+        (DiskStorage) session.getStorage();
     var wowCache = storage.getWriteCache();
     var ctx = session.getSharedContext();
     session.close();
@@ -101,7 +101,7 @@ public class StorageTestIT {
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
-      youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
       youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
   }
@@ -112,11 +112,11 @@ public class StorageTestIT {
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(
                 GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndSwitchReadOnlyMode)
+                ChecksumMode.StoreAndSwitchReadOnlyMode.name())
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -129,14 +129,15 @@ public class StorageTestIT {
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
 
-    for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.setProperty("value", "value");
-
-    }
+    db.executeInTx(transaction -> {
+      for (var i = 0; i < 10; i++) {
+        var document = transaction.newEntity("PageBreak");
+        document.setProperty("value", "value");
+      }
+    });
 
     var storage =
-        (LocalStorage) db.getStorage();
+        (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
     var ctx = db.getSharedContext();
     db.close();
@@ -164,7 +165,7 @@ public class StorageTestIT {
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
-      youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
       youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
   }
@@ -175,11 +176,11 @@ public class StorageTestIT {
     var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndVerify)
+                ChecksumMode.StoreAndVerify.name())
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -192,14 +193,16 @@ public class StorageTestIT {
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
 
-    for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.setProperty("value", "value");
+    db.executeInTx(transaction -> {
+      for (var i = 0; i < 10; i++) {
+        var document = transaction.newEntity("PageBreak");
+        document.setProperty("value", "value");
 
-    }
+      }
+    });
 
     var storage =
-        (LocalStorage) db.getStorage();
+        (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
     var ctx = db.getSharedContext();
     db.close();
@@ -222,12 +225,16 @@ public class StorageTestIT {
 
     db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
-    db.query("select from PageBreak").close();
+    db.executeInTx(transaction -> {
+      transaction.query("select from PageBreak").close();
+    });
 
     Thread.sleep(100); // lets wait till event will be propagated
 
-    var document = ((EntityImpl) db.newEntity("PageBreak"));
-    document.setProperty("value", "value");
+    db.executeInTx(transaction -> {
+      var document = transaction.newEntity("PageBreak");
+      document.setProperty("value", "value");
+    });
 
     db.close();
   }
@@ -238,11 +245,11 @@ public class StorageTestIT {
     var config =
         (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndVerify)
+                ChecksumMode.StoreAndVerify.name())
             .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
             .build();
 
-    youTrackDB = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()), config);
+    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -255,14 +262,16 @@ public class StorageTestIT {
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
 
-    for (var i = 0; i < 10; i++) {
-      var document = ((EntityImpl) db.newEntity("PageBreak"));
-      document.setProperty("value", "value");
+    db.executeInTx(transaction -> {
+      for (var i = 0; i < 10; i++) {
+        var document = transaction.newEntity("PageBreak");
+        document.setProperty("value", "value");
 
-    }
+      }
+    });
 
     var storage =
-        (LocalStorage) db.getStorage();
+        (DiskStorage) db.getStorage();
     var wowCache = storage.getWriteCache();
     var ctx = db.getSharedContext();
     db.close();
@@ -288,12 +297,16 @@ public class StorageTestIT {
 
     db = (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(),
         "admin", "admin");
-    db.query("select from PageBreak").close();
+    db.executeInTx(transaction -> {
+      transaction.query("select from PageBreak").close();
+    });
 
     Thread.sleep(100); // lets wait till event will be propagated
 
-    var document = ((EntityImpl) db.newEntity("PageBreak"));
-    document.setProperty("value", "value");
+    db.executeInTx(transaction -> {
+      var document = transaction.newEntity("PageBreak");
+      document.setProperty("value", "value");
+    });
 
     db.close();
   }
@@ -301,8 +314,8 @@ public class StorageTestIT {
   @Test
   public void testCreatedVersionIsStored() {
     youTrackDB =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()), YouTrackDBConfig.defaultConfig());
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()), YouTrackDBConfig.defaultConfig());
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()

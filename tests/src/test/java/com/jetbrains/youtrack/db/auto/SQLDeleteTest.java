@@ -16,17 +16,9 @@
 package com.jetbrains.youtrack.db.auto;
 
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-@Test(groups = "sql-delete")
 public class SQLDeleteTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLDeleteTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void deleteWithWhereOperator() {
@@ -34,11 +26,14 @@ public class SQLDeleteTest extends BaseDBTest {
     session.execute("insert into Profile (sex, salary) values ('female', 2100)").close();
     session.commit();
 
-    final Long total = session.countClass("Profile");
+    final var total = session.countClass("Profile");
 
+    session.begin();
     var resultset =
         session.query("select from Profile where sex = 'female' and salary = 2100");
     var queryCount = resultset.stream().count();
+    resultset.close();
+    session.commit();
 
     session.begin();
     var result =
@@ -55,19 +50,22 @@ public class SQLDeleteTest extends BaseDBTest {
   public void deleteInPool() {
     var db = acquireSession();
 
-    final Long total = db.countClass("Profile");
+    final var total = db.countClass("Profile");
 
+    db.begin();
     var resultset =
         db.query("select from Profile where sex = 'male' and salary > 120 and salary <= 133");
 
     var queryCount = resultset.stream().count();
+    resultset.close();
+    db.commit();
 
     db.begin();
     var records =
         db.execute("delete from Profile where sex = 'male' and salary > 120 and salary <= 133");
-    db.commit();
 
     long count = records.next().getProperty("count");
+    db.commit();
     Assert.assertEquals(count, queryCount);
 
     Assert.assertEquals(db.countClass("Profile"), total - count);

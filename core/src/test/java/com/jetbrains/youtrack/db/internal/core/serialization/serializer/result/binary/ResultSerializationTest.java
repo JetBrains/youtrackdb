@@ -4,11 +4,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -41,9 +41,11 @@ public class ResultSerializationTest extends DbTestBase {
 
   @Test
   public void testSimpleSerialization() {
-    try (var youTrackDB = new YouTrackDBImpl("memory", YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(ResultSerializationTest.class),
+        YouTrackDBConfig.defaultConfig())) {
       youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
-      try (var db = (DatabaseSessionInternal) youTrackDB.open("test", "admin", "admin")) {
+      try (var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin", "admin")) {
         var document = new ResultInternal(db);
 
         document.setProperty("name", "name");
@@ -74,12 +76,13 @@ public class ResultSerializationTest extends DbTestBase {
     }
   }
 
-  private ResultInternal serializeDeserialize(DatabaseSessionInternal db,
+  private static ResultInternal serializeDeserialize(DatabaseSessionEmbedded db,
       ResultInternal document) {
     var bytes = new BytesContainer();
-    serializer.serialize(db, document, bytes);
+    ResultSerializerNetwork.serialize(document, bytes, db.getDatabaseTimeZone());
     bytes.offset = 0;
-    return serializer.deserialize(db, bytes);
+    return ResultSerializerNetwork.deserialize(bytes, () -> new ResultInternal(db),
+        db.getDatabaseTimeZone());
   }
 
   @SuppressWarnings({"rawtypes", "unchecked"})
@@ -161,7 +164,7 @@ public class ResultSerializationTest extends DbTestBase {
     listMixed.add(null);
     document.setProperty("listMixed", listMixed);
 
-    Result extr = serializeDeserialize(session, document);
+    BasicResult extr = serializeDeserialize(session, document);
 
     assertEquals(extr.getPropertyNames(), document.getPropertyNames());
     assertEquals(extr.<String>getProperty("listStrings"), document.getProperty("listStrings"));
@@ -217,7 +220,7 @@ public class ResultSerializationTest extends DbTestBase {
     bytesMap.put("key1", (byte) 11);
     document.setProperty("bytesMap", bytesMap);
 
-    Result extr = serializeDeserialize(session, document);
+    BasicResult extr = serializeDeserialize(session, document);
 
     assertEquals(extr.getPropertyNames(), document.getPropertyNames());
     assertEquals(extr.<String>getProperty("mapString"), document.getProperty("mapString"));
@@ -236,10 +239,10 @@ public class ResultSerializationTest extends DbTestBase {
     embedded.setProperty("surname", "something");
     document.setProperty("embed", embedded);
 
-    Result extr = serializeDeserialize(session, document);
+    BasicResult extr = serializeDeserialize(session, document);
 
     assertEquals(document.getPropertyNames(), extr.getPropertyNames());
-    Result emb = extr.getResult("embed");
+    BasicResult emb = extr.getResult("embed");
     assertNotNull(emb);
     assertEquals(emb.getString("name"), embedded.getProperty("name"));
     assertEquals(emb.getString("surname"), embedded.getProperty("surname"));
@@ -253,13 +256,13 @@ public class ResultSerializationTest extends DbTestBase {
     var embeddedInMap = new ResultInternal(session);
     embeddedInMap.setProperty("name", "test");
     embeddedInMap.setProperty("surname", "something");
-    Map<String, Result> map = new HashMap<String, Result>();
+    Map<String, BasicResult> map = new HashMap<String, BasicResult>();
     map.put("embedded", embeddedInMap);
     document.setProperty("map", map);
 
-    Result extr = serializeDeserialize(session, document);
+    BasicResult extr = serializeDeserialize(session, document);
 
-    Map<String, Result> mapS = extr.getProperty("map");
+    Map<String, BasicResult> mapS = extr.getProperty("map");
     assertEquals(1, mapS.size());
     var emb = mapS.get("embedded");
     assertNotNull(emb);
@@ -276,7 +279,7 @@ public class ResultSerializationTest extends DbTestBase {
     embeddedInList.setProperty("name", "test");
     embeddedInList.setProperty("surname", "something");
 
-    List<Result> embeddedList = new ArrayList<Result>();
+    List<BasicResult> embeddedList = new ArrayList<BasicResult>();
     embeddedList.add(embeddedInList);
     document.setProperty("embeddedList", embeddedList);
 
@@ -284,20 +287,20 @@ public class ResultSerializationTest extends DbTestBase {
     embeddedInSet.setProperty("name", "test1");
     embeddedInSet.setProperty("surname", "something2");
 
-    Set<Result> embeddedSet = new HashSet<>();
+    Set<BasicResult> embeddedSet = new HashSet<>();
     embeddedSet.add(embeddedInSet);
     document.setProperty("embeddedSet", embeddedSet);
 
-    Result extr = serializeDeserialize(session, document);
+    BasicResult extr = serializeDeserialize(session, document);
 
-    var ser = extr.<Result>getEmbeddedList("embeddedList");
+    var ser = extr.<BasicResult>getEmbeddedList("embeddedList");
     assertEquals(1, ser.size());
     var inList = ser.getFirst();
     assertNotNull(inList);
     assertEquals(inList.getString("name"), embeddedInList.getProperty("name"));
     assertEquals(inList.getString("surname"), embeddedInList.getProperty("surname"));
 
-    var setEmb = extr.<Result>getEmbeddedSet("embeddedSet");
+    var setEmb = extr.<BasicResult>getEmbeddedSet("embeddedSet");
     assertEquals(1, setEmb.size());
     var inSet = setEmb.iterator().next();
     assertNotNull(inSet);

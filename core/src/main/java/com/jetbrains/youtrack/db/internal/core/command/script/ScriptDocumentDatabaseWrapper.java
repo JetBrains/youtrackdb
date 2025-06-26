@@ -20,8 +20,8 @@
 package com.jetbrains.youtrack.db.internal.core.command.script;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
-import com.jetbrains.youtrack.db.api.DatabaseSession.STATUS;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.ATTRIBUTES;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.STATUS;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -88,11 +88,7 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public Index getIndex(final String name) {
-    return session.getSharedContext().getIndexManager().getIndex(session, name);
-  }
-
-  public boolean exists() {
-    return session.exists();
+    return session.getSharedContext().getIndexManager().getIndex(name);
   }
 
   public EntityImpl newInstance() {
@@ -119,13 +115,6 @@ public class ScriptDocumentDatabaseWrapper {
     return session.browseClass(iClassName, iPolymorphic);
   }
 
-  public DatabaseSession setStatus(STATUS iStatus) {
-    return session.setStatus(iStatus);
-  }
-
-  public void drop() {
-    session.drop();
-  }
 
   public String getName() {
     return session.getDatabaseName();
@@ -143,9 +132,6 @@ public class ScriptDocumentDatabaseWrapper {
     return session.isClosed();
   }
 
-  public DatabaseSession open(String iUserName, String iUserPassword) {
-    return session.open(iUserName, iUserPassword);
-  }
 
   public EntityImpl save(final Map<String, Object> iObject) {
     var entity = session.newInstance();
@@ -155,10 +141,6 @@ public class ScriptDocumentDatabaseWrapper {
 
   public Entity save(final String iString) {
     return session.createOrLoadEntityFromJson(iString);
-  }
-
-  public DatabaseSession create() {
-    return session.create();
   }
 
   public void close() {
@@ -223,10 +205,6 @@ public class ScriptDocumentDatabaseWrapper {
 
   public <RET extends DBRecord> RET load(final String iRidAsString) {
     return session.load(new RecordId(iRidAsString));
-  }
-
-  public DatabaseSession setDatabaseOwner(DatabaseSessionInternal iOwner) {
-    return session.setDatabaseOwner(iOwner);
   }
 
   public Object setProperty(String iName, Object iValue) {

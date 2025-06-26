@@ -12,7 +12,8 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.util.Triple;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement.STATUS;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -30,15 +31,16 @@ import org.junit.Test;
 public class TransactionRidAllocationTest {
 
   private YouTrackDB youTrackDB;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionEmbedded db;
 
   @Before
   public void before() {
     youTrackDB =
-        CreateDatabaseUtil.createDatabase("test", DbTestBase.embeddedDBUrl(getClass()),
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase("test",
+            DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
     db =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
@@ -52,7 +54,8 @@ public class TransactionRidAllocationTest {
     var generated = (RecordId) v.getIdentity();
     assertTrue(generated.isValidPosition());
 
-    var db1 = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    var db1 = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
     var tx = db1.begin();
     try {
@@ -87,7 +90,7 @@ public class TransactionRidAllocationTest {
 
   @Test
   public void testMultipleDbAllocationAndCommit() {
-    DatabaseSessionInternal second;
+    DatabaseSessionEmbedded second;
     youTrackDB.execute(
         "create database "
             + "secondTest"
@@ -97,7 +100,7 @@ public class TransactionRidAllocationTest {
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role admin)");
     second =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open("secondTest", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
     db.activateOnCurrentThread();
@@ -156,7 +159,7 @@ public class TransactionRidAllocationTest {
 
   @Test(expected = ConcurrentCreateException.class)
   public void testMultipleDbAllocationNotAlignedFailure() {
-    DatabaseSessionInternal second;
+    DatabaseSessionEmbedded second;
     youTrackDB.execute(
         "create database "
             + "secondTest"
@@ -166,7 +169,7 @@ public class TransactionRidAllocationTest {
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role admin)");
     second =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             youTrackDB.open("secondTest", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     // THIS OFFSET FIRST DB FROM THE SECOND
     for (var i = 0; i < 20; i++) {

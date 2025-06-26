@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.common.concur.resource.CloseableInStor
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.collectionselection.CollectionSelectionFactory;
@@ -73,8 +74,8 @@ public abstract class SchemaShared implements CloseableInStorage {
   private final CollectionSelectionFactory collectionSelectionFactory = new CollectionSelectionFactory();
 
   private final ModifiableInteger modificationCounter = new ModifiableInteger();
-  private final List<GlobalProperty> properties = new ArrayList<>();
-  private final Map<String, GlobalProperty> propertiesByNameType = new HashMap<>();
+  private final List<GlobalPropertyImpl> properties = new ArrayList<>();
+  private final Map<String, GlobalPropertyImpl> propertiesByNameType = new HashMap<>();
   private IntOpenHashSet blobCollections = new IntOpenHashSet();
   private volatile int version = 0;
   private volatile RecordId identity;
@@ -108,25 +109,26 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   @Nullable
-  public static Character checkClassNameIfValid(String iName) throws SchemaException {
-    if (iName == null) {
+  public static Character checkClassNameIfValid(String name) throws SchemaException {
+    if (name == null) {
       throw new IllegalArgumentException("Name is null");
     }
 
-    //    iName = iName.trim();
-    //
-    //    final int nameSize = iName.length();
-    //
-    //    if (nameSize == 0)
-    //      throw new IllegalArgumentException("Name is empty");
-    //
-    //    for (int i = 0; i < nameSize; ++i) {
-    //      final char c = iName.charAt(i);
-    //      if (c == ':' || c == ',' || c == ';' || c == ' ' || c == '@' || c == '=' || c == '.' ||
-    // c == '#')
-    //        // INVALID CHARACTER
-    //        return c;
-    //    }
+    name = name.trim();
+    final var nameSize = name.length();
+
+    if (nameSize == 0) {
+      throw new IllegalArgumentException("Name is empty");
+    }
+
+    for (var i = 0; i < nameSize; ++i) {
+      final var c = name.charAt(i);
+      if (c == ':')
+      // INVALID CHARACTER
+      {
+        return c;
+      }
+    }
 
     return null;
   }
@@ -188,7 +190,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     var snapshot = this.snapshot;
 
     if (snapshot == null) {
-      acquireSchemaReadLock(session);
+      acquireSchemaReadLock();
       try {
         snapshotLock.lock();
         try {
@@ -201,7 +203,7 @@ public abstract class SchemaShared implements CloseableInStorage {
           snapshotLock.unlock();
         }
       } finally {
-        releaseSchemaReadLock(session);
+        releaseSchemaReadLock();
       }
     }
 
@@ -228,62 +230,62 @@ public abstract class SchemaShared implements CloseableInStorage {
   public int countClasses(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       return classes.size();
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
 
-  public SchemaClassImpl createClass(DatabaseSessionInternal sesion, final String className) {
+  public SchemaClassImpl createClass(DatabaseSessionEmbedded sesion, final String className) {
     return createClass(sesion, className, null, (int[]) null);
   }
 
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session, final String iClassName, final SchemaClassImpl iSuperClass) {
+      DatabaseSessionEmbedded session, final String iClassName, final SchemaClassImpl iSuperClass) {
     return createClass(session, iClassName, iSuperClass, null);
   }
 
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
+      DatabaseSessionEmbedded session, String iClassName, SchemaClassImpl... superClasses) {
     return createClass(session, iClassName, null, superClasses);
   }
 
-  public SchemaClassImpl getOrCreateClass(DatabaseSessionInternal session,
+  public SchemaClassImpl getOrCreateClass(DatabaseSessionEmbedded session,
       final String iClassName) {
     return getOrCreateClass(session, iClassName, (SchemaClassImpl) null);
   }
 
   public SchemaClassImpl getOrCreateClass(
-      DatabaseSessionInternal session, final String iClassName, final SchemaClassImpl superClass) {
+      DatabaseSessionEmbedded session, final String iClassName, final SchemaClassImpl superClass) {
     return getOrCreateClass(
         session, iClassName,
         superClass == null ? new SchemaClassImpl[0] : new SchemaClassImpl[]{superClass});
   }
 
   public abstract SchemaClassImpl getOrCreateClass(
-      DatabaseSessionInternal session, final String iClassName,
+      DatabaseSessionEmbedded session, final String iClassName,
       final SchemaClassImpl... superClasses);
 
-  public SchemaClassImpl createAbstractClass(DatabaseSessionInternal session,
+  public SchemaClassImpl createAbstractClass(DatabaseSessionEmbedded session,
       final String className) {
     return createClass(session, className, null, new int[]{-1});
   }
 
   public SchemaClassImpl createAbstractClass(
-      DatabaseSessionInternal session, final String className, final SchemaClassImpl superClass) {
+      DatabaseSessionEmbedded session, final String className, final SchemaClassImpl superClass) {
     return createClass(session, className, superClass, new int[]{-1});
   }
 
   public SchemaClassImpl createAbstractClass(
-      DatabaseSessionInternal session, String iClassName, SchemaClassImpl... superClasses) {
+      DatabaseSessionEmbedded session, String iClassName, SchemaClassImpl... superClasses) {
     return createClass(session, iClassName, new int[]{-1}, superClasses);
   }
 
   public SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       final SchemaClassImpl superClass,
       int[] collectionIds) {
@@ -291,13 +293,13 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public abstract SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int[] collectionIds,
       SchemaClassImpl... superClasses);
 
   public abstract SchemaClassImpl createClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       final String className,
       int collections,
       SchemaClassImpl... superClasses);
@@ -307,7 +309,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   void checkCollectionCanBeAdded(DatabaseSessionInternal session, int collectionId,
       SchemaClassImpl cls) {
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       if (collectionId < 0) {
         return;
@@ -329,20 +331,20 @@ public abstract class SchemaShared implements CloseableInStorage {
                 + "'");
       }
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
-  public SchemaClassImpl getClassByCollectionId(DatabaseSessionInternal session, int collectionId) {
-    acquireSchemaReadLock(session);
+  public SchemaClassImpl getClassByCollectionId(int collectionId) {
+    acquireSchemaReadLock();
     try {
       return collectionsToClasses.get(collectionId);
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
-  public abstract void dropClass(DatabaseSessionInternal session, final String className);
+  public abstract void dropClass(DatabaseSessionEmbedded session, final String className);
 
   /**
    * Reloads the schema inside a storage's shared lock.
@@ -364,47 +366,47 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public boolean existsClass(DatabaseSessionInternal session, final String iClassName) {
+  public boolean existsClass(final String iClassName) {
     if (iClassName == null) {
       return false;
     }
 
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       return classes.containsKey(iClassName.toLowerCase(Locale.ENGLISH));
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
   @Nullable
-  public SchemaClassImpl getClass(DatabaseSessionInternal session, final Class<?> iClass) {
+  public SchemaClassImpl getClass(final Class<?> iClass) {
     if (iClass == null) {
       return null;
     }
 
-    return getClass(session, iClass.getSimpleName());
+    return getClass(iClass.getSimpleName());
   }
 
   @Nullable
-  public SchemaClassImpl getClass(DatabaseSessionInternal session, final String iClassName) {
+  public SchemaClassImpl getClass(final String iClassName) {
     if (iClassName == null) {
       return null;
     }
 
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       return classes.get(iClassName.toLowerCase(Locale.ENGLISH));
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
-  public void acquireSchemaReadLock(DatabaseSessionInternal session) {
+  public void acquireSchemaReadLock() {
     lock.readLock().lock();
   }
 
-  public void releaseSchemaReadLock(DatabaseSessionInternal session) {
+  public void releaseSchemaReadLock() {
     lock.readLock().unlock();
   }
 
@@ -444,11 +446,8 @@ public abstract class SchemaShared implements CloseableInStorage {
       lock.writeLock().unlock();
       session.endExclusiveMetadataChange();
     }
-    assert count >= 0;
 
-    if (count == 0 && session.isRemote()) {
-      session.getStorage().reload(session);
-    }
+    assert count >= 0;
   }
 
   void changeClassName(
@@ -542,8 +541,8 @@ public abstract class SchemaShared implements CloseableInStorage {
           cls.fromStream(session, c);
         }
 
-        newClasses.put(cls.getName(session).toLowerCase(Locale.ENGLISH), cls);
-        addCollectionClassMap(session, cls);
+        newClasses.put(cls.getName().toLowerCase(Locale.ENGLISH), cls);
+        addCollectionClassMap(cls);
       }
 
       classes.clear();
@@ -579,13 +578,13 @@ public abstract class SchemaShared implements CloseableInStorage {
                   session.getDatabaseName(), "Super class '"
                   + superClassName
                   + "' was declared in class '"
-                  + cls.getName(session)
+                  + cls.getName()
                   + "' but was not found in schema. Remove the dependency or create the class"
                   + " to continue.");
             }
             superClasses.add(superClass);
           }
-          cls.setSuperClassesInternal(session, superClasses);
+          cls.setSuperClassesInternal(session, superClasses, false);
         }
       }
 
@@ -646,11 +645,11 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   public Collection<SchemaClassImpl> getClasses(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       return new HashSet<>(classes.values());
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
@@ -658,19 +657,19 @@ public abstract class SchemaShared implements CloseableInStorage {
       DatabaseSessionInternal session, final String collectionName) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
 
-    acquireSchemaReadLock(session);
+    acquireSchemaReadLock();
     try {
       final var collectionId = session.getCollectionIdByName(collectionName);
       final Set<SchemaClassImpl> result = new HashSet<>();
       for (var c : classes.values()) {
-        if (ArrayUtils.contains(c.getPolymorphicCollectionIds(session), collectionId)) {
+        if (ArrayUtils.contains(c.getPolymorphicCollectionIds(), collectionId)) {
           result.add(c);
         }
       }
 
       return result;
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
@@ -716,25 +715,25 @@ public abstract class SchemaShared implements CloseableInStorage {
     return version;
   }
 
-  public RecordId getIdentity(DatabaseSessionInternal session) {
-    acquireSchemaReadLock(session);
+  public RecordId getIdentity() {
+    acquireSchemaReadLock();
     try {
       return identity;
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
   @Nullable
-  public GlobalProperty getGlobalPropertyById(DatabaseSessionInternal session, int id) {
-    acquireSchemaReadLock(session);
+  public GlobalPropertyImpl getGlobalPropertyById(int id) {
+    acquireSchemaReadLock();
     try {
       if (id >= properties.size()) {
         return null;
       }
       return properties.get(id);
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
 
   }
@@ -745,7 +744,7 @@ public abstract class SchemaShared implements CloseableInStorage {
 
     acquireSchemaWriteLock(session);
     try {
-      GlobalProperty global;
+      GlobalPropertyImpl global;
       if (id < properties.size() && (global = properties.get(id)) != null) {
         if (!global.getName().equals(name)
             || PropertyTypeInternal.convertFromPublicType(global.getType()) != type) {
@@ -764,16 +763,16 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
-  public List<GlobalProperty> getGlobalProperties(DatabaseSessionInternal session) {
-    acquireSchemaReadLock(session);
+  public List<GlobalProperty> getGlobalProperties() {
+    acquireSchemaReadLock();
     try {
       return Collections.unmodifiableList(properties);
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
   }
 
-  protected GlobalProperty findOrCreateGlobalProperty(final String name,
+  protected GlobalPropertyImpl findOrCreateGlobalProperty(final String name,
       final PropertyTypeInternal type) {
     var global = propertiesByNameType.get(name + "|" + type.name());
     if (global == null) {
@@ -799,8 +798,8 @@ public abstract class SchemaShared implements CloseableInStorage {
     forceSnapshot();
   }
 
-  protected void addCollectionClassMap(DatabaseSessionInternal session, final SchemaClassImpl cls) {
-    for (var collectionId : cls.getCollectionIds(session)) {
+  protected void addCollectionClassMap(final SchemaClassImpl cls) {
+    for (var collectionId : cls.getCollectionIds()) {
       if (collectionId < 0) {
         continue;
       }
@@ -846,12 +845,12 @@ public abstract class SchemaShared implements CloseableInStorage {
     return clId;
   }
 
-  public IntSet getBlobCollections(DatabaseSessionInternal session) {
-    acquireSchemaReadLock(session);
+  public IntSet getBlobCollections() {
+    acquireSchemaReadLock();
     try {
       return IntSets.unmodifiable(blobCollections);
     } finally {
-      releaseSchemaReadLock(session);
+      releaseSchemaReadLock();
     }
 
   }

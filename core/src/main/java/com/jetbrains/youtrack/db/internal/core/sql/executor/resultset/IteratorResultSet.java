@@ -4,10 +4,10 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -17,11 +17,13 @@ import javax.annotation.Nullable;
  */
 public class IteratorResultSet implements ResultSet {
 
-  protected final Iterator iterator;
+  protected final Iterator<?> iterator;
   @Nullable
   protected DatabaseSessionInternal session;
 
-  public IteratorResultSet(@Nullable DatabaseSessionInternal session, Iterator iter) {
+  private boolean closed = false;
+
+  public IteratorResultSet(@Nullable DatabaseSessionInternal session, Iterator<?> iter) {
     this.iterator = iter;
     this.session = session;
   }
@@ -29,34 +31,38 @@ public class IteratorResultSet implements ResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
+    if (closed) {
+      return false;
+    }
+
     return iterator.hasNext();
   }
 
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
-    var val = iterator.next();
-    if (val instanceof Result) {
-      return (Result) val;
+
+    if (!iterator.hasNext()) {
+      throw new NoSuchElementException();
     }
 
-    ResultInternal result;
-    if (val instanceof Identifiable) {
-      result = new ResultInternal(session, (Identifiable) val);
-    } else {
-      result = new ResultInternal(session);
-      result.setProperty("value", val);
-    }
-    return result;
+    var val = iterator.next();
+    return ResultInternal.toResult(val, session, "value");
   }
 
   @Override
   public void close() {
+    if (closed) {
+      return;
+    }
+
     assert session == null || session.assertIfNotActive();
     this.session = null;
+    this.closed = true;
   }
 
   @Override
+  @Nullable
   public ExecutionPlan getExecutionPlan() {
     assert session == null || session.assertIfNotActive();
     return null;
@@ -69,6 +75,7 @@ public class IteratorResultSet implements ResultSet {
 
   @Override
   public boolean tryAdvance(Consumer<? super Result> action) {
+    assert session == null || session.assertIfNotActive();
     if (hasNext()) {
       action.accept(next());
       return true;
@@ -97,5 +104,10 @@ public class IteratorResultSet implements ResultSet {
     while (hasNext()) {
       action.accept(next());
     }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return closed;
   }
 }

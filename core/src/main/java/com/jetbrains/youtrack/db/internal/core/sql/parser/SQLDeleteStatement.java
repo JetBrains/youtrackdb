@@ -5,7 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.DeleteExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.DeleteExecutionPlanner;
 import java.util.HashMap;
@@ -113,7 +113,7 @@ public class SQLDeleteStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -133,7 +133,7 @@ public class SQLDeleteStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -157,6 +157,7 @@ public class SQLDeleteStatement extends SQLStatement {
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public DeleteExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new DeleteExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling);

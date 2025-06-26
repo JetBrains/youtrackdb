@@ -5,7 +5,8 @@ import static org.junit.Assert.assertNotNull;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,15 +19,16 @@ import org.junit.Test;
 public class DBRecordLazyListTest {
 
   private YouTrackDB youTrackDb;
-  private DatabaseSessionInternal db;
+  private DatabaseSessionEmbedded db;
 
   @Before
   public void init() throws Exception {
     youTrackDb =
-        CreateDatabaseUtil.createDatabase(
-            DBRecordLazyListTest.class.getSimpleName(), "memory:", CreateDatabaseUtil.TYPE_MEMORY);
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
+            DBRecordLazyListTest.class.getSimpleName(), "embedded:",
+            CreateDatabaseUtil.TYPE_MEMORY);
     db =
-        (DatabaseSessionInternal) youTrackDb.open(
+        (DatabaseSessionEmbedded) youTrackDb.open(
             DBRecordLazyListTest.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);

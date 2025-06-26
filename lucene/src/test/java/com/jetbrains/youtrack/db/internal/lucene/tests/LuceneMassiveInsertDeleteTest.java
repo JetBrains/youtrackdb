@@ -20,7 +20,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Before;
@@ -60,7 +60,7 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
     session.commit();
     session.close();
 
-    session = (DatabaseSessionInternal) pool.acquire();
+    session = (DatabaseSessionEmbedded) pool.acquire();
     session.begin();
     docs = session.query(query);
     Assertions.assertThat(docs).hasSize(size);
@@ -75,7 +75,7 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
     Assertions.assertThat(docs).hasSize(0);
     docs.close();
     session.close();
-    session = (DatabaseSessionInternal) pool.acquire();
+    session = (DatabaseSessionEmbedded) pool.acquire();
     docs = session.query(query);
     Assertions.assertThat(docs).hasSize(0);
     docs.close();

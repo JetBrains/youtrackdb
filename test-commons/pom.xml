@@ -25,7 +25,10 @@
   <name>YouTrackDB Test Commons</name>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <argLine>-Xmx${heapSize} --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
+    <argLine>
+       -Xms${heapSize}
+       -Xmx${heapSize}
+      --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
       --add-opens java.base/sun.security.x509=ALL-UNNAMED
       -Dyoutrackdb.memory.directMemory.preallocate=false
     </argLine>

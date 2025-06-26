@@ -27,18 +27,11 @@ import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SchemaPropertyIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SchemaPropertyIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -53,6 +46,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
     oClass.createProperty("prop5", PropertyType.STRING);
   }
 
+  @Override
   @AfterClass
   public void afterClass() throws Exception {
     if (session.isClosed()) {
@@ -89,8 +83,8 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     Assert.assertNotNull(indexDefinition);
     Assert.assertEquals(indexDefinition.getParamCount(), 1);
-    Assert.assertEquals(indexDefinition.getFields().size(), 1);
-    Assert.assertTrue(indexDefinition.getFields().contains("prop1"));
+    Assert.assertEquals(indexDefinition.getProperties().size(), 1);
+    Assert.assertTrue(indexDefinition.getProperties().contains("prop1"));
     Assert.assertEquals(indexDefinition.getTypes().length, 1);
     Assert.assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.STRING);
   }
@@ -178,14 +172,14 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne0")
+            .getIndex("propOne0")
 
             .size(session);
     var prev1 =
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne1")
+            .getIndex("propOne1")
 
             .size(session);
 
@@ -205,7 +199,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne0")
+            .getIndex("propOne0")
 
             .size(session),
         prev0 + 1);
@@ -213,7 +207,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne1")
+            .getIndex("propOne1")
 
             .size(session),
         prev1);
@@ -227,14 +221,14 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne0")
+            .getIndex("propOne0")
 
             .size(session);
     var prev1 =
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne1")
+            .getIndex("propOne1")
 
             .size(session);
 
@@ -253,7 +247,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne0")
+            .getIndex("propOne0")
 
             .size(session),
         prev0 + 1);
@@ -261,7 +255,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "propOne1")
+            .getIndex("propOne1")
 
             .size(session),
         prev1);
@@ -293,12 +287,12 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "PropertyIndexFirstIndex"));
+            .getIndex("PropertyIndexFirstIndex"));
     Assert.assertNull(
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "PropertyIndexSecondIndex"));
+            .getIndex("PropertyIndexSecondIndex"));
   }
 
   private static Index containsIndex(final Collection<Index> indexes, final String indexName) {

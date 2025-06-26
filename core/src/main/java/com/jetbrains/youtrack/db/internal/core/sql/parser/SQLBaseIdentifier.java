@@ -7,11 +7,14 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.Collate;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -39,6 +42,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     this.suffix = new SQLSuffixIdentifier(attr);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (levelZero != null) {
       levelZero.toString(params, builder);
@@ -47,6 +51,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (levelZero != null) {
       levelZero.toGenericStatement(builder);
@@ -91,7 +96,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return false;
   }
 
-  public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
+  public boolean isIndexedFunctionCall(DatabaseSessionEmbedded session) {
     if (levelZero != null) {
       return levelZero.isIndexedFunctionCall(session);
     }
@@ -125,8 +130,6 @@ public class SQLBaseIdentifier extends SimpleNode {
    *
    * @param target   the query target
    * @param context  the execution context
-   * @param operator
-   * @param right
    * @return true if current expression is an indexed funciton AND that function can also be
    * executed without using the index, false otherwise
    */
@@ -145,8 +148,6 @@ public class SQLBaseIdentifier extends SimpleNode {
    *
    * @param target   the query target
    * @param context  the execution context
-   * @param operator
-   * @param right
    * @return true if current expression involves an indexed function AND that function can be used
    * on this target, false otherwise
    */
@@ -183,6 +184,23 @@ public class SQLBaseIdentifier extends SimpleNode {
     return suffix != null && suffix.isBaseIdentifier();
   }
 
+  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
+    if (levelZero != null) {
+      return levelZero.isGraphNavigationFunction(session);
+    }
+
+    return false;
+  }
+
+  @Nullable
+  public SQLFunctionCall getFunctionCall() {
+    if (levelZero != null) {
+      return levelZero.getFunctionCall();
+    }
+
+    return null;
+  }
+
   public boolean isExpand() {
     if (levelZero != null) {
       return levelZero.isExpand();
@@ -201,7 +219,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return suffix != null && suffix.needsAliases(aliases);
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (levelZero != null && levelZero.isAggregate(session)) {
       return true;
     }
@@ -263,6 +281,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     this.levelZero = levelZero;
   }
 
+  @Override
   public SQLBaseIdentifier copy() {
     var result = new SQLBaseIdentifier(-1);
     result.levelZero = levelZero == null ? null : levelZero.copy();
@@ -318,13 +337,13 @@ public class SQLBaseIdentifier extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (levelZero != null) {
-      result.setProperty("levelZero", levelZero.serialize(db));
+      result.setProperty("levelZero", levelZero.serialize(session));
     }
     if (suffix != null) {
-      result.setProperty("suffix", suffix.serialize(db));
+      result.setProperty("suffix", suffix.serialize(session));
     }
     return result;
   }
@@ -371,7 +390,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return suffix == null ? null : suffix.getCollate(currentRecord, ctx);
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (levelZero != null) {
       return levelZero.isCacheable(session);
     }
@@ -383,8 +402,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return true;
   }
 
-  public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
-    var db = ctx.getDatabaseSession();
+  public boolean isIndexChain(SchemaClassInternal clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
       var prop = clazz.getPropertyInternal(
           suffix.getIdentifier().getStringValue());
@@ -395,9 +413,19 @@ public class SQLBaseIdentifier extends SimpleNode {
       var allIndexes = prop.getAllIndexesInternal();
 
       return allIndexes != null
-          && allIndexes.stream().anyMatch(idx -> idx.getDefinition().getFields().size() == 1);
+          && allIndexes.stream().anyMatch(idx -> idx.getDefinition().getProperties().size() == 1);
     }
     return false;
+  }
+
+  @Nullable
+  public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
+      SchemaClass schemaClass) {
+    if (levelZero != null) {
+      return levelZero.getGraphNavigationFunctionProperties(ctx, schemaClass);
+    }
+
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=ed89af10d8be41a83428c5608a4834f6 (do not edit this line) */

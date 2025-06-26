@@ -67,7 +67,7 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
     session.begin();
     var systemResourceAsStream = ClassLoader.getSystemResourceAsStream("germany.json");
 
-    var map = JSONSerializerJackson.mapFromJson(systemResourceAsStream);
+    var map = JSONSerializerJackson.INSTANCE.mapFromJson(systemResourceAsStream);
 
     Map geometry = (Map) map.get("geometry");
 
@@ -80,7 +80,7 @@ public class LuceneSpatialPolygonTest extends BaseSpatialLuceneTest {
     germany.setProperty("location", location);
     session.commit();
 
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "Place.location");
+    var index = session.getSharedContext().getIndexManager().getIndex("Place.location");
 
     session.begin();
     Assert.assertEquals(1, index.size(session));

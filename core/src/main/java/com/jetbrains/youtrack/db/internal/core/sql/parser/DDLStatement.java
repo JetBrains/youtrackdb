@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.DDLExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionResultSet;
@@ -26,8 +26,9 @@ public abstract class DDLStatement extends SQLStatement {
 
   public abstract ExecutionStream executeDDL(CommandContext ctx);
 
+  @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -45,8 +46,9 @@ public abstract class DDLStatement extends SQLStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
+  @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -58,6 +60,7 @@ public abstract class DDLStatement extends SQLStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     return new DDLExecutionPlan(ctx, this);
   }

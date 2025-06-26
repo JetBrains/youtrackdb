@@ -1,11 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.storage.index.edgebtree.btree;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.util.RawPairObjectInteger;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
@@ -35,7 +36,7 @@ public class BTreeTestIT {
 
   public static final String DB_NAME = "bTreeTest";
   public static final String DIR_NAME = "/globalBTreeTest";
-  private static YouTrackDB youTrackDB;
+  private static BasicYouTrackDB youTrackDB;
   private static SharedLinkBagBTree bTree;
   private static AtomicOperationsManager atomicOperationsManager;
   private static AbstractStorage storage;
@@ -63,7 +64,7 @@ public class BTreeTestIT {
 
     FileUtils.deleteRecursively(new File(buildDirectory));
 
-    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, YouTrackDBConfig.defaultConfig());
+    youTrackDB = YourTracks.embedded(buildDirectory, YouTrackDBConfig.defaultConfig());
 
     if (youTrackDB.exists(DB_NAME)) {
       youTrackDB.drop(DB_NAME);

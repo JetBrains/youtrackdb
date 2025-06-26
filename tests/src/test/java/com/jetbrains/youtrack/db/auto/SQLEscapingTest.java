@@ -22,13 +22,8 @@ import org.testng.annotations.Test;
 
 @Test(groups = "sql-select")
 public class SQLEscapingTest extends BaseDBTest {
-
   private DatabaseSessionInternal database;
 
-  @Parameters(value = "remote")
-  public SQLEscapingTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   // TODO re-enable this with new parser. this test was broken!!!
   //  public void testEscaping() {

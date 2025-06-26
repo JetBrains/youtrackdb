@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.filter;
 
 import com.jetbrains.youtrack.db.internal.common.parser.BaseParser;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
@@ -34,7 +35,7 @@ public class SQLFilterItemFieldAll extends SQLFilterItemFieldMultiAbstract {
   public static final String FULL_NAME = "ALL()";
 
   public SQLFilterItemFieldAll(
-      DatabaseSessionInternal session, final SQLPredicate iQueryCompiled, final String iName,
+      DatabaseSessionEmbedded session, final SQLPredicate iQueryCompiled, final String iName,
       final SchemaClass iClass) {
     super(session, iQueryCompiled, iName, iClass, StringSerializerHelper.getParameters(iName));
   }
@@ -45,7 +46,7 @@ public class SQLFilterItemFieldAll extends SQLFilterItemFieldMultiAbstract {
   }
 
   @Override
-  protected void setRoot(DatabaseSessionInternal session, final BaseParser iQueryToParse,
+  protected void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iRoot) {
   }
 }

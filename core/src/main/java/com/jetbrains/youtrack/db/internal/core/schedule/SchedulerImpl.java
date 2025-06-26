@@ -25,6 +25,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.Function;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -55,9 +56,9 @@ public class SchedulerImpl {
   private final ConcurrentHashMap<String, ScheduledEvent> events =
       new ConcurrentHashMap<>();
 
-  private final YouTrackDBInternal youtrackDB;
+  private final YouTrackDBInternalEmbedded youtrackDB;
 
-  public SchedulerImpl(YouTrackDBInternal youtrackDB) {
+  public SchedulerImpl(YouTrackDBInternalEmbedded youtrackDB) {
     this.youtrackDB = youtrackDB;
   }
 
@@ -139,12 +140,14 @@ public class SchedulerImpl {
 
   public void load(DatabaseSessionInternal session) {
     if (session.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
-      try (var result = session.query("select from " + ScheduledEvent.CLASS_NAME)) {
-        while (result.hasNext()) {
-          var d = result.next();
-          scheduleEvent(session, new ScheduledEvent((EntityImpl) d.asEntity(), session));
+      session.executeInTx(tx -> {
+        try (var result = tx.query("select from " + ScheduledEvent.CLASS_NAME)) {
+          while (result.hasNext()) {
+            var d = result.next();
+            scheduleEvent(session, new ScheduledEvent((EntityImpl) d.asEntity(), session));
+          }
         }
-      }
+      });
     }
   }
 

@@ -116,7 +116,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
 
   @Test
   public void testEdgeConstraints() {
-    session.runScript(
+    session.computeScript(
             "sql",
             "create class E2 extends E;"
                 + "create property E2.x LONG;"
@@ -136,7 +136,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
                 + "alter property FooType.name MANDATORY true;")
         .close();
 
-    session.runScript(
+    session.computeScript(
             "sql",
             "begin;"
                 + "let $v1 = create vertex FooType content {'name':'foo1'};"

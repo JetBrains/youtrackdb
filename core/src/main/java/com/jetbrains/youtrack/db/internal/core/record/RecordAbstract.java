@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
@@ -64,19 +65,19 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   protected boolean contentChanged = true;
   protected STATUS status = STATUS.NOT_LOADED;
 
-  @Nullable
-  protected DatabaseSessionInternal session;
+  @Nonnull
+  protected final DatabaseSessionEmbedded session;
 
   @Nullable
   public RecordOperation txEntry;
   public boolean processingInCallback = false;
 
-  public RecordAbstract(@Nonnull DatabaseSessionInternal session) {
+  public RecordAbstract(@Nonnull DatabaseSessionEmbedded session) {
     recordId = new ChangeableRecordId();
     this.session = session;
   }
 
-  public RecordAbstract(@Nonnull DatabaseSessionInternal session, final byte[] source) {
+  public RecordAbstract(@Nonnull DatabaseSessionEmbedded session, final byte[] source) {
     this.source = source;
     size = source.length;
 
@@ -152,7 +153,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public void setDirty() {
-    assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    assert session.assertIfNotActive() : createNotBoundToSessionMessage();
     checkForBinding();
 
     if (status != STATUS.UNMARSHALLING) {
@@ -165,7 +166,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   public void setDirty(long counter) {
-    assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    assert session.assertIfNotActive() : createNotBoundToSessionMessage();
     checkForBinding();
 
     this.dirty = counter;
@@ -222,7 +223,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public <RET extends DBRecord> RET updateFromJSON(final String iSource, final String iOptions) {
-    JSONSerializerJackson.fromString(getSession(),
+    JSONSerializerJackson.INSTANCE.fromString(getSession(),
         iSource, this);
     // nothing change
     return (RET) this;
@@ -230,19 +231,19 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public void updateFromJSON(final @Nonnull String iSource) {
-    JSONSerializerJackson.fromString(getSession(), iSource, this);
+    JSONSerializerJackson.INSTANCE.fromString(getSession(), iSource, this);
   }
 
   // Add New API to load record if rid exist
   public final <RET extends DBRecord> RET updateFromJSON(final String iSource, boolean needReload) {
-    return (RET) JSONSerializerJackson.fromString(getSession(), iSource, this);
+    return (RET) JSONSerializerJackson.INSTANCE.fromString(getSession(), iSource, this);
   }
 
   public final <RET extends DBRecord> RET updateFromJSON(final InputStream iContentResult)
       throws IOException {
     final var out = new ByteArrayOutputStream();
     IOUtils.copyStream(iContentResult, out);
-    JSONSerializerJackson.fromString(getSession(), out.toString(), this);
+    JSONSerializerJackson.INSTANCE.fromString(getSession(), out.toString(), this);
     return (RET) this;
   }
 
@@ -257,9 +258,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public String toJSON(final @Nonnull String format) {
     checkForBinding();
 
-    return JSONSerializerJackson
-        .toString(getSession(), this, new StringWriter(1024),
-            format)
+    return JSONSerializerJackson.INSTANCE
+        .toString(getSession(), this, new StringWriter(1024), format)
         .toString();
   }
 
@@ -298,7 +298,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     if (status != STATUS.NOT_LOADED) {
       source = null;
       status = STATUS.NOT_LOADED;
-      session = null;
       unsetDirty();
       txEntry = null;
     }
@@ -312,16 +311,12 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   @Override
   public boolean isNotBound(@Nonnull DatabaseSession session) {
     assert ((DatabaseSessionInternal) session).assertIfNotActive();
-    return this.session == null || this.session != session || this.status != STATUS.LOADED;
+    return this.session != session || this.status != STATUS.LOADED;
   }
 
   @Override
   @Nonnull
   public DatabaseSessionInternal getSession() {
-    if (session == null) {
-      throw new DatabaseException(createNotBoundToSessionMessage());
-    }
-
     assert session.assertIfNotActive();
     return session;
   }
@@ -341,21 +336,11 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
     source = null;
     status = STATUS.NOT_LOADED;
-    session = null;
     txEntry = null;
   }
 
   protected void internalReset() {
 
-  }
-
-  public void markDeletedInServerTx() {
-    checkForBinding();
-
-    source = null;
-    status = STATUS.NOT_LOADED;
-    session = null;
-    txEntry = null;
   }
 
   public int getSize() {
@@ -369,11 +354,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public boolean equals(final Object obj) {
-    if (session == null) {
-      throw new IllegalStateException(
-          "Record : " + this + "is not bound to any session");
-    }
-
     if (this == obj) {
       return true;
     }
@@ -393,7 +373,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         var record = (RecordAbstract) transaction.load(identifiable);
         return recordId.equals(record.recordId) && recordVersion == record.recordVersion;
       }
-      case Result result when result.isRecord() -> {
+      case Result result when result.isIdentifiable() -> {
         var resultRecord = result.asRecord();
         return equals(resultRecord);
       }
@@ -502,10 +482,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
       throw new DatabaseException(session, createNotBoundToSessionMessage());
     }
 
-    if (session == null) {
-      throw new DatabaseException(createNotBoundToSessionMessage());
-    }
-
     assert session.assertIfNotActive();
   }
 
@@ -530,15 +506,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   public void clearSource() {
     this.source = null;
-  }
-
-  public void resetToNew() {
-    if (!recordId.isNew()) {
-      throw new IllegalStateException(
-          "Record id is not new " + recordId + " as expected, so record can't be reset.");
-    }
-
-    reset();
   }
 
 
@@ -568,7 +535,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   @Nullable
   @Override
   public DatabaseSession getBoundedToSession() {
-    assert session == null || session.assertIfNotActive();
+    assert session.assertIfNotActive();
     return session;
   }
 }

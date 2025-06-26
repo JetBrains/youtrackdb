@@ -1,8 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.db.tool.importer;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.EntityPropertiesVisitor;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import javax.annotation.Nullable;
 
 /**
@@ -18,7 +18,9 @@ public final class LinksRewriter implements EntityPropertiesVisitor {
 
   @Nullable
   @Override
-  public Object visitField(DatabaseSessionInternal db, PropertyType type, PropertyType linkedType,
+  public Object visitField(DatabaseSessionInternal db,
+      PropertyTypeInternal type,
+      PropertyTypeInternal linkedType,
       Object value) {
     final var valuesConverter =
         ImportConvertersFactory.INSTANCE.getConverter(value, converterData);
@@ -39,13 +41,14 @@ public final class LinksRewriter implements EntityPropertiesVisitor {
   }
 
   @Override
-  public boolean goFurther(PropertyType type, PropertyType linkedType, Object value,
+  public boolean goFurther(PropertyTypeInternal type, PropertyTypeInternal linkedType, Object value,
       Object newValue) {
     return true;
   }
 
   @Override
-  public boolean goDeeper(PropertyType type, PropertyType linkedType, Object value) {
+  public boolean goDeeper(PropertyTypeInternal type, PropertyTypeInternal linkedType,
+      Object value) {
     return true;
   }
 

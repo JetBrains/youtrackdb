@@ -190,6 +190,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * Creates the index.
    */
+  @Override
   public Index create(
       FrontendTransaction transaction, final IndexMetadata indexMetadata) {
     acquireExclusiveLock();
@@ -269,7 +270,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * {@inheritDoc}
    */
-  public long rebuild(DatabaseSessionInternal session) {
+  public long rebuild(DatabaseSessionEmbedded session) {
     return rebuild(session, new IndexRebuildOutputListener(this));
   }
 
@@ -280,16 +281,18 @@ public abstract class IndexAbstract implements Index {
   /**
    * @return number of entries in the index.
    */
+  @Override
   @Deprecated
-  public long getSize(DatabaseSessionInternal session) {
+  public long getSize(DatabaseSessionEmbedded session) {
     return size(session);
   }
 
   /**
    * Counts the entries for the key.
    */
+  @Override
   @Deprecated
-  public long count(DatabaseSessionInternal session, Object iKey) {
+  public long count(DatabaseSessionEmbedded session, Object iKey) {
     try (var stream =
         streamEntriesBetween(session, iKey, true, iKey, true, true)) {
       return stream.count();
@@ -299,6 +302,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * @return Number of keys in index
    */
+  @Override
   @Deprecated
   public long getKeySize() {
     try (var stream = keyStream()) {
@@ -309,11 +313,13 @@ public abstract class IndexAbstract implements Index {
   /**
    * Flushes in-memory changes to disk.
    */
+  @Override
   @Deprecated
   public void flush() {
     // do nothing
   }
 
+  @Override
   @Deprecated
   public long getRebuildVersion() {
     return 0;
@@ -323,11 +329,13 @@ public abstract class IndexAbstract implements Index {
    * @return Indicates whether index is rebuilding at the moment.
    * @see #getRebuildVersion()
    */
+  @Override
   @Deprecated
   public boolean isRebuilding() {
     return false;
   }
 
+  @Override
   @Deprecated
   @Nullable
   public Object getFirstKey() {
@@ -341,9 +349,10 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   @Deprecated
   @Nullable
-  public Object getLastKey(DatabaseSessionInternal session) {
+  public Object getLastKey(DatabaseSessionEmbedded session) {
     try (final var stream = descStream(session)) {
       final var iterator = stream.iterator();
       if (iterator.hasNext()) {
@@ -354,14 +363,15 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   @Deprecated
-  public IndexCursor cursor(DatabaseSessionInternal session) {
+  public IndexCursor cursor(DatabaseSessionEmbedded session) {
     return new IndexCursorStream(stream(session));
   }
 
   @Deprecated
   @Override
-  public IndexCursor descCursor(DatabaseSessionInternal session) {
+  public IndexCursor descCursor(DatabaseSessionEmbedded session) {
     return new IndexCursorStream(descStream(session));
   }
 
@@ -385,7 +395,7 @@ public abstract class IndexAbstract implements Index {
 
   @Deprecated
   @Override
-  public IndexCursor iterateEntries(DatabaseSessionInternal session, Collection<?> keys,
+  public IndexCursor iterateEntries(DatabaseSessionEmbedded session, Collection<?> keys,
       boolean ascSortOrder) {
     return new IndexCursorStream(streamEntries(session, keys, ascSortOrder));
   }
@@ -393,7 +403,7 @@ public abstract class IndexAbstract implements Index {
   @Deprecated
   @Override
   public IndexCursor iterateEntriesBetween(
-      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, Object toKey,
+      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     return new IndexCursorStream(
         streamEntriesBetween(session, fromKey, fromInclusive, toKey, toInclusive, ascOrder));
@@ -401,14 +411,14 @@ public abstract class IndexAbstract implements Index {
 
   @Deprecated
   @Override
-  public IndexCursor iterateEntriesMajor(DatabaseSessionInternal session, Object fromKey,
+  public IndexCursor iterateEntriesMajor(DatabaseSessionEmbedded session, Object fromKey,
       boolean fromInclusive, boolean ascOrder) {
     return new IndexCursorStream(streamEntriesMajor(session, fromKey, fromInclusive, ascOrder));
   }
 
   @Deprecated
   @Override
-  public IndexCursor iterateEntriesMinor(DatabaseSessionInternal session, Object toKey,
+  public IndexCursor iterateEntriesMinor(DatabaseSessionEmbedded session, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     return new IndexCursorStream(streamEntriesMajor(session, toKey, toInclusive, ascOrder));
   }
@@ -416,7 +426,8 @@ public abstract class IndexAbstract implements Index {
   /**
    * {@inheritDoc}
    */
-  public long rebuild(DatabaseSessionInternal session,
+  @Override
+  public long rebuild(DatabaseSessionEmbedded session,
       final ProgressListener progressListener) {
     long entitiesIndexed;
 
@@ -458,7 +469,7 @@ public abstract class IndexAbstract implements Index {
     return entitiesIndexed;
   }
 
-  public long fillIndex(DatabaseSessionInternal session,
+  public long fillIndex(DatabaseSessionEmbedded session,
       ProgressListener progressListener) {
     long entitiesIndexed;
     acquireSharedLock();
@@ -486,7 +497,7 @@ public abstract class IndexAbstract implements Index {
     return entitiesIndexed;
   }
 
-  private long doFillIndex(DatabaseSessionInternal session,
+  private long doFillIndex(DatabaseSessionEmbedded session,
       final ProgressListener iProgressListener) {
     long entitiesIndexed = 0;
     try {
@@ -531,12 +542,14 @@ public abstract class IndexAbstract implements Index {
     return doRemove(storage, key, session);
   }
 
+  @Override
   public boolean remove(FrontendTransaction transaction, Object key, final Identifiable rid) {
     key = getCollatingValue(key);
     transaction.addIndexEntry(this, getName(), OPERATION.REMOVE, key, rid);
     return true;
   }
 
+  @Override
   public boolean remove(FrontendTransaction transaction, Object key) {
     key = getCollatingValue(key);
 
@@ -551,6 +564,7 @@ public abstract class IndexAbstract implements Index {
     return storage.removeKeyFromIndex(indexId, key);
   }
 
+  @Override
   public Index delete(FrontendTransaction transaction) {
     acquireExclusiveLock();
 
@@ -590,7 +604,7 @@ public abstract class IndexAbstract implements Index {
     entity.delete();
   }
 
-  private void clearAllEntries(DatabaseSessionInternal session) {
+  private void clearAllEntries(DatabaseSessionEmbedded session) {
     FrontendTransaction transaction = null;
     if (session.isTxActive()) {
       transaction = session.getTransactionInternal();
@@ -617,10 +631,12 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public String getName() {
     return im.getName();
   }
 
+  @Override
   public String getType() {
     return im.getType();
   }
@@ -645,6 +661,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public Set<String> getCollections() {
     acquireSharedLock();
     try {
@@ -654,16 +671,21 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
-  public IndexAbstract addCollection(FrontendTransaction transaction, final String collectionName) {
+  @Override
+  public IndexAbstract addCollection(FrontendTransaction transaction, final String collectionName,
+      boolean requireEmpty) {
     acquireExclusiveLock();
     try {
       var session = transaction.getDatabaseSession();
       if (collectionsToIndex.add(collectionName)) {
-        // INDEX SINGLE COLLECTION
-        var collectionId = session.getCollectionIdByName(collectionName);
-        if (session.countCollectionElements(collectionId) > 0) {
-          throw new IndexException("Collection " + collectionName
-              + " is not empty. Please remove all records from it before adding to index");
+
+        if (requireEmpty) {
+          // INDEX SINGLE COLLECTION
+          var collectionId = session.getCollectionIdByName(collectionName);
+          if (session.countCollectionElements(collectionId) > 0) {
+            throw new IndexException("Collection " + collectionName
+                + " is not empty. Please remove all records from it before adding to index");
+          }
         }
 
         save(transaction);
@@ -674,6 +696,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public void removeCollection(FrontendTransaction transaction, String collectionName) {
     acquireExclusiveLock();
     try {
@@ -681,7 +704,7 @@ public abstract class IndexAbstract implements Index {
       var collectionId = session.getCollectionIdByName(collectionName);
       if (session.countCollectionElements(collectionId) > 0) {
         throw new IndexException("Collection " + collectionName
-            + " is not empty. Please remove all records from it before adding to index");
+            + " is not empty. Please remove all records from it before removing it from index");
       }
 
       if (collectionsToIndex.remove(collectionName)) {
@@ -737,11 +760,13 @@ public abstract class IndexAbstract implements Index {
    * @param changes the changes to interpret.
    * @return the interpreted index key changes.
    */
+  @Override
   public Iterable<TransactionIndexEntry> interpretTxKeyChanges(
       FrontendTransactionIndexChangesPerKey changes) {
     return changes.getEntriesAsList();
   }
 
+  @Override
   public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
     acquireSharedLock();
     try {
@@ -780,6 +805,7 @@ public abstract class IndexAbstract implements Index {
     return false;
   }
 
+  @Override
   public boolean isAutomatic() {
     acquireSharedLock();
     try {
@@ -789,6 +815,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public PropertyTypeInternal[] getKeyTypes() {
     acquireSharedLock();
     try {
@@ -818,6 +845,7 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public IndexDefinition getDefinition() {
     return im.getIndexDefinition();
   }
@@ -851,14 +879,17 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  @Override
   public int getIndexId() {
     return indexId;
   }
 
+  @Override
   public String getDatabaseName() {
     return storage.getName();
   }
 
+  @Override
   public Object getCollatingValue(final Object key) {
     if (key != null && im.getIndexDefinition() != null) {
       return im.getIndexDefinition().getCollate().transform(key);

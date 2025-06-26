@@ -328,13 +328,9 @@ public class ConsoleApplication {
   }
 
   protected RESULT execute(String iCommand) {
-    var compLevel = getCompatibilityLevel();
-    if (compLevel >= ConsoleProperties.COMPATIBILITY_LEVEL_1) {
-
-      var result = executeServerCommand(iCommand);
-      if (result != RESULT.NOT_EXECUTED) {
-        return result;
-      }
+    var result = executeServerCommand(iCommand);
+    if (result != RESULT.NOT_EXECUTED) {
+      return result;
     }
 
     iCommand = iCommand.replaceAll("\n", ";\n");
@@ -816,18 +812,18 @@ public class ConsoleApplication {
     }
   }
 
-  protected String getCommandLine(String[] iArguments) {
+  protected static String getCommandLine(String[] arguments) {
     var command = new StringBuilder(512);
     var first = true;
-    for (var i = 0; i < iArguments.length; ++i) {
-      if (isInteractiveConfigParam(iArguments[i])) {
+    for (var argument : arguments) {
+      if (isInteractiveConfigParam(argument)) {
         continue;
       }
       if (!first) {
         command.append(" ");
       }
 
-      command.append(iArguments[i]);
+      command.append(argument);
       first = false;
     }
     return command.toString();

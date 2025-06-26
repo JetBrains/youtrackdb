@@ -141,7 +141,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
 
     final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
 
-    final var properties = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+    final var properties = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
 
     for (var entry : properties.entrySet()) {
       var propertyName = entry.getKey();

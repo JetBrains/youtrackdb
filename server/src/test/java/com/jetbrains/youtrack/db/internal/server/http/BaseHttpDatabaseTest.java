@@ -26,7 +26,7 @@ public abstract class BaseHttpDatabaseTest extends BaseHttpTest {
     Assert.assertEquals(
         200,
         post("database/" + getDatabaseName() + "/memory")
-            .payload(JSONSerializerJackson.mapToJson(pass), CONTENT.JSON)
+            .payload(JSONSerializerJackson.INSTANCE.mapToJson(pass), CONTENT.JSON)
             .setUserName("root")
             .setUserPassword("root")
             .getResponse()

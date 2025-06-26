@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.SessionListener;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.security.DefaultSecurityConfig;
@@ -29,16 +29,12 @@ import com.jetbrains.youtrack.db.internal.core.security.SecurityConfig;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
-/**
- *
- */
 public class YouTrackDBConfigImpl implements YouTrackDBConfig {
 
   private ContextConfiguration configuration;
@@ -82,6 +78,8 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
     return listeners;
   }
 
+  @Override
+  @Nonnull
   public ContextConfiguration getConfiguration() {
     return configuration;
   }
@@ -106,7 +104,7 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
   public void setParent(YouTrackDBConfigImpl parent) {
     if (parent != null) {
       if (parent.attributes != null) {
-        Map<ATTRIBUTES, Object> attrs = new HashMap<>();
+        var attrs = new EnumMap<>(ATTRIBUTES.class);
         attrs.putAll(parent.attributes);
         if (attributes != null) {
           attrs.putAll(attributes);
@@ -128,8 +126,7 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
       }
 
       if (parent.listeners != null) {
-        Set<SessionListener> lis = new HashSet<>();
-        lis.addAll(parent.listeners);
+        Set<SessionListener> lis = new HashSet<>(parent.listeners);
         if (this.listeners != null) {
           lis.addAll(this.listeners);
         }

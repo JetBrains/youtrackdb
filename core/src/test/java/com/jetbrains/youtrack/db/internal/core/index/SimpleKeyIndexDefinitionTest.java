@@ -1,8 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.Collections;
@@ -29,8 +28,8 @@ public class SimpleKeyIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testGetFields() {
-    Assert.assertTrue(simpleKeyIndexDefinition.getFields().isEmpty());
+  public void testGetProperties() {
+    Assert.assertTrue(simpleKeyIndexDefinition.getProperties().isEmpty());
   }
 
   @Test

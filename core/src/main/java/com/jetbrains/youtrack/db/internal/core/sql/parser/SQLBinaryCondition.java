@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -21,13 +21,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class SQLBinaryCondition extends SQLBooleanExpression {
+public final class SQLBinaryCondition extends SQLBooleanExpression {
 
-  protected SQLExpression left;
-  protected SQLBinaryCompareOperator operator;
-  protected SQLExpression right;
+  SQLExpression left;
+  SQLBinaryCompareOperator operator;
+  SQLExpression right;
 
   public SQLBinaryCondition(int id) {
     super(id);
@@ -39,7 +40,8 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    return operator.execute(left.execute(currentRecord, ctx), right.execute(currentRecord, ctx));
+    return operator.execute(ctx.getDatabaseSession(), left.execute(currentRecord, ctx),
+        right.execute(currentRecord, ctx));
   }
 
   @Override
@@ -61,7 +63,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
       leftVal = collate.transform(leftVal);
       rightVal = collate.transform(rightVal);
     }
-    return operator.execute(leftVal, rightVal);
+    return operator.execute(ctx.getDatabaseSession(), leftVal, rightVal);
   }
 
   private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
@@ -71,7 +73,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
       // TODO collate
 
-      if (operator.execute(leftVal, rightVal)) {
+      if (operator.execute(ctx.getDatabaseSession(), leftVal, rightVal)) {
         return true;
       }
     }
@@ -85,13 +87,14 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
       // TODO collate
 
-      if (!operator.execute(leftVal, rightVal)) {
+      if (!operator.execute(ctx.getDatabaseSession(), leftVal, rightVal)) {
         return false;
       }
     }
     return true;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" ");
@@ -100,6 +103,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     right.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" ");
@@ -108,6 +112,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     right.toGenericStatement(builder);
   }
 
+  @Override
   protected boolean supportsBasicCalculation() {
     if (!operator.supportsBasicCalculation()) {
       return false;
@@ -143,15 +148,6 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
       result.add(right);
     }
     return result;
-  }
-
-  @Nullable
-  public SQLBinaryCondition isIndexedFunctionCondition(
-      SchemaClass iSchemaClass, DatabaseSessionInternal database) {
-    if (left.isIndexedFunctionCal(database)) {
-      return this;
-    }
-    return null;
   }
 
   public long estimateIndexed(SQLFromClause target, CommandContext context) {
@@ -212,10 +208,11 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
         target, context, operator, right.execute((Result) null, context));
   }
 
+  @Override
   @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
-      SchemaClass iSchemaClass, DatabaseSessionInternal database) {
-    if (left.isIndexedFunctionCal(database)) {
+      SchemaClass iSchemaClass, DatabaseSessionEmbedded session) {
+    if (left.isIndexedFunctionCal(session)) {
       return Collections.singletonList(this);
     }
     return null;
@@ -254,7 +251,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     if (!checkCanTransformToUpdate()) {
       return Optional.empty();
     }
-    if (operator instanceof SQLEqualsCompareOperator) {
+    if (operator instanceof SQLEqualsOperator) {
       var result = new SQLUpdateItem(-1);
       result.operator = SQLUpdateItem.OPERATOR_EQ;
       var baseExp = ((SQLBaseExpression) left.mathExpression);
@@ -362,7 +359,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
       function.params.add(right);
       left = newLeft;
 
-      operator = new SQLEqualsCompareOperator(-1);
+      operator = new SQLEqualsOperator(-1);
       right = new SQLExpression(-1);
       right.booleanValue = true;
     }
@@ -424,14 +421,16 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     return result;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
-    result.setProperty("left", left.serialize(db));
+  @Override
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
+    result.setProperty("left", left.serialize(session));
     result.setProperty("operator", operator.getClass().getName());
-    result.setProperty("right", right.serialize(db));
+    result.setProperty("right", right.serialize(session));
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     left = new SQLExpression(-1);
     left.deserialize(fromResult.getProperty("left"));
@@ -447,14 +446,14 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return left.isCacheable(session) && right.isCacheable(session);
   }
 
   @Override
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
       SchemaClassInternal clazz) {
-    if (operator instanceof SQLEqualsCompareOperator
+    if (operator instanceof SQLEqualsOperator
         && right.isEarlyCalculated(ctx)
         && left.isIndexChain(ctx, clazz)) {
       var result = new SQLInCondition(-1);
@@ -486,13 +485,12 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
 
   public static SQLSelectStatement indexChainToStatement(
       SQLModifier modifier, SchemaClass clazz, SQLExpression right, CommandContext ctx) {
-    var queryClass = clazz;
 
     var result = new SQLSelectStatement(-1);
     result.target = new SQLFromClause(-1);
     result.target.setItem(new SQLFromItem(-1));
     result.target.getItem().identifier = new SQLIdentifier(
-        queryClass.getName());
+        clazz.getName());
 
     result.whereClause = new SQLWhereClause(-1);
     var base = new SQLBinaryCondition(-1);
@@ -507,59 +505,115 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
     ((SQLBaseExpression) base.left.mathExpression).modifier =
         modifier.next == null ? null : modifier.next.copy();
 
-    base.operator = new SQLEqualsCompareOperator(-1);
+    base.operator = new SQLEqualsOperator(-1);
     base.right = right.copy();
 
     return result;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getPath();
-    if (path.isPresent()) {
-      var p = path.get();
+  @Override
+  @Nullable
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
+    if (path != null) {
       if (right.isEarlyCalculated(ctx)) {
         var value = right.execute((Result) null, ctx);
-        if (operator instanceof SQLEqualsCompareOperator) {
-          return info.findExactIndex(p, value, ctx);
+        if (operator instanceof SQLEqualsOperator) {
+          return info.findExactIndex(path, value, ctx);
         } else if (operator instanceof SQLContainsKeyOperator) {
-          return info.findByKeyIndex(p, value, ctx);
+          return info.findByKeyIndex(path, value, ctx);
         } else if (operator.isRangeOperator()) {
-          return info.findAllowRangeIndex(p, operator.getOperation(), value, ctx);
+          return info.findAllowRangeIndex(path, operator.getOperation(), value, ctx);
         }
       }
     }
 
-    return Optional.empty();
+    return null;
   }
 
-  public boolean isIndexAware(IndexSearchInfo info) {
+  @Override
+  public List<SQLAndBlock> flatten(CommandContext ctx, @Nullable SchemaClassInternal schemaClass) {
+    var session = ctx.getDatabaseSession();
+
+    //usage of indexes for the case when the graph navigation function is used
+    //and properties that are used for relations in entities are indexed.
+    if (left != null && left.isGraphNavigationFunction(session) && schemaClass != null) {
+      //extract all properties used for navigation in the graph and merge them
+      // by 'or' condition.
+      var propertiesToFlatten = left.getGraphRelationProperties(ctx, schemaClass);
+
+      if (propertiesToFlatten != null) {
+        var result = new ArrayList<SQLAndBlock>(propertiesToFlatten.size());
+
+        for (var propertyName : propertiesToFlatten) {
+          var block = new SQLAndBlock(-1);
+
+          var newCondition = new SQLBinaryCondition(-1);
+
+          //This expression allows directly use property for navigation in the graph
+          //if we use public API instead, we would get an exception as edges
+          //are not allowed to be manipulated directly.
+          newCondition.left = new SQLGetInternalPropertyExpression(propertyName);
+          newCondition.operator = operator != null ? operator.copy() : null;
+          newCondition.right = right != null ? right.copy() : null;
+
+          block.subBlocks.add(newCondition);
+
+          result.add(block);
+        }
+
+        return result;
+      }
+    }
+
+    return super.flatten(ctx, schemaClass);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
-      if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
-        if (right.isEarlyCalculated(info.getCtx())) {
-          if (operator instanceof SQLEqualsCompareOperator) {
+      if (info.fieldName().equals(left.getDefaultAlias().getStringValue())) {
+        if (right.isEarlyCalculated(info.ctx())) {
+          if (operator instanceof SQLEqualsOperator) {
             return true;
           } else if (operator instanceof SQLContainsKeyOperator
               && info.isMap()
-              && info.isIndexByKey()) {
+              && info.indexedByKey()) {
             return true;
           } else {
-            return info.allowsRange() && operator.isRangeOperator();
+            return info.allowsRangeQueries() && operator.isRangeOperator();
           }
         }
       }
     }
+
     return false;
   }
 
   @Override
+  public boolean isRangeExpression() {
+    return operator != null && operator.isRangeOperator();
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    if (left.isBaseIdentifier()) {
+      return left.getDefaultAlias().getStringValue();
+    }
+
+    return null;
+  }
+
+  @Override
   public boolean createRangeWith(SQLBooleanExpression match) {
-    if (!(match instanceof SQLBinaryCondition metchingCondition)) {
+    if (!(match instanceof SQLBinaryCondition matchingCondition)) {
       return false;
     }
-    if (!metchingCondition.left.equals(this.left)) {
+    if (!matchingCondition.left.equals(this.left)) {
       return false;
     }
-    var leftOperator = metchingCondition.operator;
+    var leftOperator = matchingCondition.operator;
     var rightOperator = this.operator;
     if (leftOperator instanceof SQLGeOperator || leftOperator instanceof SQLGtOperator) {
       return rightOperator instanceof SQLLeOperator || rightOperator instanceof SQLLtOperator;
@@ -574,7 +628,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   @Override
   public SQLExpression resolveKeyFrom(SQLBinaryCondition additional) {
     var operator = this.operator;
-    if ((operator instanceof SQLEqualsCompareOperator)
+    if ((operator instanceof SQLEqualsOperator)
         || (operator instanceof SQLGtOperator)
         || (operator instanceof SQLGeOperator)
         || (operator instanceof SQLContainsKeyOperator)
@@ -592,7 +646,7 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
   @Override
   public SQLExpression resolveKeyTo(SQLBinaryCondition additional) {
     var operator = this.operator;
-    if ((operator instanceof SQLEqualsCompareOperator)
+    if ((operator instanceof SQLEqualsOperator)
         || (operator instanceof SQLLtOperator)
         || (operator instanceof SQLLeOperator)
         || (operator instanceof SQLContainsKeyOperator)
@@ -604,6 +658,42 @@ public class SQLBinaryCondition extends SQLBooleanExpression {
       return null;
       //      throw new UnsupportedOperationException("Cannot execute index query with " + this);
     }
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    if (other instanceof SQLBinaryCondition otherCondition) {
+      if (!left.isBaseIdentifier() && !right.isEarlyCalculated(ctx)) {
+        return null;
+      }
+
+      var otherLeft = otherCondition.left;
+
+      if (!left.equals(otherLeft)) {
+        return null;
+      }
+
+      var otherRightValue = otherCondition.right.execute((Result) null, ctx);
+      var rightValue = right.execute((Result) null, ctx);
+
+      var resultOperand = operator.mergeWithOperator(ctx.getDatabaseSession(),
+          otherCondition.operator,
+          rightValue,
+          otherRightValue);
+
+      if (resultOperand != null) {
+        var result = new SQLBinaryCondition(-1);
+        result.left = left.copy();
+        result.operator = operator.copy();
+        result.right = new SQLValueExpression(resultOperand);
+
+        return result;
+      }
+    }
+
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=99ed1dd2812eb730de8e1931b1764da5 (do not edit this line) */

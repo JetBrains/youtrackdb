@@ -11,6 +11,7 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.PairLongObject;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -140,7 +141,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -166,7 +167,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -184,6 +185,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new MatchExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling);
@@ -730,7 +732,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   }
 
   @Override
-  public Iterator<Identifiable> iterator(DatabaseSessionInternal session,
+  public Iterator<Identifiable> iterator(DatabaseSessionEmbedded session,
       Map<Object, Object> iArgs) {
     if (context == null) {
       var context = new BasicCommandContext();

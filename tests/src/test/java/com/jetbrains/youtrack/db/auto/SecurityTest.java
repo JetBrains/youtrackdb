@@ -26,17 +26,10 @@ import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Ignore;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SecurityTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SecurityTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeMethod
   @Override
@@ -173,17 +166,16 @@ public class SecurityTest extends BaseDBTest {
           session.commit();
 
           session.close();
-          if (!session.isRemote()) {
-            session = createSessionInstance("writerChild", "writerChild");
+          session = createSessionInstance("writerChild", "writerChild");
 
-            session.begin();
-            var user = session.getCurrentUser();
-            Assert.assertTrue(user.hasRole(session, "writer", true));
-            Assert.assertFalse(user.hasRole(session, "wrter", true));
-            session.commit();
+          session.begin();
+          var user = session.getCurrentUser();
+          Assert.assertTrue(user.hasRole(session, "writer", true));
+          Assert.assertFalse(user.hasRole(session, "wrter", true));
+          session.commit();
 
-            session.close();
-          }
+          session.close();
+
           session = createSessionInstance();
           security = session.getMetadata().getSecurity();
         } finally {

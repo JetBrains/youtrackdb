@@ -32,7 +32,7 @@ public class LuceneSingleFieldEmbeddedTest extends LuceneBaseTest {
   public void init() {
     var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql");
 
-    session.runScript("sql", getScriptFromStream(stream));
+    session.computeScript("sql", getScriptFromStream(stream));
 
     session.execute("create index Song.title on Song (title) FULLTEXT ENGINE LUCENE");
     session.execute("create index Song.author on Song (author) FULLTEXT ENGINE LUCENE");

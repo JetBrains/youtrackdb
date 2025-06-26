@@ -22,7 +22,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
 
     session.getSharedContext().getIndexManager().reload(session);
     Assert.assertNotNull(
-        (session.getSharedContext().getIndexManager()).getIndex(session, indexName));
+        (session.getSharedContext().getIndexManager()).getIndex(indexName));
 
     var result = session.execute("drop index " + indexName);
     Assert.assertTrue(result.hasNext());
@@ -32,7 +32,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
     result.close();
 
     session.getSharedContext().getIndexManager().reload(session);
-    Assert.assertNull(session.getSharedContext().getIndexManager().getIndex(session, indexName));
+    Assert.assertNull(session.getSharedContext().getIndexManager().getIndex(indexName));
   }
 
   @Test
@@ -45,7 +45,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
 
     session.getSharedContext().getIndexManager().reload(session);
     Assert.assertNotNull(
-        session.getSharedContext().getIndexManager().getIndex(session, indexName));
+        session.getSharedContext().getIndexManager().getIndex(indexName));
 
     var result = session.execute("drop index *");
     Assert.assertTrue(result.hasNext());
@@ -53,9 +53,9 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
     Assert.assertEquals("drop index", next.getProperty("operation"));
     result.close();
     session.getSharedContext().getIndexManager().reload(session);
-    Assert.assertNull(session.getSharedContext().getIndexManager().getIndex(session, indexName));
+    Assert.assertNull(session.getSharedContext().getIndexManager().getIndex(indexName));
     Assert.assertTrue(
-        session.getSharedContext().getIndexManager().getIndexes(session).isEmpty());
+        session.getSharedContext().getIndexManager().getIndexes().isEmpty());
   }
 
   @Test
@@ -63,7 +63,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
 
     var indexName = "nonexistingindex";
     session.getSharedContext().getIndexManager().reload(session);
-    Assert.assertNull(session.getSharedContext().getIndexManager().getIndex(session, indexName));
+    Assert.assertNull(session.getSharedContext().getIndexManager().getIndex(indexName));
 
     try {
       session.execute("drop index " + indexName).close();
@@ -79,7 +79,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
 
     var indexName = "nonexistingindex";
     session.getSharedContext().getIndexManager().reload(session);
-    Assert.assertNull(session.getSharedContext().getIndexManager().getIndex(session, indexName));
+    Assert.assertNull(session.getSharedContext().getIndexManager().getIndex(indexName));
 
     try {
       session.execute("drop index " + indexName + " if exists").close();

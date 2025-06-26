@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InsertExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
@@ -53,13 +53,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     }
     if (statement != null) {
       InternalExecutionPlan execPlan;
-      if (statement.originalStatement == null || statement.originalStatement.contains("?")) {
-        // cannot cache statements with positional params, especially when it's in a
-        // subquery/expression.
-        execPlan = statement.createExecutionPlanNoCache(ctx, false);
-      } else {
-        execPlan = statement.createExecutionPlan(ctx, false);
-      }
+      execPlan = createExecutionPlan(ctx);
       if (execPlan instanceof InsertExecutionPlan) {
         ((InsertExecutionPlan) execPlan).executeInternal();
       }
@@ -76,6 +70,19 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     return super.execute(iCurrentRecord, ctx);
   }
 
+  private InternalExecutionPlan createExecutionPlan(CommandContext ctx) {
+    InternalExecutionPlan execPlan;
+    if (statement.originalStatement == null || statement.originalStatement.contains("?")) {
+      // cannot cache statements with positional params, especially when it's in a
+      // subquery/expression.
+      execPlan = statement.createExecutionPlanNoCache(ctx, false);
+    } else {
+      execPlan = statement.createExecutionPlan(ctx, false);
+    }
+    return execPlan;
+  }
+
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("(");
     if (expression != null) {
@@ -86,6 +93,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     builder.append(")");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("(");
     if (expression != null) {
@@ -110,10 +118,12 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     return expression != null && expression.isEarlyCalculated(ctx);
   }
 
+  @Override
   public boolean needsAliases(Set<String> aliases) {
     return expression.needsAliases(aliases);
   }
 
+  @Override
   public boolean isExpand() {
     if (expression != null) {
       return expression.isExpand();
@@ -121,13 +131,15 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  @Override
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (expression != null) {
       return expression.isAggregate(session);
     }
     return false;
   }
 
+  @Override
   public boolean isCount() {
     if (expression != null) {
       return expression.isCount();
@@ -135,6 +147,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     return false;
   }
 
+  @Override
   public SimpleNode splitForAggregation(
       AggregateProjectionSplit aggregateProj, CommandContext ctx) {
     if (isAggregate(ctx.getDatabaseSession())) {
@@ -158,6 +171,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     this.statement = statement;
   }
 
+  @Override
   public void extractSubQueries(SubQueryCollector collector) {
     if (expression != null) {
       expression.extractSubQueries(collector);
@@ -168,6 +182,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     }
   }
 
+  @Override
   public void extractSubQueries(SQLIdentifier letAlias, SubQueryCollector collector) {
     if (expression != null) {
       expression.extractSubQueries(collector);
@@ -178,6 +193,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     }
   }
 
+  @Override
   public boolean refersToParent() {
     if (expression != null && expression.refersToParent()) {
       return true;
@@ -213,6 +229,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     return result;
   }
 
+  @Override
   public List<String> getMatchPatternInvolvedAliases() {
     return expression.getMatchPatternInvolvedAliases(); // TODO also check the statement...?
   }
@@ -226,17 +243,19 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = (ResultInternal) super.serialize(db);
+  @Override
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = (ResultInternal) super.serialize(session);
     if (expression != null) {
-      result.setProperty("expression", expression.serialize(db));
+      result.setProperty("expression", expression.serialize(session));
     }
     if (statement != null) {
-      result.setProperty("statement", statement.serialize(db));
+      result.setProperty("statement", statement.serialize(session));
     }
     return result;
   }
 
+  @Override
   public void deserialize(Result fromResult) {
     super.deserialize(fromResult);
     if (fromResult.getProperty("expression") != null) {
@@ -249,7 +268,7 @@ public class SQLParenthesisExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (expression != null) {
       return expression.isCacheable(session);
     }

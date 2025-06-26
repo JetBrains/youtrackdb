@@ -10,9 +10,11 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.PairIntegerObject;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ExecutionPlanCache;
@@ -20,7 +22,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsCompareOperator;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromItem;
@@ -282,10 +284,12 @@ public class SelectExecutionPlanner {
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
-    var targetClass = info.target == null ? null : info.target.getItem().getIdentifier();
+    var session = ctx.getDatabaseSession();
+    var targetClass = info.target == null ? null : info.target.getSchemaClass(session);
     if (targetClass == null) {
       return false;
     }
+
     if (info.distinct || info.expand) {
       return false;
     }
@@ -307,18 +311,17 @@ public class SelectExecutionPlanner {
     return true;
   }
 
-  private static boolean securityPoliciesExistForClass(SQLIdentifier targetClass,
+  private static boolean securityPoliciesExistForClass(SchemaClassInternal targetClass,
       CommandContext ctx) {
-    var db = ctx.getDatabaseSession();
-    var security = db.getSharedContext().getSecurity();
-    var clazz =
-        db.getMetadata()
-            .getImmutableSchemaSnapshot()
-            .getClass(targetClass.getStringValue()); // normalize class name case
-    if (clazz == null) {
+    if (targetClass == null) {
       return false;
     }
-    return security.isReadRestrictedBySecurityPolicy(db, "database.class." + clazz.getName());
+
+    var session = ctx.getDatabaseSession();
+    var security = session.getSharedContext().getSecurity();
+
+    return security.isReadRestrictedBySecurityPolicy(session,
+        "database.class." + targetClass.getName());
   }
 
   private static boolean handleHardwiredCountOnClassUsingIndex(
@@ -326,7 +329,8 @@ public class SelectExecutionPlanner {
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
-    var targetClass = info.target == null ? null : info.target.getItem().getIdentifier();
+    var session = ctx.getDatabaseSession();
+    var targetClass = info.target == null ? null : info.target.getSchemaClass(session);
     if (targetClass == null) {
       return false;
     }
@@ -348,14 +352,7 @@ public class SelectExecutionPlanner {
         || info.skip != null) {
       return false;
     }
-    var clazz =
-        ctx.getDatabaseSession()
-            .getMetadata()
-            .getImmutableSchemaSnapshot()
-            .getClassInternal(targetClass.getStringValue());
-    if (clazz == null) {
-      return false;
-    }
+
     if (info.flattenedWhereClause == null
         || info.flattenedWhereClause.size() > 1
         || info.flattenedWhereClause.getFirst().getSubBlocks().size() > 1) {
@@ -369,7 +366,7 @@ public class SelectExecutionPlanner {
     if (!binaryCondition.getLeft().isBaseIdentifier()) {
       return false;
     }
-    if (!(binaryCondition.getOperator() instanceof SQLEqualsCompareOperator)) {
+    if (!(binaryCondition.getOperator() instanceof SQLEqualsOperator)) {
       // this can be extended to use range operators too
       return false;
     }
@@ -377,12 +374,12 @@ public class SelectExecutionPlanner {
       return false;
     }
 
-    for (var classIndex : clazz.getClassIndexesInternal()) {
-      var fields = classIndex.getDefinition().getFields();
+    for (var classIndex : targetClass.getClassIndexesInternal()) {
+      var fields = classIndex.getDefinition().getProperties();
       if (fields.size() == 1
           && fields.getFirst()
           .equals(binaryCondition.getLeft().getDefaultAlias().getStringValue())) {
-        var expr = ((SQLBinaryCondition) condition).getRight();
+        var expr = binaryCondition.getRight();
         result.chain(
             new CountFromIndexWithKeyStep(
                 new SQLIndexIdentifier(classIndex.getName(), SQLIndexIdentifier.Type.INDEX),
@@ -520,8 +517,14 @@ public class SelectExecutionPlanner {
       info.expandAlias = info.projection.getExpandAlias();
       info.projection = info.projection.getExpandContent();
     }
+
     if (info.whereClause != null) {
-      info.flattenedWhereClause = info.whereClause.flatten();
+      if (info.target == null) {
+        info.flattenedWhereClause = info.whereClause.flatten(ctx, null);
+      } else {
+        info.flattenedWhereClause = info.whereClause.flatten(ctx,
+            info.target.getSchemaClass(ctx.getDatabaseSession()));
+      }
       // this helps index optimization
       info.flattenedWhereClause = moveFlattenedEqualitiesLeft(info.flattenedWhereClause);
     }
@@ -531,15 +534,18 @@ public class SelectExecutionPlanner {
   }
 
   private static void rewriteIndexChainsAsSubqueries(QueryPlanningInfo info, CommandContext ctx) {
-    if (ctx == null || ctx.getDatabaseSession() == null) {
+    if (ctx == null) {
       return;
     }
+
+    var session = ctx.getDatabaseSession();
+    if (session == null) {
+      return;
+    }
+
     if (info.whereClause != null
-        && info.target != null
-        && info.target.getItem().getIdentifier() != null) {
-      var className = info.target.getItem().getIdentifier().getStringValue();
-      var schema = getSchemaFromContext(ctx);
-      var clazz = schema.getClassInternal(className);
+        && info.target != null) {
+      var clazz = info.target.getSchemaClass(session);
       if (clazz != null) {
         info.whereClause.getBaseExpression().rewriteIndexChainsAsSubqueries(ctx, clazz);
       }
@@ -608,7 +614,7 @@ public class SelectExecutionPlanner {
       var newBlock = block.copy();
       for (var exp : newBlock.getSubBlocks()) {
         if (exp instanceof SQLBinaryCondition) {
-          if (((SQLBinaryCondition) exp).getOperator() instanceof SQLEqualsCompareOperator) {
+          if (((SQLBinaryCondition) exp).getOperator() instanceof SQLEqualsOperator) {
             equalityExpressions.add(exp);
           } else {
             nonEqualityExpressions.add(exp);
@@ -768,8 +774,8 @@ public class SelectExecutionPlanner {
     }
   }
 
-  private static boolean isAggregate(DatabaseSessionInternal db, SQLProjectionItem item) {
-    return item.isAggregate(db);
+  private static boolean isAggregate(DatabaseSessionEmbedded session, SQLProjectionItem item) {
+    return item.isAggregate(session);
   }
 
   private static SQLProjectionItem projectionFromAlias(SQLIdentifier oIdentifier) {
@@ -783,7 +789,7 @@ public class SelectExecutionPlanner {
    * projections, then that expression has to be put in the pre-aggregate (only here, in subsequent
    * steps it's removed)
    */
-  private static void addGroupByExpressionsToProjections(DatabaseSessionInternal sesssion,
+  private static void addGroupByExpressionsToProjections(DatabaseSessionEmbedded session,
       QueryPlanningInfo info) {
     if (info.groupBy == null
         || info.groupBy.getItems() == null
@@ -793,8 +799,8 @@ public class SelectExecutionPlanner {
     var newGroupBy = new SQLGroupBy(-1);
     var i = 0;
     for (var exp : info.groupBy.getItems()) {
-      if (exp.isAggregate(sesssion)) {
-        throw new CommandExecutionException(sesssion, "Cannot group by an aggregate function");
+      if (exp.isAggregate(session)) {
+        throw new CommandExecutionException(session, "Cannot group by an aggregate function");
       }
       var found = false;
       if (info.preAggregateProjection != null) {
@@ -1118,10 +1124,8 @@ public class SelectExecutionPlanner {
       schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getSchemaRecordId();
       var schemaRid = new RecordId(schemaRecordIdAsString);
       plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
-    } else if (metadata.getName().equalsIgnoreCase("INDEXMANAGER")) {
-      schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getIndexMgrRecordId();
-      var schemaRid = new RecordId(schemaRecordIdAsString);
-      plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
+    } else if (metadata.getName().equalsIgnoreCase("INDEXES")) {
+      plan.chain(new FetchFromIndexManagerStep(ctx, profilingEnabled));
     } else if (metadata.getName().equalsIgnoreCase("STORAGE")) {
       plan.chain(new FetchFromStorageMetadataStep(ctx, profilingEnabled));
     } else if (metadata.getName().equalsIgnoreCase("DATABASE")) {
@@ -1261,11 +1265,8 @@ public class SelectExecutionPlanner {
         && info.orderBy.getItems() != null
         && !info.orderBy.getItems().isEmpty()) {
 
-      if (info.target != null
-          && info.target.getItem().getIdentifier() != null
-          && info.target.getItem().getIdentifier().getValue() != null) {
-        var targetClass =
-            getSchemaFromContext(ctx).getClass(info.target.getItem().getIdentifier().getValue());
+      if (info.target != null) {
+        var targetClass = info.target.getSchemaClass(session);
         if (targetClass != null) {
           info.orderBy
               .getItems()
@@ -1596,7 +1597,7 @@ public class SelectExecutionPlanner {
             .filter(Index::supportsOrderedIterations)
             .filter(i -> i.getDefinition() != null)
             .toList()) {
-      var indexFields = idx.getDefinition().getFields();
+      var indexFields = idx.getDefinition().getProperties();
       if (indexFields.size() < info.orderBy.getItems().size()) {
         continue;
       }
@@ -2091,68 +2092,142 @@ public class SelectExecutionPlanner {
   @Nullable
   private static IndexSearchDescriptor buildIndexSearchDescriptor(
       CommandContext ctx, Index index, SQLAndBlock block, SchemaClass clazz) {
-    var indexFields = index.getDefinition().getFields();
-    var found = false;
+    var indexProperties = index.getDefinition().getProperties();
 
+    //copy as we will modify the list of expressions
     var blockCopy = block.copy();
-    Iterator<SQLBooleanExpression> blockIterator;
 
     var indexKeyValue = new SQLAndBlock(-1);
+
+    //used if we need to generate a range query instead of a point query and applied to an end range
+    //interval of the key to search in index.
     SQLBinaryCondition additionalRangeCondition = null;
 
-    for (var indexField : indexFields) {
-      var info =
-          new IndexSearchInfo(
-              indexField,
-              allowsRangeQueries(index),
-              isMap(clazz, indexField),
-              isIndexByKey(index, indexField),
-              isIndexByValue(index, indexField),
-              ctx);
-      blockIterator = blockCopy.getSubBlocks().iterator();
-      var indexFieldFound = false;
-      while (blockIterator.hasNext()) {
-        var singleExp = blockIterator.next();
-        if (singleExp.isIndexAware(info)) {
-          indexFieldFound = true;
-          indexKeyValue.getSubBlocks().add(singleExp.copy());
-          blockIterator.remove();
-          if (singleExp instanceof SQLBinaryCondition
-              && info.allowsRange()
-              && ((SQLBinaryCondition) singleExp).getOperator().isRangeOperator()) {
-            // look for the opposite condition, on the same field, for range queries (the other
-            // side of the range)
-            while (blockIterator.hasNext()) {
-              var next = blockIterator.next();
-              if (next.createRangeWith(singleExp)) {
-                additionalRangeCondition = (SQLBinaryCondition) next;
-                blockIterator.remove();
-                break;
-              }
+    var booleanExpressions = blockCopy.getSubBlocks();
+    var propertyNameBooleanExpressionMap =
+        new HashMap<String, List<SQLBooleanExpression>>(booleanExpressions.size());
+
+    //group all boolean expressions by indexed property they test,
+    // all SQL expressions should be already flattened at this moment
+    // so will use only a single property in the expression
+    for (var booleanExpression : booleanExpressions) {
+      //skip expressions that do not use properties we will apply them later on post filtering
+      var indexPropertyName = booleanExpression.getRelatedIndexPropertyName();
+      if (indexPropertyName != null) {
+        var list = propertyNameBooleanExpressionMap.computeIfAbsent(indexPropertyName,
+            k -> new ArrayList<>());
+        list.add(booleanExpression);
+      }
+    }
+
+    //Flag is used to indicate the situation when applied expressions make usage of indexes
+    //impossible to use.
+    //One of the most typical is the usage of several range conditions as we can apply only
+    //one.
+    var invalidConditions = new boolean[1];
+    //Range condition should always go after equality condition, so sort all expressions by
+    //the type of operator they use.
+    //Then we will merge all expressions for the same property name that have more than two
+    //conditions as we can apply only single equals and single range condition for each property.
+    propertyNameBooleanExpressionMap.forEach((indexPropertyName, expressions) -> {
+      if (expressions.size() > 1) {
+        //merge all tail expressions as we can support only one range condition per index
+        //try to mere first condition with the rest of the conditions too
+        var resultingExpressions = new ArrayList<SQLBooleanExpression>(2);
+
+        var firstExpression = expressions.getFirst();
+        var expressionToMerge = expressions.get(1);
+
+        var mergedExpression = firstExpression.mergeUsingAnd(expressionToMerge, ctx);
+        if (mergedExpression != null) {
+          expressionToMerge = mergedExpression;
+        } else {
+          resultingExpressions.add(firstExpression);
+        }
+
+        if (expressions.size() > 2) {
+          for (var i = 2; i < expressions.size(); i++) {
+            var nextBlockToMerge = expressions.get(i);
+            expressionToMerge = expressionToMerge.mergeUsingAnd(nextBlockToMerge, ctx);
+
+            //unable to merge expressions
+            if (expressionToMerge == null) {
+              invalidConditions[0] = true;
+              return;
             }
           }
+        }
+
+        resultingExpressions.add(expressionToMerge);
+
+        expressions.clear();
+        expressions.addAll(resultingExpressions);
+      }
+    });
+
+    //there are more than two boolean expressions for the same property, skip the current index
+    if (invalidConditions[0]) {
+      return null;
+    }
+
+    for (var indexProperty : indexProperties) {
+      var propertyExpressions = propertyNameBooleanExpressionMap.get(indexProperty);
+      if (propertyExpressions == null) {
+        break;
+      }
+
+      if (propertyExpressions.size() > 2) {
+        break;
+      }
+
+      var info =
+          new IndexSearchInfo(
+              indexProperty,
+              allowsRangeQueries(index),
+              isMap(clazz, indexProperty),
+              isIndexByKey(index, indexProperty),
+              isIndexByValue(index, indexProperty),
+              clazz, ctx);
+
+      var firstPropertyExpression = propertyExpressions.getFirst();
+      if (firstPropertyExpression.isRangeExpression()) {
+        if (!info.allowsRangeQueries()) {
           break;
         }
       }
 
-      if (indexFieldFound) {
-        found = true;
+      if (propertyExpressions.size() == 2) {
+        var secondPropertyExpression = propertyExpressions.get(1);
+        if (secondPropertyExpression.isIndexAware(info, ctx)) {
+          if (secondPropertyExpression.createRangeWith(firstPropertyExpression)) {
+            additionalRangeCondition = (SQLBinaryCondition) secondPropertyExpression;
+          } else {
+            break;
+          }
+        } else {
+          return null;
+        }
       }
-      if (!indexFieldFound) {
+
+      if (firstPropertyExpression.isIndexAware(info, ctx)) {
+        indexKeyValue.getSubBlocks().add(firstPropertyExpression.copy());
+        if (firstPropertyExpression.isRangeExpression()) {
+          //we can have only a single range condition per index
+          break;
+        }
+      } else {
         break;
       }
     }
 
-    if (indexKeyValue.getSubBlocks().size() < index.getDefinition().getFields().size()
+    var keyExpressions = indexKeyValue.getSubBlocks();
+    if (keyExpressions.size() < index.getDefinition().getProperties().size()
         && !index.supportsOrderedIterations()) {
       // hash indexes do not support partial key match
       return null;
     }
 
-    if (found) {
-      return new IndexSearchDescriptor(index, indexKeyValue, additionalRangeCondition, blockCopy);
-    }
-    return null;
+    return new IndexSearchDescriptor(index, indexKeyValue, additionalRangeCondition, blockCopy);
   }
 
   /**
@@ -2162,7 +2237,7 @@ public class SelectExecutionPlanner {
   @Nullable
   private static IndexSearchDescriptor buildIndexSearchDescriptorForFulltext(
       Index index, SQLAndBlock block) {
-    var indexFields = index.getDefinition().getFields();
+    var indexFields = index.getDefinition().getProperties();
     var found = false;
 
     var blockCopy = block.copy();
@@ -2188,7 +2263,7 @@ public class SelectExecutionPlanner {
       }
     }
 
-    if (indexKeyValue.getSubBlocks().size() < index.getDefinition().getFields().size()
+    if (indexKeyValue.getSubBlocks().size() < index.getDefinition().getProperties().size()
         && !index.supportsOrderedIterations()) {
       // hash indexes do not support partial key match
       return null;

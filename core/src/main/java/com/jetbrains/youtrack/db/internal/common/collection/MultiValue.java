@@ -19,14 +19,15 @@
  */
 package com.jetbrains.youtrack.db.internal.common.collection;
 
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
+import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.Resettable;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -68,7 +69,7 @@ public class MultiValue {
         || MultiCollectionIterator.class.isAssignableFrom(iType)
         || (Iterable.class.isAssignableFrom(iType)
         && !(Identifiable.class.isAssignableFrom(iType)))
-        || ResultSet.class.isAssignableFrom(iType);
+        || BasicResultSet.class.isAssignableFrom(iType);
   }
 
   /**
@@ -91,7 +92,7 @@ public class MultiValue {
    * @param iObject Multi-value object (array, collection or map)
    * @return the size of the multi value object
    */
-  public static int getSize(final Object iObject) {
+  public static long getSize(final Object iObject) {
     if (iObject == null) {
       return 0;
     }
@@ -115,13 +116,20 @@ public class MultiValue {
     }
     if ((iObject instanceof Iterable && !(iObject instanceof EntityImpl))) {
       var i = 0;
-      for (var o : (Iterable) iObject) {
+      for (var o : (Iterable<?>) iObject) {
         i++;
       }
       return i;
     }
     if (iObject instanceof InternalResultSet) {
       return ((InternalResultSet) iObject).size();
+    }
+    if (iObject instanceof ResultSet resultSet) {
+      var res = resultSet.stream().count();
+      if (resultSet instanceof Resettable resettable && resettable.isResetable()) {
+        resettable.reset();
+      }
+      return res;
     }
     return 0;
   }
@@ -227,10 +235,6 @@ public class MultiValue {
       return null;
     }
 
-    if (iIndex >= getSize(iObject)) {
-      return null;
-    }
-
     try {
       if (iObject instanceof List<?>) {
         return ((List<?>) iObject).get(iIndex);
@@ -251,13 +255,13 @@ public class MultiValue {
       } else if (iObject.getClass().isArray()) {
         return Array.get(iObject, iIndex);
       } else if (iObject instanceof Iterator<?> || iObject instanceof Iterable<?>) {
-
         final Iterator<Object> it;
         if (iObject instanceof Iterable<?>) {
           it = ((Iterable<Object>) iObject).iterator();
         } else {
           it = (Iterator<Object>) iObject;
         }
+
         for (var i = 0; it.hasNext(); ++i) {
           final var o = it.next();
           if (i == iIndex) {
@@ -340,19 +344,21 @@ public class MultiValue {
    */
   @Nullable
   public static Iterator<?> getMultiValueIterator(final Object iObject) {
-    if (iObject == null) {
-      return null;
-    }
-
-    if (iObject instanceof Iterator<?>) {
-      return (Iterator<Object>) iObject;
-    }
-
-    if (iObject instanceof Iterable<?>) {
-      return ((Iterable<Object>) iObject).iterator();
-    }
-    if (iObject instanceof Map<?, ?>) {
-      return ((Map<?, Object>) iObject).values().iterator();
+    switch (iObject) {
+      case null -> {
+        return null;
+      }
+      case Iterator<?> iterator -> {
+        return (Iterator<Object>) iObject;
+      }
+      case Iterable<?> objects -> {
+        return ((Iterable<Object>) iObject).iterator();
+      }
+      case Map<?, ?> map -> {
+        return ((Map<?, Object>) iObject).values().iterator();
+      }
+      default -> {
+      }
     }
     if (iObject.getClass().isArray()) {
       return new IterableObjectArray<>(iObject).iterator();
@@ -482,9 +488,9 @@ public class MultiValue {
         } else if (iToAdd instanceof Map<?, ?>) {
           // MAP
           coll.add(iToAdd);
-        } else if (iToAdd instanceof Iterator<?>) {
+        } else if (iToAdd instanceof Iterator<?> it) {
           // ITERATOR
-          for (var it = (Iterator<?>) iToAdd; it.hasNext(); ) {
+          for (; it.hasNext(); ) {
             coll.add(it.next());
           }
         } else {
@@ -762,7 +768,7 @@ public class MultiValue {
 
     if (isMultiValue(iValue)) {
       // CREATE STATIC ARRAY AND FILL IT
-      result = (T[]) Array.newInstance(iClass, getSize(iValue));
+      result = (T[]) Array.newInstance(iClass, (int) getSize(iValue));
       var i = 0;
       for (var it = (Iterator<T>) getMultiValueIterator(iValue); it.hasNext(); ++i) {
         result[i] = (T) convert(it.next(), iCallback);
@@ -779,7 +785,7 @@ public class MultiValue {
       } else
       // CONVERT THEM
       {
-        result = temp.toArray((T[]) Array.newInstance(iClass, getSize(iValue)));
+        result = temp.toArray((T[]) Array.newInstance(iClass, (int) getSize(iValue)));
       }
 
     } else {
@@ -802,20 +808,33 @@ public class MultiValue {
     return col1.containsAll(col2) && col2.containsAll(col1);
   }
 
-  public static boolean contains(final Object iObject, final Object iItem) {
-    if (iObject == null) {
+  public static boolean contains(final Object multiValue, final Object itemToCheck) {
+    if (multiValue == null) {
       return false;
     }
 
-    if (iObject instanceof Collection) {
-      return ((Collection) iObject).contains(iItem);
-    } else if (iObject.getClass().isArray()) {
-      final var size = Array.getLength(iObject);
+    if (multiValue instanceof Collection) {
+      return ((Collection<?>) multiValue).contains(itemToCheck);
+    }
+
+    if (multiValue.getClass().isArray()) {
+      final var size = Array.getLength(multiValue);
       for (var i = 0; i < size; ++i) {
-        final var item = Array.get(iObject, i);
-        if (item != null && item.equals(iItem)) {
+        final var item = Array.get(multiValue, i);
+        if (item != null && item.equals(itemToCheck)) {
           return true;
         }
+      }
+    }
+
+    var iterator = getMultiValueIterator(multiValue);
+    if (iterator == null) {
+      return false;
+    }
+
+    while (iterator.hasNext()) {
+      if (itemToCheck.equals(iterator.next())) {
+        return true;
       }
     }
 

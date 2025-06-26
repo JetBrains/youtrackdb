@@ -4,8 +4,6 @@ import static org.testng.Assert.assertEquals;
 
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -13,12 +11,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class DBRecordMetadataTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public DBRecordMetadataTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   private static void assetORIDEquals(RID actual, RID expected) {
     assertEquals(actual.getCollectionId(), expected.getCollectionId());
     assertEquals(actual.getCollectionPosition(), expected.getCollectionPosition());

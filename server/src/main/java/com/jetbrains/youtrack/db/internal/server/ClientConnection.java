@@ -22,11 +22,10 @@ package com.jetbrains.youtrack.db.internal.server;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
 import com.jetbrains.youtrack.db.internal.common.exception.SystemException;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.security.ParsedToken;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.TokenSecurityException;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtocol;
@@ -34,10 +33,8 @@ import com.jetbrains.youtrack.db.internal.server.network.protocol.NetworkProtoco
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
@@ -52,7 +49,7 @@ public class ClientConnection {
   private final Set<NetworkProtocol> protocols =
       Collections.newSetFromMap(new WeakHashMap<NetworkProtocol, Boolean>());
   private volatile NetworkProtocol protocol;
-  private volatile DatabaseSessionInternal session;
+  private volatile DatabaseSessionEmbedded session;
   private volatile SecurityUser serverUser;
   private NetworkProtocolData data = new NetworkProtocolData();
   private final ClientConnectionStats stats = new ClientConnectionStats();
@@ -256,7 +253,7 @@ public class ClientConnection {
       final var dbName = token.getToken().getDatabaseName();
       final var type = token.getToken().getDatabaseType();
       if (dbName != null && type != null) {
-        session = server.openSession(dbName, token);
+        session = server.openSession(token);
       }
     }
   }
@@ -295,7 +292,7 @@ public class ClientConnection {
   }
 
   @Nullable
-  public DatabaseSessionInternal getDatabaseSession() {
+  public DatabaseSessionEmbedded getDatabaseSession() {
     return session;
   }
 
@@ -317,7 +314,7 @@ public class ClientConnection {
     }
   }
 
-  public void setSession(DatabaseSessionInternal session) {
+  public void setSession(DatabaseSessionEmbedded session) {
     this.session = session;
   }
 
@@ -347,7 +344,6 @@ public class ClientConnection {
       stats.lastDatabase = session.getDatabaseName();
       stats.lastUser =
           session.getCurrentUser() != null ? session.getCurrentUser().getName(session) : null;
-      stats.activeQueries = getActiveQueries(session);
     } else {
       stats.lastDatabase = null;
       stats.lastUser = null;
@@ -357,29 +353,6 @@ public class ClientConnection {
     data.commandInfo = "Listening";
     data.commandDetail = "-";
     stats.lastCommandReceived = System.currentTimeMillis();
-  }
-
-  @Nullable
-  private static List<String> getActiveQueries(DatabaseSessionInternal database) {
-    try {
-      List<String> result = new ArrayList<>();
-      var queries = database.getActiveQueries();
-      for (var oResultSet : queries.values()) {
-        var plan = oResultSet.getResultSet().getExecutionPlan();
-        if (plan == null) {
-          continue;
-        }
-        if (plan instanceof InternalExecutionPlan internalExecutionPlan) {
-          var stm = internalExecutionPlan.getStatement();
-          if (stm != null) {
-            result.add(stm);
-          }
-        }
-      }
-      return result;
-    } catch (Exception e) {
-    }
-    return null;
   }
 
   public void setDisconnectOnAfter(boolean disconnectOnAfter) {

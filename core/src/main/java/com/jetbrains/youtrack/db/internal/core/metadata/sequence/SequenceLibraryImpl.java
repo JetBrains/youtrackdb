@@ -30,10 +30,12 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+import javax.annotation.Nullable;
 
 /**
  * @since 3/2/2015
@@ -41,26 +43,33 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SequenceLibraryImpl {
 
   public static final String DROPPED_SEQUENCES_MAP = "droppedSequencesMap";
-  private final Map<String, DBSequence> sequences = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, DBSequence> sequences = new ConcurrentHashMap<>();
   private final AtomicLong reloadNeeded = new AtomicLong();
+  private final Lock lock = new ReentrantLock();
 
   public static void create(DatabaseSessionInternal database) {
     init(database);
   }
 
-  public synchronized void load(final DatabaseSessionInternal session) {
-    sequences.clear();
+  public void load(final DatabaseSessionInternal session) {
+    lock.lock();
+    try {
+      sequences.clear();
 
-    if (session.getMetadata().getImmutableSchemaSnapshot().existsClass(DBSequence.CLASS_NAME)) {
-      try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
-        while (result.hasNext()) {
-          var res = result.next();
+      if (session.getMetadata().getImmutableSchemaSnapshot().existsClass(DBSequence.CLASS_NAME)) {
+        session.executeInTx(tx -> {
+          try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
+            while (result.hasNext()) {
+              var res = result.next();
 
-          final var sequence =
-              SequenceHelper.createSequence((EntityImpl) res.asEntity());
-          sequences.put(sequence.getName(session).toUpperCase(Locale.ENGLISH), sequence);
-        }
+              final var sequence = SequenceHelper.createSequence((EntityImpl) res.asEntity());
+              sequences.put(normalizeName(sequence.getName(session)), sequence);
+            }
+          }
+        });
       }
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -68,84 +77,84 @@ public class SequenceLibraryImpl {
     sequences.clear();
   }
 
-  public synchronized Set<String> getSequenceNames(DatabaseSessionInternal session) {
+  public Set<String> getSequenceNames(DatabaseSessionInternal session) {
     reloadIfNeeded(session);
     return sequences.keySet();
   }
 
-  public synchronized int getSequenceCount(DatabaseSessionInternal session) {
+  public int getSequenceCount(DatabaseSessionInternal session) {
     reloadIfNeeded(session);
     return sequences.size();
   }
 
-  public DBSequence getSequence(final DatabaseSessionInternal session, final String iName) {
-    final var name = iName.toUpperCase(Locale.ENGLISH);
+  public DBSequence getSequence(
+      final DatabaseSessionInternal session,
+      final String iName
+  ) {
     reloadIfNeeded(session);
-    DBSequence seq;
-    synchronized (this) {
-      seq = sequences.get(name);
-      if (seq == null) {
-        load(session);
-        seq = sequences.get(name);
-      }
-    }
-
-    return seq;
+    return sequences.get(normalizeName(iName));
   }
 
-  public synchronized DBSequence createSequence(
+  public DBSequence createSequence(
       final DatabaseSessionInternal session,
       final String iName,
       final SEQUENCE_TYPE sequenceType,
       final DBSequence.CreateParams params) {
-    init(session);
-    reloadIfNeeded(session);
+    lock.lock();
+    try {
+      init(session);
+      reloadIfNeeded(session);
 
-    final var key = iName.toUpperCase(Locale.ENGLISH);
-    validateSequenceNoExists(key);
+      final var key = normalizeName(iName);
+      validateSequenceNoExists(key);
 
-    final var sequence = SequenceHelper.createSequence(session, sequenceType, params, iName);
-    sequences.put(key, sequence);
+      final var sequence = SequenceHelper.createSequence(session, sequenceType, params, iName);
+      sequences.put(key, sequence);
 
-    return sequence;
-  }
-
-  public synchronized void dropSequence(
-      final DatabaseSessionInternal session, final String iName) {
-    final var seq = getSequence(session, iName);
-    if (seq != null) {
-      try {
-        var entity = session.loadEntity(seq.entityRid);
-        session.delete(entity);
-        sequences.remove(iName.toUpperCase(Locale.ENGLISH));
-      } catch (NeedRetryException e) {
-        var rec = session.load(seq.entityRid);
-        rec.delete();
-      }
+      return sequence;
+    } finally {
+      lock.unlock();
     }
   }
 
-  public void onSequenceCreated(
-      final DatabaseSessionInternal session, final EntityImpl entity) {
+  public void dropSequence(
+      final DatabaseSessionInternal session, final String iName) {
+    lock.lock();
+    try {
+      final var seq = getSequence(session, iName);
+      if (seq != null) {
+        try {
+          var entity = session.loadEntity(seq.entityRid);
+          session.delete(entity);
+          sequences.remove(normalizeName(iName));
+        } catch (NeedRetryException e) {
+          var rec = session.load(seq.entityRid);
+          rec.delete();
+        }
+      }
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  public void onSequenceCreated(final DatabaseSessionInternal session, final EntityImpl entity) {
     init(session);
 
-    var name = DBSequence.getSequenceName(entity);
+    final var name = normalizeName(DBSequence.getSequenceName(entity));
     if (name == null) {
       return;
     }
 
-    name = name.toUpperCase(Locale.ENGLISH);
-
-    final var seq = getSequence(session, name);
-
-    if (seq != null) {
-      onSequenceLibraryUpdate(session);
-      return;
+    lock.lock();
+    try {
+      final var seq = getSequence(session, name);
+      if (seq == null) {
+        sequences.put(name, SequenceHelper.createSequence(entity));
+      }
+    } finally {
+      lock.unlock();
     }
 
-    final var sequence = SequenceHelper.createSequence(entity);
-
-    sequences.put(name, sequence);
     onSequenceLibraryUpdate(session);
   }
 
@@ -180,8 +189,7 @@ public class SequenceLibraryImpl {
       return;
     }
 
-    var name = sequenceName.toUpperCase(Locale.ENGLISH);
-    sequences.remove(name);
+    sequences.remove(normalizeName(sequenceName));
     onSequenceLibraryUpdate(session);
   }
 
@@ -216,5 +224,10 @@ public class SequenceLibraryImpl {
 
   public void update() {
     reloadNeeded.incrementAndGet();
+  }
+
+  @Nullable
+  private static String normalizeName(String name) {
+    return name == null ? null : name.toUpperCase(Locale.ROOT);
   }
 }

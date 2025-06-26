@@ -98,10 +98,10 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
                 this,
                 "Found database instance from the pool with a pending transaction. Forcing rollback"
                     + " before using it");
-        db.rollback(true);
+        db.rollback();
       }
 
-      var batch = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+      var batch = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
 
       var tx = (Boolean) batch.get("transaction");
       if (tx == null) {
@@ -141,7 +141,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
           case "d" -> {
             // DELETE
             final var entity = getRecord(db, operation);
-            if (entity.isRecord()) {
+            if (entity.isIdentifiable()) {
               entity.asRecord().delete();
             } else {
               throw new IllegalArgumentException("Cannot delete a non-record entity");
@@ -177,9 +177,9 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
 
             ResultSet result;
             if (params == null) {
-              result = db.runScript(language, commandAsString.toString());
+              result = db.computeScript(language, commandAsString.toString());
             } else {
-              result = db.runScript(language, commandAsString.toString(), (Object[]) params);
+              result = db.computeScript(language, commandAsString.toString(), (Object[]) params);
             }
             lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
             result.close();
@@ -224,9 +224,9 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
 
             ResultSet result;
             if (params == null) {
-              result = db.runScript(language, text.toString());
+              result = db.computeScript(language, text.toString());
             } else {
-              result = db.runScript(language, text.toString(), (Object[]) params);
+              result = db.computeScript(language, text.toString(), (Object[]) params);
             }
 
             lastResult = result.stream().map(Result::toMap).collect(Collectors.toList());
@@ -247,7 +247,7 @@ public class ServerCommandPostBatch extends ServerCommandDocumentAbstract {
                 this,
                 "Error (%s) on serializing result of batch command:\n%s",
                 e,
-                JSONSerializerJackson.mapToJson(batch));
+                JSONSerializerJackson.INSTANCE.mapToJson(batch));
         throw e;
       }
 

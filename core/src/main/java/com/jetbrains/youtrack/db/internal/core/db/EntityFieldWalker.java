@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
@@ -38,17 +38,17 @@ import java.util.Set;
  * collections also will be visited.
  *
  * <p>Fields values can be updated/converted too. If method {@link
- * EntityPropertiesVisitor#visitField(DatabaseSessionInternal, PropertyType, PropertyType, Object)}
+ * EntityPropertiesVisitor#visitField(DatabaseSessionInternal, PropertyTypeInternal, PropertyTypeInternal, Object)}
  * will return new value original value will be updated but returned result will not be visited by
  * {@link EntityPropertiesVisitor} instance.
  *
  * <p>If currently processed value is collection or map of embedded documents or embedded entity
- * itself then method {@link EntityPropertiesVisitor#goDeeper(PropertyType, PropertyType, Object)}
+ * itself then method {@link EntityPropertiesVisitor#goDeeper(PropertyTypeInternal, PropertyTypeInternal, Object)}
  * is called, if it returns false then this collection will not be visited by
  * {@link EntityPropertiesVisitor} instance.
  *
  * <p>Fields will be visited till method
- * {@link EntityPropertiesVisitor#goFurther(PropertyType, PropertyType, Object, Object)} returns
+ * {@link EntityPropertiesVisitor#goFurther(PropertyTypeInternal, PropertyTypeInternal, Object, Object)} returns
  * true.
  */
 public class EntityFieldWalker {
@@ -86,20 +86,20 @@ public class EntityFieldWalker {
 
     final var updateMode = fieldWalker.updateMode();
 
-    SchemaImmutableClass result = null;
+    SchemaImmutableClass result;
     result = entity.getImmutableSchemaClass(session);
     final SchemaClass clazz = result;
-    for (var fieldName : entity.propertyNames()) {
+    for (var fieldName : entity.getPropertyNamesInternal(false, false)) {
 
-      final var concreteType = entity.getPropertyType(fieldName);
+      final var concreteType = entity.getPropertyTypeInternal(fieldName);
       var fieldType = concreteType;
 
-      PropertyType linkedType = null;
+      PropertyTypeInternal linkedType = null;
       if (fieldType == null && clazz != null) {
         var property = clazz.getProperty(fieldName);
         if (property != null) {
-          fieldType = property.getType();
-          linkedType = property.getLinkedType();
+          fieldType = PropertyTypeInternal.convertFromPublicType(property.getType());
+          linkedType = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
         }
       }
 
@@ -120,21 +120,20 @@ public class EntityFieldWalker {
       // 3. entity is not not embedded.
       if (!updated
           && fieldValue != null
-          && !(PropertyType.LINK == fieldType
-          || PropertyType.LINKBAG == fieldType
-          || PropertyType.LINKLIST == fieldType
-          || PropertyType.LINKSET == fieldType
-          || PropertyType.LINKMAP == fieldType)) {
+          && !(PropertyTypeInternal.LINK == fieldType
+          || PropertyTypeInternal.LINKBAG == fieldType
+          || PropertyTypeInternal.LINKLIST == fieldType
+          || PropertyTypeInternal.LINKSET == fieldType
+          || PropertyTypeInternal.LINKMAP == fieldType)) {
         if (fieldWalker.goDeeper(fieldType, linkedType, fieldValue)) {
           if (fieldValue instanceof Map) {
             walkMap(session, (Map) fieldValue, fieldType, fieldWalker, walked);
           } else if (fieldValue instanceof EntityImpl e) {
-            if (PropertyType.EMBEDDED.equals(fieldType) || e.isEmbedded()) {
-              var fEntity = (EntityImpl) fieldValue;
-              if (fEntity.isUnloaded()) {
+            if (PropertyTypeInternal.EMBEDDED.equals(fieldType) || e.isEmbedded()) {
+              if (e.isUnloaded()) {
                 throw new IllegalStateException("Entity is unloaded");
               }
-              walkDocument(session, fEntity, fieldWalker);
+              walkDocument(session, e, fieldWalker);
             }
           } else if (MultiValue.isIterable(fieldValue)) {
             walkIterable(
@@ -160,14 +159,14 @@ public class EntityFieldWalker {
   private void walkMap(
       DatabaseSessionInternal session,
       Map map,
-      PropertyType fieldType,
+      PropertyTypeInternal fieldType,
       EntityPropertiesVisitor fieldWalker,
       Set<EntityImpl> walked) {
     for (var value : map.values()) {
       if (value instanceof EntityImpl entity) {
         // only embedded documents are walked
-        if (PropertyType.EMBEDDEDMAP.equals(fieldType) || entity.isEmbedded()) {
-          walkDocument(session, (EntityImpl) value, fieldWalker, walked);
+        if (PropertyTypeInternal.EMBEDDEDMAP.equals(fieldType) || entity.isEmbedded()) {
+          walkDocument(session, entity, fieldWalker, walked);
         }
       }
     }
@@ -176,16 +175,16 @@ public class EntityFieldWalker {
   private void walkIterable(
       DatabaseSessionInternal session,
       Iterable iterable,
-      PropertyType fieldType,
+      PropertyTypeInternal fieldType,
       EntityPropertiesVisitor fieldWalker,
       Set<EntityImpl> walked) {
     for (var value : iterable) {
       if (value instanceof EntityImpl entity) {
         // only embedded documents are walked
-        if (PropertyType.EMBEDDEDLIST.equals(fieldType)
-            || PropertyType.EMBEDDEDSET.equals(fieldType)
+        if (PropertyTypeInternal.EMBEDDEDLIST.equals(fieldType)
+            || PropertyTypeInternal.EMBEDDEDSET.equals(fieldType)
             || entity.isEmbedded()) {
-          walkDocument(session, (EntityImpl) value, fieldWalker, walked);
+          walkDocument(session, entity, fieldWalker, walked);
         }
       }
     }
@@ -196,9 +195,9 @@ public class EntityFieldWalker {
       String fieldName,
       Object fieldValue,
       Object newValue,
-      PropertyType concreteType) {
+      PropertyTypeInternal concreteType) {
     if (fieldValue != newValue) {
-      entity.setProperty(fieldName, newValue, concreteType);
+      entity.setPropertyInternal(fieldName, newValue, concreteType);
       return true;
     }
 

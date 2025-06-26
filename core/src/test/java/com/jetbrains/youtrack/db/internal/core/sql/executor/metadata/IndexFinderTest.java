@@ -1,37 +1,38 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 public class IndexFinderTest {
 
-  private DatabaseSessionInternal session;
-  private YouTrackDB youTrackDb;
+  private DatabaseSessionEmbedded session;
+  private YouTrackDBImpl youTrackDb;
 
   @Before
   public void before() {
-    this.youTrackDb = new YouTrackDBImpl(DbTestBase.embeddedDBUrl(getClass()),
+    this.youTrackDb = (YouTrackDBImpl) YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(getClass()),
         YouTrackDBConfig.defaultConfig());
     this.youTrackDb.execute(
         "create database "
             + IndexFinderTest.class.getSimpleName()
             + " memory users (admin identified by 'adminpwd' role admin)");
     this.session =
-        (DatabaseSessionInternal)
+        (DatabaseSessionEmbedded)
             this.youTrackDb.open(IndexFinderTest.class.getSimpleName(), "admin", "adminpwd");
   }
 
@@ -45,14 +46,14 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
+    var result = finder.findExactIndex(new IndexMetadataPath("name"), null, ctx);
 
-    assertEquals("cl.name", result.get().getName());
+    assertEquals("cl.name", result.getName());
 
-    var result1 = finder.findExactIndex(new MetadataPath("surname"), null,
+    var result1 = finder.findExactIndex(new IndexMetadataPath("surname"), null,
         ctx);
 
-    assertEquals("cl.surname", result1.get().getName());
+    assertEquals("cl.surname", result1.getName());
   }
 
   @Test
@@ -65,14 +66,14 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
+    var result = finder.findExactIndex(new IndexMetadataPath("name"), null, ctx);
 
-    assertEquals("cl.name", result.get().getName());
+    assertEquals("cl.name", result.getName());
 
-    var result1 = finder.findExactIndex(new MetadataPath("surname"), null,
+    var result1 = finder.findExactIndex(new IndexMetadataPath("surname"), null,
         ctx);
 
-    assertEquals("cl.surname", result1.get().getName());
+    assertEquals("cl.surname", result1.getName());
   }
 
   @Test
@@ -86,14 +87,14 @@ public class IndexFinderTest {
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
     var result =
-        finder.findAllowRangeIndex(new MetadataPath("name"), Operation.Ge, null, ctx);
+        finder.findAllowRangeIndex(new IndexMetadataPath("name"), Operation.Ge, null, ctx);
 
-    assertEquals("cl.name", result.get().getName());
+    assertEquals("cl.name", result.getName());
 
     var result1 =
-        finder.findAllowRangeIndex(new MetadataPath("surname"), Operation.Ge, null, ctx);
+        finder.findAllowRangeIndex(new IndexMetadataPath("surname"), Operation.Ge, null, ctx);
 
-    assertEquals("cl.surname", result1.get().getName());
+    assertEquals("cl.surname", result1.getName());
   }
 
   @Test
@@ -111,19 +112,19 @@ public class IndexFinderTest {
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
     var result =
-        finder.findAllowRangeIndex(new MetadataPath("name"), Operation.Ge, null, ctx);
+        finder.findAllowRangeIndex(new IndexMetadataPath("name"), Operation.Ge, null, ctx);
 
-    assertTrue(result.isPresent());
+    assertNotNull(result);
 
     var result1 =
-        finder.findAllowRangeIndex(new MetadataPath("surname"), Operation.Ge, null, ctx);
+        finder.findAllowRangeIndex(new IndexMetadataPath("surname"), Operation.Ge, null, ctx);
 
-    assertTrue(result1.isPresent());
+    assertNotNull(result1);
 
     var result2 =
-        finder.findAllowRangeIndex(new MetadataPath("third"), Operation.Ge, null, ctx);
+        finder.findAllowRangeIndex(new IndexMetadataPath("third"), Operation.Ge, null, ctx);
 
-    assertFalse(result2.isPresent());
+    Assert.assertNull(result2);
   }
 
   @Test
@@ -134,9 +135,9 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var result = finder.findByKeyIndex(new MetadataPath("map"), null, ctx);
+    var result = finder.findByKeyIndex(new IndexMetadataPath("map"), null, ctx);
 
-    assertEquals("cl.map", result.get().getName());
+    assertEquals("cl.map", result.getName());
   }
 
   @Test
@@ -147,9 +148,9 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var result = finder.findByValueIndex(new MetadataPath("map"), null, ctx);
+    var result = finder.findByValueIndex(new IndexMetadataPath("map"), null, ctx);
 
-    assertEquals("cl.map", result.get().getName());
+    assertEquals("cl.map", result.getName());
   }
 
   @Test
@@ -162,11 +163,11 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var path = new MetadataPath("name");
+    var path = new IndexMetadataPath("name");
     path.addPre("friend");
     path.addPre("friend");
     var result = finder.findExactIndex(path, null, ctx);
-    assertEquals("cl.friend->cl.friend->cl.name->", result.get().getName());
+    assertEquals("cl.friend->cl.friend->cl.name->", result.getName());
   }
 
   @Test
@@ -179,11 +180,11 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var path = new MetadataPath("name");
+    var path = new IndexMetadataPath("name");
     path.addPre("friend");
     path.addPre("friend");
     var result = finder.findAllowRangeIndex(path, Operation.Ge, null, ctx);
-    assertEquals("cl.friend->cl.friend->cl.name->", result.get().getName());
+    assertEquals("cl.friend->cl.friend->cl.name->", result.getName());
   }
 
   @Test
@@ -196,11 +197,11 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var path = new MetadataPath("map");
+    var path = new IndexMetadataPath("map");
     path.addPre("friend");
     path.addPre("friend");
     var result = finder.findByKeyIndex(path, null, ctx);
-    assertEquals("cl.friend->cl.friend->cl.map->", result.get().getName());
+    assertEquals("cl.friend->cl.friend->cl.map->", result.getName());
   }
 
   @Test
@@ -213,11 +214,11 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var path = new MetadataPath("map");
+    var path = new IndexMetadataPath("map");
     path.addPre("friend");
     path.addPre("friend");
     var result = finder.findByValueIndex(path, null, ctx);
-    assertEquals("cl.friend->cl.friend->cl.map->", result.get().getName());
+    assertEquals("cl.friend->cl.friend->cl.map->", result.getName());
   }
 
   @Test
@@ -229,14 +230,14 @@ public class IndexFinderTest {
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
-    var result = finder.findExactIndex(new MetadataPath("name"), null, ctx);
+    var result = finder.findExactIndex(new IndexMetadataPath("name"), null, ctx);
 
-    assertEquals("cl.name_surname", result.get().getName());
+    assertEquals("cl.name_surname", result.getName());
 
-    var result1 = finder.findExactIndex(new MetadataPath("surname"), null,
+    var result1 = finder.findExactIndex(new IndexMetadataPath("surname"), null,
         ctx);
 
-    assertEquals("cl.name_surname", result1.get().getName());
+    assertEquals("cl.name_surname", result1.getName());
   }
 
   @After

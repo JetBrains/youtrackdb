@@ -25,7 +25,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.common.stream.Streams;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AscComparator;
@@ -65,7 +65,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   @Nullable
   @Deprecated
   @Override
-  public Object get(DatabaseSessionInternal session, Object key) {
+  public Object get(DatabaseSessionEmbedded session, Object key) {
     final Iterator<RID> iterator;
     try (var stream = getRids(session, key)) {
       iterator = stream.iterator();
@@ -78,7 +78,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   }
 
   @Override
-  public Stream<RID> getRidsIgnoreTx(DatabaseSessionInternal session, Object key) {
+  public Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
     key = getCollatingValue(key);
 
     acquireSharedLock();
@@ -100,7 +100,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   }
 
   @Override
-  public Stream<RID> getRids(DatabaseSessionInternal session, Object key) {
+  public Stream<RID> getRids(DatabaseSessionEmbedded session, Object key) {
     key = getCollatingValue(key);
 
     var stream = getRidsIgnoreTx(session, key);
@@ -130,7 +130,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionInternal session,
+  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
     final List<Object> sortedKeys = new ArrayList<>(keys);
     final Comparator<Object> comparator;
@@ -196,7 +196,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesBetween(
-      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, Object toKey,
+      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
     toKey = getCollatingValue(toKey);
@@ -253,7 +253,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMajor(
-      DatabaseSessionInternal session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
+      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
@@ -309,7 +309,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMinor(
-      DatabaseSessionInternal session, Object toKey, boolean toInclusive, boolean ascOrder) {
+      DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
     toKey = getCollatingValue(toKey);
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
@@ -363,7 +363,7 @@ public abstract class IndexOneValue extends IndexAbstract {
         this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascOrder), session);
   }
 
-  public long size(DatabaseSessionInternal session) {
+  public long size(DatabaseSessionEmbedded session) {
     acquireSharedLock();
     try {
       while (true) {
@@ -379,7 +379,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(DatabaseSessionInternal session) {
+  public Stream<RawPair<Object, RID>> stream(DatabaseSessionEmbedded session) {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
@@ -416,7 +416,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionInternal session) {
+  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session) {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {

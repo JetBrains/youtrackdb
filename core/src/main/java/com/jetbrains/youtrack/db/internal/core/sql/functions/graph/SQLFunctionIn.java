@@ -4,18 +4,21 @@ import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 
-public class SQLFunctionIn extends SQLFunctionMoveFiltered {
+public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphNavigationFunction {
+
   public static final String NAME = "in";
 
   public SQLFunctionIn() {
@@ -24,19 +27,20 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
 
   @Override
   protected Object move(
-      final DatabaseSessionInternal graph, final Identifiable record, final String[] labels) {
+      final DatabaseSessionEmbedded graph, final Identifiable record, final String[] labels) {
     return v2v(graph, record, Direction.IN, labels);
   }
 
   @Override
-  protected Object move(DatabaseSessionInternal db,
+  protected Object move(DatabaseSessionEmbedded db,
       Relation<?> bidirectionalLink, String[] labels) {
     throw new UnsupportedOperationException(
         "Function in is not supported for bidirectional links");
   }
 
+  @Override
   protected Object move(
-      final DatabaseSessionInternal graph,
+      final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
       final String[] iLabels,
       Iterable<Identifiable> iPossibleResults) {
@@ -64,7 +68,7 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
 
   @Nullable
   private static Iterator<Vertex> fetchFromIndex(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Identifiable iFrom,
       Iterable<Identifiable> to,
       String[] iEdgeTypes) {
@@ -107,5 +111,15 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
     }
 
     return result;
+  }
+
+  @Nullable
+  @Override
+  public Collection<String> propertyNamesForIndexCandidates(String[] labels,
+      SchemaClass schemaClass,
+      boolean polymorphic, DatabaseSessionEmbedded session) {
+    return SQLGraphNavigationFunction.propertiesForV2VNavigation(schemaClass, session,
+        Direction.IN,
+        labels);
   }
 }

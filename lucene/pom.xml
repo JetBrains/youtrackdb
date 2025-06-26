@@ -241,6 +241,7 @@
       </activation>
       <properties>
         <argLine>-ea
+          -Xms${heapSize}
           -Xmx${heapSize}
           -Dyoutrackdb.storage.diskCache.bufferSize=4096
           -Dindex.flushAfterCreate=false
@@ -249,7 +250,7 @@
           -Dstorage.configuration.syncOnUpdate=false
           -Dyoutrackdb.memory.directMemory.trackMode=true
           -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
-          -Dyoutrackdb.storage.diskCache.checksumMode=storeAndThrow
+          -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
           -Dyoutrackdb.security.warningDefaultUsers=false
           -Dyoutrackdb.file.log.deletion=false
           --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED

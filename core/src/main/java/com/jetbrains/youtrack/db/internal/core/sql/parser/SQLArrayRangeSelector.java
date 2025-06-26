@@ -7,7 +7,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.lang.reflect.Array;
 import java.util.Arrays;
@@ -36,6 +36,7 @@ public class SQLArrayRangeSelector extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (from != null) {
       builder.append(PARAMETER_PLACEHOLDER);
@@ -168,6 +169,7 @@ public class SQLArrayRangeSelector extends SimpleNode {
     return toSelector != null && toSelector.needsAliases(aliases);
   }
 
+  @Override
   public SQLArrayRangeSelector copy() {
     var result = new SQLArrayRangeSelector(-1);
     result.from = from;
@@ -237,12 +239,6 @@ public class SQLArrayRangeSelector extends SimpleNode {
     return toSelector != null && toSelector.refersToParent();
   }
 
-  /**
-   * @param target
-   * @param value
-   * @param ctx
-   * @return
-   */
   public void setValue(Object target, Object value, CommandContext ctx) {
     if (target == null) {
       return;
@@ -250,7 +246,7 @@ public class SQLArrayRangeSelector extends SimpleNode {
     if (target.getClass().isArray()) {
       setArrayValue(target, value, ctx);
     } else if (target instanceof List) {
-      setValue((List) target, value, ctx);
+      setValue((List<?>) target, value, ctx);
     } else if (MultiValue.isMultiValue(value)) {
       // TODO
     }
@@ -374,7 +370,7 @@ public class SQLArrayRangeSelector extends SimpleNode {
       return;
     }
     var range = to - from;
-    if (currentValue instanceof List list) {
+    if (currentValue instanceof List<?> list) {
       for (var i = 0; i < range; i++) {
         if (list.size() > from) {
           list.remove(from);
@@ -383,7 +379,7 @@ public class SQLArrayRangeSelector extends SimpleNode {
         }
       }
     } else if (currentValue instanceof Set) {
-      var iter = ((Set) currentValue).iterator();
+      var iter = ((Set<?>) currentValue).iterator();
       var count = 0;
       while (iter.hasNext()) {
         iter.next();
@@ -406,19 +402,19 @@ public class SQLArrayRangeSelector extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("from", from);
     result.setProperty("to", to);
     result.setProperty("newRange", newRange);
     result.setProperty("included", included);
 
     if (fromSelector != null) {
-      result.setProperty("fromSelector", fromSelector.serialize(db));
+      result.setProperty("fromSelector", fromSelector.serialize(session));
     }
 
     if (toSelector != null) {
-      result.setProperty("toSelector", toSelector.serialize(db));
+      result.setProperty("toSelector", toSelector.serialize(session));
     }
 
     return result;

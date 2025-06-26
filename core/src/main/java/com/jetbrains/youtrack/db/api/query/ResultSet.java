@@ -1,12 +1,12 @@
 package com.jetbrains.youtrack.db.api.query;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
-import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Spliterator;
@@ -17,94 +17,8 @@ import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCloseable {
+public interface ResultSet extends BasicResultSet<Result> {
 
-  @Override
-  boolean hasNext();
-
-  @Override
-  Result next();
-
-  @Override
-  default void remove() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  void close();
-
-  @Nullable
-  ExecutionPlan getExecutionPlan();
-
-  @Nullable
-  DatabaseSession getBoundToSession();
-
-  /**
-   * Returns the result set as a stream. IMPORTANT: the stream consumes the result set!
-   */
-  @Nonnull
-  default Stream<Result> stream() {
-    return StreamSupport.stream(this, false).onClose(this::close);
-  }
-
-  @Nonnull
-  default List<Result> toList() {
-    return stream().toList();
-  }
-
-  @Nonnull
-  default <R> R findFirst(@Nonnull Function<Result, R> function) {
-    try {
-      if (hasNext()) {
-        return function.apply(next());
-      } else {
-        throw new NoSuchElementException();
-      }
-    } finally {
-      close();
-    }
-  }
-
-  @Nonnull
-  default Result findFirst() {
-    try {
-      if (hasNext()) {
-        return next();
-      } else {
-        throw new NoSuchElementException();
-      }
-    } finally {
-      close();
-    }
-  }
-
-  @Nullable
-  default <R> R findFirstOrNull(@Nonnull Function<Result, R> function) {
-    try {
-      if (hasNext()) {
-        return function.apply(next());
-      } else {
-        return null;
-      }
-    } finally {
-      close();
-    }
-  }
-
-  @Nullable
-  default Result findFirstOrNull() {
-    try {
-      if (hasNext()) {
-        return next();
-      } else {
-        return null;
-      }
-    } finally {
-      close();
-    }
-  }
-
-  @Nonnull
   default Entity findFirstEntity() {
     try {
       if (hasNext()) {
@@ -282,15 +196,6 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     }
   }
 
-
-  /**
-   * Detaches the result set from the underlying session and returns the results as a list.
-   */
-  @Nonnull
-  default List<Result> detach() {
-    return stream().map(Result::detach).toList();
-  }
-
   /**
    * Returns the result set as a stream of elements (filters only the results that are elements -
    * where the isEntity() method returns true). IMPORTANT: the stream consumes the result set!
@@ -388,7 +293,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
   }
 
   @Nonnull
-  default List<Vertex> vertexList() {
+  default List<Vertex> toVertexList() {
     return vertexStream().toList();
   }
 
@@ -405,7 +310,7 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
                     continue;
                   }
 
-                  if (elem.isRecord()) {
+                  if (elem.isIdentifiable()) {
                     action.accept(elem.getIdentity());
                     return true;
                   } else {
@@ -535,49 +440,10 @@ public interface ResultSet extends Spliterator<Result>, Iterator<Result>, AutoCl
     return edgeStream().toList();
   }
 
-
-  @Nonnull
-  default Stream<Result> detachedStream() {
-    return StreamSupport.stream(
-            new Spliterator<Result>() {
-              @Override
-              public boolean tryAdvance(Consumer<? super Result> action) {
-                while (hasNext()) {
-                  var nextElem = next();
-                  if (nextElem != null) {
-                    action.accept(nextElem.detach());
-                    return true;
-                  }
-                }
-                return false;
-              }
-
-              @Nullable
-              @Override
-              public Spliterator<Result> trySplit() {
-                return null;
-              }
-
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
-
-              @Override
-              public int characteristics() {
-                return ORDERED;
-              }
-            },
-            false)
-        .onClose(this::close);
-  }
-
-  @Nonnull
-  default List<Result> toDetachedList() {
-    return detachedStream().toList();
-  }
-
   @Override
-  void forEachRemaining(@Nonnull Consumer<? super Result> action);
-}
+  @Nullable
+  DatabaseSession getBoundToSession();
 
+  @Nullable
+  ExecutionPlan getExecutionPlan();
+}

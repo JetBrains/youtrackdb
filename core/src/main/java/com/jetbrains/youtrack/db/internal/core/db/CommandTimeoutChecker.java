@@ -1,10 +1,8 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import java.util.Iterator;
-import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nullable;
 
 public class CommandTimeoutChecker {
 
@@ -44,10 +42,10 @@ public class CommandTimeoutChecker {
     }
   }
 
-  public void startCommand(Optional<Long> timeout) {
+  public void startCommand(@Nullable Long timeout) {
     if (active) {
       var current = System.nanoTime() / 1000000;
-      running.put(Thread.currentThread(), current + timeout.orElse(maxMills));
+      running.put(Thread.currentThread(), current + (timeout != null ? timeout : maxMills));
     }
   }
 

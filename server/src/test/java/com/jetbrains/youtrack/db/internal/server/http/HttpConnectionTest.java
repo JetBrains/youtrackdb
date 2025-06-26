@@ -1,9 +1,10 @@
 package com.jetbrains.youtrack.db.internal.server.http;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -87,7 +88,7 @@ public class HttpConnectionTest extends BaseHttpDatabaseTest {
 
     System.out.print("\nTest completed");
 
-    Collection<EntityImpl> conns = null;
+    Collection<Map<String, Object>> conns = null;
     for (var i = 0; i < 20; ++i) {
       Assert.assertEquals(
           get("server")
@@ -98,9 +99,9 @@ public class HttpConnectionTest extends BaseHttpDatabaseTest {
               .getCode(),
           200);
 
-      final EntityImpl serverStatus =
-          new EntityImpl(null).updateFromJSON(getResponse().getEntity().getContent());
-      conns = serverStatus.getProperty("connections");
+      final var serverStatus =
+          JSONSerializerJackson.INSTANCE.mapFromJson(getResponse().getEntity().getContent());
+      conns = (Collection<Map<String, Object>>) serverStatus.get("connections");
 
       final var openConnections = conns.size();
 

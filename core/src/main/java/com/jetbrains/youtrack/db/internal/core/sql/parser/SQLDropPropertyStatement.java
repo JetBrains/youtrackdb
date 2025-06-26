@@ -102,7 +102,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
             .getIndexManager()
             .getClassIndexes(database, className.getStringValue())) {
       if (Collections.indexOf(
-          index.getDefinition().getFields(), fieldName, new CaseInsentiveComparator())
+          index.getDefinition().getProperties(), fieldName, new CaseInsentiveComparator())
           > -1) {
         result.add(index);
       }

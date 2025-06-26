@@ -36,7 +36,7 @@ public class LuceneGeoUpdateTest extends BaseSpatialLuceneTest {
         .close();
     session.commit();
 
-    var index = session.getSharedContext().getIndexManager().getIndex(session, "City.location");
+    var index = session.getSharedContext().getIndexManager().getIndex("City.location");
 
     session.begin();
     session.execute(

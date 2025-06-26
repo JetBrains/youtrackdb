@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.common.parser.VariableParser;
 import com.jetbrains.youtrack.db.internal.common.parser.VariableParserListener;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -290,7 +291,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
       // READ THE FILE
       try {
         final var configurationContent = IOUtils.readFileAsString(f);
-        configuration = JSONSerializerJackson.mapFromJson(configurationContent);
+        configuration = JSONSerializerJackson.INSTANCE.mapFromJson(configurationContent);
       } catch (IOException e) {
         throw BaseException.wrapException(
             new ConfigurationException((String) null,
@@ -305,7 +306,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
       try {
         f.getParentFile().mkdirs();
         f.createNewFile();
-        IOUtils.writeFile(f, JSONSerializerJackson.mapToJson(configuration));
+        IOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configuration));
 
         LogManager.instance()
             .info(this, "Automatic Backup: migrated configuration to file '%s'", f);
@@ -408,7 +409,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
   }
 
   protected void exportDatabase(
-      final String dbURL, final String iPath, final DatabaseSessionInternal db)
+      final String dbURL, final String iPath, final DatabaseSessionEmbedded db)
       throws IOException {
 
     LogManager.instance()

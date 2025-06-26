@@ -36,7 +36,7 @@ public abstract class SQLSimpleExecServerStatement extends SQLServerStatement {
     if (parentContext != null) {
       ctx.setParentWithoutOverridingChild(parentContext);
     }
-    ctx.setServer(db);
+    ctx.setYouTrackDB(db);
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
       for (var i = 0; i < args.length; i++) {
@@ -56,13 +56,14 @@ public abstract class SQLSimpleExecServerStatement extends SQLServerStatement {
     if (parentContext != null) {
       ctx.setParentWithoutOverridingChild(parentContext);
     }
-    ctx.setServer(db);
+    ctx.setYouTrackDB(db);
     ctx.setInputParameters(params);
     var executionPlan =
         (SingleOpServerExecutionPlan) createExecutionPlan(ctx, false);
     return new ExecutionResultSet(executionPlan.executeInternal(), ctx, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(
       ServerCommandContext ctx, boolean enableProfiling) {
     return new SingleOpServerExecutionPlan(ctx, this);

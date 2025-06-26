@@ -1,11 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -17,9 +16,9 @@ public class DropDatabaseStatementExecutionTest {
   @Test
   public void testPlain() {
     var dbName = "ODropDatabaseStatementExecutionTest_testPlain";
-    YouTrackDB youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+    var youTrackDb =
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
@@ -52,9 +51,9 @@ public class DropDatabaseStatementExecutionTest {
   @Test
   public void testIfExists1() {
     var dbName = "ODropDatabaseStatementExecutionTest_testIfExists1";
-    final YouTrackDB youTrackDb =
-        new YouTrackDBImpl(
-            DbTestBase.embeddedDBUrl(getClass()),
+    final var youTrackDb =
+        YourTracks.embedded(
+            DbTestBase.getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
                 .build());
@@ -87,8 +86,8 @@ public class DropDatabaseStatementExecutionTest {
   @Test
   public void testIfExists2() {
     var dbName = "ODropDatabaseStatementExecutionTest_testIfExists2";
-    try (YouTrackDB youTrackDb = new YouTrackDBImpl(
-        DbTestBase.embeddedDBUrl(getClass()) + getClass().getSimpleName(),
+    try (var youTrackDb = YourTracks.embedded(
+        DbTestBase.getBaseDirectoryPath(getClass()) + getClass().getSimpleName(),
         YouTrackDBConfig.builder()
             .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
             .build())) {

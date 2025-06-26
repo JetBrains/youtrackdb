@@ -19,17 +19,20 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 
 /**
  *
  */
-public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded {
+public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded implements
+    PooledSession {
 
-  private final DatabasePoolInternal pool;
+  private final DatabasePoolInternal<DatabaseSession> pool;
 
-  public DatabaseSessionEmbeddedPooled(DatabasePoolInternal pool, Storage storage) {
-    super(storage);
+  public DatabaseSessionEmbeddedPooled(DatabasePoolInternal<DatabaseSession> pool,
+      Storage storage, boolean serverMode) {
+    super(storage, serverMode);
     this.pool = pool;
   }
 
@@ -38,6 +41,7 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded {
     if (isClosed()) {
       return;
     }
+
     internalClose(true);
     pool.release(this);
   }
@@ -49,14 +53,19 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded {
   }
 
   @Override
-  public DatabaseSessionInternal copy() {
+  public DatabaseSessionEmbedded copy() {
     assertIfNotActive();
-    return (DatabaseSessionInternal) pool.acquire();
+    return (DatabaseSessionEmbedded) pool.acquire();
   }
 
   @Override
   public void realClose() {
     activateOnCurrentThread();
     super.close();
+  }
+
+  @Override
+  public boolean isBackendClosed() {
+    return getStorage().isClosed(this);
   }
 }

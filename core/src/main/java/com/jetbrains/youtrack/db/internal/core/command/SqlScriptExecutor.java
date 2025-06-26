@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorUtility;
 import com.jetbrains.youtrack.db.internal.core.command.traverse.AbstractScriptExecutor;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
@@ -19,6 +19,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBeginStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLCommitStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLetStatement;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLRollbackStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,7 +40,7 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
   }
 
   @Override
-  public ResultSet execute(DatabaseSessionInternal database, String script, Object... args)
+  public ResultSet execute(DatabaseSessionEmbedded database, String script, Object... args)
       throws CommandSQLParsingException, CommandExecutionException {
 
     if (!(!script.trim().isEmpty() && script.trim().charAt(script.trim().length() - 1) == ';')) {
@@ -61,7 +62,7 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
   }
 
   @Override
-  public ResultSet execute(DatabaseSessionInternal database, String script, Map params) {
+  public ResultSet execute(DatabaseSessionEmbedded database, String script, Map params) {
     if (!(!script.trim().isEmpty() && script.trim().charAt(script.trim().length() - 1) == ';')) {
       script += ";";
     }
@@ -123,14 +124,24 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
             var retryPlan = new RetryExecutionPlan(scriptContext);
             retryPlan.chain(step);
             plan.chain(retryPlan, false);
-            lastRetryBlock = new ArrayList<>();
           } else {
             for (var statement : lastRetryBlock) {
               var sub = statement.createExecutionPlan(scriptContext);
               plan.chain(sub, false);
             }
           }
+
+          lastRetryBlock = new ArrayList<>();
         }
+      } else if (stm instanceof SQLRollbackStatement && nestedTxLevel > 0) {
+        nestedTxLevel = 0;
+
+        for (var statement : lastRetryBlock) {
+          var sub = statement.createExecutionPlan(scriptContext);
+          plan.chain(sub, false);
+        }
+
+        lastRetryBlock = new ArrayList<>();
       }
 
       if (stm instanceof SQLLetStatement) {

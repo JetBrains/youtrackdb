@@ -39,10 +39,10 @@ public class LuceneAnalyzerFactoryTest extends LuceneBaseTest {
 
     var metajson =
         IOUtils.readFileAsString(new File("./src/test/resources/index_metadata_new.json"));
-    metadata = JSONSerializerJackson.mapFromJson(metajson);
+    metadata = JSONSerializerJackson.INSTANCE.mapFromJson(metajson);
 
     indexDef = Mockito.mock(IndexDefinition.class);
-    when(indexDef.getFields())
+    when(indexDef.getProperties())
         .thenReturn(asList("name", "title", "author", "lyrics", "genre", "description"));
     when(indexDef.getClassName()).thenReturn("Song");
   }

@@ -28,22 +28,14 @@ import java.util.HashMap;
 import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 @SuppressWarnings("unused")
 public class TraverseTest extends BaseDBTest {
-
   private int totalElements = 0;
   private Vertex tomCruise;
   private Vertex nicoleKidman;
-
-  @Parameters(value = "remote")
-  public TraverseTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   public void init() {

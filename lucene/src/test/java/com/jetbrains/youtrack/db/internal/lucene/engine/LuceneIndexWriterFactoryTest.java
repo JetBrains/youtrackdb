@@ -21,7 +21,7 @@ public class LuceneIndexWriterFactoryTest extends BaseLuceneTest {
     var fc = new LuceneIndexWriterFactory();
 
     // sample metadata json
-    var meta = JSONSerializerJackson.mapFromJson(IOUtils.readFileAsString(
+    var meta = JSONSerializerJackson.INSTANCE.mapFromJson(IOUtils.readFileAsString(
         new File("./src/test/resources/index_metadata_new.json")));
     var writer = fc.createIndexWriter(new RAMDirectory(), meta,
         new StandardAnalyzer());

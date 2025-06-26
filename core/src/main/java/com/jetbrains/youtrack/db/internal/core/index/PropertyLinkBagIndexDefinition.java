@@ -95,9 +95,17 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
   @Nullable
   @Override
   public Object createValue(FrontendTransaction transaction, final Object... params) {
-    if (!(params[0] instanceof LinkBag linkBag)) {
-      return null;
+    var param = params[0];
+    if (!(param instanceof LinkBag)) {
+      try {
+        var session = transaction.getDatabaseSession();
+        return keyType.convert(refreshRid(session, param), null, null, session);
+      } catch (Exception e) {
+        return null;
+      }
     }
+
+    var linkBag = (LinkBag) param;
     final List<Object> values = new ArrayList<>();
     for (final Identifiable item : linkBag) {
       values.add(createSingleValue(transaction, item.getIdentity()));

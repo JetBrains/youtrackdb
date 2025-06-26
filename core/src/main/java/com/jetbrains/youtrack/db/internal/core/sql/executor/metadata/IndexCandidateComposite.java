@@ -4,7 +4,6 @@ import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.List;
-import java.util.Optional;
 
 public class IndexCandidateComposite implements IndexCandidate {
 
@@ -25,8 +24,8 @@ public class IndexCandidateComposite implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> invert() {
-    return Optional.empty();
+  public IndexCandidate invert() {
+    return null;
   }
 
   @Override
@@ -35,8 +34,8 @@ public class IndexCandidateComposite implements IndexCandidate {
   }
 
   @Override
-  public Optional<IndexCandidate> normalize(CommandContext ctx) {
-    return Optional.of(this);
+  public IndexCandidate normalize(CommandContext ctx) {
+    return this;
   }
 
   @Override

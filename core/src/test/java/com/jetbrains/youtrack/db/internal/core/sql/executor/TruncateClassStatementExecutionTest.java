@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
+import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -164,7 +164,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     if (!session.getStorage().isRemote()) {
       final var indexManager = session.getSharedContext().getIndexManager();
       final var indexOne =
-          indexManager.getIndex(session, "TestTruncateVertexClassSuperclassWithIndex_index");
+          indexManager.getIndex("TestTruncateVertexClassSuperclassWithIndex_index");
       Assert.assertEquals(2, indexOne.size(session));
 
       session.execute("truncate class TestTruncateVertexClassSubclassWithIndex");
@@ -175,8 +175,8 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     }
   }
 
-  private List<Result> toList(ResultSet input) {
-    List<Result> result = new ArrayList<>();
+  private List<BasicResult> toList(BasicResultSet input) {
+    List<BasicResult> result = new ArrayList<>();
     while (input.hasNext()) {
       result.add(input.next());
     }
@@ -185,13 +185,13 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
 
   private Index getOrCreateIndex(SchemaClass testClass) {
     var index = session.getSharedContext().getIndexManager()
-        .getIndex(session, "test_class_by_data");
+        .getIndex("test_class_by_data");
     if (index == null) {
       testClass.createProperty("data", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
       testClass.createIndex("test_class_by_data", SchemaClass.INDEX_TYPE.UNIQUE,
           "data");
     }
-    return session.getSharedContext().getIndexManager().getIndex(session, "test_class_by_data");
+    return session.getSharedContext().getIndexManager().getIndex("test_class_by_data");
   }
 
   private SchemaClass getOrCreateClass(Schema schema) {

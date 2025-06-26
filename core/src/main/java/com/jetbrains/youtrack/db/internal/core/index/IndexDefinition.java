@@ -20,7 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrack.db.api.record.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrack.db.api.schema.Collate;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -42,7 +42,7 @@ public interface IndexDefinition extends IndexCallback {
    * @return Names of fields which given index is used to calculate key value. Order of fields is
    * important.
    */
-  List<String> getFields();
+  List<String> getProperties();
 
   /**
    * @return Names of fields and their index modifiers (like "by value" for fields that hold <code>

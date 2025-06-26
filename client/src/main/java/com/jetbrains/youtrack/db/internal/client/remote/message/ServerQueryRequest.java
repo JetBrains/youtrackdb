@@ -20,19 +20,20 @@
 package com.jetbrains.youtrack.db.internal.client.remote.message;
 
 import com.jetbrains.youtrack.db.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrack.db.internal.client.remote.BinaryProtocolSession;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.BinaryResponse;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemote;
-import com.jetbrains.youtrack.db.internal.client.remote.StorageRemoteSession;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.client.remote.RemoteCommandsDispatcherImpl;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetwork;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.result.binary.RemoteResultImpl;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 import java.util.Map;
+import java.util.TimeZone;
 import javax.annotation.Nullable;
 
 public final class ServerQueryRequest implements BinaryRequest<ServerQueryResponse> {
@@ -54,31 +55,32 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
       String iCommand,
       Object[] positionalParams,
       byte operationType,
-      RecordSerializer serializer,
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
-    params = StorageRemote.paramsArrayToParamsMap(positionalParams);
+    params = RemoteCommandsDispatcherImpl.paramsArrayToParamsMap(positionalParams);
     namedParams = false;
-    this.serializer = serializer;
     this.operationType = operationType;
+    if (this.recordsPerPage <= 0) {
+      this.recordsPerPage = 100;
+    }
+    this.recordsPerPage = recordsPerPage;
   }
 
   public ServerQueryRequest(String language,
       String iCommand,
       Map<String, Object> namedParams,
       byte operationType,
-      RecordSerializer serializer,
       int recordsPerPage) {
     this.language = language;
     this.statement = iCommand;
     this.params = namedParams != null ? namedParams : Map.of();
     this.namedParams = true;
-    this.serializer = serializer;
     this.recordsPerPage = recordsPerPage;
     if (this.recordsPerPage <= 0) {
       this.recordsPerPage = 100;
     }
+
     this.operationType = operationType;
   }
 
@@ -86,8 +88,8 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
   }
 
   @Override
-  public void write(DatabaseSessionInternal databaseSession, ChannelDataOutput network,
-      StorageRemoteSession session) throws IOException {
+  public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
+      BinaryProtocolSession session) throws IOException {
     network.writeString(language);
     network.writeString(statement);
     network.writeByte(operationType);
@@ -96,18 +98,17 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     network.writeString(null);
 
     // params
-    var paramsResult = new ResultInternal(databaseSession);
+    var paramsResult = new RemoteResultImpl(null);
     paramsResult.setProperty("params", params);
 
-    MessageHelper.writeResult(databaseSession, paramsResult, network);
+    MessageHelper.writeResult(paramsResult, network, TimeZone.getDefault());
 
     network.writeBoolean(namedParams);
   }
 
   @Override
-  public void read(DatabaseSessionInternal databaseSession, ChannelDataInput channel,
-      int protocolVersion,
-      RecordSerializerNetwork serializer)
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
       throws IOException {
     this.language = channel.readString();
     this.statement = channel.readString();
@@ -116,7 +117,8 @@ public final class ServerQueryRequest implements BinaryRequest<ServerQueryRespon
     // THIS IS FOR POSSIBLE FUTURE FETCH PLAN
     channel.readString();
 
-    var paramsResult = MessageHelper.readResult(databaseSession, channel);
+    var paramsResult = MessageHelper.readResult((DatabaseSessionEmbedded) null, channel,
+        TimeZone.getDefault());
     this.params = paramsResult.getProperty("params");
 
     this.namedParams = channel.readBoolean();

@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
@@ -32,11 +32,6 @@ public class SQLNestedProjection extends SimpleNode {
     super(p, id);
   }
 
-  /**
-   * @param expression
-   * @param input
-   * @param ctx
-   */
   public Object apply(SQLExpression expression, Object input, CommandContext ctx) {
     if (input instanceof Result) {
       return apply(
@@ -156,7 +151,7 @@ public class SQLNestedProjection extends SimpleNode {
       }
     }
 
-    if (includeItems.size() > 0) {
+    if (!includeItems.isEmpty()) {
       // TODO manage wildcards!
       for (var item : includeItems) {
         var alias =
@@ -177,14 +172,15 @@ public class SQLNestedProjection extends SimpleNode {
       SQLExpression expression, Map<String, Object> input, CommandContext ctx, int recursion) {
     var result = new ResultInternal(ctx.getDatabaseSession());
 
-    if (starItem != null || includeItems.size() == 0) {
-      for (var property : input.keySet()) {
+    if (starItem != null || includeItems.isEmpty()) {
+      for (var entry : input.entrySet()) {
+        var property = entry.getKey();
         if (isExclude(property)) {
           continue;
         }
         result.setProperty(
             property,
-            convert(tryExpand(expression, property, input.get(property), ctx, recursion)));
+            convert(tryExpand(expression, property, entry.getValue(), ctx, recursion)));
       }
     }
     if (!includeItems.isEmpty()) {
@@ -268,10 +264,13 @@ public class SQLNestedProjection extends SimpleNode {
     }
   }
 
+  @Override
   public SQLNestedProjection copy() {
     var result = new SQLNestedProjection(-1);
-    result.includeItems = includeItems.stream().map(x -> x.copy()).collect(Collectors.toList());
-    result.excludeItems = excludeItems.stream().map(x -> x.copy()).collect(Collectors.toList());
+    result.includeItems = includeItems.stream().map(SQLNestedProjectionItem::copy)
+        .collect(Collectors.toList());
+    result.excludeItems = excludeItems.stream().map(SQLNestedProjectionItem::copy)
+        .collect(Collectors.toList());
     result.starItem = starItem == null ? null : starItem.copy();
     result.recursion = recursion == null ? null : recursion.copy();
     return result;
@@ -309,33 +308,33 @@ public class SQLNestedProjection extends SimpleNode {
     return result;
   }
 
-  private Object convert(Object value) {
+  private static Object convert(Object value) {
     if (value instanceof LinkBag) {
       List result = new ArrayList();
-      ((LinkBag) value).forEach(x -> result.add(x));
+      ((LinkBag) value).forEach(result::add);
       return result;
     }
     return value;
   }
 
-  public Result serialize(DatabaseSessionInternal database) {
-    var result = new ResultInternal(database);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (includeItems != null) {
       result.setProperty(
           "includeItems",
           includeItems.stream()
-              .map(oNestedProjectionItem -> oNestedProjectionItem.serialize(database))
+              .map(oNestedProjectionItem -> oNestedProjectionItem.serialize(session))
               .collect(Collectors.toList()));
     }
     if (excludeItems != null) {
       result.setProperty(
           "excludeItems",
           excludeItems.stream()
-              .map(oNestedProjectionItem -> oNestedProjectionItem.serialize(database))
+              .map(oNestedProjectionItem -> oNestedProjectionItem.serialize(session))
               .collect(Collectors.toList()));
     }
     if (starItem != null) {
-      result.setProperty("starItem", starItem.serialize(database));
+      result.setProperty("starItem", starItem.serialize(session));
     }
     result.setProperty("recursion", recursion);
     return result;

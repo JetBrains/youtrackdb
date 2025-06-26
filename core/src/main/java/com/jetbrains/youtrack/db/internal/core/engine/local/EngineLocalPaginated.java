@@ -30,13 +30,13 @@ import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.jnr.Native;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrack.db.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.chm.LockFreeReadCache;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -134,15 +134,16 @@ public class EngineLocalPaginated extends EngineAbstract {
     // otherwise memory size will be set during cache initialization.
   }
 
+  @Override
   public Storage createStorage(
       final String dbName,
       long maxWalSegSize,
       long doubleWriteLogMaxSegSize,
       int storageId,
-      YouTrackDBInternal context) {
+      YouTrackDBInternalEmbedded context) {
     try {
 
-      return new LocalStorage(
+      return new DiskStorage(
           dbName,
           dbName,
           storageId,
@@ -163,6 +164,7 @@ public class EngineLocalPaginated extends EngineAbstract {
     }
   }
 
+  @Override
   public String getName() {
     return NAME;
   }

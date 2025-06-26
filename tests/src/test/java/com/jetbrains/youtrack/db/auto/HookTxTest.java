@@ -21,8 +21,6 @@ import com.jetbrains.youtrack.db.api.record.RecordHookAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -123,11 +121,7 @@ public class HookTxTest extends BaseDBTest {
     }
   }
 
-  @Parameters(value = "remote")
-  public HookTxTest(@Optional Boolean remote) {
-    super(remote != null ? remote : false);
-  }
-
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();

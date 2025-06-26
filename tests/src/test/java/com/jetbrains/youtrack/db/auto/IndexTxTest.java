@@ -19,12 +19,7 @@ import org.testng.annotations.Test;
  *
  */
 public class IndexTxTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public IndexTxTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -35,6 +30,7 @@ public class IndexTxTest extends BaseDBTest {
     cls.createIndex("IndexTxTestIndex", SchemaClass.INDEX_TYPE.UNIQUE, "name");
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();

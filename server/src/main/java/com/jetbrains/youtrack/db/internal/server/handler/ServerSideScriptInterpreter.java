@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.ScriptInterceptor;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandExecutorScript;
 import com.jetbrains.youtrack.db.internal.core.command.script.CommandScript;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.plugin.ServerPluginAbstract;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerParameterConfiguration;
@@ -45,9 +44,9 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
   private YouTrackDBServer server;
 
   @Override
-  public void config(final YouTrackDBServer iServer, ServerParameterConfiguration[] iParams) {
+  public void config(final YouTrackDBServer server, ServerParameterConfiguration[] iParams) {
 
-    this.server = iServer;
+    this.server = server;
     for (var param : iParams) {
       if (param.name.equalsIgnoreCase("enabled")) {
         if (Boolean.parseBoolean(param.value))
@@ -59,7 +58,7 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
         allowedLanguages =
             new HashSet<>(Arrays.asList(param.value.toLowerCase(Locale.ENGLISH).split(",")));
       } else if (param.name.equalsIgnoreCase("allowedPackages")) {
-        YouTrackDBInternal.extract(iServer.getContext())
+        server.getDatabases()
             .getScriptManager()
             .addAllowedPackages(new HashSet<>(Arrays.asList(param.value.split(","))));
       }
@@ -78,7 +77,7 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
       return;
     }
 
-    YouTrackDBInternal.extract(server.getContext())
+    server.getDatabases()
         .getScriptManager()
         .getCommandManager()
         .registerExecutor(
@@ -97,12 +96,11 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
           checkLanguage(language);
         };
 
-    YouTrackDBInternal.extract(server.getContext())
+    server.getDatabases()
         .getScriptManager()
         .getCommandManager()
         .getScriptExecutors()
-        .entrySet()
-        .forEach(e -> e.getValue().registerInterceptor(interceptor));
+        .forEach((key, value) -> value.registerInterceptor(interceptor));
     LogManager.instance()
         .warn(
             this,
@@ -118,15 +116,14 @@ public class ServerSideScriptInterpreter extends ServerPluginAbstract {
     }
 
     if (interceptor != null) {
-      YouTrackDBInternal.extract(server.getContext())
+      server.getDatabases()
           .getScriptManager()
           .getCommandManager()
           .getScriptExecutors()
-          .entrySet()
-          .forEach(e -> e.getValue().unregisterInterceptor(interceptor));
+          .forEach((key, value) -> value.unregisterInterceptor(interceptor));
     }
 
-    YouTrackDBInternal.extract(server.getContext())
+    server.getDatabases()
         .getScriptManager()
         .getCommandManager()
         .unregisterExecutor(CommandScript.class);

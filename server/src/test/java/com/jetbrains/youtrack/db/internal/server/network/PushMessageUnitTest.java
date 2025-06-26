@@ -8,9 +8,11 @@ import com.jetbrains.youtrack.db.internal.client.remote.StorageRemotePushThread;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushRequest;
 import com.jetbrains.youtrack.db.internal.client.remote.message.BinaryPushResponse;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrack.db.internal.enterprise.channel.binary.SocketChannelBinary;
+import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import java.io.IOException;
@@ -44,7 +46,7 @@ public class PushMessageUnitTest {
   public class MockPushRequest implements BinaryPushRequest<BinaryPushResponse> {
 
     @Override
-    public void write(DatabaseSessionInternal session, ChannelDataOutput channel)
+    public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel)
         throws IOException {
       requestWritten.countDown();
     }
@@ -55,12 +57,16 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public void read(DatabaseSessionInternal session, ChannelDataInput network) throws IOException {
+    public void readMonitorIdAndStatus(ChannelDataInput network) {
     }
 
     @Override
-    public BinaryPushResponse execute(DatabaseSessionInternal session,
-        RemotePushHandler remote) {
+    public void read(RemoteDatabaseSessionInternal session, ChannelDataInput network)
+        throws IOException {
+    }
+
+    @Override
+    public BinaryPushResponse execute(RemotePushHandler remote, SocketChannelBinary network) {
       executed.countDown();
       return new MockPushResponse();
     }
@@ -74,9 +80,13 @@ public class PushMessageUnitTest {
   public class MockPushRequestNoResponse implements BinaryPushRequest<BinaryPushResponse> {
 
     @Override
-    public void write(DatabaseSessionInternal session, ChannelDataOutput channel)
+    public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel)
         throws IOException {
       requestWritten.countDown();
+    }
+
+    @Override
+    public void readMonitorIdAndStatus(ChannelDataInput network) {
     }
 
     @Override
@@ -85,12 +95,12 @@ public class PushMessageUnitTest {
     }
 
     @Override
-    public void read(DatabaseSessionInternal session, ChannelDataInput network) throws IOException {
+    public void read(RemoteDatabaseSessionInternal session, ChannelDataInput network)
+        throws IOException {
     }
 
     @Override
-    public BinaryPushResponse execute(DatabaseSessionInternal session,
-        RemotePushHandler remote) {
+    public BinaryPushResponse execute(RemotePushHandler remote, SocketChannelBinary network) {
       executed.countDown();
       return null;
     }

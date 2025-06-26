@@ -14,7 +14,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   @Before
   public void setUp() throws Exception {
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
-      session.runScript("sql", getScriptFromStream(stream)).close();
+      session.computeScript("sql", getScriptFromStream(stream)).close();
     }
   }
 

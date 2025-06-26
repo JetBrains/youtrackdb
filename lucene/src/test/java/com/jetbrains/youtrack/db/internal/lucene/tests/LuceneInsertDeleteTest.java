@@ -86,7 +86,7 @@ public class LuceneInsertDeleteTest extends LuceneBaseTest {
 
     try (var stream = ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql")) {
       //noinspection EmptyTryBlock
-      try (var resultSet = session.runScript("sql", getScriptFromStream(stream))) {
+      try (var resultSet = session.computeScript("sql", getScriptFromStream(stream))) {
       }
     }
 
@@ -97,22 +97,24 @@ public class LuceneInsertDeleteTest extends LuceneBaseTest {
                 + " {'closeAfterInterval':1000 , 'firstFlushAfter':1000 }")) {
     }
 
+    session.begin();
     try (var docs = session.query("select from Song where title lucene 'mountain'")) {
-
       assertThat(docs).hasSize(4);
-      TimeUnit.SECONDS.sleep(5);
-      docs.close();
-
-      session.begin();
-      //noinspection EmptyTryBlock
-      try (var command =
-          session.execute("delete vertex from Song where title lucene 'mountain'")) {
-      }
-      session.commit();
-
-      try (var resultSet = session.query("select from Song where  title lucene 'mountain'")) {
-        assertThat(resultSet).hasSize(0);
-      }
     }
+    session.commit();
+    TimeUnit.SECONDS.sleep(5);
+
+    session.begin();
+    //noinspection EmptyTryBlock
+    try (var command =
+        session.execute("delete vertex from Song where title lucene 'mountain'")) {
+    }
+    session.commit();
+
+    session.begin();
+    try (var resultSet = session.query("select from Song where  title lucene 'mountain'")) {
+      assertThat(resultSet).hasSize(0);
+    }
+    session.commit();
   }
 }

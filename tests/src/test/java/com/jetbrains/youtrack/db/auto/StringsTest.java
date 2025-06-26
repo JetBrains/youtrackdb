@@ -16,21 +16,12 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.internal.common.parser.StringParser;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class StringsTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public StringsTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void splitArray() {
     var pieces =

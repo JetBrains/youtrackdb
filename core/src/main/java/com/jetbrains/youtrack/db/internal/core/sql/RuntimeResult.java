@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.sql;
 
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionRuntime;
@@ -62,7 +63,7 @@ public class RuntimeResult {
 
   @Nullable
   public static ResultInternal getResult(
-      DatabaseSessionInternal session, final ResultInternal iValue,
+      DatabaseSessionEmbedded session, final ResultInternal iValue,
       final Map<String, Object> iProjections) {
     if (iValue != null) {
       var canExcludeResult = false;
@@ -100,7 +101,7 @@ public class RuntimeResult {
     value.setProperty(iName, iValue);
   }
 
-  public ResultInternal getResult(DatabaseSessionInternal session) {
+  public ResultInternal getResult(DatabaseSessionEmbedded session) {
     return getResult(session, value, projections);
   }
 

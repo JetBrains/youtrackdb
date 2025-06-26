@@ -6,8 +6,9 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FuncitonAggregationContext;
@@ -15,7 +16,9 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.graph.SQLFunctionMove;
+import com.jetbrains.youtrack.db.internal.core.sql.functions.graph.SQLGraphNavigationFunction;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,11 +26,13 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
-public class SQLFunctionCall extends SimpleNode {
+public final class SQLFunctionCall extends SimpleNode {
 
-  protected SQLIdentifier name;
+  SQLIdentifier name;
 
-  protected List<SQLExpression> params = new ArrayList<SQLExpression>();
+  List<SQLExpression> params = new ArrayList<>();
+
+  boolean polymorphicLabelsInGraphNavigation = true;
 
   public SQLFunctionCall(int id) {
     super(id);
@@ -42,8 +47,8 @@ public class SQLFunctionCall extends SimpleNode {
     if (this.params.size() != 1) {
       return false;
     }
-    var param = params.get(0);
-    if (param.mathExpression == null || !(param.mathExpression instanceof SQLBaseExpression base)) {
+    var param = params.getFirst();
+    if (!(param.mathExpression instanceof SQLBaseExpression base)) {
 
       return false;
     }
@@ -65,6 +70,7 @@ public class SQLFunctionCall extends SimpleNode {
     this.params.add(param);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     name.toString(params, builder);
     builder.append("(");
@@ -79,6 +85,7 @@ public class SQLFunctionCall extends SimpleNode {
     builder.append(")");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     name.toGenericStatement(builder);
     builder.append("(");
@@ -98,9 +105,9 @@ public class SQLFunctionCall extends SimpleNode {
   }
 
   private Object execute(Object targetObjects, CommandContext ctx, String name) {
-    List<Object> paramValues = new ArrayList<Object>();
+    List<Object> paramValues = new ArrayList<>();
 
-    Object record = null;
+    Object record;
 
     if (targetObjects instanceof Identifiable) {
       record = targetObjects;
@@ -140,7 +147,7 @@ public class SQLFunctionCall extends SimpleNode {
     if (function != null) {
       function.config(this.params.toArray());
 
-      validateFunctionParams(ctx.getDatabaseSession(), function, paramValues);
+      validateFunctionParams(ctx.getDatabaseSession(), function, paramValues.size());
 
       ctx.setVariable("aggregation", false);
       var session = ctx.getDatabaseSession();
@@ -167,10 +174,10 @@ public class SQLFunctionCall extends SimpleNode {
   }
 
   private static void validateFunctionParams(DatabaseSession session, SQLFunction function,
-      List<Object> paramValues) {
+      int paramsCount) {
     if (function.getMaxParams(session) == -1 || function.getMaxParams(session) > 0) {
-      if (paramValues.size() < function.getMinParams()
-          || (function.getMaxParams(session) > -1 && paramValues.size() > function.getMaxParams(
+      if (paramsCount < function.getMinParams()
+          || (function.getMaxParams(session) > -1 && paramsCount > function.getMaxParams(
           session))) {
         String params;
         if (function.getMinParams() == function.getMaxParams(session)) {
@@ -184,25 +191,54 @@ public class SQLFunctionCall extends SimpleNode {
                 + "' needs "
                 + params
                 + " argument(s) while has been received "
-                + paramValues.size());
+                + paramsCount);
       }
     }
   }
 
-  public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
-    var function = SQLEngine.getFunction(session, name.getStringValue());
+  public boolean isIndexedFunctionCall(DatabaseSessionEmbedded session) {
+    var function = SQLEngine.getFunctionOrNull(session, name.getStringValue());
     return (function instanceof IndexableSQLFunction);
   }
 
-  /**
-   * see IndexableSQLFunction.searchFromTarget()
-   *
-   * @param target
-   * @param ctx
-   * @param operator
-   * @param rightValue
-   * @return
-   */
+  public boolean isGraphNavigationFunction(DatabaseSessionEmbedded session) {
+    var function = SQLEngine.getFunctionOrNull(session, name.getStringValue());
+    return (function instanceof SQLGraphNavigationFunction);
+  }
+
+  @Nullable
+  public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
+      SchemaClass schemaClass) {
+    var session = ctx.getDatabaseSession();
+    var function = SQLEngine.getFunction(session, name.getStringValue());
+
+    if (function instanceof SQLGraphNavigationFunction graphRelationsFunction) {
+      var labels = new String[params.size()];
+
+      for (var i = 0; i < params.size(); i++) {
+        var param = params.get(i);
+
+        if (param.isEarlyCalculated(ctx)) {
+          var result = param.execute((Result) null, ctx);
+
+          if (result instanceof String label) {
+            labels[i] = label;
+          } else {
+            return null;
+          }
+        } else {
+          return null;
+        }
+      }
+
+      return graphRelationsFunction.propertyNamesForIndexCandidates(
+          labels,
+          schemaClass, polymorphicLabelsInGraphNavigation, session);
+    }
+
+    return null;
+  }
+
   @Nullable
   public Iterable<Identifiable> executeIndexedFunction(
       SQLFromClause target, CommandContext ctx, SQLBinaryCompareOperator operator,
@@ -241,10 +277,8 @@ public class SQLFunctionCall extends SimpleNode {
    * tests if current function is an indexed function AND that function can also be executed without
    * using the index
    *
-   * @param target   the query target
-   * @param context  the execution context
-   * @param operator
-   * @param right
+   * @param target  the query target
+   * @param context the execution context
    * @return true if current function is an indexed funciton AND that function can also be executed
    * without using the index, false otherwise
    */
@@ -264,10 +298,8 @@ public class SQLFunctionCall extends SimpleNode {
   /**
    * tests if current function is an indexed function AND that function can be used on this target
    *
-   * @param target   the query target
-   * @param context  the execution context
-   * @param operator
-   * @param right
+   * @param target  the query target
+   * @param context the execution context
    * @return true if current function is an indexed function AND that function can be used on this
    * target, false otherwise
    */
@@ -321,7 +353,7 @@ public class SQLFunctionCall extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (isAggregateFunction(session)) {
       return true;
     }
@@ -346,9 +378,7 @@ public class SQLFunctionCall extends SimpleNode {
       if (isAggregateFunction(db)) {
 
         if (isStar()) {
-          for (var param : params) {
-            newFunct.params.add(param);
-          }
+          newFunct.params.addAll(params);
         } else {
           for (var param : params) {
             if (param.isAggregate(db)) {
@@ -368,9 +398,7 @@ public class SQLFunctionCall extends SimpleNode {
         return new SQLExpression(functionResultAlias);
       } else {
         if (isStar()) {
-          for (var param : params) {
-            newFunct.params.add(param);
-          }
+          newFunct.params.addAll(params);
         } else {
           for (var param : params) {
             newFunct.params.add(param.splitForAggregation(aggregateProj, ctx));
@@ -382,7 +410,7 @@ public class SQLFunctionCall extends SimpleNode {
     return this;
   }
 
-  private boolean isAggregateFunction(DatabaseSessionInternal session) {
+  private boolean isAggregateFunction(DatabaseSessionEmbedded session) {
     var function = SQLEngine.getFunction(session, name.getStringValue());
     function.config(this.params.toArray());
     return function.aggregateResults();
@@ -418,7 +446,7 @@ public class SQLFunctionCall extends SimpleNode {
     return true;
   }
 
-  private boolean isTraverseFunction(DatabaseSessionInternal session) {
+  private boolean isTraverseFunction(DatabaseSessionEmbedded session) {
     if (name == null) {
       return false;
     }
@@ -431,15 +459,14 @@ public class SQLFunctionCall extends SimpleNode {
         .getFunction(ctx.getDatabaseSession(), name.getStringValue());
     function.config(this.params.toArray());
 
-    var result = new FuncitonAggregationContext(function, this.params);
-    return result;
+    return new FuncitonAggregationContext(function, this.params);
   }
 
   @Override
   public SQLFunctionCall copy() {
     var result = new SQLFunctionCall(-1);
     result.name = name;
-    result.params = params.stream().map(x -> x.copy()).collect(Collectors.toList());
+    result.params = params.stream().map(SQLExpression::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -485,20 +512,20 @@ public class SQLFunctionCall extends SimpleNode {
   public SQLMethodCall toMethod() {
     var result = new SQLMethodCall(-1);
     result.methodName = name.copy();
-    result.params = params.stream().map(x -> x.copy()).collect(Collectors.toList());
+    result.params = params.stream().map(SQLExpression::copy).collect(Collectors.toList());
     return result;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
 
     if (name != null) {
-      result.setProperty("name", name.serialize(db));
+      result.setProperty("name", name.serialize(session));
     }
 
     if (params != null) {
       result.setProperty(
-          "collection", params.stream().map(oExpression -> oExpression.serialize(db))
+          "collection", params.stream().map(oExpression -> oExpression.serialize(session))
               .collect(Collectors.toList()));
     }
 
@@ -532,37 +559,9 @@ public class SQLFunctionCall extends SimpleNode {
     }
   }
 
-  public boolean isCacheable() {
-    return isGraphFunction(); // TODO
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
+    return isGraphNavigationFunction(session); // TODO
   }
 
-  private boolean isGraphFunction() {
-    var string = name.getStringValue();
-    if (string.equalsIgnoreCase("out")) {
-      return true;
-    }
-    if (string.equalsIgnoreCase("outE")) {
-      return true;
-    }
-    if (string.equalsIgnoreCase("outV")) {
-      return true;
-    }
-    if (string.equalsIgnoreCase("in")) {
-      return true;
-    }
-    if (string.equalsIgnoreCase("inE")) {
-      return true;
-    }
-    if (string.equalsIgnoreCase("inV")) {
-      return true;
-    }
-    if (string.equalsIgnoreCase("both")) {
-      return true;
-    }
-    if (string.equalsIgnoreCase("bothE")) {
-      return true;
-    }
-    return string.equalsIgnoreCase("bothV");
-  }
 }
 /* JavaCC - OriginalChecksum=290d4e1a3f663299452e05f8db718419 (do not edit this line) */

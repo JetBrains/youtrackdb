@@ -5,12 +5,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 
 public abstract class AbstractIndexReuseTest extends BaseDBTest {
-
   protected ProfilerStub profiler;
-
-  public AbstractIndexReuseTest(boolean remote) {
-    super(remote);
-  }
 
   @Override
   @BeforeClass
@@ -26,6 +21,7 @@ public abstract class AbstractIndexReuseTest extends BaseDBTest {
     super.afterClass();
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();

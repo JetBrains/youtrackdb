@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.SingleOpExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionResultSet;
@@ -27,8 +27,9 @@ public abstract class SQLSimpleExecStatement extends SQLStatement {
 
   public abstract ExecutionStream executeSimple(CommandContext ctx);
 
+  @Override
   public ResultSet execute(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Object[] args,
       CommandContext parentContext,
       boolean usePlanCache) {
@@ -48,8 +49,9 @@ public abstract class SQLSimpleExecStatement extends SQLStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
+  @Override
   public ResultSet execute(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Map<Object, Object> params,
       CommandContext parentContext,
       boolean usePlanCache) {
@@ -63,6 +65,7 @@ public abstract class SQLSimpleExecStatement extends SQLStatement {
     return new ExecutionResultSet(executionPlan.executeInternal(ctx), ctx, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     return new SingleOpExecutionPlan(ctx, this);
   }

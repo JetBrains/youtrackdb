@@ -101,11 +101,6 @@ public class ConcurrentSchemaTest extends BaseDBTest {
     }
   }
 
-  @Parameters(value = "remote")
-  public ConcurrentSchemaTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @Test
   public void concurrentCommands() throws Exception {
     ConcurrentTestHelper.test(

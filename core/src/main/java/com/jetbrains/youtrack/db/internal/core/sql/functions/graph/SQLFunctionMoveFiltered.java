@@ -6,7 +6,7 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunctionFiltered;
 
@@ -65,7 +65,7 @@ public abstract class SQLFunctionMoveFiltered extends SQLFunctionMove
   }
 
   protected abstract Object move(
-      DatabaseSessionInternal graph,
+      DatabaseSessionEmbedded graph,
       Identifiable iArgument,
       String[] labels,
       Iterable<Identifiable> iPossibleResults);

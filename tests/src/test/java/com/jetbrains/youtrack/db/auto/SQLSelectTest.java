@@ -40,19 +40,11 @@ import java.util.Objects;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 @SuppressWarnings("unchecked")
 public class SQLSelectTest extends AbstractSelectTest {
-
-  @Parameters(value = "remote")
-  public SQLSelectTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void init() {
     generateCompanyData();
@@ -166,11 +158,13 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery("select from Profile where tags CONTAINS 'smart'", session);
 
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -190,6 +184,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery("select from Profile where tags[0] = 'smart'", session);
 
@@ -201,6 +196,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -227,6 +223,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery(
             "select coll[name='Jay'] as value from Profile where @rid = " + doc.getIdentity(),
@@ -236,6 +233,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(
         resultset.getFirst().<Result>getEmbeddedList("value").getFirst().getProperty("name"),
         "Jay");
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -288,18 +286,19 @@ public class SQLSelectTest extends AbstractSelectTest {
     var entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Luca");
     entity.setProperty("surname", "Garulli");
-    customReferences.put("first", (EntityImpl) entity);
+    customReferences.put("first", entity);
 
     entity = session.newEmbeddedEntity();
     entity.setProperty("name", "Jay");
     entity.setProperty("surname", "Miner");
-    customReferences.put("second", (EntityImpl) entity);
+    customReferences.put("second", entity);
 
     var doc = ((EntityImpl) session.newEntity("Profile"));
     doc.setProperty("customReferences", customReferences, PropertyType.EMBEDDEDMAP);
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery("select from Profile where customReferences CONTAINSKEY 'first'", session);
 
@@ -312,6 +311,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -338,6 +338,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery(
             "select from Profile where customReferences.keys() CONTAINS 'first'", session);
@@ -352,6 +353,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -503,7 +505,7 @@ public class SQLSelectTest extends AbstractSelectTest {
   @Test
   public void queryCollectionInNumbers() {
     session.begin();
-    Entity record = ((EntityImpl) session.newEntity("Animal"));
+    Entity record = session.newEntity("Animal");
     record.setProperty("name", "Cat");
 
     var rates = session.<Integer>newEmbeddedSet();
@@ -518,7 +520,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     var found = false;
     for (var i = 0; i < result.size() && !found; ++i) {
-      record = (EntityImpl) result.get(i).asEntityOrNull();
+      record = result.get(i).asEntityOrNull();
 
       Assert.assertTrue(record.getSchemaClassName().equalsIgnoreCase("animal"));
       Assert.assertNotNull(record.getProperty("rates"));
@@ -1410,11 +1412,13 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertTrue(
         secondPlaceId.getCollectionPosition() > famousPlaceId.getCollectionPosition());
 
+    session.begin();
     var result =
         executeQuery(
             "select from Place where @rid in [" + secondPlaceId + "," + famousPlaceId + "]",
             session);
     Assert.assertEquals(result.size(), 2);
+    session.commit();
 
     session.getMetadata().getSchema().dropClass("FamousPlace");
     session.getMetadata().getSchema().dropClass("Place");

@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
@@ -41,9 +42,6 @@ import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 
-/**
- *
- */
 public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
     implements IndexableSQLFunction {
 
@@ -164,7 +162,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
         } else {
           var properties = ((Result) item).getPropertyNames();
           if (properties.size() == 1) {
-            var val = ((Result) item).getProperty(properties.iterator().next());
+            var val = ((Result) item).getProperty(properties.getFirst());
             if (val instanceof Identifiable) {
               rids.add(((Identifiable) val).getIdentity().toString());
             }
@@ -178,10 +176,10 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   private static Map<String, ?> parseMetadata(SQLExpression[] args) {
-    return JSONSerializerJackson.mapFromJson(args[1].toString());
+    return JSONSerializerJackson.INSTANCE.mapFromJson(args[1].toString());
   }
 
-  private MoreLikeThis buildMoreLikeThis(
+  private static MoreLikeThis buildMoreLikeThis(
       LuceneFullTextIndex index, IndexSearcher searcher, Map<String, ?> metadata) {
 
     var mlt = new MoreLikeThis(searcher.getIndexReader());
@@ -191,7 +189,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
     //noinspection unchecked
     mlt.setFieldNames(
         Optional.ofNullable((List<String>) metadata.get("fieldNames"))
-            .orElse(index.getDefinition().getFields())
+            .orElse(index.getDefinition().getProperties())
             .toArray(new String[]{}));
 
     mlt.setMaxQueryTerms(
@@ -258,39 +256,39 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
                         }));
   }
 
-  private void excludeOtherFromResults(List<String> ridsAsString, Builder queryBuilder) {
-    ridsAsString.stream()
+  private static void excludeOtherFromResults(List<String> ridsAsString, Builder queryBuilder) {
+    ridsAsString
         .forEach(
             rid ->
                 queryBuilder.add(
                     new TermQuery(new Term("RID", QueryParser.escape(rid))), Occur.MUST_NOT));
   }
 
-  private LuceneFullTextIndex searchForIndex(SQLFromClause target, CommandContext ctx) {
+  @Nullable
+  private static LuceneFullTextIndex searchForIndex(SQLFromClause target, CommandContext ctx) {
     var item = target.getItem();
 
-    var className = item.getIdentifier().getStringValue();
+    var schemaClass = item.getSchemaClass(ctx.getDatabaseSession());
+    if (schemaClass == null) {
+      return null;
+    }
 
-    return searchForIndex(ctx, className);
+    return searchForIndex(schemaClass);
   }
 
   @Nullable
-  private LuceneFullTextIndex searchForIndex(CommandContext ctx, String className) {
-    var db = ctx.getDatabaseSession();
-    var dbMetadata = db.getMetadata();
-
-    var indices =
-        dbMetadata.getImmutableSchemaSnapshot().getClassInternal(
-                className).getIndexesInternal().stream()
-            .filter(idx -> idx instanceof LuceneFullTextIndex)
-            .map(idx -> (LuceneFullTextIndex) idx)
-            .toList();
+  private static LuceneFullTextIndex searchForIndex(SchemaClassInternal schemaClass) {
+    var indices = schemaClass.getIndexesInternal().stream()
+        .filter(idx -> idx instanceof LuceneFullTextIndex)
+        .map(idx -> (LuceneFullTextIndex) idx)
+        .toList();
 
     if (indices.size() > 1) {
-      throw new IllegalArgumentException("too many full-text indices on given class: " + className);
+      throw new IllegalArgumentException(
+          "too many full-text indices on given class: " + schemaClass.getName());
     }
 
-    return indices.isEmpty() ? null : indices.get(0);
+    return indices.isEmpty() ? null : indices.getFirst();
   }
 
   @Override
@@ -300,7 +298,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
       Object rightValue,
       CommandContext ctx,
       SQLExpression... args) {
-    var index = this.searchForIndex(target, ctx);
+    var index = searchForIndex(target, ctx);
     if (index != null) {
       return index.size(ctx.getDatabaseSession());
     }
@@ -325,7 +323,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
       CommandContext ctx,
       SQLExpression... args) {
 
-    var index = this.searchForIndex(target, ctx);
+    var index = searchForIndex(target, ctx);
 
     return index != null;
   }

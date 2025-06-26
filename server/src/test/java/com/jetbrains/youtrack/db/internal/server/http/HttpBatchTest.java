@@ -1,10 +1,14 @@
 package com.jetbrains.youtrack.db.internal.server.http;
 
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import io.cucumber.java.it.Ma;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.List;
+import java.util.Map;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.junit.Assert;
 import org.junit.Before;
@@ -15,7 +19,7 @@ import org.junit.Before;
 public class HttpBatchTest extends BaseHttpDatabaseTest {
 
   @Before
-  public void beforeMethod() {
+  public void beforeMethod() throws Exception {
     getServer().getPlugin("script-interpreter").startup();
   }
 
@@ -40,10 +44,9 @@ public class HttpBatchTest extends BaseHttpDatabaseTest {
 
     Assert.assertNotNull(response);
 
-    var responseDoc = new EntityImpl(null);
-    responseDoc.updateFromJSON(response);
-    var insertedDocument =
-        ((List<EntityImpl>) responseDoc.getProperty("result")).get(0);
+    var responseMap = JSONSerializerJackson.INSTANCE.mapFromJson(response);
+    @SuppressWarnings("unchecked") var insertedResult =
+        ((List<Map<String, Object>>) responseMap.get("result")).get(0);
 
     // TEST UPDATE
     Assert.assertEquals(
@@ -57,9 +60,9 @@ public class HttpBatchTest extends BaseHttpDatabaseTest {
                     + "            \"userID\": \"35862601\",\n"
                     + "            \"externalID\": \"35862601\",\n"
                     + "            \"@rid\": \""
-                    + insertedDocument.getIdentity()
+                    + insertedResult.get("@rid")
                     + "\", \"@class\": \"User\", \"@version\": "
-                    + insertedDocument.getVersion()
+                    + insertedResult.get("@version")
                     + "\n"
                     + "        },\n"
                     + "        \"type\": \"u\"\n"
@@ -81,9 +84,9 @@ public class HttpBatchTest extends BaseHttpDatabaseTest {
                     + "            \"userID\": \"35862601\",\n"
                     + "            \"externalID\": \"35862601\",\n"
                     + "            \"@rid\": \""
-                    + insertedDocument.getIdentity()
+                    + insertedResult.get("@rid")
                     + "\", \"@class\": \"User\", \"@version\": "
-                    + (insertedDocument.getVersion() + 1)
+                    + ((Integer) insertedResult.get("@version") + 1)
                     + "\n"
                     + "        },\n"
                     + "        \"type\": \"u\"\n"
@@ -105,9 +108,9 @@ public class HttpBatchTest extends BaseHttpDatabaseTest {
                     + "            \"userID\": \"35862601\",\n"
                     + "            \"externalID\": \"35862601\",\n"
                     + "            \"@rid\": \""
-                    + insertedDocument.getIdentity()
+                    + insertedResult.get("@rid")
                     + "\", \"@class\": \"User\", \"@version\": "
-                    + (insertedDocument.getVersion() + 1)
+                    + ((Integer) insertedResult.get("@version") + 1)
                     + "\n"
                     + "        },\n"
                     + "        \"type\": \"u\"\n"
@@ -122,15 +125,14 @@ public class HttpBatchTest extends BaseHttpDatabaseTest {
 
   private void batchWithEmpty() throws IOException {
     var json =
-        "{\n"
-            + "\"operations\": [{\n"
-            + "\"type\": \"script\",\n"
-            + "\"language\": \"SQL\","
-            + "\"script\": \"let $a = select from User limit 2 \\n"
-            + "let $b = select sum(foo) from (select from User where name = 'adsfafoo') \\n"
-            + "return [$a, $b]\""
-            + "}]\n"
-            + "}";
+        """
+            {
+            "operations": [{
+            "type": "script",
+            "language": "SQL",\
+            "script": "let $a = select from User limit 2 \\nlet $b = select sum(foo) from (select from User where name = 'adsfafoo') \\nreturn [$a, $b]"\
+            }]
+            }""";
     var response = post("batch/" + getDatabaseName()).payload(json, CONTENT.TEXT).getResponse();
 
     Assert.assertEquals(200, response.getCode());
@@ -143,11 +145,10 @@ public class HttpBatchTest extends BaseHttpDatabaseTest {
       line = reader.readLine();
     }
     System.out.println(string);
-    var doc = new EntityImpl(null);
-    doc.updateFromJSON(string);
+    var map = JSONSerializerJackson.INSTANCE.mapFromJson(string);
 
     stream.close();
-    var iterable = (Iterable) doc.getProperty("result.value");
+    var iterable = (Iterable)((Map<String, Object>) map.get("result")).get("value");
 
     System.out.println(iterable);
     var iterator = iterable.iterator();

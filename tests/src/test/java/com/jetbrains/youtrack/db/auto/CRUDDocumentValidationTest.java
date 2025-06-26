@@ -15,7 +15,6 @@
  */
 package com.jetbrains.youtrack.db.auto;
 
-import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.ValidationException;
 import com.jetbrains.youtrack.db.internal.common.util.Pair;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
@@ -27,20 +26,12 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class CRUDDocumentValidationTest extends BaseDBTest {
-
   private EntityImpl record;
   private EntityImpl account;
-
-  @Parameters(value = "remote")
-  public CRUDDocumentValidationTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void openDb() {
@@ -139,7 +130,7 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
     session.commit();
   }
 
-  @Test(dependsOnMethods = "validationMinDate", expectedExceptions = DatabaseException.class)
+  @Test(dependsOnMethods = "validationMinDate", expectedExceptions = IllegalArgumentException.class)
   public void validationEmbeddedType() {
     session.begin();
     record = session.newInstance("Whiz");

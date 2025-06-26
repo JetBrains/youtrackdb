@@ -27,12 +27,13 @@ import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.profiler.Profiler;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrack.db.internal.common.util.ClassLoaderHelper;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCacheFactory;
 import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCacheFactoryImpl;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategyFactory;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseThreadLocalFactory;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBEmbedded;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrack.db.internal.core.engine.Engine;
 import com.jetbrains.youtrack.db.internal.core.record.RecordFactoryManager;
@@ -55,11 +56,13 @@ import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nullable;
+import org.apache.commons.collections4.IteratorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,9 +81,8 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private final ConcurrentMap<String, Engine> engines = new ConcurrentHashMap<String, Engine>();
 
-  private final Map<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>
-      dbLifecycleListeners =
-      new LinkedHashMap<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>();
+  private final AtomicReference<List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>>>
+      dbLifecycleListeners = new AtomicReference<>(List.of());
   private final ThreadGroup threadGroup;
   private final ReadWriteLock engineLock = new ReentrantReadWriteLock();
   private final RecordConflictStrategyFactory recordConflictStrategy =
@@ -121,7 +123,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
 
   private final LocalRecordCacheFactory localRecordCache = new LocalRecordCacheFactoryImpl();
 
-  private final Set<YouTrackDBEmbedded> factories =
+  private final Set<YouTrackDBInternalEmbedded> factories =
       Collections.newSetFromMap(new ConcurrentHashMap<>());
 
   private final Set<YouTrackDBInternal> runningInstances = new HashSet<>();
@@ -532,32 +534,52 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
   }
 
   public Iterator<DatabaseLifecycleListener> getDbLifecycleListeners() {
-    return new LinkedHashSet<>(dbLifecycleListeners.keySet()).iterator();
-  }
-
-  public void addDbLifecycleListener(final DatabaseLifecycleListener iListener) {
-    final Map<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY> tmp =
-        new LinkedHashMap<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>(
-            dbLifecycleListeners);
-    if (iListener.getPriority() == null) {
-      throw new IllegalArgumentException(
-          "Priority of DatabaseLifecycleListener '" + iListener + "' cannot be null");
+    if (dbLifecycleListeners.get().isEmpty()) {
+      return IteratorUtils.emptyIterator();
     }
 
-    tmp.put(iListener, iListener.getPriority());
-    dbLifecycleListeners.clear();
-    for (var p : DatabaseLifecycleListener.PRIORITY.values()) {
-      for (var e :
-          tmp.entrySet()) {
-        if (e.getValue() == p) {
-          dbLifecycleListeners.put(e.getKey(), e.getValue());
+    return dbLifecycleListeners.get().stream().map(RawPair::first).iterator();
+  }
+
+  public void addDbLifecycleListener(final DatabaseLifecycleListener listener) {
+    List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>> initialRef;
+    ArrayList<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>> newRef;
+    do {
+      initialRef = dbLifecycleListeners.get();
+      newRef = new ArrayList<>(initialRef.size() + 1);
+
+      final var tmp = new ArrayList<>(initialRef);
+      if (listener.getPriority() == null) {
+        throw new IllegalArgumentException(
+            "Priority of DatabaseLifecycleListener '" + listener + "' cannot be null");
+      }
+
+      tmp.add(new RawPair<>(listener, listener.getPriority()));
+
+      for (var p : DatabaseLifecycleListener.PRIORITY.values()) {
+        for (var e : tmp) {
+          if (e.second() == p) {
+            newRef.add(e);
+          }
         }
       }
-    }
+
+    } while (!dbLifecycleListeners.compareAndSet(initialRef, newRef));
   }
 
-  public void removeDbLifecycleListener(final DatabaseLifecycleListener iListener) {
-    dbLifecycleListeners.remove(iListener);
+  public void removeDbLifecycleListener(final DatabaseLifecycleListener listener) {
+    List<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>> initialRef;
+    ArrayList<RawPair<DatabaseLifecycleListener, DatabaseLifecycleListener.PRIORITY>> newRef;
+    do {
+      initialRef = dbLifecycleListeners.get();
+      newRef = new ArrayList<>(initialRef.size() - 1);
+
+      for (var e : initialRef) {
+        if (e.first() != listener) {
+          newRef.add(e);
+        }
+      }
+    } while (!dbLifecycleListeners.compareAndSet(initialRef, newRef));
   }
 
   public ThreadGroup getThreadGroup() {
@@ -801,7 +823,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     }
   }
 
-  public void onEmbeddedFactoryInit(YouTrackDBEmbedded embeddedFactory) {
+  public void onEmbeddedFactoryInit(YouTrackDBInternalEmbedded embeddedFactory) {
     var memory = engines.get("memory");
     if (memory != null && !memory.isRunning()) {
       memory.startup();
@@ -813,7 +835,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
     factories.add(embeddedFactory);
   }
 
-  public void onEmbeddedFactoryClose(YouTrackDBEmbedded embeddedFactory) {
+  public void onEmbeddedFactoryClose(YouTrackDBInternalEmbedded embeddedFactory) {
     factories.remove(embeddedFactory);
     if (factories.isEmpty()) {
       var memory = engines.get("memory");

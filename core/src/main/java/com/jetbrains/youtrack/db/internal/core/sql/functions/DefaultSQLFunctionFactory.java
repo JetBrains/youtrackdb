@@ -50,6 +50,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.functions.math.SQLFunctionInt
 import com.jetbrains.youtrack.db.internal.core.sql.functions.math.SQLFunctionMax;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.math.SQLFunctionMin;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.math.SQLFunctionSum;
+import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionAssert;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionCoalesce;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionCount;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.misc.SQLFunctionDate;
@@ -97,6 +98,7 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionTraversedElement.NAME, SQLFunctionTraversedElement.class);
     register(SQLFunctionTraversedVertex.NAME, SQLFunctionTraversedVertex.class);
     register(SQLFunctionIf.NAME, new SQLFunctionIf());
+    register(SQLFunctionAssert.NAME, new SQLFunctionAssert());
     register(SQLFunctionIfNull.NAME, new SQLFunctionIfNull());
     register(SQLFunctionIntersect.NAME, SQLFunctionIntersect.class);
     register(SQLFunctionLast.NAME, new SQLFunctionLast());

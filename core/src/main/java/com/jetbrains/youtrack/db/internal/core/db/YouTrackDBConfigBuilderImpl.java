@@ -20,8 +20,8 @@
 
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.SessionListener;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfigBuilder;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
@@ -37,7 +37,6 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 
 public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
-
   private ContextConfiguration configurations = new ContextConfiguration();
   private final Map<ATTRIBUTES, Object> attributes = new EnumMap<>(ATTRIBUTES.class);
   private final Set<SessionListener> listeners = new HashSet<>();

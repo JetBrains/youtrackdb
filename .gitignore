@@ -132,6 +132,8 @@ buildNumber.properties
 .idea/**/dynamic.xml
 .idea/**/uiDesigner.xml
 .idea/shelf/*
+.idea/remote-targets.xml
+.idea/mavenHomeManager.xml
 
 # Gradle:
 .idea/**/gradle.xml
@@ -224,3 +226,4 @@ local.properties
 
 # stack-pr config
 .stack-pr.cfg
+

@@ -3,7 +3,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
@@ -68,11 +68,7 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
 
     var first = true;
     if (create != null) {
-      if (first) {
-        builder.append(" SET ");
-      } else {
-        builder.append(", ");
-      }
+      builder.append(" SET ");
       builder.append("CREATE = (");
       create.toString(params, builder);
       builder.append(")");
@@ -144,11 +140,7 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
 
     var first = true;
     if (create != null) {
-      if (first) {
-        builder.append(" SET ");
-      } else {
-        builder.append(", ");
-      }
+      builder.append(" SET ");
       builder.append("CREATE = (");
       create.toGenericStatement(builder);
       builder.append(")");
@@ -250,7 +242,7 @@ public class SQLCreateSecurityPolicyStatement extends SQLSimpleExecStatement {
   }
 
   @Override
-  public boolean executinPlanCanBeCached(DatabaseSessionInternal session) {
+  public boolean executinPlanCanBeCached(DatabaseSessionEmbedded session) {
     if (create != null && !create.isCacheable(session)) {
       return false;
     }

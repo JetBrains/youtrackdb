@@ -13,19 +13,12 @@ import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 
 /**
  * @since 3/28/14
  */
 @SuppressWarnings("deprecation")
 public class LinkSetIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public LinkSetIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   public void setupSchema() {
@@ -39,11 +32,13 @@ public class LinkSetIndexTest extends BaseDBTest {
     session.close();
   }
 
+  @Override
   @BeforeMethod
   public void beforeMethod() {
     session = createSessionInstance();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() {
     checkEmbeddedDB();
@@ -58,7 +53,7 @@ public class LinkSetIndexTest extends BaseDBTest {
 
     if (session.getStorage().isRemote()) {
       var index =
-          session.getSharedContext().getIndexManager().getIndex(session, "linkSetIndex");
+          session.getSharedContext().getIndexManager().getIndex("linkSetIndex");
       Assert.assertEquals(index.size(session), 0);
     }
     session.commit();

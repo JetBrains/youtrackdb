@@ -37,7 +37,7 @@ import com.jetbrains.youtrack.db.internal.core.index.engine.IndexEngineValuesTra
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
-import com.jetbrains.youtrack.db.internal.core.storage.disk.LocalStorage;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.lucene.analyzer.LuceneAnalyzerFactory;
@@ -202,7 +202,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
 
   private void checkCollectionIndex(DatabaseSessionInternal session,
       IndexDefinition indexDefinition) {
-    var fields = indexDefinition.getFields();
+    var fields = indexDefinition.getProperties();
 
     var aClass =
         session.getMetadata().getSchema().getClass(indexDefinition.getClassName());
@@ -263,7 +263,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
           searcher.search(new TermQuery(new Term("_CLASS", "JSON_METADATA")), 1);
       var jsonFactory = new JsonFactory();
       if (topDocs.totalHits == 0) {
-        var metaAsJson = JSONSerializerJackson.mapToJson(metadata);
+        var metaAsJson = JSONSerializerJackson.INSTANCE.mapToJson(metadata);
 
         String defAsJson;
         var jsonWriter = new StringWriter();
@@ -339,6 +339,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     }
   }
 
+  @Override
   public void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException {
   }
 
@@ -355,8 +356,8 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
       }
 
       final var storageLocalAbstract = (AbstractStorage) storage;
-      if (storageLocalAbstract instanceof LocalStorage localStorage) {
-        var storagePath = localStorage.getStoragePath().toFile();
+      if (storageLocalAbstract instanceof DiskStorage diskStorage) {
+        var storagePath = diskStorage.getStoragePath().toFile();
         deleteIndexFolder(storagePath);
       }
     } catch (IOException e) {
@@ -528,7 +529,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     updateLastAccess();
     openIfClosed(storage);
 
-    return LuceneIndexType.createDeleteQuery(value, indexDefinition.getFields(), key);
+    return LuceneIndexType.createDeleteQuery(value, indexDefinition.getProperties(), key);
   }
 
   @Override
@@ -590,6 +591,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     throw new UnsupportedOperationException("Cannot iterate over a lucene index");
   }
 
+  @Override
   public long size(Storage storage, final IndexEngineValuesTransformer transformer) {
     return sizeInTx(null, storage);
   }

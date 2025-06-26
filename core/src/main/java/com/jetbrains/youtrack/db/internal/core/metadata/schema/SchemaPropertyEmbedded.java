@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
@@ -23,10 +22,11 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     super(owner);
   }
 
-  protected SchemaPropertyEmbedded(SchemaClassImpl oClassImpl, GlobalProperty global) {
+  protected SchemaPropertyEmbedded(SchemaClassImpl oClassImpl, GlobalPropertyImpl global) {
     super(oClassImpl, global);
   }
 
+  @Override
   public void setType(DatabaseSessionInternal session, final PropertyTypeInternal type) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -67,6 +67,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setName(DatabaseSessionInternal session, final String name) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -123,7 +124,8 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  public void setCollate(DatabaseSessionInternal session, String collate) {
+  @Override
+  public void setCollate(DatabaseSessionEmbedded session, String collate) {
     if (collate == null) {
       collate = DefaultCollate.NAME;
     }
@@ -138,7 +140,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  protected void setCollateInternal(DatabaseSessionInternal session, String iCollate) {
+  protected void setCollateInternal(DatabaseSessionEmbedded session, String iCollate) {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);
@@ -159,8 +161,8 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
         for (var index : indexes) {
           var definition = index.getDefinition();
 
-          final var fields = definition.getFields();
-          if (fields.contains(getName(session))) {
+          final var fields = definition.getProperties();
+          if (fields.contains(getName())) {
             indexesToRecreate.add(index);
           }
         }
@@ -172,14 +174,14 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
                   "Collate value was changed, following indexes will be rebuilt %s",
                   indexesToRecreate);
 
-          final var indexManager = ((DatabaseSessionEmbedded) session).getSharedContext()
+          final var indexManager = session.getSharedContext()
               .getIndexManager();
           for (var indexToRecreate : indexesToRecreate) {
             final var indexMetadata = session.computeInTxInternal(transaction ->
                 indexToRecreate
                     .loadMetadata(transaction, indexToRecreate.getConfiguration(session)));
 
-            final var fields = indexMetadata.getIndexDefinition().getFields();
+            final var fields = indexMetadata.getIndexDefinition().getProperties();
             final var fieldsToIndex = fields.toArray(new String[0]);
 
             indexManager.dropIndex(session, indexMetadata.getName());
@@ -197,6 +199,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void clearCustom(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -219,6 +222,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setCustom(DatabaseSessionInternal session, final String name,
       final String value) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -250,6 +254,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setRegexp(DatabaseSessionInternal session, final String regexp) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -272,11 +277,12 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setLinkedClass(DatabaseSessionInternal session,
       final SchemaClassImpl linkedClass) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType(session)));
+    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType()));
 
     acquireSchemaWriteLock(session);
     try {
@@ -301,11 +307,12 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setLinkedType(DatabaseSessionInternal session,
       final PropertyTypeInternal linkedType) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
-    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType(session)));
+    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType()));
 
     acquireSchemaWriteLock(session);
     try {
@@ -328,6 +335,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setNotNull(DatabaseSessionInternal session, final boolean isNotNull) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -350,6 +358,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setDefaultValue(DatabaseSessionInternal session,
       final String defaultValue) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
@@ -379,6 +388,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMax(DatabaseSessionInternal session, final String max) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     checkCorrectLimitValue(session, max);
@@ -393,28 +403,28 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
 
   private void checkCorrectLimitValue(DatabaseSessionInternal session, final String value) {
     if (value != null) {
-      if (this.getType(session).equals(PropertyType.STRING)
-          || this.getType(session).equals(PropertyType.LINKBAG)
-          || this.getType(session).equals(PropertyType.BINARY)
-          || this.getType(session).equals(PropertyType.EMBEDDEDLIST)
-          || this.getType(session).equals(PropertyType.EMBEDDEDSET)
-          || this.getType(session).equals(PropertyType.LINKLIST)
-          || this.getType(session).equals(PropertyType.LINKSET)
-          || this.getType(session).equals(PropertyType.LINKBAG)
-          || this.getType(session).equals(PropertyType.EMBEDDEDMAP)
-          || this.getType(session).equals(PropertyType.LINKMAP)) {
+      if (this.getType().equals(PropertyType.STRING)
+          || this.getType().equals(PropertyType.LINKBAG)
+          || this.getType().equals(PropertyType.BINARY)
+          || this.getType().equals(PropertyType.EMBEDDEDLIST)
+          || this.getType().equals(PropertyType.EMBEDDEDSET)
+          || this.getType().equals(PropertyType.LINKLIST)
+          || this.getType().equals(PropertyType.LINKSET)
+          || this.getType().equals(PropertyType.LINKBAG)
+          || this.getType().equals(PropertyType.EMBEDDEDMAP)
+          || this.getType().equals(PropertyType.LINKMAP)) {
         PropertyTypeInternal.convert(session, value, Integer.class);
-      } else if (this.getType(session).equals(PropertyType.DATE)
-          || this.getType(session).equals(PropertyType.BYTE)
-          || this.getType(session).equals(PropertyType.SHORT)
-          || this.getType(session).equals(PropertyType.INTEGER)
-          || this.getType(session).equals(PropertyType.LONG)
-          || this.getType(session).equals(PropertyType.FLOAT)
-          || this.getType(session).equals(PropertyType.DOUBLE)
-          || this.getType(session).equals(PropertyType.DECIMAL)
-          || this.getType(session).equals(PropertyType.DATETIME)) {
+      } else if (this.getType().equals(PropertyType.DATE)
+          || this.getType().equals(PropertyType.BYTE)
+          || this.getType().equals(PropertyType.SHORT)
+          || this.getType().equals(PropertyType.INTEGER)
+          || this.getType().equals(PropertyType.LONG)
+          || this.getType().equals(PropertyType.FLOAT)
+          || this.getType().equals(PropertyType.DOUBLE)
+          || this.getType().equals(PropertyType.DECIMAL)
+          || this.getType().equals(PropertyType.DATETIME)) {
         PropertyTypeInternal.convert(session, value,
-            PropertyTypeInternal.convertFromPublicType(this.getType(session)).getDefaultJavaType());
+            PropertyTypeInternal.convertFromPublicType(this.getType()).getDefaultJavaType());
       }
     }
   }
@@ -433,6 +443,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMin(DatabaseSessionInternal session, final String min) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     checkCorrectLimitValue(session, min);
@@ -459,6 +470,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setReadonly(DatabaseSessionInternal session, final boolean isReadonly) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
 
@@ -483,6 +495,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
+  @Override
   public void setMandatory(DatabaseSessionInternal session,
       final boolean isMandatory) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);

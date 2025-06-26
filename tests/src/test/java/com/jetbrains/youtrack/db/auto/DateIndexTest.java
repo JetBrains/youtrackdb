@@ -9,21 +9,11 @@ import java.util.Date;
 import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
-/**
- * @since 10/21/13
- */
 @Test
 public class DateIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public DateIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
+  @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
@@ -120,7 +110,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestDateIndex");
+            .getIndex("DateIndexTestDateIndex");
     try (var stream = dateIndexTestDateIndex.getRids(session, dateOne)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
     }
@@ -132,7 +122,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestDateTimeIndex");
+            .getIndex("DateIndexTestDateTimeIndex");
     try (var stream = dateIndexTestDateTimeIndex
         .getRids(session, dateTwo)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
@@ -146,7 +136,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestValueDateIndex");
+            .getIndex("DateIndexTestValueDateIndex");
     try (var stream =
         dateIndexTestValueDateIndex
             .getRids(session, new CompositeKey("v1", dateOne))) {
@@ -162,7 +152,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestValueDateTimeIndex");
+            .getIndex("DateIndexTestValueDateTimeIndex");
     try (var stream =
         dateIndexTestValueDateTimeIndex
             .getRids(session, new CompositeKey("v1", dateTwo))) {
@@ -178,7 +168,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestValueDateListIndex");
+            .getIndex("DateIndexTestValueDateListIndex");
 
     try (var stream =
         dateIndexTestValueDateListIndex
@@ -195,7 +185,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestValueDateListIndex");
+            .getIndex("DateIndexTestValueDateListIndex");
     try (var stream =
         dateIndexTestValueDateTimeListIndex
 
@@ -213,7 +203,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestDateHashIndex");
+            .getIndex("DateIndexTestDateHashIndex");
     try (var stream = dateIndexTestDateHashIndexIndex
         .getRids(session, dateOne)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
@@ -227,7 +217,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestDateTimeHashIndex");
+            .getIndex("DateIndexTestDateTimeHashIndex");
     try (var stream = dateIndexTestDateTimeHashIndex
         .getRids(session, dateTwo)) {
       Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
@@ -241,7 +231,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestValueDateHashIndex");
+            .getIndex("DateIndexTestValueDateHashIndex");
     try (var stream =
         dateIndexTestValueDateHashIndex
             .getRids(session, new CompositeKey("v1", dateOne))) {
@@ -257,7 +247,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestValueDateTimeHashIndex");
+            .getIndex("DateIndexTestValueDateTimeHashIndex");
     try (var stream =
         dateIndexTestValueDateTimeHashIndex
 
@@ -275,7 +265,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestValueDateListHashIndex");
+            .getIndex("DateIndexTestValueDateListHashIndex");
 
     try (var stream =
         dateIndexTestValueDateListHashIndex
@@ -294,7 +284,7 @@ public class DateIndexTest extends BaseDBTest {
         session
             .getSharedContext()
             .getIndexManager()
-            .getIndex(session, "DateIndexTestValueDateListHashIndex");
+            .getIndex("DateIndexTestValueDateListHashIndex");
     try (var stream =
         dateIndexTestValueDateTimeListHashIndex
 

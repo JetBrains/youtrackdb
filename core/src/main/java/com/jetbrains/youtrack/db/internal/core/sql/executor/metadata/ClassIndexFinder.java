@@ -1,11 +1,11 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaPropertyInternal;
-import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class ClassIndexFinder implements IndexFinder {
 
@@ -18,21 +18,21 @@ public class ClassIndexFinder implements IndexFinder {
 
   private static class PrePath {
 
-    SchemaClass cl;
-    Optional<IndexCandidate> chain;
+    SchemaClassInternal cl;
+    @Nullable
+    IndexCandidate chain;
     boolean valid;
     String last;
   }
 
-  private PrePath findPrePath(MetadataPath path, CommandContext ctx) {
+  private PrePath findPrePath(IndexMetadataPath path, CommandContext ctx) {
     var rawPath = path.getPath();
-    var session = ctx.getDatabaseSession();
-    var lastP = rawPath.remove(rawPath.size() - 1);
+    var lastP = rawPath.removeLast();
     var cand =
         new PrePath() {
           {
-            chain = Optional.empty();
-            this.cl = ctx.getDatabaseSession().getClass(ClassIndexFinder.this.clazz);
+            this.cl = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot()
+                .getClassInternal(ClassIndexFinder.this.clazz);
             valid = true;
             last = lastP;
           }
@@ -40,17 +40,17 @@ public class ClassIndexFinder implements IndexFinder {
     for (var ele : rawPath) {
       var prop = (SchemaPropertyInternal) cand.cl.getProperty(ele);
       if (prop != null) {
-        var linkedClass = prop.getLinkedClass();
+        var linkedClass = (SchemaClassInternal) prop.getLinkedClass();
         var indexes = prop.getAllIndexesInternal();
         if (PropertyTypeInternal.convertFromPublicType(prop.getType()).isLink()
             && linkedClass != null) {
           var found = false;
           for (var index : indexes) {
             if (index.canBeUsedInEqualityOperators()) {
-              if (cand.chain.isPresent()) {
-                ((IndexCandidateChain) cand.chain.get()).add(index.getName());
+              if (cand.chain != null) {
+                ((IndexCandidateChain) cand.chain).add(index.getName());
               } else {
-                cand.chain = Optional.of(new IndexCandidateChain(index.getName()));
+                cand.chain = new IndexCandidateChain(index.getName());
               }
               cand.cl = linkedClass;
               found = true;
@@ -76,42 +76,45 @@ public class ClassIndexFinder implements IndexFinder {
   }
 
   @Override
-  public Optional<IndexCandidate> findExactIndex(MetadataPath path, Object value,
+  public IndexCandidate findExactIndex(IndexMetadataPath path, Object value,
       CommandContext ctx) {
     var pre = findPrePath(path, ctx);
+
     if (!pre.valid) {
-      return Optional.empty();
+      return null;
     }
     var cl = pre.cl;
     var cand = pre.chain;
     var last = pre.last;
 
-    var db = ctx.getDatabaseSession();
     var prop = (SchemaPropertyInternal) cl.getProperty(last);
     if (prop != null) {
       var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
         if (index.canBeUsedInEqualityOperators()) {
-          if (cand.isPresent()) {
-            ((IndexCandidateChain) cand.get()).add(index.getName());
-            ((IndexCandidateChain) cand.get()).setOperation(Operation.Eq);
+          if (cand != null) {
+            ((IndexCandidateChain) cand).add(index.getName());
+            ((IndexCandidateChain) cand).setOperation(Operation.Eq);
             return cand;
           } else {
-            return Optional.of(new IndexCandidateImpl(index.getName(), Operation.Eq, prop));
+            return new IndexCandidateImpl(index.getName(), Operation.Eq, prop);
           }
         }
       }
     }
-    return Optional.empty();
+
+    return null;
   }
 
   @Override
-  public Optional<IndexCandidate> findByKeyIndex(MetadataPath path, Object value,
+  public IndexCandidate findByKeyIndex(IndexMetadataPath path, Object value,
       CommandContext ctx) {
     var pre = findPrePath(path, ctx);
+
     if (!pre.valid) {
-      return Optional.empty();
+      return null;
     }
+
     var cl = pre.cl;
     var cand = pre.chain;
     var last = pre.last;
@@ -125,12 +128,12 @@ public class ClassIndexFinder implements IndexFinder {
             var def = index.getDefinition();
             for (var o : def.getFieldsToIndex()) {
               if (o.equalsIgnoreCase(last + " by key")) {
-                if (cand.isPresent()) {
-                  ((IndexCandidateChain) cand.get()).add(index.getName());
-                  ((IndexCandidateChain) cand.get()).setOperation(Operation.Eq);
+                if (cand != null) {
+                  ((IndexCandidateChain) cand).add(index.getName());
+                  ((IndexCandidateChain) cand).setOperation(Operation.Eq);
                   return cand;
                 } else {
-                  return Optional.of(new IndexCandidateImpl(index.getName(), Operation.Eq, prop));
+                  return new IndexCandidateImpl(index.getName(), Operation.Eq, prop);
                 }
               }
             }
@@ -138,52 +141,54 @@ public class ClassIndexFinder implements IndexFinder {
         }
       }
     }
-    return Optional.empty();
+
+    return null;
   }
 
   @Override
-  public Optional<IndexCandidate> findAllowRangeIndex(
-      MetadataPath path, Operation op, Object value, CommandContext ctx) {
+  public IndexCandidate findAllowRangeIndex(
+      IndexMetadataPath path, Operation op, Object value, CommandContext ctx) {
     var pre = findPrePath(path, ctx);
+
     if (!pre.valid) {
-      return Optional.empty();
+      return null;
     }
     var cl = pre.cl;
     var cand = pre.chain;
     var last = pre.last;
 
-    var db = ctx.getDatabaseSession();
     var prop = (SchemaPropertyInternal) cl.getProperty(last);
     if (prop != null) {
       var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
         if (index.canBeUsedInEqualityOperators()
             && index.supportsOrderedIterations()) {
-          if (cand.isPresent()) {
-            ((IndexCandidateChain) cand.get()).add(index.getName());
-            ((IndexCandidateChain) cand.get()).setOperation(op);
+          if (cand != null) {
+            ((IndexCandidateChain) cand).add(index.getName());
+            ((IndexCandidateChain) cand).setOperation(op);
             return cand;
           } else {
-            return Optional.of(new IndexCandidateImpl(index.getName(), op, prop));
+            return new IndexCandidateImpl(index.getName(), op, prop);
           }
         }
       }
     }
-    return Optional.empty();
+    return null;
   }
 
   @Override
-  public Optional<IndexCandidate> findByValueIndex(MetadataPath path, Object value,
+  public IndexCandidate findByValueIndex(IndexMetadataPath path, Object value,
       CommandContext ctx) {
     var pre = findPrePath(path, ctx);
+
     if (!pre.valid) {
-      return Optional.empty();
+      return null;
     }
+
     var cl = pre.cl;
     var cand = pre.chain;
     var last = pre.last;
 
-    var session = ctx.getDatabaseSession();
     var prop = (SchemaPropertyInternal) cl.getProperty(last);
     if (prop != null) {
       if (prop.getType() == PropertyType.EMBEDDEDMAP) {
@@ -193,12 +198,12 @@ public class ClassIndexFinder implements IndexFinder {
           if (index.canBeUsedInEqualityOperators()) {
             for (var o : def.getFieldsToIndex()) {
               if (o.equalsIgnoreCase(last + " by value")) {
-                if (cand.isPresent()) {
-                  ((IndexCandidateChain) cand.get()).add(index.getName());
-                  ((IndexCandidateChain) cand.get()).setOperation(Operation.Eq);
+                if (cand != null) {
+                  ((IndexCandidateChain) cand).add(index.getName());
+                  ((IndexCandidateChain) cand).setOperation(Operation.Eq);
                   return cand;
                 } else {
-                  return Optional.of(new IndexCandidateImpl(index.getName(), Operation.Eq, prop));
+                  return new IndexCandidateImpl(index.getName(), Operation.Eq, prop);
                 }
               }
             }
@@ -206,6 +211,7 @@ public class ClassIndexFinder implements IndexFinder {
         }
       }
     }
-    return Optional.empty();
+
+    return null;
   }
 }

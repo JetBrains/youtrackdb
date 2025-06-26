@@ -5,21 +5,17 @@ import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
 public class BasicServerCommandContext extends BasicCommandContext
     implements ServerCommandContext {
 
-  private YouTrackDBInternal server;
+  private YouTrackDBInternal ytdb;
 
   public BasicServerCommandContext() {
   }
 
-  public BasicServerCommandContext(YouTrackDBInternal server) {
-    this.server = server;
-  }
-
   @Override
-  public YouTrackDBInternal getServer() {
-    return server;
+  public YouTrackDBInternal getYouTrackDB() {
+    return ytdb;
   }
 
-  public void setServer(YouTrackDBInternal server) {
-    this.server = server;
+  public void setYouTrackDB(YouTrackDBInternal ytdb) {
+    this.ytdb = ytdb;
   }
 }

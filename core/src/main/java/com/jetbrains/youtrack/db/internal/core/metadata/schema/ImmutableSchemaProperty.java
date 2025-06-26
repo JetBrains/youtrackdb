@@ -80,34 +80,34 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   public ImmutableSchemaProperty(@Nonnull DatabaseSessionInternal session,
       @Nonnull SchemaPropertyImpl property,
       SchemaImmutableClass owner) {
-    name = property.getName(session);
+    name = property.getName();
     fullName = property.getFullName(session);
-    type = PropertyTypeInternal.convertFromPublicType(property.getType(session));
-    description = property.getDescription(session);
+    type = PropertyTypeInternal.convertFromPublicType(property.getType());
+    description = property.getDescription();
 
     if (property.getLinkedClass(session) != null) {
-      linkedClassName = property.getLinkedClass(session).getName(session);
+      linkedClassName = property.getLinkedClass(session).getName();
     } else {
       linkedClassName = null;
     }
 
-    linkedType = property.getLinkedType(session);
-    notNull = property.isNotNull(session);
-    collate = property.getCollate(session);
-    mandatory = property.isMandatory(session);
-    min = property.getMin(session);
-    max = property.getMax(session);
-    defaultValue = property.getDefaultValue(session);
-    regexp = property.getRegexp(session);
+    linkedType = property.getLinkedType();
+    notNull = property.isNotNull();
+    collate = property.getCollate();
+    mandatory = property.isMandatory();
+    min = property.getMin();
+    max = property.getMax();
+    defaultValue = property.getDefaultValue();
+    regexp = property.getRegexp();
     customProperties = new HashMap<String, String>();
 
-    for (var key : property.getCustomKeys(session)) {
-      customProperties.put(key, property.getCustom(session, key));
+    for (var key : property.getCustomKeys()) {
+      customProperties.put(key, property.getCustom(key));
     }
 
     this.owner = owner;
     id = property.getId();
-    readOnly = property.isReadonly(session);
+    readOnly = property.isReadonly();
     Comparable<Object> minComparable = null;
     if (min != null) {
       if (type.equals(PropertyTypeInternal.STRING)) {
@@ -215,11 +215,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     }
 
     this.maxComparable = maxComparable;
-    if (!session.isRemote()) {
-      this.allIndexes = property.getAllIndexesInternal(session);
-    } else {
-      this.allIndexes = Collections.emptyList();
-    }
+    this.allIndexes = property.getAllIndexesInternal(session);
   }
 
   private <T> T safeConvert(DatabaseSessionInternal session, Object value, Class<T> target,
@@ -506,6 +502,11 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
   @Override
   public DatabaseSession getBoundToSession() {
     return null;
+  }
+
+  @Override
+  public PropertyTypeInternal getTypeInternal() {
+    return type;
   }
 
   @Override

@@ -20,6 +20,7 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.config.IndexEngineData;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrack.db.internal.core.index.IndexException;
@@ -67,7 +68,7 @@ public class LuceneSpatialIndexEngineDelegator
   public void init(DatabaseSessionInternal session, IndexMetadata im) {
     if (delegate == null) {
       if (SchemaClass.INDEX_TYPE.SPATIAL.name().equalsIgnoreCase(im.getType())) {
-        if (im.getIndexDefinition().getFields().size() > 1) {
+        if (im.getIndexDefinition().getProperties().size() > 1) {
           delegate =
               new LuceneLegacySpatialIndexEngine(this.storage, indexName, id,
                   ShapeFactory.INSTANCE);
@@ -123,7 +124,7 @@ public class LuceneSpatialIndexEngineDelegator
   }
 
   @Override
-  public Object get(DatabaseSessionInternal db, Object key) {
+  public Object get(DatabaseSessionEmbedded db, Object key) {
     return delegate.get(db, key);
   }
 
@@ -172,7 +173,7 @@ public class LuceneSpatialIndexEngineDelegator
 
   @Override
   public Stream<RawPair<Object, RID>> iterateEntriesBetween(
-      DatabaseSessionInternal db, Object rangeFrom,
+      DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
@@ -297,7 +298,7 @@ public class LuceneSpatialIndexEngineDelegator
   }
 
   @Override
-  public Set<Identifiable> getInTx(DatabaseSessionInternal session, Object key,
+  public Set<Identifiable> getInTx(DatabaseSessionEmbedded session, Object key,
       LuceneTxChanges changes) {
     return delegate.getInTx(session, key, changes);
   }

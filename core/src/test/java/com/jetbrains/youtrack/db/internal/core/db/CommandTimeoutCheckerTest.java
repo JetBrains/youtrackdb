@@ -30,7 +30,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     for (var i = 0; i < 10; i++) {
       new Thread(
           () -> {
-            checker.startCommand(Optional.empty());
+            checker.startCommand(null);
             try {
               Thread.sleep(1000);
             } catch (InterruptedException e) {
@@ -52,7 +52,7 @@ public class CommandTimeoutCheckerTest implements SchedulerInternal {
     for (var i = 0; i < 10; i++) {
       new Thread(
           () -> {
-            checker.startCommand(Optional.empty());
+            checker.startCommand(null);
             try {
               Thread.sleep(100);
             } catch (InterruptedException e) {

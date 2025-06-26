@@ -5,7 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
@@ -260,6 +260,7 @@ public class SQLProjection extends SimpleNode {
     return items.stream().map(SQLProjectionItem::getProjectionAliasAsString).collect(Collectors.toSet());
   }
 
+  @Override
   public SQLProjection copy() {
     var result = new SQLProjection(-1);
     if (items != null) {
@@ -313,12 +314,12 @@ public class SQLProjection extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("distinct", distinct);
     if (items != null) {
       result.setProperty(
-          "items", items.stream().map(oProjectionItem -> oProjectionItem.serialize(db))
+          "items", items.stream().map(oProjectionItem -> oProjectionItem.serialize(session))
               .collect(Collectors.toList()));
     }
     return result;
@@ -338,7 +339,7 @@ public class SQLProjection extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (items != null) {
       for (var item : items) {
         if (!item.isCacheable(session)) {

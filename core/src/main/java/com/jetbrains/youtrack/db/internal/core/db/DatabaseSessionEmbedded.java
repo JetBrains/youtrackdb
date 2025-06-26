@@ -21,6 +21,14 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.SessionListener;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkList;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
@@ -28,36 +36,73 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.exception.HighLevelException;
 import com.jetbrains.youtrack.db.api.exception.LinksConsistencyException;
+import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
+import com.jetbrains.youtrack.db.api.exception.TransactionException;
+import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Edge;
+import com.jetbrains.youtrack.db.api.record.EmbeddedEntity;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.RecordHook;
 import com.jetbrains.youtrack.db.api.record.RecordHook.TYPE;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
+import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrack.db.api.schema.Schema;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import com.jetbrains.youtrack.db.api.transaction.TxBiConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxBiFunction;
+import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
+import com.jetbrains.youtrack.db.api.transaction.TxFunction;
+import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
+import com.jetbrains.youtrack.db.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrack.db.internal.common.profiler.metrics.Stopwatch;
+import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrack.db.internal.core.cache.LocalRecordCache;
+import com.jetbrains.youtrack.db.internal.core.cache.WeakValueHashMap;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
+import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrack.db.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrack.db.internal.core.db.remotewrapper.RemoteDatabaseSessionWrapper;
+import com.jetbrains.youtrack.db.internal.core.exception.SessionNotActivatedException;
+import com.jetbrains.youtrack.db.internal.core.exception.TransactionBlockedException;
+import com.jetbrains.youtrack.db.internal.core.gremlin.GremlinUtils;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSession;
+import com.jetbrains.youtrack.db.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
-import com.jetbrains.youtrack.db.internal.core.index.IndexManagerEmbedded;
+import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrack.db.internal.core.iterator.RecordIteratorCollection;
+import com.jetbrains.youtrack.db.internal.core.metadata.Metadata;
 import com.jetbrains.youtrack.db.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrack.db.internal.core.metadata.function.FunctionLibraryImpl;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.ImmutableUser;
@@ -65,60 +110,80 @@ import com.jetbrains.youtrack.db.internal.core.metadata.security.PropertyEncrypt
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Token;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrack.db.internal.core.metadata.sequence.SequenceLibraryProxy;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHook;
 import com.jetbrains.youtrack.db.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EdgeInternal;
+import com.jetbrains.youtrack.db.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.record.impl.RecordBytes;
+import com.jetbrains.youtrack.db.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrack.db.internal.core.schedule.ScheduledEvent;
 import com.jetbrains.youtrack.db.internal.core.schedule.SchedulerImpl;
 import com.jetbrains.youtrack.db.internal.core.security.SecurityUser;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializerFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
+import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
+import com.jetbrains.youtrack.db.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.FreezableStorageComponent;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionNoTx;
+import com.jetbrains.youtrack.db.internal.core.tx.RollbackException;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- *
- */
-public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManagerEmbedded>
-    implements QueryLifecycleListener {
+
+public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
+    implements DatabaseSessionInternal, QueryLifecycleListener {
 
   private static final Logger logger = LoggerFactory.getLogger(DatabaseSessionEmbedded.class);
 
+  private static final byte recordType = EntityImpl.RECORD_TYPE;
+  private final boolean serverMode;
+
   private YouTrackDBConfigImpl config;
-  private final Storage storage; // todo: make this final when "removeStorage" is removed
+  private final Storage storage;
 
   private final Stopwatch freezeDurationMetric;
   private final Stopwatch releaseDurationMetric;
@@ -127,7 +192,54 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
   private boolean ensureLinkConsistency = true;
 
-  public DatabaseSessionEmbedded(final Storage storage) {
+  private final HashMap<String, Object> properties = new HashMap<>();
+  private final HashSet<Identifiable> inHook = new HashSet<>();
+
+  private RecordSerializer serializer = RecordSerializerBinary.INSTANCE;
+  private final String url;
+
+  private STATUS status;
+  private MetadataDefault metadata;
+  private ImmutableUser user;
+
+  private final ArrayList<RecordHook> hooks = new ArrayList<>();
+  private boolean retainRecords = true;
+  private final LocalRecordCache localCache = new LocalRecordCache();
+  private final CurrentStorageComponentsFactory componentsFactory;
+  private boolean initialized = false;
+  private FrontendTransaction currentTx;
+
+  private SharedContext sharedContext;
+
+  private boolean prefetchRecords;
+
+  private final Map<String, ResultSet> activeQueries;
+  private final int resultSetReportThreshold;
+
+  private YTDBGraph graphWrapper;
+
+  // database stats!
+  private long loadedRecordsCount;
+  private long totalRecordLoadMs;
+  private long minRecordLoadMs;
+  private long ridbagPrefetchCount;
+  private long totalRidbagPrefetchMs;
+  private long minRidbagPrefetchMs;
+  private long maxRidbagPrefetchMs;
+
+  private final ThreadLocal<Boolean> activeSession = new ThreadLocal<>();
+
+  //those two fields are used in the remote session wrapper to track state when embedded session
+  //is opened in remote mode.
+  private boolean openedAsRemoteSession;
+  private int remoteCallsCount;
+
+  public DatabaseSessionEmbedded(final Storage storage, boolean serverMode) {
+    super(false);
+    this.serverMode = serverMode;
+    // in server mode we don't enable result set auto-closing
+    this.activeQueries = serverMode ? new HashMap<>() : new WeakValueHashMap<>();
+
     activateOnCurrentThread();
 
     try {
@@ -138,8 +250,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       this.componentsFactory = storage.getComponentsFactory();
 
       init();
-
-      databaseOwner = this;
 
       final var metrics = YouTrackDBEnginesManager.instance().getMetricsRegistry();
       freezeDurationMetric =
@@ -153,6 +263,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           metrics.databaseMetric(CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE, getDatabaseName())
       );
 
+      this.resultSetReportThreshold =
+          getConfiguration().getValueAsInteger(
+              GlobalConfiguration.QUERY_RESULT_SET_OPEN_WARNING_THRESHOLD);
+
     } catch (Exception t) {
       activeSession.remove();
       throw BaseException.wrapException(
@@ -161,12 +275,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
-  @Override
-  public DatabaseSession open(final String iUserName, final String iUserPassword) {
-    throw new UnsupportedOperationException("Use YouTrackDB");
-  }
-
-  public void init(YouTrackDBConfigImpl config, SharedContext<IndexManagerEmbedded> sharedContext) {
+  public void init(YouTrackDBConfigImpl config, SharedContext sharedContext) {
     this.sharedContext = sharedContext;
     activateOnCurrentThread();
     this.config = config;
@@ -179,17 +288,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         return;
       }
 
-      var serializerFactory = RecordSerializerFactory.instance();
       var serializeName = getStorageInfo().getConfiguration().getRecordSerializer();
       if (serializeName == null) {
         throw new DatabaseException(getDatabaseName(),
             "Impossible to open database from version before 2.x use export import instead");
       }
-      serializer = serializerFactory.getFormat(serializeName);
-      if (serializer == null) {
-        throw new DatabaseException(getDatabaseName(),
-            "RecordSerializer with name '" + serializeName + "' not found ");
-      }
+
       if (getStorageInfo().getConfiguration().getRecordSerializerVersion()
           > serializer.getMinSupportedVersion()) {
         throw new DatabaseException(getDatabaseName(),
@@ -293,33 +397,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
   }
 
-  /**
-   * Opens a database using an authentication token received as an argument.
-   *
-   * @param iToken Authentication token
-   * @return The Database instance itself giving a "fluent interface". Useful to call multiple
-   * methods in chain.
-   */
-  @Override
-  @Deprecated
-  public DatabaseSession open(final Token iToken) {
-    throw new UnsupportedOperationException("Deprecated Method");
-  }
-
-  @Override
-  public DatabaseSession create() {
-    throw new UnsupportedOperationException("Deprecated Method");
-  }
 
   /**
    * {@inheritDoc}
    */
-  public void internalCreate(YouTrackDBConfigImpl config, SharedContext<IndexManagerEmbedded> ctx) {
-    var serializer = RecordSerializerFactory.instance().getDefaultRecordSerializer();
-    if (serializer.toString().equals("ORecordDocument2csv")) {
-      throw new DatabaseException(getDatabaseName(),
-          "Impossible to create the database with ORecordDocument2csv serializer");
-    }
+  public void internalCreate(YouTrackDBConfigImpl config, SharedContext ctx) {
     storage.setRecordSerializer(serializer.toString(), serializer.getCurrentVersion());
     storage.setProperty(SQLStatement.CUSTOM_STRICT_SQL, "true");
 
@@ -341,18 +423,18 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     for (var it = YouTrackDBEnginesManager.instance()
         .getDbLifecycleListeners();
         it.hasNext(); ) {
-      it.next().onCreate(getDatabaseOwner());
+      it.next().onCreate(this);
     }
   }
 
-  protected void createMetadata(SharedContext<IndexManagerEmbedded> shared) {
+  private void createMetadata(SharedContext shared) {
     assert assertIfNotActive();
     metadata.init(shared);
-    ((SharedContextEmbedded) shared).create(this);
+
+    shared.create(this);
   }
 
-  @Override
-  protected void loadMetadata() {
+  private void loadMetadata() {
     assert assertIfNotActive();
     executeInTx(
         transaction -> {
@@ -373,6 +455,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public void set(final ATTRIBUTES iAttribute, final Object iValue) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (iAttribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -459,6 +544,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   public DatabaseSession setCustom(final String name, final Object iValue) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if ("clear".equalsIgnoreCase(name) && iValue == null) {
       clearCustomInternal();
     } else {
@@ -474,33 +562,16 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   }
 
   /**
-   * {@inheritDoc}
-   */
-  @Override
-  public DatabaseSession create(String incrementalBackupPath) {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
-  public DatabaseSession create(final Map<GlobalConfiguration, Object> iInitialSettings) {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void drop() {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  /**
    * Returns a copy of current database if it's open. The returned instance can be used by another
    * thread without affecting current instance. The database copy is not set in thread local.
    */
   @Override
-  public DatabaseSessionInternal copy() {
+  public DatabaseSessionEmbedded copy() {
     assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var storage = (Storage) getSharedContext().getStorage();
     storage.open(this, null, null, getConfiguration());
     String user;
@@ -510,7 +581,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       user = null;
     }
 
-    var database = new DatabaseSessionEmbedded(storage);
+    var database = new DatabaseSessionEmbedded(storage, this.serverMode);
     database.init(config, this.sharedContext);
     database.internalOpen(user, null, false);
     database.callOnOpenListeners();
@@ -520,24 +591,23 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   }
 
   @Override
-  public boolean exists() {
-    throw new UnsupportedOperationException("use YouTrackDB");
-  }
-
-  @Override
   public boolean isClosed() {
     return status == STATUS.CLOSED || storage.isClosed(this);
   }
 
   public void rebuildIndexes() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var indexManager = sharedContext.getIndexManager();
     if (indexManager.autoRecreateIndexesAfterCrash(this)) {
       indexManager.recreateIndexes(this);
     }
   }
 
-  protected void installHooksEmbedded() {
+  private void installHooksEmbedded() {
     assert assertIfNotActive();
     hooks.clear();
   }
@@ -554,8 +624,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
 
   @Override
-  public ResultSet query(String query, Object[] args) {
+  public ResultSet query(String query, Object... args) {
     checkOpenness();
+    checkOpenedAsRemoteSession();
+
     assert assertIfNotActive();
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -566,8 +638,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     try {
       beginReadOnly();
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
-      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
-      preQueryStart();
+      getSharedContext().getYouTrackDB().startCommand(null);
       try {
         var statement = SQLEngine.parse(query, this);
         if (!statement.isIdempotent()) {
@@ -579,11 +650,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         queryStarted(result);
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
-      rollback(true);
+      rollback();
       throw e;
     }
   }
@@ -596,8 +666,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public ResultSet query(String query, boolean syncTx, @SuppressWarnings("rawtypes") Map args)
       throws CommandSQLParsingException, CommandExecutionException {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
           "Cannot execute query while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
@@ -610,8 +683,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       if (syncTx) {
         currentTx.preProcessRecordsAndExecuteCallCallbacks();
       }
-      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
-      preQueryStart();
+      getSharedContext().getYouTrackDB().startCommand(null);
       try {
         var statement = SQLEngine.parse(query, this);
         if (!statement.isIdempotent()) {
@@ -624,19 +696,20 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         queryStarted(result);
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
-      rollback(true);
+      rollback();
       throw e;
     }
   }
 
   @Override
-  public ResultSet execute(String query, Object[] args) {
-    checkOpenness();
+  public ResultSet execute(String query, Object... args) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -646,8 +719,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
-      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
-      preQueryStart();
+      getSharedContext().getYouTrackDB().startCommand(null);
       try {
         var statement = SQLEngine.parse(query, this);
         var original = statement.execute(this, args, true);
@@ -657,7 +729,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           var prefetched = new InternalResultSet(this);
           original.forEachRemaining(prefetched::add);
           original.close();
-          queryCompleted();
           result = new LocalResultSetLifecycleDecorator(prefetched);
         } else {
           // stream, keep open and attach to the current DB
@@ -666,19 +737,20 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         }
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
-      rollback(true);
+      rollback();
       throw e;
     }
   }
 
   @Override
   public ResultSet execute(String query, @SuppressWarnings("rawtypes") Map args) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
@@ -688,10 +760,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     }
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
-      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        preQueryStart();
-
         var statement = SQLEngine.parse(query, this);
         @SuppressWarnings("unchecked")
         var original = statement.execute(this, args, true);
@@ -701,30 +771,30 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
           var prefetched = new InternalResultSet(this);
           original.forEachRemaining(prefetched::add);
           original.close();
-          queryCompleted();
           result = new LocalResultSetLifecycleDecorator(prefetched);
         } else {
           // stream, keep open and attach to the current DB
           result = new LocalResultSetLifecycleDecorator(original);
-
           queryStarted(result);
         }
 
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
-      rollback(true);
+      rollback();
       throw e;
     }
   }
 
   @Override
-  public ResultSet runScript(String language, String script, Object... args) {
-    checkOpenness();
+  public ResultSet computeScript(String language, String script, Object... args) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
           "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
@@ -736,9 +806,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         checkSecurity(Rule.ResourceGeneric.COMMAND, Role.PERMISSION_EXECUTE, language);
       }
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
-      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        preQueryStart();
         var executor =
             getSharedContext()
                 .getYouTrackDB()
@@ -757,39 +826,29 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         queryStarted(result);
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
-      rollback(true);
+      rollback();
       throw e;
     }
   }
 
-  private void cleanQueryState() {
-    this.queryState.pop();
-  }
-
-  private void queryCompleted() {
-    var state = this.queryState.peekLast();
-
-  }
 
   private void queryStarted(LocalResultSetLifecycleDecorator result) {
-    var state = this.queryState.peekLast();
-    state.setResultSet(result);
-    this.queryStarted(result.getQueryId(), state);
+
+    this.queryStarted(result.getQueryId(), result);
+
     result.addLifecycleListener(this);
   }
 
-  private void preQueryStart() {
-    this.queryState.push(new QueryDatabaseState());
-  }
-
   @Override
-  public ResultSet runScript(String language, String script, Map<String, ?> args) {
-    checkOpenness();
+  public ResultSet computeScript(String language, String script, Map<String, ?> args) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
           "Cannot execute SQL script while transaction processing callbacks. If you called this method in beforeCallbackXXX method "
@@ -802,9 +861,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
-      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        preQueryStart();
         var executor =
             sharedContext
                 .getYouTrackDB()
@@ -824,19 +882,21 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
         queryStarted(result);
         return result;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
-      rollback(true);
+      rollback();
       throw e;
     }
 
   }
 
   public LocalResultSetLifecycleDecorator query(ExecutionPlan plan, Map<Object, Object> params) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (currentTx.isCallBackProcessingInProgress()) {
       throw new CommandExecutionException(getDatabaseName(),
           "Cannot execute query transaction processing callbacks. If you called this method in beforeCallbackXXX method "
@@ -846,9 +906,8 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
     try {
       currentTx.preProcessRecordsAndExecuteCallCallbacks();
-      getSharedContext().getYouTrackDB().startCommand(Optional.empty());
+      getSharedContext().getYouTrackDB().startCommand(null);
       try {
-        preQueryStart();
         var ctx = new BasicCommandContext();
         ctx.setDatabaseSession(this);
         ctx.setInputParameters(params);
@@ -859,20 +918,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
         return decorator;
       } finally {
-        cleanQueryState();
         getSharedContext().getYouTrackDB().endCommand();
       }
     } catch (Exception e) {
-      rollback(true);
+      rollback();
       throw e;
     }
   }
 
-
-  @Override
-  public void queryStarted(String id, ResultSet resultSet) {
-    // to nothing just compatibility
-  }
 
   public YouTrackDBConfig getConfig() {
     assert assertIfNotActive();
@@ -881,13 +934,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
 
   @Override
-  public void recycle(final DBRecord record) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public int addBlobCollection(final String iCollectionName, final Object... iParameters) {
+  public void addBlobCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     int id;
     if (!existsCollection(iCollectionName)) {
       id = addCollection(iCollectionName, iParameters);
@@ -895,8 +947,735 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       id = getCollectionIdByName(iCollectionName);
     }
     getMetadata().getSchema().addBlobCollection(id);
-    return id;
   }
+
+  @Override
+  public Blob newBlob(byte[] bytes) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var blob = new RecordBytes(this, bytes);
+    blob.setInternalStatus(RecordElement.STATUS.LOADED);
+
+    var tx = (FrontendTransactionImpl) currentTx;
+    tx.addRecordOperation(blob, RecordOperation.CREATED);
+
+    return blob;
+  }
+
+  @Override
+  public Blob newBlob() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var blob = new RecordBytes(this);
+    blob.setInternalStatus(RecordElement.STATUS.LOADED);
+
+    var tx = (FrontendTransactionImpl) currentTx;
+    tx.addRecordOperation(blob, RecordOperation.CREATED);
+
+    return blob;
+  }
+
+
+  /**
+   * Creates a entity with specific class.
+   *
+   * @param className the name of class that should be used as a class of created entity.
+   * @return new instance of entity.
+   */
+  @Override
+  public EntityImpl newInstance(final String className) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    if (cls == null) {
+      throw new IllegalArgumentException("Class " + className + " not found");
+    }
+
+    if (cls.isVertexType()) {
+      throw new IllegalArgumentException(
+          "The class " + cls.getName()
+              + " is a vertex type and cannot be used to create an entity, "
+              + "please use newVertex() method");
+    }
+    if (cls.isEdgeType()) {
+      throw new IllegalArgumentException(
+          "The class " + cls.getName() + " is an edge type and cannot be used to create an entity, "
+              + "please use newStatefulEdge() method");
+    }
+    var entity = new EntityImpl(this, className);
+    entity.setInternalStatus(RecordElement.STATUS.LOADED);
+
+    currentTx.addRecordOperation(entity, RecordOperation.CREATED);
+    //init default property values, can not do that in constructor as it is not registerd in tx
+    entity.convertPropertiesToClassAndInitDefaultValues(entity.getImmutableSchemaClass(this));
+    return entity;
+  }
+
+  @Override
+  public EntityImpl newInternalInstance() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var collectionId = getCollectionIdByName(MetadataDefault.COLLECTION_INTERNAL_NAME);
+    var rid = new ChangeableRecordId();
+
+    rid.setCollectionId(collectionId);
+
+    var entity = new EntityImpl(this, rid);
+    entity.setInternalStatus(RecordElement.STATUS.LOADED);
+
+    var tx = (FrontendTransactionImpl) currentTx;
+    tx.addRecordOperation(entity, RecordOperation.CREATED);
+
+    return entity;
+  }
+
+  @Override
+  public StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
+    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    if (cls == null) {
+      throw new IllegalArgumentException("Class " + className + " not found");
+    }
+    if (!cls.isEdgeType()) {
+      throw new IllegalArgumentException(
+          "The class " + cls.getName()
+              + " is not an edge type and cannot be used to create a stateful edge, "
+              + "please use newInstance() method");
+    }
+
+    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
+    var edge = new StatefullEdgeEntityImpl(this, className);
+    currentTx.addRecordOperation(edge, RecordOperation.CREATED);
+
+    edge.convertPropertiesToClassAndInitDefaultValues(edge.getImmutableSchemaClass(this));
+
+    return edge;
+  }
+
+  private EdgeInternal addEdgeInternal(
+      final Vertex toVertex,
+      final Vertex inVertex,
+      String className,
+      boolean isRegular) {
+    Objects.requireNonNull(toVertex, "From vertex is null");
+    Objects.requireNonNull(inVertex, "To vertex is null");
+
+    EdgeInternal edge;
+    EntityImpl outEntity;
+    EntityImpl inEntity;
+
+    var outEntityModified = false;
+    if (getTransactionInternal().isDeletedInTx(toVertex.getIdentity())) {
+      throw new RecordNotFoundException(getDatabaseName(),
+          toVertex.getIdentity(), "The vertex " + toVertex.getIdentity() + " has been deleted");
+    }
+
+    if (getTransactionInternal().isDeletedInTx(inVertex.getIdentity())) {
+      throw new RecordNotFoundException(getDatabaseName(),
+          inVertex.getIdentity(), "The vertex " + inVertex.getIdentity() + " has been deleted");
+    }
+
+    outEntity = (EntityImpl) toVertex;
+    inEntity = (EntityImpl) inVertex;
+
+    Schema schema = getMetadata().getImmutableSchemaSnapshot();
+    final var edgeType = schema.getClass(className);
+
+    if (edgeType == null) {
+      throw new IllegalArgumentException("Class " + className + " does not exist");
+    }
+
+    className = edgeType.getName();
+
+    var createLightweightEdge =
+        !isRegular
+            && (edgeType.isAbstract() || className.equals(EdgeInternal.CLASS_NAME));
+    if (!isRegular && !createLightweightEdge) {
+      throw new IllegalArgumentException(
+          "Cannot create lightweight edge for class " + className + " because it is not abstract");
+    }
+
+    final var outFieldName = Vertex.getEdgeLinkFieldName(Direction.OUT, className);
+    final var inFieldName = Vertex.getEdgeLinkFieldName(Direction.IN, className);
+
+    if (createLightweightEdge) {
+      var lightWeightEdge = newLightweightEdgeInternal(className, toVertex, inVertex);
+      var transaction2 = getActiveTransaction();
+      var transaction3 = getActiveTransaction();
+      VertexEntityImpl.createLink(this, transaction3.load(toVertex), transaction2.load(inVertex),
+          outFieldName);
+      var transaction = getActiveTransaction();
+      var transaction1 = getActiveTransaction();
+      VertexEntityImpl.createLink(this, transaction1.load(inVertex), transaction.load(toVertex),
+          inFieldName);
+      edge = lightWeightEdge;
+    } else {
+      var statefulEdge = newStatefulEdgeInternal(className);
+      var transaction = getActiveTransaction();
+      statefulEdge.setPropertyInternal(EdgeInternal.DIRECTION_OUT, transaction.load(toVertex));
+      statefulEdge.setPropertyInternal(Edge.DIRECTION_IN, inEntity);
+
+      if (!outEntityModified) {
+        // OUT-VERTEX ---> IN-VERTEX/EDGE
+        VertexEntityImpl.createLink(this, outEntity, statefulEdge, outFieldName);
+      }
+
+      // IN-VERTEX ---> OUT-VERTEX/EDGE
+      VertexEntityImpl.createLink(this, inEntity, statefulEdge, inFieldName);
+      edge = statefulEdge;
+    }
+    // OK
+
+    return edge;
+  }
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, String type) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
+    if (cl == null || !cl.isEdgeType()) {
+      throw new IllegalArgumentException(type + " is not a regular edge class");
+    }
+    if (cl.isAbstract()) {
+      throw new IllegalArgumentException(
+          type + " is an abstract class and can not be used for creation of regular edge");
+    }
+
+    return (StatefulEdge) addEdgeInternal(from, to, type, true);
+  }
+
+  @Override
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull String type) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
+    if (cl == null || !cl.isEdgeType()) {
+      throw new IllegalArgumentException(type + " is not a lightweight edge class");
+    }
+    if (!cl.isAbstract()) {
+      throw new IllegalArgumentException(
+          type + " is not an abstract class and can not be used for creation of lightweight edge");
+    }
+
+    return addEdgeInternal(from, to, type, false);
+  }
+
+
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+      int collectionId) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var firstPosition = storage.ceilingPhysicalPositions(this, collectionId,
+        new PhysicalPosition(0), 1);
+    var firstTxRid = currentTx.getFirstRid(collectionId);
+
+    if ((firstPosition == null || firstPosition.length == 0) && firstTxRid == null) {
+      return null;
+    }
+
+    RecordId firstRid;
+    if (firstPosition == null || firstPosition.length == 0) {
+      firstRid = firstTxRid;
+    } else if (firstTxRid == null) {
+      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
+    } else if (firstPosition[0].collectionPosition < firstTxRid.getCollectionPosition()) {
+      firstRid = new RecordId(collectionId, firstPosition[0].collectionPosition);
+    } else {
+      firstRid = firstTxRid;
+    }
+
+    if (currentTx.isDeletedInTx(firstRid)) {
+      firstRid = fetchNextRid(firstRid);
+    }
+
+    if (firstRid == null) {
+      return null;
+    }
+
+    var recordId = firstRid;
+    while (true) {
+      var result = executeReadRecord(recordId, false, true, false);
+
+      if (result.recordAbstract() == null) {
+        if (result.nextRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.nextRecordId();
+          continue;
+        }
+      }
+
+      //noinspection unchecked
+      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
+    }
+  }
+
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+      int collectionId) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var lastPosition = storage.floorPhysicalPositions(this, collectionId,
+        new PhysicalPosition(Long.MAX_VALUE), 1);
+    var lastTxRid = currentTx.getLastRid(collectionId);
+
+    if ((lastPosition == null || lastPosition.length == 0) && lastTxRid == null) {
+      return null;
+    }
+
+    RecordId lastRid;
+    if (lastPosition == null || lastPosition.length == 0) {
+      lastRid = lastTxRid;
+    } else if (lastTxRid == null) {
+      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
+    } else if (lastPosition[0].collectionPosition > lastTxRid.getCollectionPosition()) {
+      lastRid = new RecordId(collectionId, lastPosition[0].collectionPosition);
+    } else {
+      lastRid = lastTxRid;
+    }
+
+    if (currentTx.isDeletedInTx(lastRid)) {
+      lastRid = fetchPreviousRid(lastRid);
+    }
+
+    if (lastRid == null) {
+      return null;
+    }
+
+    var recordId = lastRid;
+    while (true) {
+      var result = executeReadRecord(recordId, true, false, false);
+      if (result.recordAbstract() == null) {
+        if (result.previousRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.previousRecordId();
+          continue;
+        }
+      }
+      //noinspection unchecked
+      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
+    }
+  }
+
+  @Override
+  @Nullable
+  public final LoadRecordResult executeReadRecord(final @Nonnull RecordId rid,
+      boolean fetchPreviousRid, boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    RecordId previousRid = null;
+    RecordId nextRid = null;
+    getMetadata().makeThreadLocalSchemaSnapshot();
+    try {
+      checkSecurity(
+          Rule.ResourceGeneric.COLLECTION,
+          Role.PERMISSION_READ,
+          getCollectionNameById(rid.getCollectionId()));
+      // SEARCH IN LOCAL TX
+      var txInternal = getTransactionInternal();
+      if (txInternal.isDeletedInTx(rid)) {
+        // DELETED IN TX
+        return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
+            throwExceptionIfRecordNotFound);
+      }
+
+      var record = getTransactionInternal().getRecord(rid);
+      var cachedRecord = localCache.findRecord(rid);
+      if (record == null) {
+        record = cachedRecord;
+      }
+      if (record != null && record.isUnloaded()) {
+        throw new IllegalStateException(
+            "Unloaded record with rid " + rid + " was found in local cache");
+      }
+
+      if (record != null) {
+        if (beforeReadOperations(record)) {
+          return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
+              throwExceptionIfRecordNotFound);
+        }
+
+        afterReadOperations(record);
+        if (record instanceof EntityImpl entity) {
+          entity.checkClass(this);
+        }
+
+        localCache.updateRecord(record, this);
+
+        assert !record.isUnloaded();
+        assert record.getSession() == this;
+
+        if (fetchPreviousRid) {
+          previousRid = fetchPreviousRid(rid);
+        }
+
+        if (fetchNextRid) {
+          nextRid = fetchNextRid(rid);
+        }
+
+        return new LoadRecordResult(record, previousRid, nextRid);
+      }
+
+      loadedRecordsCount++;
+
+      final RawBuffer recordBuffer;
+      if (!rid.isValidPosition()) {
+        throw new DatabaseException(getDatabaseName(), "Invalid record id " + rid);
+      }
+
+      try {
+        var readRecordResult =
+            storage.readRecord(this, rid, fetchPreviousRid, fetchNextRid);
+        recordBuffer = readRecordResult.buffer();
+
+        previousRid = readRecordResult.previousRecordId();
+        nextRid = readRecordResult.nextRecordId();
+      } catch (RecordNotFoundException e) {
+        if (throwExceptionIfRecordNotFound) {
+          throw e;
+        } else {
+          if (fetchNextRid) {
+            nextRid = fetchNextRid(rid);
+          }
+          if (fetchPreviousRid) {
+            previousRid = fetchPreviousRid(rid);
+          }
+
+          return new LoadRecordResult(null, previousRid, nextRid);
+        }
+      }
+
+      record =
+          YouTrackDBEnginesManager.instance()
+              .getRecordFactoryManager()
+              .newInstance(recordBuffer.recordType, rid, this);
+      final var rec = record;
+      rec.unsetDirty();
+
+      if (record.getRecordType() != recordBuffer.recordType) {
+        throw new DatabaseException(getDatabaseName(),
+            "Record type is different from the one in the database");
+      }
+
+      record.recordSerializer = serializer;
+      record.fill(rid, recordBuffer.version, recordBuffer.buffer, false);
+
+      if (record instanceof EntityImpl entity) {
+        entity.checkClass(this);
+      }
+
+      localCache.updateRecord(record, this);
+      record.fromStream(recordBuffer.buffer);
+
+      if (beforeReadOperations(record)) {
+        return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
+            throwExceptionIfRecordNotFound);
+      }
+
+      afterReadOperations(record);
+
+      assert !record.isUnloaded();
+      assert record.getSession() == this;
+
+      if (fetchPreviousRid) {
+        var previousTxRid = currentTx.getPreviousRidInCollection(rid);
+
+        if (previousRid == null) {
+          if (previousTxRid != null) {
+            previousRid = previousTxRid;
+          }
+        } else if (previousTxRid != null && previousTxRid.compareTo(previousRid) > 0) {
+          previousRid = previousTxRid;
+        }
+
+        if (previousRid != null && currentTx.isDeletedInTx(previousRid)) {
+          previousRid = fetchPreviousRid(previousRid);
+        }
+      }
+
+      if (fetchNextRid) {
+        var nextTxRid = currentTx.getNextRidInCollection(rid);
+
+        if (nextRid == null) {
+          if (nextTxRid != null) {
+            nextRid = nextTxRid;
+          }
+        } else if (nextTxRid != null && nextTxRid.compareTo(nextRid) < 0) {
+          nextRid = nextTxRid;
+        }
+
+        if (nextRid != null && currentTx.isDeletedInTx(nextRid)) {
+          nextRid = fetchNextRid(nextRid);
+        }
+      }
+
+      return new LoadRecordResult(record, previousRid, nextRid);
+    } catch (RecordNotFoundException t) {
+      throw t;
+    } catch (Exception t) {
+      if (rid.isTemporary()) {
+        throw BaseException.wrapException(
+            new DatabaseException(getDatabaseName(),
+                "Error on retrieving record using temporary RID: " + rid), t, getDatabaseName());
+      } else {
+        throw BaseException.wrapException(
+            new DatabaseException(getDatabaseName(),
+                "Error on retrieving record "
+                    + rid
+                    + " (collection: "
+                    + storage.getPhysicalCollectionNameById(rid.getCollectionId())
+                    + ")"),
+            t, getDatabaseName());
+      }
+    } finally {
+      getMetadata().clearThreadLocalSchemaSnapshot();
+    }
+  }
+
+  private LoadRecordResult createRecordNotFoundResult(RecordId rid, boolean fetchPreviousRid,
+      boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
+    RecordId previousRid = null;
+    RecordId nextRid = null;
+    if (throwExceptionIfRecordNotFound) {
+      throw new RecordNotFoundException(getDatabaseName(), rid);
+    } else {
+      if (fetchNextRid) {
+        nextRid = fetchNextRid(rid);
+      }
+      if (fetchPreviousRid) {
+        previousRid = fetchPreviousRid(rid);
+      }
+
+      return new LoadRecordResult(null, previousRid, nextRid);
+    }
+  }
+
+  @Nullable
+  private RecordId fetchNextRid(RecordId rid) {
+    RecordId nextRid;
+    while (true) {
+      var higherPositions = storage.higherPhysicalPositions(this, rid.getCollectionId(),
+          new PhysicalPosition(rid.getCollectionPosition()), 1);
+      var txNextRid = currentTx.getNextRidInCollection(rid);
+
+      if (higherPositions != null && higherPositions.length > 0) {
+        if (txNextRid == null) {
+          nextRid = new RecordId(rid.getCollectionId(), higherPositions[0].collectionPosition);
+        } else if (higherPositions[0].collectionPosition > txNextRid.getCollectionPosition()) {
+          nextRid = txNextRid;
+        } else {
+          nextRid = new RecordId(rid.getCollectionId(), higherPositions[0].collectionPosition);
+        }
+      } else {
+        nextRid = txNextRid;
+      }
+
+      if (nextRid == null) {
+        return null;
+      }
+
+      if (currentTx.isDeletedInTx(nextRid)) {
+        rid = nextRid;
+        continue;
+      }
+
+      break;
+    }
+
+    return nextRid;
+  }
+
+  @Nullable
+  private RecordId fetchPreviousRid(RecordId rid) {
+    RecordId previousRid;
+
+    while (true) {
+      var lowerPositions = storage.lowerPhysicalPositions(this, rid.getCollectionId(),
+          new PhysicalPosition(rid.getCollectionPosition()), 1);
+      var txPreviousRid = currentTx.getPreviousRidInCollection(rid);
+      if (lowerPositions != null && lowerPositions.length > 0) {
+        if (txPreviousRid == null) {
+          previousRid = new RecordId(rid.getCollectionId(), lowerPositions[0].collectionPosition);
+        } else if (lowerPositions[0].collectionPosition < txPreviousRid.getCollectionPosition()) {
+          previousRid = txPreviousRid;
+        } else {
+          previousRid = new RecordId(rid.getCollectionId(), lowerPositions[0].collectionPosition);
+        }
+      } else {
+        previousRid = txPreviousRid;
+      }
+
+      if (previousRid == null) {
+        return null;
+      }
+
+      if (currentTx.isDeletedInTx(previousRid)) {
+        rid = previousRid;
+        continue;
+      }
+
+      break;
+    }
+    return previousRid;
+  }
+
+  @Override
+  public Edge newRegularEdge(String iClassName, Vertex from, Vertex to) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+
+    if (cl == null || !cl.isEdgeType()) {
+      throw new IllegalArgumentException(iClassName + " is not an edge class");
+    }
+
+    return addEdgeInternal(from, to, iClassName, true);
+  }
+
+  @Override
+  public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EmbeddedEntityImpl(schemaClass != null ? schemaClass.getName() : null, this);
+  }
+
+  @Override
+  public Vertex newVertex(final String className) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    if (cls == null) {
+      throw new IllegalArgumentException("Class " + className + " not found");
+    }
+    if (!cls.isVertexType()) {
+      throw new IllegalArgumentException(
+          "The class " + cls.getName()
+              + " is not a vertex type and cannot be used to create a vertex, "
+              + "please use newInstance() method");
+    }
+
+    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
+    var vertex = new VertexEntityImpl(this, className);
+    currentTx.addRecordOperation(vertex, RecordOperation.CREATED);
+    vertex.convertPropertiesToClassAndInitDefaultValues(vertex.getImmutableSchemaClass(this));
+
+    return vertex;
+  }
+
+  @Override
+  public EmbeddedEntity newEmbeddedEntity(String schemaClass) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EmbeddedEntityImpl(schemaClass, this);
+  }
+
+  @Override
+  public EmbeddedEntity newEmbeddedEntity() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EmbeddedEntityImpl(this);
+  }
+
+  private FrontendTransactionImpl newTxInstance(long txId) {
+    assert assertIfNotActive();
+
+    return new FrontendTransactionImpl(this, txId, false);
+  }
+
+  private FrontendTransactionImpl newReadOnlyTxInstance(long txId) {
+    assert assertIfNotActive();
+
+    return new FrontendTransactionImpl(this, txId, true);
+  }
+
+
+  @Override
+  public void setNoTxMode() {
+    if (!(currentTx instanceof FrontendTransactionNoTx)) {
+      currentTx = new FrontendTransactionNoTx(this);
+    }
+  }
+
+  @Override
+  public FrontendTransaction begin() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (currentTx.isActive()) {
+      currentTx.beginInternal();
+      return currentTx;
+    }
+
+    begin(newTxInstance(FrontendTransactionImpl.generateTxId()));
+    return currentTx;
+  }
+
+  public void beginReadOnly() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (currentTx.isActive()) {
+      return;
+    }
+
+    begin(newReadOnlyTxInstance(FrontendTransactionImpl.generateTxId()));
+  }
+
+  private void init() {
+    assert assertIfNotActive();
+    currentTx = new FrontendTransactionNoTx(this);
+  }
+
 
   /**
    * Deletes a entity. Behavior depends by the current running transaction if any. If no transaction
@@ -913,8 +1692,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    */
   @Override
   public void delete(@Nonnull DBRecord record) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     record.delete();
   }
@@ -1029,6 +1810,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   public void beforeDeleteOperations(final RecordAbstract recordAbstract,
       java.lang.String collectionName) {
     assert assertIfNotActive();
+
     checkSecurity(Role.PERMISSION_DELETE, recordAbstract, collectionName);
 
     if (recordAbstract instanceof EntityImpl entity) {
@@ -1052,6 +1834,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public void afterDeleteOperations(RecordAbstract recordAbstract) {
     assert assertIfNotActive();
+
     if (recordAbstract instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
@@ -1073,12 +1856,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public void afterReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
+
     callbackHooks(RecordHook.TYPE.READ, identifiable);
   }
 
   @Override
   public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
+
     if (identifiable instanceof EntityImpl entity) {
       var clazz = entity.getImmutableSchemaClass(this);
       if (clazz != null) {
@@ -1100,15 +1885,14 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   }
 
   @Override
-  public void afterCommitOperations() {
+  public void afterCommitOperations(boolean rootTx) {
     assert assertIfNotActive();
 
     for (var operation : currentTx.getRecordOperationsInternal()) {
       var record = operation.record;
 
       if (record instanceof EntityImpl entity) {
-        SchemaImmutableClass clazz = null;
-        clazz = entity.getImmutableSchemaClass(this);
+        var clazz = entity.getImmutableSchemaClass(this);
         if (clazz != null) {
           if (operation.type == RecordOperation.CREATED) {
             if (clazz.isSequence()) {
@@ -1157,7 +1941,23 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       }
     }
 
-    super.afterCommitOperations();
+    for (var listener : browseListeners()) {
+      try {
+        listener.onAfterTxCommit(currentTx);
+      } catch (Exception e) {
+        final var message =
+            "Error after the transaction has been committed. The transaction remains valid. The"
+                + " exception caught was on execution of "
+                + listener.getClass()
+                + ".onAfterTxCommit() `%08X`";
+
+        LogManager.instance().error(this, message, e, System.identityHashCode(e));
+
+        throw BaseException.wrapException(
+            new TransactionBlockedException(getDatabaseName(), message), e,
+            getDatabaseName());
+      }
+    }
 
     LiveQueryHook.notifyForTxChanges(this);
     LiveQueryHookV2.notifyForTxChanges(this);
@@ -1167,6 +1967,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public void set(ATTRIBUTES_INTERNAL attribute, Object value) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     if (attribute == null) {
       throw new IllegalArgumentException("attribute is null");
@@ -1185,11 +1988,18 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
   }
 
-  @Override
-  protected void afterRollbackOperations() {
+  public void afterRollbackOperations() {
     assert assertIfNotActive();
 
-    super.afterRollbackOperations();
+    for (var listener : browseListeners()) {
+      try {
+        listener.onAfterTxRollback(currentTx);
+      } catch (Exception t) {
+        LogManager.instance()
+            .error(this, "Error after transaction rollback `%08X`", t, System.identityHashCode(t));
+      }
+    }
+
     LiveQueryHook.removePendingDatabaseOps(this);
     LiveQueryHookV2.removePendingDatabaseOps(this);
   }
@@ -1198,14 +2008,15 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   public String getCollectionName(final @Nonnull DBRecord record) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     var collectionId = record.getIdentity().getCollectionId();
     if (collectionId == RID.COLLECTION_ID_INVALID) {
       // COMPUTE THE COLLECTION ID
       SchemaClassInternal schemaClass = null;
       if (record instanceof EntityImpl) {
-        SchemaImmutableClass result = null;
-        result = ((EntityImpl) record).getImmutableSchemaClass(this);
-        schemaClass = result;
+        schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
       }
       if (schemaClass != null) {
         // FIND THE RIGHT COLLECTION AS CONFIGURED IN CLASS
@@ -1232,8 +2043,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
   @Override
   public boolean executeExists(@Nonnull RID rid) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     try {
       checkSecurity(
           Rule.ResourceGeneric.COLLECTION,
@@ -1281,6 +2095,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       final int iOperation) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (user != null) {
       try {
         user.allow(this, resourceGeneric, resourceSpecific, iOperation);
@@ -1312,6 +2129,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       final Object... iResourcesSpecific) {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (iResourcesSpecific == null || iResourcesSpecific.length == 0) {
       checkSecurity(iResourceGeneric, null, iOperation);
     } else {
@@ -1329,8 +2149,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       final Rule.ResourceGeneric iResourceGeneric,
       final int iOperation,
       final Object iResourceSpecific) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     checkSecurity(
         iResourceGeneric,
@@ -1342,6 +2164,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Deprecated
   public void checkSecurity(final String iResource, final int iOperation) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var resourceSpecific = Rule.mapLegacyResourceToSpecificResource(iResource);
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResource);
@@ -1358,6 +2184,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   public void checkSecurity(
       final String iResourceGeneric, final int iOperation, final Object iResourceSpecific) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResourceGeneric);
     if (iResourceSpecific == null || iResourceSpecific.equals("*")) {
@@ -1372,6 +2202,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   public void checkSecurity(
       final String iResourceGeneric, final int iOperation, final Object... iResourcesSpecific) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var resourceGeneric =
         Rule.mapLegacyResourceToGenericResource(iResourceGeneric);
     checkSecurity(resourceGeneric, iOperation, iResourcesSpecific);
@@ -1380,24 +2214,37 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public int addCollection(final String iCollectionName, final Object... iParameters) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.addCollection(this, iCollectionName, iParameters);
   }
 
   @Override
   public int addCollection(final String iCollectionName, final int iRequestedId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.addCollection(this, iCollectionName, iRequestedId);
   }
 
   @Override
   public RecordConflictStrategy getConflictStrategy() {
     assert assertIfNotActive();
+
     return getStorageInfo().getRecordConflictStrategy();
   }
 
   @Override
   public DatabaseSessionEmbedded setConflictStrategy(final String iStrategyName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     storage.setConflictStrategy(
         YouTrackDBEnginesManager.instance().getRecordConflictStrategy().getStrategy(iStrategyName));
     return this;
@@ -1406,6 +2253,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public DatabaseSessionEmbedded setConflictStrategy(final RecordConflictStrategy iResolver) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     storage.setConflictStrategy(iResolver);
     return this;
   }
@@ -1413,6 +2264,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public long getCollectionRecordSizeByName(final String collectionName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     try {
       return storage.getCollectionRecordsSizeByName(collectionName);
     } catch (Exception e) {
@@ -1426,6 +2281,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public long getCollectionRecordSizeById(final int collectionId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     try {
       return storage.getCollectionRecordsSizeById(collectionId);
     } catch (Exception e) {
@@ -1442,6 +2301,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public long countCollectionElements(int iCollectionId, boolean countTombstones) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var name = getCollectionNameById(iCollectionId);
     if (name == null) {
       return 0;
@@ -1457,6 +2320,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public long countCollectionElements(int[] iCollectionIds, boolean countTombstones) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     String name;
     for (var iCollectionId : iCollectionIds) {
       name = getCollectionNameById(iCollectionId);
@@ -1470,8 +2337,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    */
   @Override
   public long countCollectionElements(final String iCollectionName) {
-    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
 
     final var collectionId = getCollectionIdByName(iCollectionName);
     if (collectionId < 0) {
@@ -1483,6 +2354,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public boolean dropCollection(final String iCollectionName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     final var collectionId = getCollectionIdByName(iCollectionName);
     var schema = metadata.getSchema();
 
@@ -1495,11 +2370,12 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
     if (schema.getBlobCollections().contains(collectionId)) {
       schema.removeBlobCollection(iCollectionName);
     }
-    getLocalCache().freeCollection(collectionId);
+
+    localCache.freeCollection(collectionId);
     return dropCollectionInternal(iCollectionName);
   }
 
-  protected boolean dropCollectionInternal(final String iCollectionName) {
+  private boolean dropCollectionInternal(final String iCollectionName) {
     assert assertIfNotActive();
     return storage.dropCollection(this, iCollectionName);
   }
@@ -1507,6 +2383,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public boolean dropCollection(final int collectionId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
 
     checkSecurity(
         Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE,
@@ -1520,7 +2399,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
               + "' because it is mapped to class '" + clazz.getName() + "'");
     }
 
-    getLocalCache().freeCollection(collectionId);
+    localCache.freeCollection(collectionId);
     if (schema.getBlobCollections().contains(collectionId)) {
       schema.removeBlobCollection(getCollectionNameById(collectionId));
     }
@@ -1543,12 +2422,20 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public boolean dropCollectionInternal(int collectionId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.dropCollection(this, collectionId);
   }
 
   @Override
   public long getSize() {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getSize(this);
   }
 
@@ -1570,26 +2457,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   }
 
   @Override
-  public void addRidbagPrefetchStats(long execTimeMs) {
-    assert assertIfNotActive();
-    this.ridbagPrefetchCount++;
-    totalRidbagPrefetchMs += execTimeMs;
-    if (this.ridbagPrefetchCount == 1) {
-      this.minRidbagPrefetchMs = execTimeMs;
-      this.maxRidbagPrefetchMs = execTimeMs;
-    } else {
-      this.minRidbagPrefetchMs = Math.min(this.minRidbagPrefetchMs, execTimeMs);
-      this.maxRidbagPrefetchMs = Math.max(this.maxRidbagPrefetchMs, execTimeMs);
-    }
-  }
-
-  @Override
   public void resetRecordLoadStats() {
     assert assertIfNotActive();
     this.loadedRecordsCount = 0L;
     this.totalRecordLoadMs = 0L;
     this.minRecordLoadMs = 0L;
-    this.maxRecordLoadMs = 0L;
     this.ridbagPrefetchCount = 0L;
     this.totalRidbagPrefetchMs = 0L;
     this.minRidbagPrefetchMs = 0L;
@@ -1598,16 +2470,34 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
   @Override
   public String incrementalBackup(final Path path) throws UnsupportedOperationException {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
     return storage.incrementalBackup(this, path.toAbsolutePath().toString(), null);
   }
 
+  @Nullable
+  @Override
+  public TimeZone getDatabaseTimeZone() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return storage.getConfiguration().getTimeZone();
+  }
+
   @Override
   public RecordMetadata getRecordMetadata(final RID rid) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getRecordMetadata(this, rid);
   }
 
@@ -1616,8 +2506,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    */
   @Override
   public void freeze(final boolean throwException) {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (!(storage instanceof FreezableStorageComponent)) {
       LogManager.instance()
           .error(
@@ -1651,8 +2544,11 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
    */
   @Override
   public void release() {
-    checkOpenness();
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (!(storage instanceof FreezableStorageComponent)) {
       LogManager.instance()
           .error(
@@ -1697,6 +2593,9 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   public void reload() {
     assert assertIfNotActive();
 
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     if (this.isClosed()) {
       throw new DatabaseException(getDatabaseName(), "Cannot reload a closed db");
     }
@@ -1707,6 +2606,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public void internalCommit(@Nonnull FrontendTransactionImpl transaction) {
     assert assertIfNotActive();
+
     this.storage.commit(transaction);
   }
 
@@ -1727,7 +2627,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
       }
 
       try {
-        rollback(true);
+        rollback();
       } catch (Exception e) {
         LogManager.instance().error(this, "Exception during rollback of active transaction", e);
       }
@@ -1753,12 +2653,20 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public String getCollectionRecordConflictStrategy(int collectionId) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getCollectionRecordConflictStrategy(collectionId);
   }
 
   @Override
   public int[] getCollectionsIds(@Nonnull Set<String> filterCollections) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     return storage.getCollectionsIds(filterCollections);
   }
 
@@ -1777,6 +2685,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public long truncateClass(String name, boolean polimorfic) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
     var clazz = getClass(name);
     int[] collectionIds;
@@ -1808,6 +2720,10 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public long truncateCollectionInternal(String collectionName) {
     assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
     checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE, collectionName);
 
     var id = getCollectionIdByName(collectionName);
@@ -1835,12 +2751,1955 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
   @Override
   public void truncateCollection(String collectionName) {
     assert assertIfNotActive();
+
     truncateCollectionInternal(collectionName);
   }
 
   @Override
   public TransactionMeters transactionMeters() {
     return transactionMeters;
+  }
+
+  @Override
+  public void callOnOpenListeners() {
+    assert assertIfNotActive();
+
+    wakeupOnOpenDbLifecycleListeners();
+  }
+
+  @Override
+  public void callOnCloseListeners() {
+    assert assertIfNotActive();
+
+    wakeupOnCloseDbLifecycleListeners();
+    wakeupOnCloseListeners();
+  }
+
+  private void wakeupOnOpenDbLifecycleListeners() {
+    for (var it = YouTrackDBEnginesManager.instance()
+        .getDbLifecycleListeners();
+        it.hasNext(); ) {
+      it.next().onOpen(this);
+    }
+  }
+
+
+  private void wakeupOnCloseDbLifecycleListeners() {
+    for (var it = YouTrackDBEnginesManager.instance()
+        .getDbLifecycleListeners();
+        it.hasNext(); ) {
+      it.next().onClose(this);
+    }
+  }
+
+  private void wakeupOnCloseListeners() {
+    for (var listener : getListenersCopy()) {
+      try {
+        listener.onClose(this);
+      } catch (Exception e) {
+        LogManager.instance().error(this, "Error during call of database listener", e);
+      }
+    }
+  }
+
+  @Override
+  public LiveQueryMonitor live(String query, LiveQueryResultListener listener,
+      Map<String, ?> args) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var youTrackDb = sharedContext.youtrackDB;
+
+    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
+    var contextConfig = getConfiguration();
+    var poolConfig = configBuilder.fromContext(contextConfig).build();
+
+    var userName = user.getName(this);
+
+    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
+    var storage = this.storage;
+
+    return storage.live(pool, query, listener, args);
+  }
+
+  @Override
+  public LiveQueryMonitor live(String query, LiveQueryResultListener listener, Object... args) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var youTrackDb = sharedContext.youtrackDB;
+
+    var configBuilder = (YouTrackDBConfigBuilderImpl) YouTrackDBConfig.builder();
+    var contextConfig = getConfiguration();
+    var poolConfig = configBuilder.fromContext(contextConfig).build();
+
+    var userName = user.getName(this);
+
+    var pool = youTrackDb.cachedPoolNoAuthentication(getDatabaseName(), userName, poolConfig);
+    var storage = this.storage;
+
+    return storage.live(pool, query, listener, args);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public byte getRecordType() {
+    return recordType;
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public long countCollectionElements(final int[] iCollectionIds) {
+    assert assertIfNotActive();
+    return countCollectionElements(iCollectionIds, false);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public long countCollectionElements(final int iCollectionId) {
+    assert assertIfNotActive();
+    return countCollectionElements(iCollectionId, false);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public MetadataDefault getMetadata() {
+    assert assertIfNotActive();
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return metadata;
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public boolean isRetainRecords() {
+    assert assertIfNotActive();
+    return retainRecords;
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public DatabaseSession setRetainRecords(boolean retainRecords) {
+    assert assertIfNotActive();
+    this.retainRecords = retainRecords;
+    return this;
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  public void setStatus(final STATUS status) {
+    assert assertIfNotActive();
+    this.status = status;
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void setInternal(final ATTRIBUTES iAttribute, final Object iValue) {
+    set(iAttribute, iValue);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public SecurityUser getCurrentUser() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+    return user;
+  }
+
+  @Override
+  public String getCurrentUserName() {
+    var user = getCurrentUser();
+    if (user == null) {
+      return null;
+    }
+
+    return user.getName(this);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void setUser(final SecurityUser user) {
+    assert assertIfNotActive();
+    if (user instanceof SecurityUserImpl) {
+      final Metadata metadata = getMetadata();
+      if (metadata != null) {
+        final var security = sharedContext.getSecurity();
+        this.user = new ImmutableUser(this, security.getVersion(this), user);
+      } else {
+        this.user = new ImmutableUser(this, -1, user);
+      }
+    } else {
+      this.user = (ImmutableUser) user;
+    }
+  }
+
+  @Override
+  public void reloadUser() {
+    assert assertIfNotActive();
+
+    if (user != null) {
+      if (user.checkIfAllowed(this, Rule.ResourceGeneric.CLASS, SecurityUserImpl.CLASS_NAME,
+          Role.PERMISSION_READ)
+          != null) {
+
+        Metadata metadata = getMetadata();
+        if (metadata != null) {
+          final var security = sharedContext.getSecurity();
+          final var secGetUser = security.getUser(this, user.getName(this));
+          if (secGetUser != null) {
+            user = new ImmutableUser(this, security.getVersion(this), secGetUser);
+          } else {
+            throw new SecurityException(url, "User not found");
+          }
+        } else {
+          throw new SecurityException(url, "Metadata not found");
+        }
+      }
+    }
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public boolean isMVCC() {
+    assert assertIfNotActive();
+    return true;
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public DatabaseSession setMVCC(boolean mvcc) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * @return
+   */
+  @Override
+  public RecordHook registerHook(final @Nonnull RecordHook iHookImpl) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (!hooks.contains(iHookImpl)) {
+      hooks.add(iHookImpl);
+    }
+
+    return iHookImpl;
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void unregisterHook(final @Nonnull RecordHook iHookImpl) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (hooks.remove(iHookImpl)) {
+      iHookImpl.onUnregister();
+    }
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public LocalRecordCache getLocalCache() {
+    return localCache;
+  }
+
+
+  @Nonnull
+  @Override
+  public RID refreshRid(@Nonnull RID rid) {
+    if (rid.isPersistent()) {
+      return rid;
+    }
+
+    checkTxActive();
+    var record = currentTx.getRecordEntry(rid);
+    if (record == null) {
+      throw new RecordNotFoundException(this, rid);
+    }
+
+    return record.record.getIdentity();
+  }
+
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public List<RecordHook> getHooks() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return Collections.unmodifiableList(hooks);
+  }
+
+  @Override
+  public void deleteInternal(@Nonnull RecordAbstract record) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (record instanceof EntityImpl entity) {
+      ensureEdgeConsistencyOnDeletion(entity);
+    }
+
+    currentTx.preProcessRecordsAndExecuteCallCallbacks();
+    record.dirty++;
+
+    try {
+      checkTxActive();
+      currentTx.deleteRecord(record);
+    } catch (BaseException e) {
+      throw e;
+    } catch (Exception e) {
+      if (record instanceof EntityImpl) {
+        throw BaseException.wrapException(
+            new DatabaseException(getDatabaseName(),
+                "Error on deleting record "
+                    + record.getIdentity()
+                    + " of class '"
+                    + ((EntityImpl) record).getSchemaClassName()
+                    + "'"),
+            e, getDatabaseName());
+      } else {
+        throw BaseException.wrapException(
+            new DatabaseException(getDatabaseName(),
+                "Error on deleting record " + record.getIdentity()),
+            e, getDatabaseName());
+      }
+    }
+  }
+
+  /**
+   * Callback the registered hooks if any.
+   *
+   * @param type   Hook type. Define when hook is called.
+   * @param record Record received in the callback
+   */
+  @Override
+  public void callbackHooks(final TYPE type, final RecordAbstract record) {
+    assert assertIfNotActive();
+    if (record == null || hooks.isEmpty() || record.getIdentity().getCollectionId() == 0) {
+      return;
+    }
+
+    var identity = record.getIdentity().copy();
+    if (!pushInHook(identity)) {
+      return;
+    }
+
+    try {
+      for (var hook : hooks) {
+        hook.onTrigger(type, record);
+      }
+    } finally {
+      popInHook(identity);
+    }
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public boolean isValidationEnabled() {
+    assert assertIfNotActive();
+    return (Boolean) get(ATTRIBUTES_INTERNAL.VALIDATION);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void setValidationEnabled(final boolean iEnabled) {
+    assert assertIfNotActive();
+    set(ATTRIBUTES_INTERNAL.VALIDATION, iEnabled);
+  }
+
+  @Override
+  public ContextConfiguration getConfiguration() {
+    assert assertIfNotActive();
+    if (getStorageInfo() != null) {
+      return getStorageInfo().getConfiguration().getContextConfiguration();
+    }
+    return null;
+  }
+
+  @Override
+  public void close() {
+    internalClose(false);
+  }
+
+  @Override
+  public STATUS getStatus() {
+    checkOpenedAsRemoteSession();
+
+    return status;
+  }
+
+  @Override
+  public String getDatabaseName() {
+    checkOpenedAsRemoteSession();
+
+    return getStorageInfo() != null ? getStorageInfo().getName() : url;
+  }
+
+  @Override
+  public YTDBGraph asGraph() {
+    if (graphWrapper == null) {
+      var config = GremlinUtils.createBaseConfiguration(this);
+      graphWrapper = new YTDBGraphImplSession(this, config);
+    }
+
+    return graphWrapper;
+  }
+
+  @Override
+  public RemoteDatabaseSession asRemoteSession() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    openedAsRemoteSession = true;
+    return new RemoteDatabaseSessionWrapper(this);
+  }
+
+  @Override
+  public String getURL() {
+    return url != null ? url : getStorageInfo().getURL();
+  }
+
+  @Override
+  public int getCollections() {
+    assert assertIfNotActive();
+
+    checkOpenedAsRemoteSession();
+    return getStorageInfo().getCollections();
+  }
+
+  @Override
+  public boolean existsCollection(final String iCollectionName) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return getStorageInfo().getCollectionNames()
+        .contains(iCollectionName.toLowerCase(Locale.ENGLISH));
+  }
+
+  @Override
+  public Collection<String> getCollectionNames() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return getStorageInfo().getCollectionNames();
+  }
+
+  @Override
+  public int getCollectionIdByName(final String iCollectionName) {
+    if (iCollectionName == null) {
+      return -1;
+    }
+
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return getStorageInfo().getCollectionIdByName(iCollectionName.toLowerCase(Locale.ENGLISH));
+  }
+
+  @Override
+  public String getCollectionNameById(final int iCollectionId) {
+    if (iCollectionId < 0) {
+      return null;
+    }
+
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return getStorageInfo().getPhysicalCollectionNameById(iCollectionId);
+  }
+
+  @Override
+  public Object setProperty(final String iName, final Object iValue) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (iValue == null) {
+      return properties.remove(iName.toLowerCase(Locale.ENGLISH));
+    } else {
+      return properties.put(iName.toLowerCase(Locale.ENGLISH), iValue);
+    }
+  }
+
+  @Override
+  public Object getProperty(final String iName) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return properties.get(iName.toLowerCase(Locale.ENGLISH));
+  }
+
+  @Override
+  public Iterator<Entry<String, Object>> getProperties() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return properties.entrySet().iterator();
+  }
+
+  @Override
+  public Object get(final ATTRIBUTES iAttribute) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (iAttribute == null) {
+      throw new IllegalArgumentException("attribute is null");
+    }
+    final var storage = getStorageInfo();
+    return switch (iAttribute) {
+      case DATEFORMAT -> storage.getConfiguration().getDateFormat();
+      case DATE_TIME_FORMAT -> storage.getConfiguration().getDateTimeFormat();
+      case TIMEZONE -> storage.getConfiguration().getTimeZone().getID();
+      case LOCALE_COUNTRY -> storage.getConfiguration().getLocaleCountry();
+      case LOCALE_LANGUAGE -> storage.getConfiguration().getLocaleLanguage();
+      case CHARSET -> storage.getConfiguration().getCharset();
+    };
+  }
+
+  @Override
+  public Object get(ATTRIBUTES_INTERNAL attribute) {
+    assert assertIfNotActive();
+
+    if (attribute == null) {
+      throw new IllegalArgumentException("attribute is null");
+    }
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    final var storage = getStorageInfo();
+    if (attribute == ATTRIBUTES_INTERNAL.VALIDATION) {
+      return storage.getConfiguration().isValidationEnabled();
+    }
+
+    throw new IllegalArgumentException("attribute is not supported: " + attribute);
+  }
+
+
+  @Override
+  public FrontendTransaction getTransactionInternal() {
+    assert assertIfNotActive();
+    return currentTx;
+  }
+
+  /**
+   * Returns the schema of the database.
+   *
+   * @return the schema of the database
+   */
+  @Override
+  public Schema getSchema() {
+    assert assertIfNotActive();
+    return getMetadata().getSchema();
+  }
+
+
+  @Nonnull
+  @SuppressWarnings("unchecked")
+  @Override
+  public <RET extends DBRecord> RET load(final RID recordId) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return (RET) currentTx.loadRecord(recordId).recordAbstract();
+  }
+
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCollection(
+      @Nonnull RecordId recordId) {
+    assert assertIfNotActive();
+
+    while (true) {
+      var result = executeReadRecord(recordId, false, true, false);
+
+      if (result.recordAbstract() == null) {
+        if (result.nextRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.nextRecordId();
+          continue;
+        }
+      }
+
+      //noinspection unchecked
+      return new RawPair<>((RET) result.recordAbstract(), result.nextRecordId());
+    }
+  }
+
+  @Nullable
+  @Override
+  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCollection(
+      @Nonnull RecordId recordId) {
+    assert assertIfNotActive();
+
+    while (true) {
+      var result = executeReadRecord(recordId, true, false, false);
+      if (result.recordAbstract() == null) {
+        if (result.previousRecordId() == null) {
+          return null;
+        } else {
+          recordId = result.previousRecordId();
+          continue;
+        }
+      }
+      //noinspection unchecked
+      return new RawPair<>((RET) result.recordAbstract(), result.previousRecordId());
+    }
+  }
+
+  @Override
+  public boolean exists(RID rid) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return currentTx.exists(rid);
+  }
+
+  @Override
+  public BinarySerializerFactory getSerializerFactory() {
+    assert assertIfNotActive();
+    return componentsFactory.binarySerializerFactory;
+  }
+
+  @Override
+  public void setPrefetchRecords(boolean prefetchRecords) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    this.prefetchRecords = prefetchRecords;
+  }
+
+  @Override
+  public boolean isPrefetchRecords() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return prefetchRecords;
+  }
+
+
+  @Override
+  public int assignAndCheckCollection(DBRecord record) {
+    assert assertIfNotActive();
+
+    if (!getStorageInfo().isAssigningCollectionIds()) {
+      return RID.COLLECTION_ID_INVALID;
+    }
+
+    var rid = (RecordId) record.getIdentity();
+    SchemaClassInternal schemaClass = null;
+    // if collection id is not set yet try to find it out
+    if (rid.getCollectionId() <= RID.COLLECTION_ID_INVALID) {
+      if (record instanceof EntityImpl entity) {
+        schemaClass = entity.getImmutableSchemaClass(this);
+        if (schemaClass != null) {
+          if (schemaClass.isAbstract()) {
+            throw new SchemaException(getDatabaseName(),
+                "Entity belongs to abstract class "
+                    + schemaClass.getName()
+                    + " and cannot be saved");
+          }
+
+          return schemaClass.getCollectionForNewInstance(entity);
+        } else {
+          throw new DatabaseException(getDatabaseName(),
+              "Cannot save (1) entity " + record + ": no class or collection defined");
+        }
+      } else {
+        if (record instanceof RecordBytes) {
+          var blobs = getBlobCollectionIds();
+          if (blobs.length == 0) {
+            throw new DatabaseException(getDatabaseName(),
+                "Cannot save blob (2) " + record + ": no collection defined");
+          } else {
+            return blobs[ThreadLocalRandom.current().nextInt(blobs.length)];
+          }
+
+        } else {
+          throw new DatabaseException(getDatabaseName(),
+              "Cannot save (3) entity " + record + ": no class or collection defined");
+        }
+      }
+    } else {
+      if (record instanceof EntityImpl) {
+        schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
+      }
+    }
+    // If the collection id was set check is validity
+    if (rid.getCollectionId() > RID.COLLECTION_ID_INVALID) {
+      if (schemaClass != null) {
+        var messageCollectionName = getCollectionNameById(rid.getCollectionId());
+        checkRecordClass(schemaClass, messageCollectionName, rid);
+        if (!schemaClass.hasCollectionId(rid.getCollectionId())) {
+          throw new IllegalArgumentException(
+              "Collection name '"
+                  + messageCollectionName
+                  + "' (id="
+                  + rid.getCollectionId()
+                  + ") is not configured to store the class '"
+                  + schemaClass.getName()
+                  + "', valid are "
+                  + Arrays.toString(schemaClass.getCollectionIds()));
+        }
+      }
+    }
+
+    var collectionId = rid.getCollectionId();
+    if (collectionId < 0) {
+      throw new DatabaseException(getDatabaseName(),
+          "Impossible to set collection for record " + record + " class : " + schemaClass);
+    }
+
+    return collectionId;
+  }
+
+
+  @Override
+  public int begin(FrontendTransactionImpl transaction) {
+    assert assertIfNotActive();
+
+    // CHECK IT'S NOT INSIDE A HOOK
+    if (!inHook.isEmpty()) {
+      throw new IllegalStateException("Cannot begin a transaction while a hook is executing");
+    }
+
+    if (currentTx.isActive()) {
+      if (currentTx instanceof FrontendTransactionImpl) {
+        return currentTx.beginInternal();
+      }
+    }
+
+    // WAKE UP LISTENERS
+    for (var listener : browseListeners()) {
+      try {
+        listener.onBeforeTxBegin(currentTx);
+      } catch (Exception e) {
+        LogManager.instance().error(this, "Error before tx begin", e);
+      }
+    }
+
+    currentTx = transaction;
+
+    return currentTx.beginInternal();
+  }
+
+
+  /**
+   * Creates a new EntityImpl.
+   */
+  @Override
+  public EntityImpl newInstance() {
+    assert assertIfNotActive();
+    return newInstance(Entity.DEFAULT_CLASS_NAME);
+  }
+
+
+  @Override
+  public Entity newEntity() {
+    assert assertIfNotActive();
+    return newInstance(Entity.DEFAULT_CLASS_NAME);
+  }
+
+  @Override
+  public <T extends DBRecord> T createOrLoadRecordFromJson(String json) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    //noinspection unchecked
+    return (T) JSONSerializerJackson.INSTANCE.fromString(this, json);
+  }
+
+  @Override
+  public Entity createOrLoadEntityFromJson(String json) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var result = JSONSerializerJackson.INSTANCE.fromString(this, json);
+
+    if (result instanceof Entity) {
+      return (Entity) result;
+    }
+
+    throw new DatabaseException(getDatabaseName(), "The record is not an entity");
+  }
+
+  @Override
+  public Entity newEntity(String className) {
+    assert assertIfNotActive();
+    return newInstance(className);
+  }
+
+  @Override
+  public Entity newEntity(SchemaClass clazz) {
+    assert assertIfNotActive();
+    return newInstance(clazz.getName());
+  }
+
+  @Override
+  public Vertex newVertex(SchemaClass type) {
+    assert assertIfNotActive();
+    if (type == null) {
+      return newVertex("V");
+    }
+    return newVertex(type.getName());
+  }
+
+
+  @Override
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+    assert assertIfNotActive();
+    if (type == null) {
+      return newStatefulEdge(from, to, "E");
+    }
+
+    return newStatefulEdge(from, to, type.getName());
+  }
+
+  @Override
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
+    assert assertIfNotActive();
+    return newLightweightEdge(from, to, type.getName());
+  }
+
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public RecordIteratorClass browseClass(final @Nonnull String className) {
+    assert assertIfNotActive();
+    return browseClass(className, true);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public RecordIteratorClass browseClass(
+      final @Nonnull String className, final boolean iPolymorphic) {
+    return browseClass(className, iPolymorphic, true);
+  }
+
+  @Override
+  public RecordIteratorClass browseClass(@Nonnull String className, boolean iPolymorphic,
+      boolean forwardDirection) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (getMetadata().getImmutableSchemaSnapshot().getClass(className) == null) {
+      throw new IllegalArgumentException(
+          "Class '" + className + "' not found in current database");
+    }
+
+    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, className);
+    return new RecordIteratorClass(this, className, iPolymorphic, forwardDirection);
+  }
+
+  @Override
+  public RecordIteratorClass browseClass(@Nonnull SchemaClass clz) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clz.getName());
+    return new RecordIteratorClass(this, (SchemaClassInternal) clz,
+        true, true);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public <REC extends RecordAbstract> RecordIteratorCollection<REC> browseCollection(
+      final String iCollectionName) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, iCollectionName);
+
+    return new RecordIteratorCollection<>(this, getCollectionIdByName(iCollectionName), true);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public Iterable<SessionListener> getListeners() {
+    assert assertIfNotActive();
+    return getListenersCopy();
+  }
+
+  /**
+   * Returns the number of the records of the class iClassName.
+   */
+  @Override
+  public long countClass(final String iClassName) {
+    assert assertIfNotActive();
+    return countClass(iClassName, true);
+  }
+
+  /**
+   * Returns the number of the records of the class iClassName considering also sub classes if
+   * polymorphic is true.
+   */
+  @Override
+  public long countClass(final String iClassName, final boolean iPolymorphic) {
+    assert assertIfNotActive();
+
+    final var cls =
+        (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+    if (cls == null) {
+      throw new IllegalArgumentException("Class not found in database");
+    }
+
+    return countClass(cls, iPolymorphic);
+  }
+
+  private long countClass(final SchemaImmutableClass cls, final boolean iPolymorphic) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var totalOnDb = cls.countImpl(iPolymorphic, this);
+
+    long deletedInTx = 0;
+    long addedInTx = 0;
+    var className = cls.getName();
+    if (getTransactionInternal().isActive()) {
+      for (var op : getTransactionInternal().getRecordOperationsInternal()) {
+        if (op.type == RecordOperation.DELETED) {
+          final DBRecord rec = op.record;
+          if (rec instanceof EntityImpl) {
+            var schemaClass = ((EntityImpl) rec).getImmutableSchemaClass(this);
+            if (iPolymorphic) {
+              if (schemaClass.isSubClassOf(className)) {
+                deletedInTx++;
+              }
+            } else {
+              if (schemaClass != null && (className.equals(schemaClass.getName()))) {
+                deletedInTx++;
+              }
+            }
+          }
+        }
+        if (op.type == RecordOperation.CREATED) {
+          final DBRecord rec = op.record;
+          if (rec instanceof EntityImpl) {
+            var schemaClass = ((EntityImpl) rec).getImmutableSchemaClass(this);
+            if (schemaClass != null) {
+              if (iPolymorphic) {
+                if (schemaClass.isSubClassOf(className)) {
+                  addedInTx++;
+                }
+              } else {
+                if (className.equals(schemaClass.getName())) {
+                  addedInTx++;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return (totalOnDb + addedInTx) - deletedInTx;
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public Map<RID, RID> commit() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (currentTx.getStatus() == TXSTATUS.ROLLBACKING) {
+      throw new RollbackException("Transaction is rolling back");
+    }
+
+    if (!currentTx.isActive()) {
+      throw new TransactionException(getDatabaseName(),
+          "No active transaction to commit. Call begin() first");
+    }
+
+    if (currentTx.amountOfNestedTxs() > 1) {
+      // This just do count down no real commit here
+      return currentTx.commitInternal();
+    }
+
+    // WAKE UP LISTENERS
+
+    try {
+      beforeCommitOperations();
+    } catch (BaseException e) {
+      try {
+        rollback();
+      } catch (Exception re) {
+        LogManager.instance()
+            .error(this, "Exception during rollback `%08X`", re, System.identityHashCode(re));
+      }
+      throw e;
+    }
+    try {
+      return currentTx.commitInternal();
+    } catch (RuntimeException e) {
+
+      if ((e instanceof HighLevelException) || (e instanceof NeedRetryException)) {
+        if (logger.isDebugEnabled()) {
+          LogManager.instance()
+              .debug(this, "Error on transaction commit `%08X`", logger, e,
+                  System.identityHashCode(e));
+        }
+      } else {
+        LogManager.instance()
+            .error(this, "Error on transaction commit `%08X`", e, System.identityHashCode(e));
+      }
+
+      // WAKE UP ROLLBACK LISTENERS
+      try {
+        // ROLLBACK TX AT DB LEVEL
+        if (currentTx.isActive()) {
+          currentTx.rollbackInternal();
+        }
+      } catch (Exception re) {
+        LogManager.instance()
+            .error(
+                this, "Error during transaction rollback `%08X`", re, System.identityHashCode(re));
+      }
+
+      // WAKE UP ROLLBACK LISTENERS
+      throw e;
+    }
+  }
+
+  private void beforeCommitOperations() {
+    assert assertIfNotActive();
+    for (var listener : browseListeners()) {
+      try {
+        listener.onBeforeTxCommit(currentTx);
+      } catch (Exception e) {
+        LogManager.instance()
+            .error(
+                this,
+                "Cannot commit the transaction: caught exception on execution of"
+                    + " %s.onBeforeTxCommit() `%08X`",
+                e,
+                listener.getClass().getName(),
+                System.identityHashCode(e));
+        throw BaseException.wrapException(
+            new TransactionException(getDatabaseName(),
+                "Cannot commit the transaction: caught exception on execution of "
+                    + listener.getClass().getName()
+                    + "#onBeforeTxCommit()"),
+            e, getDatabaseName());
+      }
+    }
+  }
+
+
+  public final void beforeRollbackOperations() {
+    assert assertIfNotActive();
+    for (var listener : browseListeners()) {
+      try {
+        listener.onBeforeTxRollback(currentTx);
+      } catch (Exception t) {
+        LogManager.instance()
+            .error(this, "Error before transaction rollback `%08X`", t, System.identityHashCode(t));
+      }
+    }
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
+  public void rollback() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (currentTx.isActive()) {
+      // WAKE UP LISTENERS
+      currentTx.rollbackInternal();
+      // WAKE UP LISTENERS
+    }
+  }
+
+
+  @Override
+  public CurrentStorageComponentsFactory getStorageVersions() {
+    assert assertIfNotActive();
+    return componentsFactory;
+  }
+
+  @Override
+  public RecordSerializer getSerializer() {
+    assert assertIfNotActive();
+    return serializer;
+  }
+
+  /**
+   * Sets serializer for the database which will be used for entity serialization.
+   *
+   * @param serializer the serializer to set.
+   */
+  @Override
+  public void setSerializer(RecordSerializer serializer) {
+    assert assertIfNotActive();
+    this.serializer = serializer;
+  }
+
+  @Override
+  public void resetInitialization() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    for (var h : hooks) {
+      h.onUnregister();
+    }
+
+    hooks.clear();
+    close();
+
+    initialized = false;
+  }
+
+  @Override
+  public void checkSecurity(final int operation, final Identifiable record, String collection) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (collection == null) {
+      collection = getCollectionNameById(record.getIdentity().getCollectionId());
+    }
+    checkSecurity(Rule.ResourceGeneric.COLLECTION, operation, collection);
+
+    if (record instanceof EntityImpl) {
+      var clazzName = ((EntityImpl) record).getSchemaClassName();
+      if (clazzName != null) {
+        checkSecurity(Rule.ResourceGeneric.CLASS, operation, clazzName);
+      }
+    }
+  }
+
+  /**
+   * @return <code>true</code> if database is obtained from the pool and <code>false</code>
+   * otherwise.
+   */
+  @Override
+  public boolean isPooled() {
+    return false;
+  }
+
+  /**
+   * Use #activateOnCurrentThread instead.
+   */
+  @Deprecated
+  public void setCurrentDatabaseInThreadLocal() {
+    activateOnCurrentThread();
+  }
+
+  /**
+   * Activates current database instance on current thread.
+   */
+  @Override
+  public void activateOnCurrentThread() {
+    activeSession.set(true);
+  }
+
+  @Override
+  public boolean isActiveOnCurrentThread() {
+    var isActive = activeSession.get();
+    return isActive != null && isActive;
+  }
+
+  private void checkOpenness() {
+    if (status == STATUS.CLOSED) {
+      throw new DatabaseException(getDatabaseName(), "Database '" + getURL() + "' is closed");
+    }
+  }
+
+  private void popInHook(Identifiable id) {
+    inHook.remove(id);
+  }
+
+  private boolean pushInHook(Identifiable id) {
+    return inHook.add(id);
+  }
+
+  private void checkRecordClass(
+      final SchemaClass recordClass, final String iCollectionName, final RecordId rid) {
+    assert assertIfNotActive();
+
+    final var collectionIdClass =
+        metadata.getImmutableSchemaSnapshot().getClassByCollectionId(rid.getCollectionId());
+    if (recordClass == null && collectionIdClass != null
+        || collectionIdClass == null && recordClass != null
+        || (recordClass != null && !recordClass.equals(collectionIdClass))) {
+      throw new IllegalArgumentException(
+          "Record saved into collection '"
+              + iCollectionName
+              + "' should be saved with class '"
+              + collectionIdClass
+              + "' but has been created with class '"
+              + recordClass
+              + "'");
+    }
+  }
+
+  @Override
+  public boolean assertIfNotActive() {
+    var currentDatabase = activeSession.get();
+
+    if (currentDatabase == null || !currentDatabase) {
+      throw new SessionNotActivatedException(getDatabaseName());
+    }
+
+    return true;
+  }
+
+  @Override
+  public int[] getBlobCollectionIds() {
+    assert assertIfNotActive();
+    return getMetadata().getSchema().getBlobCollections().toIntArray();
+  }
+
+
+  @Override
+  public SharedContext getSharedContext() {
+    assert assertIfNotActive();
+    return sharedContext;
+  }
+
+
+  @Override
+  public EdgeInternal newLightweightEdgeInternal(String iClassName, Vertex from, Vertex to) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var clazz =
+        (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+
+    return new EdgeImpl(this, from, to, clazz);
+  }
+
+
+  public void queryStarted(String id, ResultSet resultSet) {
+    assert assertIfNotActive();
+
+    final var activeQueriesSize = activeQueries.size();
+
+    if (this.resultSetReportThreshold > 0 &&
+        activeQueriesSize > 1 &&
+        activeQueriesSize % resultSetReportThreshold == 0) {
+      var msg =
+          "This database instance has "
+              + activeQueriesSize
+              + " open command/query result sets, please make sure you close them with"
+              + " ResultSet.close()";
+      LogManager.instance().warn(this, msg);
+      if (logger.isDebugEnabled()) {
+        activeQueries.values().stream()
+            .map(ResultSet::getExecutionPlan)
+            .forEach(plan -> LogManager.instance().debug(this, plan.toString(), logger));
+      }
+    }
+
+    this.activeQueries.put(id, resultSet);
+    getListeners().forEach((it) -> it.onCommandStart(this, resultSet));
+  }
+
+  @Override
+  public void queryClosed(String id) {
+    assert assertIfNotActive();
+
+    var removed = this.activeQueries.remove(id);
+    getListeners().forEach((it) -> it.onCommandEnd(this, removed));
+  }
+
+  @Override
+  public void closeActiveQueries() {
+    for (var rs : new ArrayList<>(activeQueries.values())) {
+      rs.close();
+    }
+  }
+
+  @Override
+  public Map<String, ResultSet> getActiveQueries() {
+    assert assertIfNotActive();
+
+    return activeQueries;
+  }
+
+  @Override
+  public ResultSet getActiveQuery(String id) {
+    assert assertIfNotActive();
+
+    return activeQueries.get(id);
+  }
+
+  @Override
+  public boolean isCollectionEdge(int collection) {
+    assert assertIfNotActive();
+
+    var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collection);
+    return clazz != null && clazz.isEdgeType();
+  }
+
+  @Override
+  public boolean isCollectionVertex(int collection) {
+    assert assertIfNotActive();
+
+    var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collection);
+    return clazz != null && clazz.isVertexType();
+  }
+
+
+  @Override
+  public <X extends Exception> void executeInTxInternal(
+      @Nonnull TxConsumer<FrontendTransaction, X> code) throws X {
+    if (currentTx.getStatus() == TXSTATUS.COMMITTING ||
+        currentTx.getStatus() == TXSTATUS.ROLLBACKING) {
+      throw new TransactionException(getDatabaseName(),
+          "Cannot start a new transaction while a transaction is committing or rolling back");
+    }
+    var ok = false;
+    assert assertIfNotActive();
+    begin();
+    try {
+      code.accept(currentTx);
+      ok = true;
+    } finally {
+      finishTx(ok);
+    }
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatches(
+      Iterable<T> iterable, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
+    executeInTxBatches(iterable.iterator(), batchSize, consumer);
+  }
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    assert assertIfNotActive();
+    forEachInTx(iterator, (db, t) -> {
+      consumer.accept(db, t);
+      return true;
+    });
+  }
+
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    assert assertIfNotActive();
+
+    forEachInTx(iterable.iterator(), consumer);
+  }
+
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiConsumer<Transaction, T, X> consumer) throws X {
+    assert assertIfNotActive();
+
+    try (var s = stream) {
+      forEachInTx(s.iterator(), consumer);
+    }
+  }
+
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Iterator<T> iterator,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    var ok = false;
+    assert assertIfNotActive();
+
+    var tx = begin();
+    try {
+      while (iterator.hasNext()) {
+        var cont = consumer.apply(tx, iterator.next());
+        commit();
+
+        if (!cont) {
+          break;
+        }
+        begin();
+      }
+
+      ok = true;
+    } finally {
+      finishTx(ok);
+    }
+  }
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Iterable<T> iterable,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    assert assertIfNotActive();
+
+    forEachInTx(iterable.iterator(), consumer);
+  }
+
+  @Override
+  public <T, X extends Exception> void forEachInTx(Stream<T> stream,
+      TxBiFunction<Transaction, T, Boolean, X> consumer) throws X {
+    assert assertIfNotActive();
+
+    try (stream) {
+      forEachInTx(stream.iterator(), consumer);
+    }
+  }
+
+  private void finishTx(boolean ok) {
+    if (currentTx.isActive()) {
+      if (ok && currentTx.getStatus() != TXSTATUS.ROLLBACKING) {
+        commit();
+      } else {
+        if (isActiveOnCurrentThread()) {
+          rollback();
+        } else {
+          currentTx.rollbackInternal();
+        }
+      }
+    }
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(
+      @Nonnull Iterator<T> iterator, int batchSize,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    var ok = false;
+    assert assertIfNotActive();
+    var counter = 0;
+
+    begin();
+    try {
+      while (iterator.hasNext()) {
+        consumer.accept(currentTx, iterator.next());
+        counter++;
+
+        if (counter % batchSize == 0) {
+          commit();
+          begin();
+        }
+      }
+
+      ok = true;
+    } finally {
+      finishTx(ok);
+    }
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(
+      Iterator<T> iterator, TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    assert assertIfNotActive();
+
+    executeInTxBatchesInternal(
+        iterator,
+        getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE),
+        consumer);
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatches(
+      Iterable<T> iterable, TxBiConsumer<Transaction, T, X> consumer) throws X {
+    assert assertIfNotActive();
+    executeInTxBatches(
+        iterable,
+        getConfiguration().getValueAsInteger(GlobalConfiguration.TX_BATCH_SIZE),
+        consumer);
+  }
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatches(
+      Stream<T> stream, int batchSize, TxBiConsumer<Transaction, T, X> consumer) throws X {
+    assert assertIfNotActive();
+
+    try (stream) {
+      executeInTxBatches(stream.iterator(), batchSize, consumer);
+    }
+  }
+
+
+  @Override
+  public <T, X extends Exception> void executeInTxBatchesInternal(Stream<T> stream,
+      TxBiConsumer<FrontendTransaction, T, X> consumer) throws X {
+    assert assertIfNotActive();
+
+    try (stream) {
+      executeInTxBatchesInternal(stream.iterator(), consumer);
+    }
+  }
+
+
+  @Override
+  public <R, X extends Exception> R computeInTxInternal(TxFunction<FrontendTransaction, R, X> code)
+      throws X {
+    assert assertIfNotActive();
+    var ok = false;
+    begin();
+    try {
+      var result = code.apply(currentTx);
+      ok = true;
+      return result;
+    } finally {
+      finishTx(ok);
+    }
+  }
+
+  @Override
+  public int activeTxCount() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var transaction = getTransactionInternal();
+    return transaction.amountOfNestedTxs();
+  }
+
+  @Override
+  public <T> EmbeddedList<T> newEmbeddedList() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityEmbeddedListImpl<>();
+  }
+
+  @Override
+  public <T> EmbeddedList<T> newEmbeddedList(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityEmbeddedListImpl<>(size);
+  }
+
+  @Override
+  public <T> EmbeddedList<T> newEmbeddedList(Collection<T> list) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    //noinspection unchecked
+    return (EmbeddedList<T>) PropertyTypeInternal.EMBEDDEDLIST.copy(list, this);
+  }
+
+  @Override
+  public EmbeddedList<String> newEmbeddedList(String[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<String>(source.length);
+    trackedList.addAll(Arrays.asList(source));
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Date> newEmbeddedList(Date[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<Date>(source.length);
+    trackedList.addAll(Arrays.asList(source));
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Byte> newEmbeddedList(byte[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<Byte>(source.length);
+    for (var b : source) {
+      trackedList.add(b);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Short> newEmbeddedList(short[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<Short>(source.length);
+    for (var s : source) {
+      trackedList.add(s);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Integer> newEmbeddedList(int[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<Integer>(source.length);
+    for (var i : source) {
+      trackedList.add(i);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Long> newEmbeddedList(long[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<Long>(source.length);
+    for (var l : source) {
+      trackedList.add(l);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Float> newEmbeddedList(float[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<Float>(source.length);
+    for (var f : source) {
+      trackedList.add(f);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Double> newEmbeddedList(double[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<Double>(source.length);
+    for (var d : source) {
+      trackedList.add(d);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public EmbeddedList<Boolean> newEmbeddedList(boolean[] source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var trackedList = new EntityEmbeddedListImpl<Boolean>(source.length);
+    for (var b : source) {
+      trackedList.add(b);
+    }
+    return trackedList;
+  }
+
+  @Override
+  public LinkList newLinkList() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityLinkListImpl(this);
+  }
+
+  @Override
+  public LinkList newLinkList(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityLinkListImpl(this, size);
+  }
+
+  @Override
+  public LinkList newLinkList(Collection<? extends Identifiable> source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var list = new EntityLinkListImpl(this, source.size());
+    list.addAll(source);
+    return list;
+  }
+
+  @Override
+  public <T> EmbeddedSet<T> newEmbeddedSet() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityEmbeddedSetImpl<>();
+  }
+
+  @Override
+  public <T> EmbeddedSet<T> newEmbeddedSet(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityEmbeddedSetImpl<>(size);
+  }
+
+  @Override
+  public <T> EmbeddedSet<T> newEmbeddedSet(Collection<T> set) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    //noinspection unchecked
+    return (EmbeddedSet<T>) PropertyTypeInternal.EMBEDDEDSET.copy(set, this);
+  }
+
+  @Override
+  public LinkSet newLinkSet() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityLinkSetImpl(this);
+  }
+
+
+  @Override
+  public LinkSet newLinkSet(Collection<? extends Identifiable> source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var linkSet = new EntityLinkSetImpl(this);
+    linkSet.addAll(source);
+    return linkSet;
+  }
+
+  @Override
+  public <V> EmbeddedMap<V> newEmbeddedMap() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityEmbeddedMapImpl<>();
+  }
+
+  @Override
+  public <V> EmbeddedMap<V> newEmbeddedMap(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityEmbeddedMapImpl<>(size);
+  }
+
+  @Override
+  public <V> EmbeddedMap<V> newEmbeddedMap(Map<String, V> map) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    //noinspection unchecked
+    return (EmbeddedMap<V>) PropertyTypeInternal.EMBEDDEDMAP.copy(map, this);
+  }
+
+  @Override
+  public LinkMap newLinkMap() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityLinkMapIml(this);
+  }
+
+  @Override
+  public LinkMap newLinkMap(int size) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    return new EntityLinkMapIml(size, this);
+  }
+
+  @Override
+  public LinkMap newLinkMap(Map<String, ? extends Identifiable> source) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    var linkMap = new EntityLinkMapIml(source.size(), this);
+    linkMap.putAll(source);
+    return linkMap;
+  }
+
+  @Override
+  public @Nonnull FrontendTransaction getActiveTransaction() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (currentTx.isActive()) {
+      return currentTx;
+    }
+
+    throw new DatabaseException(this, "There is no active transaction in session");
+  }
+
+  @Nullable
+  @Override
+  public Transaction getActiveTransactionOrNull() {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    if (currentTx.isActive()) {
+      return currentTx;
+    }
+
+    return null;
+  }
+
+  private void checkTxActive() {
+    if (currentTx == null || !currentTx.isActive()) {
+      throw new TransactionException(getDatabaseName(), "There is no active transaction");
+    }
+  }
+
+  private void ensureEdgeConsistencyOnDeletion(@Nonnull EntityImpl entity) {
+    if (entity.isVertex()) {
+      VertexEntityImpl.deleteLinks(entity.asVertex());
+    } else if (entity.isEdge()) {
+      StatefullEdgeEntityImpl.deleteLinks(this, entity.asEdge());
+    }
   }
 
   private void ensureLinksConsistencyBeforeDeletion(@Nonnull EntityImpl entity) {
@@ -1996,7 +4855,6 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
             }
           }
         } else {
-          subtractFromLinksContainer(originalValue, linksToUpdateMap);
           addToLinksContainer(currentPropertyValue, linksToUpdateMap);
         }
       } else {
@@ -2010,7 +4868,7 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
   private void updateOppositeLinks(@Nonnull EntityImpl entity, String propertyName,
       HashMap<RecordId, int[]> linksToUpdateMap) {
-    var oppositeLinkBagPropertyName = EntityImpl.OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
+    var oppositeLinkBagPropertyName = EntityImpl.getOppositeLinkBagPropertyName(propertyName);
     for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
       var oppositeLink = entitiesToUpdate.getKey();
       var diff = entitiesToUpdate.getValue()[0];
@@ -2209,5 +5067,24 @@ public class DatabaseSessionEmbedded extends DatabaseSessionAbstract<IndexManage
 
   public void enableLinkConsistencyCheck() {
     this.ensureLinkConsistency = true;
+  }
+
+  public void remoteWrapperClosed() {
+    openedAsRemoteSession = false;
+  }
+
+  public void startRemoteCall() {
+    remoteCallsCount++;
+  }
+
+  public void endRemoteCall() {
+    remoteCallsCount--;
+  }
+
+  private void checkOpenedAsRemoteSession() {
+    if (openedAsRemoteSession && remoteCallsCount == 0) {
+      throw new IllegalStateException(
+          "Session is opened as remote session and can not be used till related remote session is closed.");
+    }
   }
 }

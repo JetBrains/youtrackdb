@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.server;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
@@ -31,17 +31,7 @@ public class ServerDatabaseOperationsTest {
   private YouTrackDBServer server;
 
   @Before
-  public void before()
-      throws ClassNotFoundException,
-      MalformedObjectNameException,
-      InstanceAlreadyExistsException,
-      NotCompliantMBeanException,
-      MBeanRegistrationException,
-      NoSuchMethodException,
-      IOException,
-      InvocationTargetException,
-      IllegalAccessException,
-      InstantiationException {
+  public void before() throws Exception {
     var conf = new ServerConfiguration();
     conf.handlers = new ArrayList<>();
     var rootUser = new ServerUserConfiguration();
@@ -63,7 +53,7 @@ public class ServerDatabaseOperationsTest {
     try (var session = server.openSession(
         ServerDatabaseOperationsTest.class.getSimpleName())) {
 
-      var map = JSONSerializerJackson.mapFromJson(IOUtils.readStreamAsString(
+      var map = JSONSerializerJackson.INSTANCE.mapFromJson(IOUtils.readStreamAsString(
           this.getClass().getClassLoader().getResourceAsStream("security.json")));
       server.getSecurity().reload(session, map);
     } finally {
@@ -92,7 +82,7 @@ public class ServerDatabaseOperationsTest {
         .execute("create database " + ServerDatabaseOperationsTest.class.getSimpleName()
             + " memory users (admin identified by 'admin' role admin)").close();
     assertTrue(server.existsDatabase(ServerDatabaseOperationsTest.class.getSimpleName()));
-    DatabaseSession session = server.openSession(
+    BasicDatabaseSession session = server.openSession(
         ServerDatabaseOperationsTest.class.getSimpleName());
     assertNotNull(session);
     session.close();

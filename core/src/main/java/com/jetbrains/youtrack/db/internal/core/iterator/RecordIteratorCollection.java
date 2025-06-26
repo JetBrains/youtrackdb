@@ -147,10 +147,6 @@ public class RecordIteratorCollection<REC extends RecordAbstract> implements Ite
 
   private static void checkForSystemCollections(
       final DatabaseSessionInternal session, final int[] collectionIds) {
-    if (session.isRemote()) {
-      return;
-    }
-
     for (var clId : collectionIds) {
       if (session.getStorage().isSystemCollection(clId)) {
         final var dbUser = session.getCurrentUser();

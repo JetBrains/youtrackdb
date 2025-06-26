@@ -3,16 +3,21 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
+import com.jetbrains.youtrack.db.api.record.Direction;
+import com.jetbrains.youtrack.db.api.record.Edge;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.api.record.StatefulEdge;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -20,6 +25,11 @@ import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLContainsCondition;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsOperator;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLGetInternalPropertyExpression;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -27,7 +37,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -37,6 +49,7 @@ import org.junit.Test;
 
 
 public class SelectStatementExecutionTest extends DbTestBase {
+
   @Test
   public void testSelectNoTarget() {
     session.begin();
@@ -1030,22 +1043,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testQueryMetadataIndexManager() {
     session.begin();
-    var result = session.query("select from metadata:indexmanager");
+    var result = session.query("select from metadata:indexes");
     printExecutionPlan(result);
-    for (var i = 0; i < 1; i++) {
-      Assert.assertTrue(result.hasNext());
-      var item = result.next();
-      Assert.assertNotNull(item.getProperty("indexes"));
-    }
-    Assert.assertFalse(result.hasNext());
-    result.close();
-    session.commit();
-  }
-
-  @Test
-  public void testQueryMetadataIndexManager2() {
-    session.begin();
-    var result = session.query("select expand(indexes) from metadata:indexmanager");
     printExecutionPlan(result);
     Assert.assertTrue(result.hasNext());
     result.close();
@@ -1143,7 +1142,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     try {
       Assert.assertNotNull(result.next());
       Assert.fail();
-    } catch (IllegalStateException e) {
+    } catch (NoSuchElementException e) {
       //expected
     }
     Assert.assertFalse(result.hasNext());
@@ -1167,7 +1166,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     try {
       Assert.assertNotNull(result.next());
       Assert.fail();
-    } catch (IllegalStateException e) {
+    } catch (NoSuchElementException e) {
       //expected
     }
 
@@ -2083,7 +2082,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertTrue(result.hasNext());
     var item = result.next();
     Assert.assertNotNull(item);
-    var one = item.<Result>getEmbeddedList("one");
+    var one = item.<BasicResult>getEmbeddedList("one");
     Assert.assertEquals(1, one.size());
     var x = one.getFirst();
     Assert.assertEquals(1, x.getInt("a").intValue());
@@ -2319,13 +2318,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var item = result.next();
     Assert.assertNotNull(item);
     var currentProperty = item.getProperty("$current.*");
-    Assert.assertTrue(currentProperty instanceof Result);
+    Assert.assertTrue(currentProperty instanceof BasicResult);
     final var currentResult = (Result) currentProperty;
     Assert.assertTrue(currentResult.isProjection());
     Assert.assertEquals(Integer.valueOf(1), currentResult.<Integer>getProperty("sqa"));
     Assert.assertEquals(className, currentResult.getProperty("sqc"));
     var bProperty = item.getProperty("$b.*");
-    Assert.assertTrue(bProperty instanceof Result);
+    Assert.assertTrue(bProperty instanceof BasicResult);
     final var bResult = (Result) bProperty;
     Assert.assertTrue(bResult.isProjection());
     Assert.assertEquals(Integer.valueOf(1), bResult.<Integer>getProperty("sqa"));
@@ -3585,8 +3584,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var item = result.next();
     Assert.assertNotNull(item);
     // TODO refine this!
-    Assert.assertTrue(item.getProperty("elem1") instanceof Result);
-    Assert.assertEquals("a", ((Result) item.getProperty("elem1")).getProperty("name"));
+    Assert.assertTrue(item.getProperty("elem1") instanceof BasicResult);
+    Assert.assertEquals("a", ((BasicResult) item.getProperty("elem1")).getProperty("name"));
     printExecutionPlan(result);
 
     result.close();
@@ -4882,6 +4881,469 @@ public class SelectStatementExecutionTest extends DbTestBase {
     }
     session.commit();
   }
+
+  /// Checks that composite index is used if we use both inV and outV functions to select the edge
+  /// needed.
+  @Test
+  public void testCompositeIndexWithInVOutVFunctions() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestIndexWithEdgesFunctionsVertex");
+    var edgeClass = schema.createEdgeClass("TestIndexWithEdgesFunctionsEdge");
+
+    edgeClass.createIndex("EdgeIndex", INDEX_TYPE.NOTUNIQUE, Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
+
+    var rids = session.computeInTx(transaction -> {
+      var v1 = transaction.newVertex(vertexClass);
+      var v2 = transaction.newVertex(vertexClass);
+
+      var edge = v1.addStateFulEdge(v2, edgeClass);
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query(
+          "select from TestIndexWithEdgesFunctionsEdge where inV() = :inV and outV() = :outV",
+          Map.of("outV", rids[0], "inV", rids[1]))) {
+
+        var resList = rs.toStatefulEdgeList();
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[2], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var fetchFromIndex = steps.getFirst();
+        Assert.assertTrue(fetchFromIndex instanceof FetchFromIndexStep);
+
+        var keyCondition = ((FetchFromIndexStep) fetchFromIndex).getDesc().getKeyCondition();
+        Assert.assertTrue(keyCondition instanceof SQLAndBlock);
+        var sqlAndBlock = (SQLAndBlock) keyCondition;
+        Assert.assertEquals(2, sqlAndBlock.getSubBlocks().size());
+        var firstExpression = sqlAndBlock.getSubBlocks().getFirst();
+        Assert.assertTrue(firstExpression instanceof SQLBinaryCondition);
+
+        var firstBinaryCondition = (SQLBinaryCondition) firstExpression;
+        Assert.assertTrue(
+            firstBinaryCondition.getLeft() instanceof SQLGetInternalPropertyExpression);
+        Assert.assertEquals("in", firstBinaryCondition.getLeft().toString());
+        Assert.assertEquals(":inV", firstBinaryCondition.getRight().toString());
+        Assert.assertTrue(firstBinaryCondition.getOperator() instanceof SQLEqualsOperator);
+
+        var secondExpression = sqlAndBlock.getSubBlocks().getLast();
+        Assert.assertTrue(secondExpression instanceof SQLBinaryCondition);
+
+        var secondBinaryCondition = (SQLBinaryCondition) secondExpression;
+        Assert.assertTrue(
+            secondBinaryCondition.getLeft() instanceof SQLGetInternalPropertyExpression);
+        Assert.assertEquals("out", secondBinaryCondition.getLeft().toString());
+        Assert.assertEquals(":outV", secondBinaryCondition.getRight().toString());
+        Assert.assertTrue(secondBinaryCondition.getOperator() instanceof SQLEqualsOperator);
+      }
+    });
+  }
+
+  @Test
+  public void testInVOutVFunctionsWithoutIndex() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestInVOutVFunctionsWithoutIndexVertex");
+    var edgeClass = schema.createEdgeClass("TestInVOutVFunctionsWithoutIndexEdge");
+
+    var rids = session.computeInTx(transaction -> {
+      var v1 = transaction.newVertex(vertexClass);
+      var v2 = transaction.newVertex(vertexClass);
+
+      var edge = v1.addStateFulEdge(v2, edgeClass);
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query(
+          "select from TestInVOutVFunctionsWithoutIndexEdge where inV() = :inV and outV() = :outV",
+          Map.of("outV", rids[0], "inV", rids[1]))) {
+
+        var resList = rs.toStatefulEdgeList();
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[2], resList.getFirst().getIdentity());
+      }
+    });
+  }
+
+  @Test
+  public void testOutEStateFullEdgesIndexUsageInGraph() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestOutEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestOutEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var propertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName);
+    var oudEdgesProperty = vertexClass.createProperty(propertyName,
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestOutEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "outE('" + edgeClassName + "') contains :outE", Map.of("outE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[0], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var sourceStep = steps.getFirst();
+        Assert.assertTrue(sourceStep instanceof FetchFromIndexStep);
+        var fetchFromIndexStep = (FetchFromIndexStep) sourceStep;
+        Assert.assertEquals(indexName, fetchFromIndexStep.getDesc().getIndex().getName());
+
+        var keyCondition = fetchFromIndexStep.getDesc().getKeyCondition();
+        Assert.assertTrue(keyCondition instanceof SQLAndBlock);
+        var sqlAndBlock = (SQLAndBlock) keyCondition;
+        Assert.assertEquals(1, sqlAndBlock.getSubBlocks().size());
+
+        var expression = sqlAndBlock.getSubBlocks().getFirst();
+        Assert.assertTrue(expression instanceof SQLContainsCondition);
+
+        var containsCondition = (SQLContainsCondition) expression;
+        Assert.assertTrue(
+            containsCondition.getLeft() instanceof SQLGetInternalPropertyExpression);
+        Assert.assertEquals(propertyName, containsCondition.getLeft().toString());
+        Assert.assertEquals(":outE", containsCondition.getRight().toString());
+      }
+    });
+  }
+
+  @Test
+  public void testOutEStateFullEdgesWithoutIndexUsageInGraph() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestOutEStateFullWithoutIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestOutEStateFullWithoutIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var vertexClassName = vertexClass.getName();
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "outE('" + edgeClassName + "') contains :outE", Map.of("outE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[0], resList.getFirst().getIdentity());
+      }
+    });
+  }
+
+  @Test
+  public void testInEStateFullEdgesIndexUsageInGraph() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestInEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestInEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var inEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var propertyName = inEdgesProperty.getName();
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestInEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, inEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "inE('" + edgeClassName + "') contains :inE", Map.of("inE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(1, resList.size());
+        Assert.assertEquals(rids[1], resList.getFirst().getIdentity());
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+
+        var sourceStep = steps.getFirst();
+        Assert.assertTrue(sourceStep instanceof FetchFromIndexStep);
+        var fetchFromIndexStep = (FetchFromIndexStep) sourceStep;
+        Assert.assertEquals(indexName, fetchFromIndexStep.getDesc().getIndex().getName());
+
+        var keyCondition = fetchFromIndexStep.getDesc().getKeyCondition();
+        Assert.assertTrue(keyCondition instanceof SQLAndBlock);
+        var sqlAndBlock = (SQLAndBlock) keyCondition;
+        Assert.assertEquals(1, sqlAndBlock.getSubBlocks().size());
+
+        var expression = sqlAndBlock.getSubBlocks().getFirst();
+        Assert.assertTrue(expression instanceof SQLContainsCondition);
+
+        var containsCondition = (SQLContainsCondition) expression;
+        Assert.assertTrue(
+            containsCondition.getLeft() instanceof SQLGetInternalPropertyExpression);
+        Assert.assertEquals(propertyName, containsCondition.getLeft().toString());
+        Assert.assertEquals(":inE", containsCondition.getRight().toString());
+      }
+    });
+  }
+
+  @Test
+  public void testBothEStateFullEdgesWithoutIndex() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestBothEStateFullVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEStateFullEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var vertexClassName = vertexClass.getName();
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "bothE('" + edgeClassName + "') contains :bothE", Map.of("bothE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(2, resList.size());
+        Assert.assertEquals(Set.of(rids[0], rids[1]), new HashSet<>(resList));
+      }
+    });
+  }
+
+  @Test
+  public void testBothEStateFullEdgesIndexUsageInGraphOneIndexIn() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var oudEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestBothEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "bothE('" + edgeClassName + "') contains :bothE", Map.of("bothE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(2, resList.size());
+        Assert.assertEquals(Set.of(rids[0], rids[1]), new HashSet<>(resList));
+      }
+    });
+  }
+
+  @Test
+  public void testBothEStateFullEdgesIndexUsageInGraphOneIndexOut() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+    var oudEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var indexName = "TestBothEStateFullIndexUsageInGraphIndex";
+    vertexClass.createIndex(indexName, INDEX_TYPE.NOTUNIQUE, oudEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "bothE('" + edgeClassName + "') contains :bothE", Map.of("bothE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(2, resList.size());
+        Assert.assertEquals(Set.of(rids[0], rids[1]), new HashSet<>(resList));
+      }
+    });
+  }
+
+  @Test
+  public void testBothEStateFullEdgesIndexUsageInGraphTwoIndexes() {
+    var schema = session.getSchema();
+
+    var vertexClass = schema.createVertexClass("TestBothEStateFullIndexUsageInGraphVertex");
+    var edgeClass = schema.createEdgeClass("TestBothEStateFullIndexUsageInGraphEdge");
+
+    var edgeClassName = edgeClass.getName();
+
+    var outEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName),
+        PropertyType.LINKBAG);
+    var inEdgesProperty = vertexClass.createProperty(
+        Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
+        PropertyType.LINKBAG);
+
+    var vertexClassName = vertexClass.getName();
+
+    var outIndexName = "TestBothEStateFullIndexUsageInGraphIndexOutIndex";
+    vertexClass.createIndex(outIndexName, INDEX_TYPE.NOTUNIQUE, outEdgesProperty.getName());
+
+    var inIndexName = "TestBothEStateFullIndexUsageInGraphIndexInIndex";
+    vertexClass.createIndex(inIndexName, INDEX_TYPE.NOTUNIQUE, inEdgesProperty.getName());
+
+    var rids = session.computeInTx(transaction -> {
+      Vertex v1 = null;
+      Vertex v2 = null;
+
+      StatefulEdge edge = null;
+
+      for (var i = 0; i < 10; i++) {
+        v1 = transaction.newVertex(vertexClass);
+        v2 = transaction.newVertex(vertexClass);
+
+        edge = v1.addStateFulEdge(v2, edgeClass);
+      }
+
+      return new RID[]{v1.getIdentity(), v2.getIdentity(), edge.getIdentity()};
+    });
+
+    session.executeInTx(transaction -> {
+      try (var rs = transaction.query("select from " + vertexClassName + " where "
+          + "bothE('" + edgeClassName + "') contains :bothE", Map.of("bothE", rids[2]))) {
+        var resList = rs.toVertexList();
+
+        Assert.assertEquals(2, resList.size());
+        Assert.assertEquals(Set.of(rids[0], rids[1]), new HashSet<>(resList));
+
+        var executionPlan = rs.getExecutionPlan();
+        var steps = executionPlan.getSteps();
+        Assert.assertFalse(steps.isEmpty());
+        var first = steps.getFirst();
+        Assert.assertTrue(first instanceof ParallelExecStep);
+
+        var parallelExecStep = (ParallelExecStep) first;
+        var parallelSteps = parallelExecStep.getSubExecutionPlans();
+
+        Assert.assertEquals(2, parallelSteps.size());
+
+        var firstParallelStep = parallelSteps.getFirst().getSteps().getFirst();
+        Assert.assertTrue(firstParallelStep instanceof FetchFromIndexStep);
+        var firstParallelIndexStep = (FetchFromIndexStep) firstParallelStep;
+
+        var secondParallelStep = parallelSteps.getLast().getSteps().getFirst();
+        Assert.assertTrue(secondParallelStep instanceof FetchFromIndexStep);
+        var secondParallelIndexStep = (FetchFromIndexStep) secondParallelStep;
+
+        var indexNames = Set.of(firstParallelIndexStep.getDesc().getIndex().getName(),
+            secondParallelIndexStep.getDesc().getIndex().getName());
+
+        Assert.assertEquals(Set.of(outIndexName, inIndexName), indexNames);
+      }
+    });
+  }
+
 
   @Test
   public void testExclude() {

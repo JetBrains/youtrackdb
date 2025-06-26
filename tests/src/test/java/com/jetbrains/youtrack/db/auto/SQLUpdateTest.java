@@ -32,8 +32,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -45,11 +43,6 @@ import org.testng.annotations.Test;
 public class SQLUpdateTest extends BaseDBTest {
 
   private long updatedRecords;
-
-  @Parameters(value = "remote")
-  public SQLUpdateTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @BeforeClass
   @Override
@@ -113,7 +106,6 @@ public class SQLUpdateTest extends BaseDBTest {
             "UPDATE Profile SET surname='Merkel' UPSERT RETURN AFTER  where surname = 'Merkel'");
     Assert.assertEquals(result.stream().count(), 1);
     session.commit();
-
 
     session.begin();
     result = session.execute("SELECT FROM Profile  where surname = 'Merkel'");
@@ -386,9 +378,11 @@ public class SQLUpdateTest extends BaseDBTest {
 
   public void updateIncrement() {
 
+    session.begin();
     var result1 =
         session.query("select salary from Account where salary is defined").stream().toList();
     Assert.assertFalse(result1.isEmpty());
+    session.commit();
 
     session.begin();
     updatedRecords =
@@ -400,6 +394,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
     Assert.assertTrue(updatedRecords > 0);
 
+    session.begin();
     var result2 =
         session.query("select salary from Account where salary is defined").stream().toList();
     Assert.assertFalse(result2.isEmpty());
@@ -410,6 +405,7 @@ public class SQLUpdateTest extends BaseDBTest {
       float salary2 = result2.get(i).getProperty("salary");
       Assert.assertEquals(salary2, salary1 + 10);
     }
+    session.commit();
 
     session.begin();
     updatedRecords =
@@ -437,9 +433,11 @@ public class SQLUpdateTest extends BaseDBTest {
 
   public void updateSetMultipleFields() {
 
+    session.begin();
     var result1 =
         session.query("select salary from Account where salary is defined").stream().toList();
     Assert.assertFalse(result1.isEmpty());
+    session.commit();
 
     session.begin();
     updatedRecords =
@@ -601,6 +599,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.execute("create edge from " + vOneId + " to " + vTwoId).close();
     session.commit();
 
+    session.begin();
     var result =
         session
             .query("select sum(outE().size(), inE().size()) as sum from UpdateVertexContent")
@@ -610,9 +609,10 @@ public class SQLUpdateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 2);
 
     for (var doc : result) {
-      Assert.assertEquals(doc.<Object>getProperty("sum"), 3);
+      Assert.assertEquals(doc.getLong("sum"), 3);
     }
 
+    session.commit();
     session.begin();
     session
         .execute("update UpdateVertexContent content {value : 'val'} where @rid = " + vOneId)
@@ -632,7 +632,7 @@ public class SQLUpdateTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 2);
 
     for (var doc : result) {
-      Assert.assertEquals(doc.<Object>getProperty("sum"), 3);
+      Assert.assertEquals(doc.getLong("sum"), 3);
     }
     session.commit();
 
@@ -663,9 +663,12 @@ public class SQLUpdateTest extends BaseDBTest {
     session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
     session.commit();
 
+    session.begin();
+    var rs = session.query("select outV() as outV, inV() as inV from UpdateEdgeContentE");
     var result =
-        session.query("select outV() as outV, inV() as inV from UpdateEdgeContentE").stream()
+        rs.stream()
             .collect(Collectors.toList());
+    rs.close();
 
     Assert.assertEquals(result.size(), 3);
 
@@ -673,6 +676,7 @@ public class SQLUpdateTest extends BaseDBTest {
       Assert.assertEquals(doc.getProperty("outV"), vOneId);
       Assert.assertEquals(doc.getProperty("inV"), vTwoId);
     }
+    session.commit();
 
     session.begin();
     session.execute("update UpdateEdgeContentE content {value : 'val'}").close();

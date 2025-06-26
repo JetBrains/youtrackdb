@@ -20,6 +20,9 @@
 
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CollectionDoesNotExistException;
@@ -34,8 +37,7 @@ import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedEx
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrack.db.api.exception.StorageDoesNotExistException;
 import com.jetbrains.youtrack.db.api.exception.StorageExistsException;
-import com.jetbrains.youtrack.db.api.query.LiveQueryMonitor;
-import com.jetbrains.youtrack.db.api.query.LiveQueryResultListener;
+import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.ScalableRWLock;
@@ -61,8 +63,9 @@ import com.jetbrains.youtrack.db.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrack.db.internal.core.config.StorageConfigurationUpdateListener;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrack.db.internal.core.db.DatabasePoolInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBagDeleter;
@@ -277,7 +280,7 @@ public abstract class AbstractStorage
   protected volatile STATUS status = STATUS.CLOSED;
 
   protected AtomicReference<Throwable> error = new AtomicReference<>(null);
-  protected YouTrackDBInternal context;
+  protected YouTrackDBInternalEmbedded context;
   private volatile CountDownLatch migration = new CountDownLatch(1);
 
   private volatile int backupRunning = 0;
@@ -291,7 +294,8 @@ public abstract class AbstractStorage
   private final Stopwatch shutdownDuration;
 
   public AbstractStorage(
-      final String name, final String filePath, final int id, YouTrackDBInternal context) {
+      final String name, final String filePath, final int id,
+      YouTrackDBInternalEmbedded context) {
     this.context = context;
     this.name = checkName(name);
 
@@ -2358,12 +2362,12 @@ public abstract class AbstractStorage
     if (keyTypes == null || keyTypes.length == 0) {
       throw new StorageException(name, "Types of index keys has to be defined");
     }
-    if (keyTypes.length < indexDefinition.getFields().size()) {
+    if (keyTypes.length < indexDefinition.getProperties().size()) {
       throw new StorageException(name,
           "Types are provided only for "
               + keyTypes.length
               + " fields. But index definition has "
-              + indexDefinition.getFields().size()
+              + indexDefinition.getProperties().size()
               + " fields.");
     }
 
@@ -2548,7 +2552,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public Object getIndexValue(DatabaseSessionInternal db, int indexId, final Object key)
+  public Object getIndexValue(DatabaseSessionEmbedded db, int indexId, final Object key)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
     try {
@@ -2573,7 +2577,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Object doGetIndexValue(DatabaseSessionInternal db, final int indexId,
+  private Object doGetIndexValue(DatabaseSessionEmbedded db, final int indexId,
       final Object key)
       throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
@@ -2846,7 +2850,7 @@ public abstract class AbstractStorage
   }
 
   public Stream<RawPair<Object, RID>> iterateIndexEntriesBetween(
-      DatabaseSessionInternal db, int indexId,
+      DatabaseSessionEmbedded db, int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
       final Object rangeTo,
@@ -2884,7 +2888,7 @@ public abstract class AbstractStorage
   }
 
   private Stream<RawPair<Object, RID>> doIterateIndexEntriesBetween(
-      DatabaseSessionInternal db, final int indexId,
+      DatabaseSessionEmbedded db, final int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
       final Object rangeTo,
@@ -4187,18 +4191,11 @@ public abstract class AbstractStorage
     try {
       final var ppos =
           collection.getPhysicalPosition(new PhysicalPosition(rid.getCollectionPosition()));
-      if (ppos == null) {
-        throw new RecordNotFoundException(name,
-            rid, "Cannot update record "
-            + rid
-            + " since the position is invalid in database '"
-            + name
-            + '\'');
-      }
 
-      if (version != ppos.recordVersion) {
-        throw new ConcurrentModificationException(name, rid, ppos.recordVersion, version,
-            RecordOperation.UPDATED);
+      if (ppos == null || ppos.recordVersion != version) {
+        final var dbVersion = ppos == null ? -1 : ppos.recordVersion;
+        throw new ConcurrentModificationException(
+            name, rid, dbVersion, version, RecordOperation.UPDATED);
       }
 
       ppos.recordVersion = version + 1;
@@ -4432,7 +4429,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public boolean setCollectionAttribute(final int id, final ATTRIBUTES attribute,
+  public void setCollectionAttribute(final int id, final ATTRIBUTES attribute,
       final Object value) {
     checkBackupRunning();
     stateLock.writeLock().lock();
@@ -4441,18 +4438,18 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       if (id >= collections.size()) {
-        return false;
+        return;
       }
 
       final var collection = collections.get(id);
 
       if (collection == null) {
-        return false;
+        return;
       }
 
       makeStorageDirty();
 
-      return atomicOperationsManager.calculateInsideAtomicOperation(
+      atomicOperationsManager.calculateInsideAtomicOperation(
           null,
           atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value,
               collection));
@@ -5748,7 +5745,7 @@ public abstract class AbstractStorage
   }
 
   private void waitBackup() {
-    while (isIcrementalBackupRunning()) {
+    while (isIncrementalBackupRunning()) {
       try {
         backupIsDone.await();
       } catch (java.lang.InterruptedException e) {
@@ -5759,16 +5756,16 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-      LiveQueryResultListener listener, Map<String, ?> args) {
-    @SuppressWarnings({"rawtypes", "unchecked"})
+  public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
+      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Map<String, ?> args) {
+    @SuppressWarnings({"unchecked", "rawtypes"})
     var queryListener = new LiveQueryListenerImpl(listener, query, sessionPool, (Map) args);
     return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
   }
 
   @Override
-  public LiveQueryMonitor live(DatabasePoolInternal sessionPool, String query,
-      LiveQueryResultListener listener, Object... args) {
+  public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
+      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Object... args) {
     var queryListener = new LiveQueryListenerImpl(listener, query, sessionPool, args);
     return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
   }
@@ -5778,7 +5775,7 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public YouTrackDBInternal getContext() {
+  public YouTrackDBInternalEmbedded getContext() {
     return this.context;
   }
 
@@ -5802,7 +5799,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public boolean isIcrementalBackupRunning() {
+  public boolean isIncrementalBackupRunning() {
     return this.backupRunning > 0;
   }
 

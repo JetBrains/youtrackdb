@@ -20,13 +20,11 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 
 import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.engine.local.EngineLocalPaginated;
-import com.jetbrains.youtrack.db.internal.core.engine.memory.EngineMemory;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
@@ -52,17 +50,14 @@ public class LuceneInsertMultithreadTest {
 
     var config = System.getProperty("youtrackdb.test.env");
 
-    String storageType;
     if ("ci".equals(config) || "release".equals(config)) {
-      storageType = EngineLocalPaginated.NAME;
       databaseType = DatabaseType.DISK;
     } else {
-      storageType = EngineMemory.NAME;
       databaseType = DatabaseType.MEMORY;
     }
 
     dbName = "multiThread";
-    YOUTRACKDB = new YouTrackDBImpl(storageType + ":" + buildDirectory,
+    YOUTRACKDB = YourTracks.embedded(buildDirectory,
         YouTrackDBConfig.defaultConfig());
   }
 
@@ -79,7 +74,7 @@ public class LuceneInsertMultithreadTest {
         "create database ? " + databaseType + " users(admin identified by 'admin' role admin)",
         dbName);
     Schema schema;
-    try (var session = (DatabaseSessionInternal) YOUTRACKDB.open(
+    try (var session = (DatabaseSessionEmbedded) YOUTRACKDB.open(
         dbName, "admin", "admin")) {
       schema = session.getMetadata().getSchema();
 
@@ -160,7 +155,7 @@ public class LuceneInsertMultithreadTest {
 
     @Override
     public void run() {
-      try (var session = (DatabaseSessionInternal) YOUTRACKDB.open(
+      try (var session = (DatabaseSessionEmbedded) YOUTRACKDB.open(
           dbName, "admin", "admin")) {
         var idx = session.getClassInternal("City")
             .getClassIndex(session, "City.name");

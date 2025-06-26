@@ -1,11 +1,18 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseDocumentTx;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
@@ -38,8 +45,9 @@ import org.junit.Test;
  */
 public class LocalPaginatedStorageRestoreTx {
 
-  private DatabaseSessionInternal testDocumentTx;
-  private DatabaseSessionInternal baseDocumentTx;
+  private static YouTrackDB youTrackDB;
+  private DatabaseSessionEmbedded testDocumentTx;
+  private DatabaseSessionEmbedded baseDocumentTx;
   private File buildDir;
 
   private final ExecutorService executorService = Executors.newCachedThreadPool();
@@ -75,28 +83,24 @@ public class LocalPaginatedStorageRestoreTx {
 
     buildDir.mkdir();
 
-    baseDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:" + buildDir.getAbsolutePath() + "/baseLocalPaginatedStorageRestoreFromTx");
-    if (baseDocumentTx.exists()) {
-      baseDocumentTx.open("admin", "admin");
-      baseDocumentTx.drop();
+    youTrackDB = YourTracks.embedded(buildDir.getAbsolutePath());
+
+    if (youTrackDB.exists("localPaginatedStorageRestoreFromTx")) {
+      youTrackDB.drop("localPaginatedStorageRestoreFromTx");
     }
 
-    baseDocumentTx.create();
-
+    youTrackDB.create("localPaginatedStorageRestoreFromTx", DatabaseType.DISK,
+        YouTrackDBConfig.defaultConfig(), "admin", "admin", "admin");
+    baseDocumentTx =
+        (DatabaseSessionEmbedded) youTrackDB.open("localPaginatedStorageRestoreFromTx", "admin",
+            "admin");
     createSchema(baseDocumentTx);
   }
 
   @After
   public void afterMethod() {
-    testDocumentTx.open("admin", "admin");
-    testDocumentTx.drop();
-
-    baseDocumentTx.open("admin", "admin");
-    baseDocumentTx.drop();
-
-    buildDir.delete();
+    youTrackDB.drop("localPaginatedStorageRestoreFromTx");
+    youTrackDB.drop("basePaginatedStorageRestoreFromTx");
   }
 
   @Test
@@ -104,8 +108,10 @@ public class LocalPaginatedStorageRestoreTx {
   public void testSimpleRestore() throws Exception {
     List<Future<Void>> futures = new ArrayList<Future<Void>>();
 
-    for (var i = 0; i < 8; i++) {
-      futures.add(executorService.submit(new DataPropagationTask()));
+    try (var pool = youTrackDB.cachedPool("basePaginatedStorageRestoreFromTx", "admin", "admin")) {
+      for (var i = 0; i < 8; i++) {
+        futures.add(executorService.submit(new DataPropagationTask(pool)));
+      }
     }
 
     for (var future : futures) {
@@ -114,16 +120,9 @@ public class LocalPaginatedStorageRestoreTx {
 
     Thread.sleep(1500);
     copyDataFromTestWithoutClose();
-    var storage = baseDocumentTx.getStorage();
-    baseDocumentTx.close();
-    storage.close(baseDocumentTx);
 
-    testDocumentTx =
-        new DatabaseDocumentTx(
-            "disk:" + buildDir.getAbsolutePath() + "/testLocalPaginatedStorageRestoreFromTx");
-    testDocumentTx.open("admin", "admin");
-    testDocumentTx.close();
-
+    testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+        "testLocalPaginatedStorageRestoreFromTx", "admin", "admin");
     var databaseCompare =
         new DatabaseCompare(
             testDocumentTx,
@@ -260,106 +259,108 @@ public class LocalPaginatedStorageRestoreTx {
 
   public class DataPropagationTask implements Callable<Void> {
 
+    private final SessionPool<DatabaseSession> pool;
+
+    public DataPropagationTask(SessionPool<DatabaseSession> pool) {
+      this.pool = pool;
+    }
+
     @Override
     public Void call() throws Exception {
 
       var random = new Random();
 
-      final DatabaseSessionInternal db = new DatabaseDocumentTx(baseDocumentTx.getURL());
-      db.open("admin", "admin");
+      var db = pool.acquire();
       var rollbacksCount = 0;
       try {
         List<RID> secondDocs = new ArrayList<RID>();
         List<RID> firstDocs = new ArrayList<RID>();
 
-        var classOne = db.getMetadata().getSchema().getClass("TestOne");
-        var classTwo = db.getMetadata().getSchema().getClass("TestTwo");
+        var classOne = db.getSchema().getClass("TestOne");
+        var classTwo = db.getSchema().getClass("TestTwo");
 
         for (var i = 0; i < 20000; i++) {
           try {
-            db.begin();
 
-            var docOne = ((EntityImpl) db.newEntity(classOne));
-            docOne.setProperty("intProp", random.nextInt());
+            db.executeInTx(transaction -> {
+              var docOne = transaction.newEntity(classOne);
+              docOne.setProperty("intProp", random.nextInt());
 
-            var stringData = new byte[256];
-            random.nextBytes(stringData);
-            var stringProp = new String(stringData);
+              var stringData = new byte[256];
+              random.nextBytes(stringData);
+              var stringProp = new String(stringData);
 
-            docOne.setProperty("stringProp", stringProp);
+              docOne.setProperty("stringProp", stringProp);
 
-            Set<String> stringSet = new HashSet<String>();
-            for (var n = 0; n < 5; n++) {
-              stringSet.add("str" + random.nextInt());
-            }
-            docOne.setProperty("stringSet", stringSet);
-
-            EntityImpl docTwo = null;
-
-            if (random.nextBoolean()) {
-              docTwo = ((EntityImpl) db.newEntity(classTwo));
-
-              List<String> stringList = new ArrayList<String>();
-
+              Set<String> stringSet = new HashSet<String>();
               for (var n = 0; n < 5; n++) {
-                stringList.add("strnd" + random.nextInt());
+                stringSet.add("str" + random.nextInt());
+              }
+              docOne.setProperty("stringSet", stringSet);
+
+              Entity docTwo = null;
+
+              if (random.nextBoolean()) {
+                docTwo = transaction.newEntity(classTwo);
+
+                List<String> stringList = new ArrayList<String>();
+
+                for (var n = 0; n < 5; n++) {
+                  stringList.add("strnd" + random.nextInt());
+                }
+
+                docTwo.setProperty("stringList", stringList);
+
               }
 
-              docTwo.setProperty("stringList", stringList);
+              if (!secondDocs.isEmpty()) {
+                var startIndex = random.nextInt(secondDocs.size());
+                var endIndex = random.nextInt(secondDocs.size() - startIndex) + startIndex;
 
-            }
+                Map<String, RID> linkMap = new HashMap<String, RID>();
 
-            if (!secondDocs.isEmpty()) {
-              var startIndex = random.nextInt(secondDocs.size());
-              var endIndex = random.nextInt(secondDocs.size() - startIndex) + startIndex;
+                for (var n = startIndex; n < endIndex; n++) {
+                  var docTwoRid = secondDocs.get(n);
+                  linkMap.put(docTwoRid.toString(), docTwoRid);
+                }
 
-              Map<String, RID> linkMap = new HashMap<String, RID>();
+                docOne.setProperty("linkMap", linkMap);
 
-              for (var n = startIndex; n < endIndex; n++) {
-                var docTwoRid = secondDocs.get(n);
-                linkMap.put(docTwoRid.toString(), docTwoRid);
               }
 
-              docOne.setProperty("linkMap", linkMap);
+              var deleteIndex = -1;
+              if (!firstDocs.isEmpty()) {
+                var deleteDoc = random.nextDouble() <= 0.2;
 
-            }
-
-            var deleteIndex = -1;
-            if (!firstDocs.isEmpty()) {
-              var deleteDoc = random.nextDouble() <= 0.2;
-
-              if (deleteDoc) {
-                deleteIndex = random.nextInt(firstDocs.size());
-                if (deleteIndex >= 0) {
-                  var rid = firstDocs.get(deleteIndex);
-                  var record = db.load(rid);
-                  db.delete(record);
+                if (deleteDoc) {
+                  deleteIndex = random.nextInt(firstDocs.size());
+                  if (deleteIndex >= 0) {
+                    var rid = firstDocs.get(deleteIndex);
+                    var record = transaction.loadEntity(rid);
+                    record.delete();
+                  }
                 }
               }
-            }
 
-            if (!secondDocs.isEmpty() && (random.nextDouble() <= 0.2)) {
-              var conflictDocTwo = ((EntityImpl) db.newEntity());
-              final RecordId iIdentity = new RecordId(secondDocs.get(0));
-              final var rec = (RecordAbstract) conflictDocTwo;
-              rec.setIdentity(iIdentity);
-              conflictDocTwo.setDirty();
+              if (!secondDocs.isEmpty() && (random.nextDouble() <= 0.2)) {
+                try (var conflictSession = pool.acquire()) {
+                  conflictSession.executeInTx(conflictTransaction -> {
+                    var conflictEntityTwo = conflictTransaction.loadEntity(secondDocs.getFirst());
+                    conflictEntityTwo.setInt("intProp", random.nextInt());
+                  });
+                }
+              }
 
-            }
+              if (deleteIndex >= 0) {
+                firstDocs.remove(deleteIndex);
+              }
 
-            db.commit();
-
-            if (deleteIndex >= 0) {
-              firstDocs.remove(deleteIndex);
-            }
-
-            firstDocs.add(docOne.getIdentity());
-            if (docTwo != null) {
-              secondDocs.add(docTwo.getIdentity());
-            }
-
+              firstDocs.add(docOne.getIdentity());
+              if (docTwo != null) {
+                secondDocs.add(docTwo.getIdentity());
+              }
+            });
           } catch (Exception e) {
-            db.rollback();
             rollbacksCount++;
           }
         }

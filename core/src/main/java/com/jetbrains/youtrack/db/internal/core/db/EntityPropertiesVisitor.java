@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.db;
 
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 
 /**
  * Is used in together with {@link EntityFieldWalker} to visit all fields of current document.
@@ -38,8 +38,8 @@ public interface EntityPropertiesVisitor {
    * @return New value of this field. If the same value is returned document content will not be
    * changed.
    */
-  Object visitField(DatabaseSessionInternal db, PropertyType type, PropertyType linkedType,
-      Object value);
+  Object visitField(DatabaseSessionInternal db, PropertyTypeInternal type,
+      PropertyTypeInternal linkedType, Object value);
 
   /**
    * Indicates whether we continue to visit document fields after current one or should stop fields
@@ -50,11 +50,12 @@ public interface EntityPropertiesVisitor {
    *                   schema.
    * @param value      Field value.
    * @param newValue   New value returned by
-   *                   {@link #visitField(DatabaseSessionInternal, PropertyType, PropertyType,
+   *                   {@link #visitField(DatabaseSessionInternal, PropertyTypeInternal, PropertyTypeInternal,
    *                   Object)} method.
    * @return If false document processing will be stopped.
    */
-  boolean goFurther(PropertyType type, PropertyType linkedType, Object value, Object newValue);
+  boolean goFurther(PropertyTypeInternal type, PropertyTypeInternal linkedType, Object value,
+      Object newValue);
 
   /**
    * If currently processed value is collection or map of embedded documents or embedded document
@@ -67,11 +68,11 @@ public interface EntityPropertiesVisitor {
    * @param value      Field value.
    * @return If false currently processed collection of embedded documents will not be visited.
    */
-  boolean goDeeper(PropertyType type, PropertyType linkedType, Object value);
+  boolean goDeeper(PropertyTypeInternal type, PropertyTypeInternal linkedType, Object value);
 
   /**
    * @return If false value returned by method
-   * {@link #visitField(DatabaseSessionInternal, PropertyType, PropertyType, Object)} will not be
+   * {@link #visitField(DatabaseSessionInternal, PropertyTypeInternal, PropertyTypeInternal, Object)} will not be
    * taken in account and field value will not be updated.
    */
   boolean updateMode();

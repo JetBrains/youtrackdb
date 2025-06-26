@@ -8,7 +8,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
@@ -29,6 +29,7 @@ public class SQLStatement extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append(originalStatement);
   }
@@ -49,43 +50,43 @@ public class SQLStatement extends SimpleNode {
   }
 
 
-  public ResultSet execute(DatabaseSessionInternal session, Object[] args) {
+  public ResultSet execute(DatabaseSessionEmbedded session, Object[] args) {
     return execute(session, args, true);
   }
 
   public ResultSet execute(
-      DatabaseSessionInternal session, Object[] args, CommandContext parentContext) {
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentContext) {
     return execute(session, args, parentContext, true);
   }
 
-  public ResultSet execute(DatabaseSessionInternal session, Map<Object, Object> args) {
+  public ResultSet execute(DatabaseSessionEmbedded session, Map<Object, Object> args) {
     return execute(session, args, true);
   }
 
-  public ResultSet execute(DatabaseSessionInternal session, Map<Object, Object> args,
+  public ResultSet execute(DatabaseSessionEmbedded session, Map<Object, Object> args,
       CommandContext parentContext) {
     return execute(session, args, parentContext, true);
   }
 
-  public ResultSet execute(DatabaseSessionInternal session, Object[] args, boolean usePlanCache) {
+  public ResultSet execute(DatabaseSessionEmbedded session, Object[] args, boolean usePlanCache) {
     return execute(session, args, null, usePlanCache);
   }
 
   public ResultSet execute(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       Object[] args,
       CommandContext parentContext,
       boolean usePlanCache) {
     throw new UnsupportedOperationException();
   }
 
-  public ResultSet execute(DatabaseSessionInternal session, Map<Object, Object> args,
+  public ResultSet execute(DatabaseSessionEmbedded session, Map<Object, Object> args,
       boolean usePlanCache) {
     return execute(session, args, null, usePlanCache);
   }
 
   public ResultSet execute(
-      DatabaseSessionInternal session, Map<Object, Object> args, CommandContext parentContext,
+      DatabaseSessionEmbedded session, Map<Object, Object> args, CommandContext parentContext,
       boolean usePlanCache) {
     throw new UnsupportedOperationException();
   }
@@ -115,6 +116,7 @@ public class SQLStatement extends SimpleNode {
     return createExecutionPlan(ctx, profile);
   }
 
+  @Override
   public SQLStatement copy() {
     throw new UnsupportedOperationException("IMPLEMENT copy() ON " + getClass().getSimpleName());
   }
@@ -145,8 +147,8 @@ public class SQLStatement extends SimpleNode {
     return null;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("__class", getClass().getName());
     return result;
   }
@@ -155,7 +157,7 @@ public class SQLStatement extends SimpleNode {
     throw new UnsupportedOperationException();
   }
 
-  public boolean executinPlanCanBeCached(DatabaseSessionInternal session) {
+  public boolean executinPlanCanBeCached(DatabaseSessionEmbedded session) {
     return false;
   }
 

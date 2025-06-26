@@ -2,15 +2,18 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLIsNotNullCondition extends SQLBooleanExpression {
 
@@ -42,7 +45,7 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
     return expression.execute(currentRecord, ctx) != null;
   }
 
-  private boolean evaluateAny(Result currentRecord, CommandContext ctx) {
+  private static boolean evaluateAny(Result currentRecord, CommandContext ctx) {
     for (var s : currentRecord.getPropertyNames()) {
       var leftVal = currentRecord.getProperty(s);
       if (!(leftVal == null)) {
@@ -52,7 +55,7 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
     return false;
   }
 
-  private boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
+  private static boolean evaluateAllFunction(Result currentRecord, CommandContext ctx) {
     for (var s : currentRecord.getPropertyNames()) {
       var leftVal = currentRecord.getProperty(s);
       if (leftVal == null) {
@@ -62,11 +65,13 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
     return true;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     expression.toString(params, builder);
     builder.append(" IS NOT NULL");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     expression.toGenericStatement(builder);
     builder.append(" IS NOT NULL");
@@ -90,7 +95,7 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
     if (!expression.supportsBasicCalculation()) {
       return Collections.singletonList(expression);
     }
-    return Collections.EMPTY_LIST;
+    return Collections.emptyList();
   }
 
   @Override
@@ -140,8 +145,31 @@ public class SQLIsNotNullCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return expression.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=a292fa8a629abb7f6fe72a627fc91361 (do not edit this line) */

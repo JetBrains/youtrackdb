@@ -23,13 +23,13 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.io.StringWriter;
 import java.math.BigDecimal;
@@ -51,7 +51,7 @@ public abstract class RecordSerializerStringAbstract {
 
   @Nullable
   public static Object fieldTypeFromStream(
-      DatabaseSessionInternal session, final EntityImpl entity, PropertyTypeInternal iType,
+      DatabaseSessionEmbedded session, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return null;
@@ -79,21 +79,12 @@ public abstract class RecordSerializerStringAbstract {
 
       case EMBEDDED: {
         // EMBEDED RECORD
-        final var embeddedObject =
-            StringSerializerEmbedded.INSTANCE.fromStream(session, (String) iValue);
-        if (embeddedObject instanceof EntityImpl) {
-          ((EntityImpl) embeddedObject).setOwner(entity);
-        }
-
-        // EMBEDDED OBJECT
-        return embeddedObject;
+        return null;
       }
 
       case EMBEDDEDSET:
       case EMBEDDEDLIST: {
-        final var value = (String) iValue;
-        return RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionFromStream(session,
-            entity, iType, null, null, value);
+        return null;
       }
 
       case EMBEDDEDMAP: {
@@ -107,7 +98,7 @@ public abstract class RecordSerializerStringAbstract {
         "Type " + iType + " not supported to convert value: " + iValue);
   }
 
-  public static Object convertValue(DatabaseSessionInternal session,
+  public static Object convertValue(DatabaseSessionEmbedded session,
       final String iValue, final PropertyTypeInternal iExpectedType) {
     final var v = getTypeValue(session, iValue);
     return PropertyTypeInternal.convert(session, v, iExpectedType.getDefaultJavaType());
@@ -186,40 +177,15 @@ public abstract class RecordSerializerStringAbstract {
         break;
 
       case EMBEDDEDSET:
-        RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionToStream(
-            session,
-            iBuffer,
-            null,
-            null,
-            iValue,
-            true);
         break;
 
       case EMBEDDEDLIST:
-        RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionToStream(
-            session,
-            iBuffer,
-            null,
-            null,
-            iValue,
-            false);
         break;
 
       case EMBEDDEDMAP:
-        RecordSerializerSchemaAware2CSV.INSTANCE.embeddedMapToStream(
-            session,
-            iBuffer,
-            null,
-            iValue);
         break;
 
       case EMBEDDED:
-        if (iValue instanceof EntityImpl) {
-          RecordSerializerSchemaAware2CSV.INSTANCE.toString(session, (EntityImpl) iValue, iBuffer,
-              null);
-        } else {
-          StringSerializerEmbedded.INSTANCE.toStream(session, iBuffer, iValue);
-        }
         break;
 
       default:
@@ -364,7 +330,7 @@ public abstract class RecordSerializerStringAbstract {
    * @return The closest type recognized
    */
   @Nullable
-  public static Object getTypeValue(DatabaseSessionInternal db, final String iValue) {
+  public static Object getTypeValue(DatabaseSessionEmbedded db, final String iValue) {
     if (iValue == null || iValue.equalsIgnoreCase("NULL")) {
       return null;
     }
@@ -488,7 +454,7 @@ public abstract class RecordSerializerStringAbstract {
     }
   }
 
-  public static Object simpleValueFromStream(DatabaseSessionInternal db, final Object iValue,
+  public static Object simpleValueFromStream(DatabaseSessionEmbedded db, final Object iValue,
       final PropertyTypeInternal iType) {
     switch (iType) {
       case STRING:
@@ -666,7 +632,7 @@ public abstract class RecordSerializerStringAbstract {
   }
 
   public abstract <T extends DBRecord> T fromString(
-      DatabaseSessionInternal session, String iContent, RecordAbstract iRecord, String[] iFields);
+      DatabaseSessionEmbedded session, String iContent, RecordAbstract iRecord, String[] iFields);
 
   public StringWriter toString(
       DatabaseSessionInternal db, final DBRecord iRecord, final StringWriter iOutput,
@@ -674,21 +640,21 @@ public abstract class RecordSerializerStringAbstract {
     return toString(db, iRecord, iOutput, iFormat, true);
   }
 
-  public <T extends DBRecord> T fromString(DatabaseSessionInternal session, final String iSource) {
+  public <T extends DBRecord> T fromString(DatabaseSessionEmbedded session, final String iSource) {
     return fromString(session, iSource, null, null);
   }
 
   public RecordAbstract fromStream(
-      DatabaseSessionInternal db, final byte[] iSource, final RecordAbstract iRecord,
+      DatabaseSessionEmbedded db, final byte[] iSource, final RecordAbstract iRecord,
       final String[] iFields) {
 
     return fromString(db, new String(iSource, StandardCharsets.UTF_8), iRecord, iFields);
   }
 
   public byte[] toStream(DatabaseSessionInternal session, final RecordAbstract iRecord) {
-      return toString(session, iRecord, new StringWriter(2048), null, true)
-          .toString()
-          .getBytes(StandardCharsets.UTF_8);
+    return toString(session, iRecord, new StringWriter(2048), null, true)
+        .toString()
+        .getBytes(StandardCharsets.UTF_8);
   }
 
   protected abstract StringWriter toString(

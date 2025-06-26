@@ -3,8 +3,8 @@ package com.jetbrains.youtrack.db.internal.core.db;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrack.db.api.DatabaseSession;
-import com.jetbrains.youtrack.db.api.YouTrackDB;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -21,7 +21,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class DatabaseMetadataUpdateListenerTest {
-  private YouTrackDB youTrackDB;
+  private BasicYouTrackDB youTrackDB;
   private DatabaseSessionInternal session;
   private int configCount;
   private int sequenceCount;
@@ -94,6 +94,7 @@ public class DatabaseMetadataUpdateListenerTest {
           .getSequenceLibrary()
           .createSequence("sequence1", DBSequence.SEQUENCE_TYPE.ORDERED, null);
     } catch (DatabaseException exc) {
+      exc.printStackTrace();
       Assert.fail("Failed to create sequence");
     }
     assertEquals(1, sequenceCount);
@@ -102,7 +103,7 @@ public class DatabaseMetadataUpdateListenerTest {
 
   @Test
   public void testIndexConfigurationUpdate() {
-    session.set(DatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMAN);
+    session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMAN);
     assertEquals(1, configCount);
   }
 

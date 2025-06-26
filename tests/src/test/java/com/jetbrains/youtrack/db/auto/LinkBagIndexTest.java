@@ -12,8 +12,6 @@ import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -21,12 +19,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public class LinkBagIndexTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public LinkBagIndexTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   public void setupSchema() {
     final var ridBagIndexTestClass =
@@ -50,12 +42,14 @@ public class LinkBagIndexTest extends BaseDBTest {
     session.close();
   }
 
+  @Override
   @AfterMethod
   public void afterMethod() {
     session.begin();
     session.execute("DELETE FROM RidBagIndexTestClass").close();
     session.commit();
 
+    session.begin();
     var result = session.query("select from RidBagIndexTestClass");
     Assert.assertEquals(result.stream().count(), 0);
 
@@ -63,6 +57,8 @@ public class LinkBagIndexTest extends BaseDBTest {
       final var index = getIndex("ridBagIndex");
       Assert.assertEquals(index.size(session), 0);
     }
+    result.close();
+    session.commit();
   }
 
   public void testIndexRidBag() {
@@ -258,7 +254,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     var document = ((EntityImpl) session.newEntity("RidBagIndexTestClass"));
     document.setProperty("ridBag", ridBagOne);
 
-    Assert.assertTrue(session.commit());
+    Assert.assertNotNull(session.commit());
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -669,6 +665,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     session.commit();
 
+    session.begin();
     var result =
         session.query(
             "select * from RidBagIndexTestClass where ridBag contains ?", docOne.getIdentity());
@@ -681,5 +678,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     result.close();
 
     Assert.assertEquals(Set.of(docOne.getIdentity(), docTwo.getIdentity()), resultSet);
+    session.commit();
+
   }
 }

@@ -122,7 +122,6 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
     var data = new NetworkProtocolData();
     data.driverName = "aa";
     data.driverVersion = "aa";
-    data.setSerializationImpl("a");
     data.protocolVersion = 2;
 
     var token = handler.getSignedBinaryToken(session, original, data);
@@ -149,7 +148,6 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
     var data = new NetworkProtocolData();
     data.driverName = "aa";
     data.driverVersion = "aa";
-    data.setSerializationImpl("a");
     data.protocolVersion = 2;
 
     var token = handler.getSignedBinaryToken(session, original, data);
@@ -167,7 +165,6 @@ public class TokenHandlerImplTest extends BaseMemoryInternalDatabase {
     var data = new NetworkProtocolData();
     data.driverName = "aa";
     data.driverVersion = "aa";
-    data.setSerializationImpl("a");
     data.protocolVersion = 2;
 
     var token = handler.getSignedBinaryToken(session, original, data);

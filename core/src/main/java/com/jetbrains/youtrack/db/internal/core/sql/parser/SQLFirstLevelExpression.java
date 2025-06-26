@@ -18,6 +18,7 @@ public class SQLFirstLevelExpression extends SQLMathExpression {
   }
 
   // never used, this class is never returned by the parser!
+  @Override
   public boolean isBaseIdentifier() {
     return value instanceof SQLIdentifier;
   }

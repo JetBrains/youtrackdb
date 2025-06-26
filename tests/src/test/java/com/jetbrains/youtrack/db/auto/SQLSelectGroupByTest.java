@@ -20,18 +20,10 @@ import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Ignore;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class SQLSelectGroupByTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public SQLSelectGroupByTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
-
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
@@ -109,6 +101,7 @@ public class SQLSelectGroupByTest extends BaseDBTest {
       session.execute("insert into GroupByTest set location = 'Austin'").close();
       session.commit();
 
+      session.begin();
       final var result =
           executeQuery(
               "select location, count(*) from GroupByTest group by location");
@@ -124,6 +117,8 @@ public class SQLSelectGroupByTest extends BaseDBTest {
       }
 
       Assert.assertTrue(foundNullGroup);
+      session.commit();
+
     } finally {
       session.begin();
       session.execute("delete vertex GroupByTest").close();
@@ -143,6 +138,7 @@ public class SQLSelectGroupByTest extends BaseDBTest {
       session.execute("insert into GroupByTest set location = 'Austin'").close();
       session.commit();
 
+      session.begin();
       final var result = executeQuery(
           "select location, count(*) from GroupByTest group by location");
 
@@ -151,6 +147,7 @@ public class SQLSelectGroupByTest extends BaseDBTest {
       for (var d : result) {
         Assert.assertNotNull(d.getProperty("location"), "Found null in resultset with groupby");
       }
+      session.commit();
 
     } finally {
       session.begin();

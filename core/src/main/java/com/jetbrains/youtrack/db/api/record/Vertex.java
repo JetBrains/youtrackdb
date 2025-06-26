@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.api.record;
 
+import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import java.util.Set;
 
@@ -124,7 +125,7 @@ public interface Vertex extends Entity {
    *
    * @param to the vertex to which the edge is connected
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.schema.Schema#createEdgeClass(String)
+   * @see Schema#createEdgeClass(String)
    */
   StatefulEdge addStateFulEdge(Vertex to);
 
@@ -136,8 +137,8 @@ public interface Vertex extends Entity {
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge (optional)
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.schema.Schema#createEdgeClass(String)
-   * @see com.jetbrains.youtrack.db.api.schema.Schema#createLightweightEdgeClass(String)
+   * @see Schema#createEdgeClass(String)
+   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addEdge(Vertex to, String label);
 
@@ -149,7 +150,7 @@ public interface Vertex extends Entity {
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.schema.Schema#createEdgeClass(String)
+   * @see Schema#createEdgeClass(String)
    */
   StatefulEdge addStateFulEdge(Vertex to, String label);
 
@@ -161,7 +162,7 @@ public interface Vertex extends Entity {
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge (optional)
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.schema.Schema#createLightweightEdgeClass(String)
+   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addLightWeightEdge(Vertex to, String label);
 
@@ -173,8 +174,8 @@ public interface Vertex extends Entity {
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.schema.Schema#createEdgeClass(String)
-   * @see com.jetbrains.youtrack.db.api.schema.Schema#createLightweightEdgeClass(String)
+   * @see Schema#createEdgeClass(String)
+   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addEdge(Vertex to, SchemaClass label);
 
@@ -197,7 +198,7 @@ public interface Vertex extends Entity {
    * @param to    the vertex to which the edge is connected
    * @param label the label of the edge
    * @return the created edge
-   * @see com.jetbrains.youtrack.db.api.schema.Schema#createLightweightEdgeClass(String)
+   * @see Schema#createLightweightEdgeClass(String)
    */
   Edge addLightWeightEdge(Vertex to, SchemaClass label);
 

@@ -1,9 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag.sbtree;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.api.SessionPool;
 import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
+import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrack.db.api.exception.LinksConsistencyException;
@@ -153,9 +154,9 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
   public class RidAdder implements Callable<Void> {
 
     private final int id;
-    private final SessionPool pool;
+    private final SessionPool<DatabaseSession> pool;
 
-    public RidAdder(int id, SessionPool pool) {
+    public RidAdder(int id, SessionPool<DatabaseSession> pool) {
       this.id = id;
       this.pool = pool;
     }
@@ -218,9 +219,9 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
   public class RidDeleter implements Callable<HashSet<RID>> {
 
     private final int id;
-    private final SessionPool pool;
+    private final SessionPool<DatabaseSession> pool;
 
-    public RidDeleter(int id, SessionPool pool) {
+    public RidDeleter(int id, SessionPool<DatabaseSession> pool) {
       this.id = id;
       this.pool = pool;
     }

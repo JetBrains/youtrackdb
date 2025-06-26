@@ -104,18 +104,29 @@ public class ConcurrentModificationException extends NeedRetryException
       int recordOperation, RID rid, int databaseVersion, int recordVersion) {
     final var operation = RecordOperation.getName(recordOperation);
 
-    var sb =
-        "Cannot "
-            + operation
-            + " the record "
-            + rid
-            + " because the version is not the latest. Probably you are "
-            + operation.toLowerCase(Locale.ENGLISH).substring(0, operation.length() - 1)
-            + "ing an old record or it has been modified by another user (db=v"
-            + databaseVersion
-            + " your=v"
-            + recordVersion
-            + ")";
-    return sb;
+    final var sb =
+        new StringBuilder()
+            .append("Cannot ").append(operation)
+            .append(" the record ").append(rid)
+            .append(" because ");
+
+    if (databaseVersion < 0) {
+      sb.append("it does not exist in the database.");
+    } else {
+      sb.append("the version is not the latest.");
+    }
+
+    sb.append(" Probably you are ")
+        .append(operation.toLowerCase(Locale.ENGLISH), 0, operation.length() - 1).append("ing ");
+
+    if (databaseVersion < 0) {
+      sb.append("a record that has been deleted by another user (your=v").append(recordVersion)
+          .append(")");
+    } else {
+      sb.append("an old record or it has been modified by another user (db=v")
+          .append(databaseVersion).append(" your=v").append(recordVersion).append(")");
+    }
+
+    return sb.toString();
   }
 }

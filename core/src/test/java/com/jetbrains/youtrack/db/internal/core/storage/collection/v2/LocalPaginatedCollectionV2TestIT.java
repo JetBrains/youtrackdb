@@ -1,9 +1,10 @@
 package com.jetbrains.youtrack.db.internal.core.storage.collection.v2;
 
+import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.storage.collection.LocalPaginatedCollectionAbstract;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
@@ -25,7 +26,7 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     dbName = "collectionTest";
 
     final var config = YouTrackDBConfig.defaultConfig();
-    youTrackDB = new YouTrackDBImpl("disk:" + buildDirectory, config);
+    youTrackDB = YourTracks.embedded(buildDirectory, config);
     youTrackDB.execute(
         "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
 

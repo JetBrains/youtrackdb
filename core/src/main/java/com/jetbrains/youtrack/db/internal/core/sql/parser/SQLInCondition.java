@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
@@ -17,13 +18,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SQLInCondition extends SQLBooleanExpression {
 
+  private static final Pattern PATTERN = Pattern.compile("\"");
   protected SQLExpression left;
   protected SQLBinaryCompareOperator operator;
   protected SQLSelectStatement rightStatement;
@@ -96,7 +99,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     return evaluateExpression(ctx.getDatabaseSession(), leftVal, rightVal);
   }
 
-  private boolean evaluateAny(Result currentRecord, Object rightVal, CommandContext ctx) {
+  private static boolean evaluateAny(Result currentRecord, Object rightVal, CommandContext ctx) {
     for (var s : currentRecord.getPropertyNames()) {
       var leftVal = currentRecord.getProperty(s);
       if (evaluateExpression(ctx.getDatabaseSession(), leftVal, rightVal)) {
@@ -106,7 +109,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     return false;
   }
 
-  private boolean evaluateAllFunction(Result currentRecord, Object rightVal,
+  private static boolean evaluateAllFunction(Result currentRecord, Object rightVal,
       CommandContext ctx) {
     for (var s : currentRecord.getPropertyNames()) {
       var leftVal = currentRecord.getProperty(s);
@@ -143,7 +146,7 @@ public class SQLInCondition extends SQLBooleanExpression {
   protected static boolean evaluateExpression(DatabaseSessionInternal session, final Object iLeft,
       final Object iRight) {
     if (iRight instanceof InternalResultSet rsRight) {
-      rsRight.reset();
+      rsRight = rsRight.copy(session);
 
       while (rsRight.hasNext()) {
         if (QueryOperatorEquals.equals(session, iLeft, rsRight.next())) {
@@ -203,13 +206,14 @@ public class SQLInCondition extends SQLBooleanExpression {
     if (leftItem instanceof Result && ((Result) leftItem).getPropertyNames().size() == 1) {
       var propValue =
           ((Result) leftItem)
-              .getProperty(((Result) leftItem).getPropertyNames().iterator().next());
+              .getProperty(((Result) leftItem).getPropertyNames().getFirst());
       return QueryOperatorEquals.equals(session, propValue, rightItem);
     }
 
     return false;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
     builder.append(" IN ");
@@ -226,6 +230,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     builder.append(" IN ");
@@ -242,7 +247,7 @@ public class SQLInCondition extends SQLBooleanExpression {
     }
   }
 
-  private String convertToString(Object o) {
+  private static String convertToString(Object o) {
     if (o instanceof String) {
       return "\"" + ((String) o).replaceAll("\"", "\\\"") + "\"";
     }
@@ -398,11 +403,11 @@ public class SQLInCondition extends SQLBooleanExpression {
       result.addAll(conditionX);
     }
 
-    return result.size() == 0 ? null : result;
+    return result.isEmpty() ? null : result;
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (left != null && !left.isCacheable(session)) {
       return false;
     }
@@ -440,11 +445,12 @@ public class SQLInCondition extends SQLBooleanExpression {
     this.rightMathExpression = rightMathExpression;
   }
 
-  public boolean isIndexAware(IndexSearchInfo info) {
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
     if (left.isBaseIdentifier()) {
-      if (info.getField().equals(left.getDefaultAlias().getStringValue())) {
+      if (info.fieldName().equals(left.getDefaultAlias().getStringValue())) {
         if (rightMathExpression != null) {
-          return rightMathExpression.isEarlyCalculated(info.getCtx());
+          return rightMathExpression.isEarlyCalculated(info.ctx());
         } else {
           return rightParam != null;
         }
@@ -453,16 +459,39 @@ public class SQLInCondition extends SQLBooleanExpression {
     return false;
   }
 
-  public Optional<IndexCandidate> findIndex(IndexFinder info, CommandContext ctx) {
-    var path = left.getPath();
-    if (path.isPresent()) {
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    if (left.isBaseIdentifier()) {
+      return left.getDefaultAlias().getStringValue();
+    }
+
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
+  }
+
+  @Override
+  public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {
+    var path = left.getIndexMetadataPath(ctx.getDatabaseSession());
+    if (path != null) {
       if (rightMathExpression != null && rightMathExpression.isEarlyCalculated(ctx)) {
         var value = rightMathExpression.execute((Result) null, ctx);
-        return info.findExactIndex(path.get(), value, ctx);
+        return info.findExactIndex(path, value, ctx);
       }
     }
 
-    return Optional.empty();
+    return null;
   }
 
   @Override

@@ -5,6 +5,7 @@ import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -91,7 +92,7 @@ public interface ExecutionStepInternal extends ExecutionStep {
     // do nothing
   }
 
-  default Result serialize(DatabaseSessionInternal session) {
+  default Result serialize(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
@@ -99,11 +100,11 @@ public interface ExecutionStepInternal extends ExecutionStep {
     throw new UnsupportedOperationException();
   }
 
-  static ResultInternal basicSerialize(DatabaseSessionInternal session,
+  static ResultInternal basicSerialize(DatabaseSessionEmbedded session,
       ExecutionStepInternal step) {
     var result = new ResultInternal(session);
     result.setProperty(InternalExecutionPlan.JAVA_TYPE, step.getClass().getName());
-    if (step.getSubSteps() != null && !step.getSubSteps().isEmpty()) {
+    if (!step.getSubSteps().isEmpty()) {
       List<Result> serializedSubsteps = new ArrayList<>();
       for (var substep : step.getSubSteps()) {
         serializedSubsteps.add(((ExecutionStepInternal) substep).serialize(session));

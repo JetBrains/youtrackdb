@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrack.db.internal.core.db.tool;
 
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.Collections;
 import java.util.List;
@@ -29,10 +29,10 @@ import java.util.List;
 /**
  * Base class for tools related to databases.
  */
-public abstract class DatabaseTool implements Runnable {
+public abstract class DatabaseTool<S extends BasicDatabaseSession<?, ?>> implements Runnable {
 
   protected CommandOutputListener output;
-  protected DatabaseSessionInternal session;
+  protected S session;
   protected boolean verbose = false;
 
   protected abstract void parseSetting(final String option, final List<String> items);
@@ -61,17 +61,17 @@ public abstract class DatabaseTool implements Runnable {
     return this;
   }
 
-  public DatabaseTool setOutputListener(final CommandOutputListener iListener) {
+  public DatabaseTool<S> setOutputListener(final CommandOutputListener iListener) {
     output = iListener;
     return this;
   }
 
-  public DatabaseTool setDatabaseSession(final DatabaseSessionInternal session) {
+  public DatabaseTool<S> setDatabaseSession(final S session) {
     this.session = session;
     return this;
   }
 
-  public DatabaseTool setVerbose(final boolean verbose) {
+  public DatabaseTool<S> setVerbose(final boolean verbose) {
     this.verbose = verbose;
     return this;
   }

@@ -5,7 +5,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.DeleteEdgeExecutionPlanner;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.DeleteExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
@@ -17,8 +17,6 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class SQLDeleteEdgeStatement extends SQLStatement {
-
-  private static final Object unset = new Object();
 
   protected SQLIdentifier className;
   protected SQLIdentifier targetCollectionName;
@@ -44,7 +42,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Map<Object, Object> params, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Map<Object, Object> params, CommandContext parentCtx,
       boolean usePlanCache) {
     var ctx = new BasicCommandContext();
     if (parentCtx != null) {
@@ -64,7 +62,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
 
   @Override
   public ResultSet execute(
-      DatabaseSessionInternal session, Object[] args, CommandContext parentCtx,
+      DatabaseSessionEmbedded session, Object[] args, CommandContext parentCtx,
       boolean usePlanCache) {
     Map<Object, Object> params = new HashMap<>();
     if (args != null) {
@@ -75,6 +73,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     return execute(session, params, parentCtx, usePlanCache);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new DeleteEdgeExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling, true);
@@ -83,6 +82,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     return result;
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlanNoCache(
       CommandContext ctx, boolean enableProfiling) {
     var planner = new DeleteEdgeExecutionPlanner(this);
@@ -92,6 +92,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     return result;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("DELETE EDGE");
 
@@ -142,6 +143,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("DELETE EDGE");
 
@@ -204,7 +206,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
     result.targetCollectionName = targetCollectionName == null ? null : targetCollectionName.copy();
     result.rid = rid == null ? null : rid.copy();
     result.rids =
-        rids == null ? null : rids.stream().map(x -> x.copy()).collect(Collectors.toList());
+        rids == null ? null : rids.stream().map(SQLRid::copy).collect(Collectors.toList());
     result.leftExpression = leftExpression == null ? null : leftExpression.copy();
     result.rightExpression = rightExpression == null ? null : rightExpression.copy();
     result.whereClause = whereClause == null ? null : whereClause.copy();
@@ -214,7 +216,7 @@ public class SQLDeleteEdgeStatement extends SQLStatement {
   }
 
   @Override
-  public boolean executinPlanCanBeCached(DatabaseSessionInternal session) {
+  public boolean executinPlanCanBeCached(DatabaseSessionEmbedded session) {
     if (leftExpression != null && !leftExpression.isCacheable(session)) {
       return false;
     }

@@ -3,10 +3,13 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.query.QueryHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
+import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryOperatorEquals;
 import java.util.Map;
-import java.util.function.Function;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLLikeOperator extends SimpleNode implements SQLBinaryCompareOperator {
 
@@ -19,7 +22,7 @@ public class SQLLikeOperator extends SimpleNode implements SQLBinaryCompareOpera
   }
 
   @Override
-  public boolean execute(Object iLeft, Object iRight) {
+  public boolean execute(@Nonnull DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
     if (MultiValue.isMultiValue(iRight)) {
       return false;
     }
@@ -27,8 +30,9 @@ public class SQLLikeOperator extends SimpleNode implements SQLBinaryCompareOpera
       return false;
     }
 
-    if (MultiValue.isMultiValue(iLeft)){
-      return MultiValue.contains(iLeft, item -> QueryHelper.like(item.toString(), iRight.toString()));
+    if (MultiValue.isMultiValue(iLeft)) {
+      return MultiValue.contains(iLeft,
+          item -> QueryHelper.like(item.toString(), iRight.toString()));
     }
 
     return QueryHelper.like(iLeft.toString(), iRight.toString());
@@ -52,6 +56,18 @@ public class SQLLikeOperator extends SimpleNode implements SQLBinaryCompareOpera
   @Override
   public boolean supportsBasicCalculation() {
     return true;
+  }
+
+  @Nullable
+  @Override
+  public MergeResult mergeWithOperator(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SQLBinaryCompareOperator otherOperator, Object currentRight,
+      Object otherRight) {
+    if (QueryOperatorEquals.equals(session, currentRight, otherRight)) {
+      return new MergeResult(this, currentRight);
+    }
+
+    return null;
   }
 
   @Override

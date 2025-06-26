@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrack.db.internal.core.serialization.serializer.record;
 
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -27,7 +28,7 @@ import javax.annotation.Nonnull;
 
 public interface RecordSerializer {
 
-  void fromStream(@Nonnull DatabaseSessionInternal session, @Nonnull byte[] iSource,
+  void fromStream(@Nonnull DatabaseSessionEmbedded session, @Nonnull byte[] iSource,
       @Nonnull RecordAbstract iRecord,
       String[] iFields);
 

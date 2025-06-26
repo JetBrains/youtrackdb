@@ -40,6 +40,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodAsLong;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodAsMap;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodAsSet;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodAsString;
+import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodContains;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodField;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodFormat;
 import com.jetbrains.youtrack.db.internal.core.sql.method.misc.SQLMethodFunctionDelegate;
@@ -85,6 +86,7 @@ public class DefaultSQLMethodFactory implements SQLMethodFactory {
     register(SQLMethodAsLong.NAME, new SQLMethodAsLong());
     register(SQLMethodAsMap.NAME, new SQLMethodAsMap());
     register(SQLMethodAsSet.NAME, new SQLMethodAsSet());
+    register(SQLMethodContains.NAME, new SQLMethodContains());
     register(SQLMethodAsString.NAME, new SQLMethodAsString());
     register(SQLMethodCharAt.NAME, new SQLMethodCharAt());
     register(SQLMethodConvert.NAME, new SQLMethodConvert());

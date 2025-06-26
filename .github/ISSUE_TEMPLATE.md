@@ -1,15 +1,13 @@
-### YouTrackDB Version: <version here>
+1. YouTrackDB Version:
+2. Java Version:
+3. OS:
 
-### Java Version: <version here>  
-### OS: <os here>  
+Expected behavior:
 
-## Expected behavior  
-<add here>  
+Actual behavior:
 
-## Actual behavior  
-<add here>  
+Steps to reproduce:
 
-## Steps to reproduce  
-<add here>  
-<An SQL script to reproduce the problem or a JUnit test case will increase **A LOT** the chance to have a quick fix>
+Test case, code or Gremlin script reproduce the problem will increase **A LOT** the chance to have a
+quick fix.
 

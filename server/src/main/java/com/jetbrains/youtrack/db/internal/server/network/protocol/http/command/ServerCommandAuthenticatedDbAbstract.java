@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
 import com.jetbrains.youtrack.db.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.SecurityUserImpl;
@@ -278,7 +279,7 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
     }
   }
 
-  protected DatabaseSessionInternal getProfiledDatabaseSessionInstance(final HttpRequest iRequest)
+  protected DatabaseSessionEmbedded getProfiledDatabaseSessionInstance(final HttpRequest iRequest)
       throws InterruptedException {
     if (iRequest.getBearerToken() != null) {
       return getProfiledDatabaseInstanceToken(iRequest);
@@ -287,12 +288,12 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
     }
   }
 
-  protected DatabaseSessionInternal getProfiledDatabaseInstanceToken(final HttpRequest iRequest)
+  protected DatabaseSessionEmbedded getProfiledDatabaseInstanceToken(final HttpRequest iRequest)
       throws InterruptedException {
     // after authentication, if current login user is different compare with current DB user, reset
     // DB user to login user
 
-    var localDatabase = server.openSession(iRequest.getDatabaseName(), iRequest.getBearerToken());
+    var localDatabase = server.openSession(iRequest.getBearerToken());
 
     var currentUserId = iRequest.getBearerToken().getToken().getUserId();
     if (currentUserId != null && localDatabase.getCurrentUser() != null) {
@@ -308,10 +309,10 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
         localDatabase.getCurrentUser() != null ? localDatabase.getCurrentUser()
             .getName(localDatabase)
             : null;
-    return localDatabase.getDatabaseOwner();
+    return localDatabase;
   }
 
-  protected DatabaseSessionInternal getProfiledDatabaseInstanceBasic(
+  protected DatabaseSessionEmbedded getProfiledDatabaseInstanceBasic(
       final HttpRequest iRequest) {
     final var session = server.getHttpSessionManager().getSession(iRequest.getSessionId());
 
@@ -341,7 +342,7 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
             .getName(localDatabase)
             : null;
     iRequest.getExecutor().setDatabase(localDatabase);
-    return localDatabase.getDatabaseOwner();
+    return localDatabase;
   }
 
   private void init() {

@@ -13,17 +13,10 @@ import org.testng.annotations.Test;
 /**
  * @since 3/2/2015
  */
-@Test(groups = "sequence")
 public class DBSequenceTest extends BaseDBTest {
-
   private static final int CACHE_SIZE = 40;
   private static final long FIRST_START = DBSequence.DEFAULT_START;
   private static final long SECOND_START = 31;
-
-  @Parameters(value = "remote")
-  public DBSequenceTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   @Test
   public void trivialTest() throws ExecutionException, InterruptedException {

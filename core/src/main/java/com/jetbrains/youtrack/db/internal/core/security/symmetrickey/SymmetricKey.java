@@ -584,7 +584,7 @@ public class SymmetricKey {
       var json = new String(decoded, StandardCharsets.UTF_8);
 
       // Convert the JSON content to an Map to make parsing it easier.
-      final var map = JSONSerializerJackson.mapFromJson(json);
+      final var map = JSONSerializerJackson.INSTANCE.mapFromJson(json);
 
       // Set a default in case the JSON document does not contain an "algorithm" property.
       var algorithm = secretKeyAlgorithm;

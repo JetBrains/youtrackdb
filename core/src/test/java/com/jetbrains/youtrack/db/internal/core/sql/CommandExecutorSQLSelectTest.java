@@ -28,13 +28,13 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
+import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -59,6 +59,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   private static final int ORDER_SKIP_LIMIT_ITEMS = 100 * 1000;
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
 
@@ -217,14 +218,14 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initCollateOnLinked(DatabaseSession db) {
-    db.runScript("sql", "CREATE CLASS CollateOnLinked");
-    db.runScript("sql", "CREATE PROPERTY CollateOnLinked.name String");
-    db.runScript("sql", "ALTER PROPERTY CollateOnLinked.name collate ci");
+    db.computeScript("sql", "CREATE CLASS CollateOnLinked");
+    db.computeScript("sql", "CREATE PROPERTY CollateOnLinked.name String");
+    db.computeScript("sql", "ALTER PROPERTY CollateOnLinked.name collate ci");
 
-    db.runScript("sql", "CREATE CLASS CollateOnLinked2");
+    db.computeScript("sql", "CREATE CLASS CollateOnLinked2");
 
-    db.runScript("sql", "CREATE CLASS CollateOnLinked3");
-    db.runScript("sql", "CREATE CLASS CollateOnLinked4");
+    db.computeScript("sql", "CREATE CLASS CollateOnLinked3");
+    db.computeScript("sql", "CREATE CLASS CollateOnLinked4");
 
     db.executeInTx(transaction -> {
       var doc = (EntityImpl) transaction.newEntity("CollateOnLinked");
@@ -242,8 +243,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initComplexFilterInSquareBrackets(DatabaseSession db) {
-    db.runScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets1").close();
-    db.runScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets2").close();
+    db.computeScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets1").close();
+    db.computeScript("sql", "CREATE CLASS ComplexFilterInSquareBrackets2").close();
 
     var tx = db.begin();
     tx.command("INSERT INTO ComplexFilterInSquareBrackets1 SET name = 'n1', value = 1");
@@ -260,10 +261,10 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initFilterAndOrderByTest(DatabaseSession db) {
-    db.runScript("sql", "CREATE CLASS FilterAndOrderByTest").close();
-    db.runScript("sql", "CREATE PROPERTY FilterAndOrderByTest.dc DATETIME").close();
-    db.runScript("sql", "CREATE PROPERTY FilterAndOrderByTest.active BOOLEAN").close();
-    db.runScript("sql",
+    db.computeScript("sql", "CREATE CLASS FilterAndOrderByTest").close();
+    db.computeScript("sql", "CREATE PROPERTY FilterAndOrderByTest.dc DATETIME").close();
+    db.computeScript("sql", "CREATE PROPERTY FilterAndOrderByTest.active BOOLEAN").close();
+    db.computeScript("sql",
             "CREATE INDEX FilterAndOrderByTest.active ON FilterAndOrderByTest (active) NOTUNIQUE")
         .close();
 
@@ -287,7 +288,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initMaxLongNumber(DatabaseSession db) {
-    db.runScript("sql", "CREATE class MaxLongNumberTest").close();
+    db.computeScript("sql", "CREATE class MaxLongNumberTest").close();
 
     var tx = db.begin();
     tx.execute("insert into MaxLongNumberTest set last = 1").close();
@@ -298,9 +299,9 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initLinkListSequence(DatabaseSession db) {
-    db.runScript("sql", "CREATE class LinkListSequence").close();
-    db.runScript("sql", "CREATE PROPERTY LinkListSequence.name STRING").close();
-    db.runScript("sql", "CREATE PROPERTY LinkListSequence.children LINKLIST LinkListSequence")
+    db.computeScript("sql", "CREATE class LinkListSequence").close();
+    db.computeScript("sql", "CREATE PROPERTY LinkListSequence.name STRING").close();
+    db.computeScript("sql", "CREATE PROPERTY LinkListSequence.children LINKLIST LinkListSequence")
         .close();
 
     var tx = db.begin();
@@ -329,7 +330,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initMatchesWithRegex(DatabaseSession db) {
-    db.runScript("sql", "CREATE class matchesstuff").close();
+    db.computeScript("sql", "CREATE class matchesstuff").close();
 
     var tx = db.begin();
     tx.execute("insert into matchesstuff (name, foo) values ('admin[name]', 1)").close();
@@ -337,7 +338,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initDistinctLimit(DatabaseSession db) {
-    db.runScript("sql", "CREATE class DistinctLimit").close();
+    db.computeScript("sql", "CREATE class DistinctLimit").close();
 
     var tx = db.begin();
     tx.execute("insert into DistinctLimit (name, foo) values ('one', 1)").close();
@@ -348,8 +349,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initDatesSet(DatabaseSession db) {
-    db.runScript("sql", "create class OCommandExecutorSQLSelectTest_datesSet").close();
-    db.runScript("sql",
+    db.computeScript("sql", "create class OCommandExecutorSQLSelectTest_datesSet").close();
+    db.computeScript("sql",
             "create property OCommandExecutorSQLSelectTest_datesSet.foo embeddedlist date")
         .close();
     var tx = db.begin();
@@ -379,7 +380,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initExpandSkipLimit(DatabaseSession db) {
-    db.runScript("sql", "create class ExpandSkipLimit ").close();
+    db.computeScript("sql", "create class ExpandSkipLimit ").close();
 
     for (var i = 0; i < 5; i++) {
       var tx = db.begin();
@@ -450,9 +451,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testProjection() {
     try (var rs = session.query("select a from foo where name = 'a' or bar = 1")) {
-      if (!session.isRemote()) {
-        assertEquals(2, indexUsages(rs.getExecutionPlan()));
-      }
+      assertEquals(2, indexUsages(rs.getExecutionPlan()));
 
       var qResult = rs.toList();
       assertEquals(1, qResult.size());
@@ -462,9 +461,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testProjection2() {
     try (var rs = session.query("select a from foo where name = 'a' or bar = 2")) {
-      if (!session.isRemote()) {
-        assertEquals(2, indexUsages(rs.getExecutionPlan()));
-      }
+      assertEquals(2, indexUsages(rs.getExecutionPlan()));
 
       var qResult = rs.toList();
       assertEquals(2, qResult.size());
@@ -1025,11 +1022,11 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertEquals(1, results.size());
     var doc = results.getFirst();
 
-    assertThat(doc.<Integer>getProperty("collection_size")).isEqualTo(5);
-    assertThat(doc.<Integer>getProperty("collection_sum")).isEqualTo(130);
-    assertThat(doc.<Integer>getProperty("collection_avg")).isEqualTo(26);
-    assertThat(doc.<Integer>getProperty("collection_min")).isEqualTo(0);
-    assertThat(doc.<Integer>getProperty("collection_max")).isEqualTo(50);
+    assertThat(doc.getLong("collection_size")).isEqualTo(5);
+    assertThat(doc.getInt("collection_sum")).isEqualTo(130);
+    assertThat(doc.getInt("collection_avg")).isEqualTo(26);
+    assertThat(doc.getInt("collection_min")).isEqualTo(0);
+    assertThat(doc.getInt("collection_max")).isEqualTo(50);
   }
 
   @Test
@@ -1292,13 +1289,18 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testMaxLongNumber() {
     initMaxLongNumber(session);
     // issue #5664
-    var results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
-    assertEquals(3, results.stream().count());
+    session.executeInTx(tx -> {
+      var results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
+      assertEquals(3, results.stream().count());
+      results.close();
+    });
+
     session.begin();
     session.execute("update MaxLongNumberTest set last = max(91,ifnull(last,0))").close();
     session.commit();
-    results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
+    var results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
     assertEquals(0, results.stream().count());
+    results.close();
   }
 
   @Test
@@ -1536,6 +1538,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     checkQueryResults(
         "select from CompositeIndexWithoutNullValues where one = ?", List.of("foo"), 1);
 
@@ -1543,6 +1546,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         "select from CompositeIndexWithoutNullValues where one = ? and two = ?",
         List.of("foo", "bar"),
         1);
+    session.commit();
 
     session.execute("create class CompositeIndexWithoutNullValues2").close();
     session.execute("create property CompositeIndexWithoutNullValues2.one String").close();
@@ -1888,11 +1892,14 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("insert into " + className + " SET name = \"2\"").close();
     session.commit();
 
+    session.begin();
     var results = session.query("SELECT * FROM " + className + " WHERE name >= \"0\"");
     assertEquals(2, results.stream().count());
 
     results = session.query("SELECT * FROM " + className + " WHERE \"0\" <= name");
     assertEquals(2, results.stream().count());
+    results.close();
+    session.commit();
 
     session.execute("CREATE INDEX " + className + ".name on " + className + " (name) UNIQUE")
         .close();
@@ -1929,7 +1936,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     results.close();
   }
 
-  private long indexUsages(DatabaseSession db) {
+  private long indexUsages(BasicDatabaseSession db) {
     final long oldIndexUsage;
     try {
       oldIndexUsage = getProfilerInstance().getCounter(

@@ -23,6 +23,7 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
@@ -33,7 +34,6 @@ import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerAnyStreamable;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.math.BigDecimal;
@@ -78,7 +78,7 @@ public abstract class StringSerializerHelper {
 
   @Nullable
   public static Object fieldTypeFromStream(
-      DatabaseSessionInternal db, final EntityImpl entity, PropertyTypeInternal iType,
+      DatabaseSessionEmbedded db, final EntityImpl entity, PropertyTypeInternal iType,
       final Object iValue) {
     if (iValue == null) {
       return null;
@@ -204,8 +204,7 @@ public abstract class StringSerializerHelper {
 
       case EMBEDDED:
         // EMBEDDED
-        return StringSerializerAnyStreamable.INSTANCE.fromStream(db, (String) iValue);
-
+        return null;
       case EMBEDDEDMAP:
         // RECORD
         final var value = (String) iValue;
@@ -1193,7 +1192,7 @@ public abstract class StringSerializerHelper {
     return params;
   }
 
-  public static Map<String, String> getMap(DatabaseSessionInternal db, final String iText) {
+  public static Map<String, String> getMap(DatabaseSessionEmbedded db, final String iText) {
     var openPos = iText.indexOf(MAP_BEGIN);
     if (openPos == -1) {
       return Collections.emptyMap();

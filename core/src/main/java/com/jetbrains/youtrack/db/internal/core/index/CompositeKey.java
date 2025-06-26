@@ -29,7 +29,6 @@ import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.RecordSerializerNetworkV37;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -229,46 +228,6 @@ public class CompositeKey
 
     keys.clear();
     keys.addAll(keyMap.values());
-  }
-
-  // Alternative (de)serialization methods that avoid converting the CompositeKey to a entity.
-  public void toStream(DatabaseSessionInternal db, RecordSerializerNetworkV37 serializer,
-      DataOutput out) throws IOException {
-    var l = keys.size();
-    out.writeInt(l);
-    for (var key : keys) {
-      if (key instanceof CompositeKey) {
-        throw new SerializationException(db.getDatabaseName(),
-            "Cannot serialize unflattened nested composite key.");
-      }
-      if (key == null) {
-        out.writeByte((byte) -1);
-      } else {
-        var type = PropertyTypeInternal.getTypeByValue(key);
-        var bytes = serializer.serializeValue(db, key, type);
-        out.writeByte((byte) type.getId());
-        out.writeInt(bytes.length);
-        out.write(bytes);
-      }
-    }
-  }
-
-  public void fromStream(DatabaseSessionInternal db, RecordSerializerNetworkV37 serializer,
-      DataInput in) throws IOException {
-    var l = in.readInt();
-    for (var i = 0; i < l; i++) {
-      var b = in.readByte();
-      if (b == -1) {
-        addKey(null);
-      } else {
-        var len = in.readInt();
-        var bytes = new byte[len];
-        in.readFully(bytes);
-        var type = PropertyTypeInternal.getById(b);
-        var k = serializer.deserializeValue(db, bytes, type);
-        addKey(k);
-      }
-    }
   }
 
   public void addIdentityChangeListener(IdentityChangeListener identityChangeListeners) {

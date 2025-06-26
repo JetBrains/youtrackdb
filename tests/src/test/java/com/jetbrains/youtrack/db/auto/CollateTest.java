@@ -11,17 +11,10 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Locale;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
 public class CollateTest extends BaseDBTest {
-
-  @Parameters(value = "remote")
-  public CollateTest(@Optional Boolean remote) {
-    super(remote != null && remote);
-  }
 
   public void testQuery() {
     final Schema schema = session.getMetadata().getSchema();
@@ -244,7 +237,7 @@ public class CollateTest extends BaseDBTest {
     if (!session.getStorage().isRemote()) {
       session.executeInTx(tx -> {
         final var indexManager = session.getSharedContext().getIndexManager();
-        final var index = indexManager.getIndex(session, "collateCompositeIndexCS");
+        final var index = indexManager.getIndex("collateCompositeIndexCS");
 
         final Collection<RID> value;
         try (var stream = index.getRids(session, new CompositeKey("VAL", "VaL"))) {
@@ -318,10 +311,11 @@ public class CollateTest extends BaseDBTest {
     var clazz = schema.createClass("collateTestViaSQL");
 
     clazz.createProperty("csp", PropertyType.STRING);
-    clazz.createProperty("cip", PropertyType.STRING);
+    var cipProperty = clazz.createProperty("cip", PropertyType.STRING);
+    cipProperty.setCollate(CaseInsensitiveCollate.NAME);
 
     session.command(
-        "create index collateTestViaSQL.index on collateTestViaSQL (cip COLLATE CI) NOTUNIQUE");
+        "create index collateTestViaSQL on collateTestViaSQL (cip) NOTUNIQUE");
 
     for (var i = 0; i < 10; i++) {
       session.begin();

@@ -2,11 +2,15 @@ package com.jetbrains.youtrack.db.api;
 
 
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrack.db.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBRemoteImpl;
+import java.util.regex.Pattern;
 
 public abstract class YourTracks {
+  private static final Pattern URL_PATTERN = Pattern.compile("[,;]");
 
   /**
    * Create a new YouTrackDB manager instance for an embedded deployment with default configuration.
@@ -26,7 +30,7 @@ public abstract class YourTracks {
    * @param config        custom configuration for current environment
    */
   public static YouTrackDB embedded(String directoryPath, YouTrackDBConfig config) {
-    return new YouTrackDBImpl(YouTrackDBInternal.embedded(directoryPath, config));
+    return new YouTrackDBImpl(YouTrackDBInternal.embedded(directoryPath, config, false));
   }
 
   /**
@@ -38,7 +42,7 @@ public abstract class YourTracks {
    * @param serverPassword relative to the server user.
    * @return a new YouTrackDB instance
    */
-  public static YouTrackDB remote(String url, String serverUser, String serverPassword) {
+  public static RemoteYouTrackDB remote(String url, String serverUser, String serverPassword) {
     return remote(url, serverUser, serverPassword, YouTrackDBConfig.defaultConfig());
   }
 
@@ -52,11 +56,11 @@ public abstract class YourTracks {
    * @param config         custom configuration for current environment
    * @return a new YouTrackDB instance
    */
-  public static YouTrackDB remote(
+  public static RemoteYouTrackDB remote(
       String url, String serverUser, String serverPassword, YouTrackDBConfig config) {
     var youTrackDB =
-        new YouTrackDBImpl(
-            YouTrackDBInternal.remote(url.substring(url.indexOf(':') + 1).split("[,;]"),
+        new YouTrackDBRemoteImpl(
+            YouTrackDBInternal.remote(URL_PATTERN.split(url.substring(url.indexOf(':') + 1)),
                 (YouTrackDBConfigImpl) config));
 
     youTrackDB.serverUser = serverUser;

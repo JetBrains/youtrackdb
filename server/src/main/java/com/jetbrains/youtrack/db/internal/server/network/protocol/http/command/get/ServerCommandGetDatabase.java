@@ -59,7 +59,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
     json.writeAttribute(session, "strictmode", cls.isStrictMode());
     json.writeAttribute(session, "collections", cls.getCollectionIds());
     if (cls instanceof SchemaClassImpl) {
-      final var custom = ((SchemaClassImpl) cls).getCustomInternal(session);
+      final var custom = ((SchemaClassImpl) cls).getCustomInternal();
       if (custom != null && !custom.isEmpty()) {
         json.writeAttribute(session, "custom", custom);
       }
@@ -98,7 +98,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
         json.writeAttribute(session, "defaultValue", prop.getDefaultValue());
 
         if (prop instanceof SchemaPropertyImpl) {
-          final var custom = ((SchemaPropertyImpl) prop).getCustomInternal(session);
+          final var custom = ((SchemaPropertyImpl) prop).getCustomInternal();
           if (custom != null && !custom.isEmpty()) {
             json.writeAttribute(session, "custom", custom);
           }
@@ -118,8 +118,8 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
         json.writeAttribute(session, "type", index.getType());
 
         final var indexDefinition = index.getDefinition();
-        if (indexDefinition != null && !indexDefinition.getFields().isEmpty()) {
-          json.writeAttribute(session, "fields", indexDefinition.getFields());
+        if (indexDefinition != null && !indexDefinition.getProperties().isEmpty()) {
+          json.writeAttribute(session, "fields", indexDefinition.getProperties());
         }
         json.endObject();
       }
@@ -260,7 +260,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
       }
       final var idxManager = session.getSharedContext().getIndexManager();
       json.beginCollection(session, "indexes");
-      for (var index : idxManager.getIndexes(session)) {
+      for (var index : idxManager.getIndexes()) {
         json.beginObject();
         try {
           json.writeAttribute(session, "name", index.getName());

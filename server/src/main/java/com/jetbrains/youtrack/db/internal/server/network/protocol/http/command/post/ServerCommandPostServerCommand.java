@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.post;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.server.network.protocol.http.HttpRequest;
@@ -60,7 +59,7 @@ public class ServerCommandPostServerCommand extends ServerCommandAuthenticatedSe
       // CONTENT REPLACES TEXT
       if (iRequest.getContent().startsWith("{")) {
         // JSON PAYLOAD
-        final var content = JSONSerializerJackson.mapFromJson(iRequest.getContent());
+        final var content = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
         text = (String) content.get("command");
         params = content.get("parameters");
 
@@ -130,13 +129,13 @@ public class ServerCommandPostServerCommand extends ServerCommandAuthenticatedSe
   protected ResultSet executeStatement(String language, String text, Object params) {
     ResultSet result;
 
-    YouTrackDB odb = this.server.getContext();
+    var ytdb = this.server.getContext();
     if (params instanceof Map) {
-      result = odb.execute(text, (Map) params);
+      result = ytdb.execute(text, (Map) params);
     } else if (params instanceof Object[]) {
-      result = odb.execute(text, (Object[]) params);
+      result = ytdb.execute(text, (Object[]) params);
     } else {
-      result = odb.execute(text, params);
+      result = ytdb.execute(text, params);
     }
     return result;
   }
