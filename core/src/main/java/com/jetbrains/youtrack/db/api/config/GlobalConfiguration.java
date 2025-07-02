@@ -753,27 +753,6 @@ public enum GlobalConfiguration {
   COMMAND_TIMEOUT("youtrackdb.command.timeout",
       "Default timeout for commands (in ms)", Long.class, 0, true),
 
-  COMMAND_CACHE_ENABLED("youtrackdb.command.cache.enabled",
-      "Enable command cache", Boolean.class, false),
-
-  COMMAND_CACHE_EVICT_STRATEGY(
-      "youtrackdb.command.cache.evictStrategy",
-      "Command cache strategy between: [INVALIDATE_ALL,PER_COLLECTION]",
-      String.class,
-      "PER_COLLECTION"),
-
-  COMMAND_CACHE_MIN_EXECUTION_TIME(
-      "youtrackdb.command.cache.minExecutionTime",
-      "Minimum execution time to consider caching the result set",
-      Integer.class,
-      10),
-
-  COMMAND_CACHE_MAX_RESULSET_SIZE(
-      "youtrackdb.command.cache.maxResultsetSize",
-      "Maximum resultset time to consider caching result set",
-      Integer.class,
-      500),
-
   // QUERY
   QUERY_REMOTE_RESULTSET_PAGE_SIZE(
       "youtrackdb.query.remoteResultSet.pageSize",

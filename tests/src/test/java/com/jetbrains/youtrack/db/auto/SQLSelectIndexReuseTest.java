@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -11,19 +12,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 @Test
-@Ignore("Rewrite these tests for the new SQL engine")
 public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
-
-  private static final Logger log = LoggerFactory.getLogger(SQLSelectIndexReuseTest.class);
 
   @Override
   @BeforeClass
@@ -151,15 +146,15 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop8", j);
 
         document.setProperty("prop9", j % 2);
-        document.setProperty("fEmbeddedMap", embeddedMap);
 
-        document.setProperty("fEmbeddedMapTwo", embeddedMap);
+        document.newEmbeddedMap("fEmbeddedMap", embeddedMap);
+        document.newEmbeddedMap("fEmbeddedMapTwo", embeddedMap);
 
-        document.setProperty("fEmbeddedList", embeddedList);
-        document.setProperty("fEmbeddedListTwo", embeddedList);
+        document.newEmbeddedList("fEmbeddedList", embeddedList);
+        document.newEmbeddedList("fEmbeddedListTwo", embeddedList);
 
-        document.setProperty("fEmbeddedSet", embeddedSet);
-        document.setProperty("fEmbeddedSetTwo", embeddedSet);
+        document.newEmbeddedSet("fEmbeddedSet", embeddedSet);
+        document.newEmbeddedSet("fEmbeddedSetTwo", embeddedSet);
 
         session.commit();
       }
@@ -180,141 +175,138 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   @Test
   public void testCompositeSearchEquals() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
+    try (var resultSet = session
+        .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 2")) {
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+
+      final var resultList = resultSet.toList();
+
+      Assert.assertEquals(resultList.size(), 1);
+
+      final var result = resultList.getFirst();
+      Assert.assertEquals(result.<Integer>getProperty("prop1").intValue(), 1);
+      Assert.assertEquals(result.<Integer>getProperty("prop2").intValue(), 2);
     }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 2")
-            .toList();
-
-    Assert.assertEquals(result.size(), 1);
-
-    final var document = result.get(0);
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchHasChainOperatorsEquals() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+    try (var resultSet = session.query(
+        "select * from sqlSelectIndexReuseTestClass where prop1.asInteger() = 1 and"
+            + " prop2 = 2")) {
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
+      var resultList = resultSet.toList();
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1.asInteger() = 1 and"
-                    + " prop2 = 2").toList();
+      Assert.assertEquals(resultList.size(), 1);
 
-    Assert.assertEquals(result.size(), 1);
-
-    final var document = result.get(0);
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+      final var document = resultList.getFirst();
+      Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+      Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
+    }
   }
 
   @Test
   public void testCompositeSearchEqualsOneField() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
-    var oldcompositeIndexUsed21 = profiler.getCounter("db.demo.query.compositeIndexUsed.2.1");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldcompositeIndexUsed21 = profiler.getCounter("db.demo.query.compositeIndexUsed.2.1");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
+//
+//    if (oldcompositeIndexUsed21 == -1) {
+//      oldcompositeIndexUsed21 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (var resultSet = transaction
+          .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
 
-    if (oldcompositeIndexUsed21 == -1) {
-      oldcompositeIndexUsed21 = 0;
-    }
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1").toList();
+        for (var i = 0; i < 10; i++) {
+          final var entity = session.newEntity();
+          entity.setProperty("prop1", 1);
+          entity.setProperty("prop2", i);
 
-    Assert.assertEquals(result.size(), 10);
-
-    for (var i = 0; i < 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
-
-      Assert.assertEquals(containsDocument(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2.1"), oldcompositeIndexUsed21 + 1);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2.1"), oldcompositeIndexUsed21 + 1);
+    });
   }
 
   @Test
   public void testCompositeSearchEqualsOneFieldWithLimit() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
-    var oldcompositeIndexUsed21 = profiler.getCounter("db.demo.query.compositeIndexUsed.2.1");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldcompositeIndexUsed21 = profiler.getCounter("db.demo.query.compositeIndexUsed.2.1");
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
+//
+//    if (oldcompositeIndexUsed21 == -1) {
+//      oldcompositeIndexUsed21 = 0;
+//    }
 
-    if (oldcompositeIndexUsed21 == -1) {
-      oldcompositeIndexUsed21 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (var resultSet = transaction.query(
+          "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop3 = 18"
+              + " limit 1")) {
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop3 = 18"
-                    + " limit 1").toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    Assert.assertEquals(result.size(), 1);
+        final var entity = transaction.newEntity();
+        entity.setProperty("prop1", 1);
+        entity.setProperty("prop3", 18);
 
-    final var document = ((EntityImpl) session.newEntity());
-    document.setProperty("prop1", 1);
-    document.setProperty("prop3", 18);
+        Assert.assertEquals(containsEntity(resultList, entity), 1);
 
-    Assert.assertEquals(containsDocument(result, document), 1);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2.1"), oldcompositeIndexUsed21 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2.1"), oldcompositeIndexUsed21 + 1);
+      }
+    });
   }
 
   @Test
@@ -359,7 +351,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop8", 1);
       document.setProperty("fEmbeddedMapTwo", embeddedMap);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -411,7 +403,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     document.setProperty("prop8", 1);
     document.setProperty("fEmbeddedMap", embeddedMap);
 
-    Assert.assertEquals(containsDocument(result, document), 1);
+    Assert.assertEquals(containsEntity(result, document), 1);
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -462,7 +454,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop8", i);
       document.setProperty("fEmbeddedMapTwo", embeddedMap);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -513,7 +505,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     document.setProperty("prop8", 1);
     document.setProperty("fEmbeddedMap", embeddedMap);
 
-    Assert.assertEquals(containsDocument(result, document), 1);
+    Assert.assertEquals(containsEntity(result, document), 1);
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -562,7 +554,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     document.setProperty("prop8", 1);
     document.setProperty("fEmbeddedSet", embeddedSet);
 
-    Assert.assertEquals(containsDocument(result, document), 1);
+    Assert.assertEquals(containsEntity(result, document), 1);
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -619,7 +611,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop9", 0);
       document.setProperty("fEmbeddedSet", embeddedSet);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -672,7 +664,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop8", i);
       document.setProperty("fEmbeddedListTwo", embeddedList);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -721,7 +713,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     document.setProperty("prop8", 1);
     document.setProperty("fEmbeddedListTwo", embeddedList);
 
-    Assert.assertEquals(containsDocument(result, document), 1);
+    Assert.assertEquals(containsEntity(result, document), 1);
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
         profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
@@ -747,7 +739,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", i);
       document.setProperty("prop2", 1);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
   }
 
@@ -769,12 +761,13 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     final var result =
         session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 = ?", 1, 2)
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 = ?", 1,
+                2)
             .toList();
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -811,7 +804,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -837,7 +830,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", i);
       document.setProperty("prop2", 1);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
   }
 
@@ -868,7 +861,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -906,7 +899,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -933,7 +926,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -958,7 +951,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     final var result =
         session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 > ?", 1, 2)
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 > ?", 1,
+                2)
             .toList();
     Assert.assertEquals(result.size(), 7);
 
@@ -967,7 +961,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1005,7 +999,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1031,7 +1025,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1065,7 +1059,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1102,7 +1096,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1128,7 +1122,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1162,7 +1156,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1199,7 +1193,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1225,7 +1219,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1259,7 +1253,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1296,7 +1290,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1322,7 +1316,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1357,7 +1351,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1394,7 +1388,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1421,7 +1415,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1456,7 +1450,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1493,7 +1487,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1519,7 +1513,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1544,7 +1538,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     final var result =
         session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 < ?", 1, 2)
+            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 < ?", 1,
+                2)
             .toList();
     Assert.assertEquals(result.size(), 2);
 
@@ -1553,7 +1548,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1590,7 +1585,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1616,7 +1611,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1651,7 +1646,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1689,7 +1684,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1716,7 +1711,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1752,7 +1747,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop1", 1);
       document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1790,7 +1785,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", i);
         document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1817,7 +1812,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         document.setProperty("prop1", j);
         document.setProperty("prop2", i);
 
-        Assert.assertEquals(containsDocument(result, document), 1);
+        Assert.assertEquals(containsEntity(result, document), 1);
       }
     }
 
@@ -1838,7 +1833,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
             .query("select * from sqlSelectIndexReuseTestClass where prop3 = 1").toList();
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 1);
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -1859,7 +1854,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
             .query("select * from sqlSelectIndexReuseTestClass where prop3 = ?", 1).toList();
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 1);
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -1883,7 +1878,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 91; i < 100; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1908,7 +1903,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 91; i < 100; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1933,7 +1928,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 90; i < 100; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1958,7 +1953,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 90; i < 100; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -1983,7 +1978,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 0; i <= 10; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2008,7 +2003,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 0; i <= 10; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2033,7 +2028,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 0; i < 10; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2058,7 +2053,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 0; i < 10; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2084,7 +2079,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 1; i <= 10; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2103,7 +2098,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     final var result =
         session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 between ? and ?", 1, 10)
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 between ? and ?", 1,
+                10)
             .toList();
 
     Assert.assertEquals(result.size(), 10);
@@ -2111,7 +2107,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 1; i <= 10; i++) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2130,13 +2126,14 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     final var result =
         session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 in [0, 5, 10]").toList();
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 in [0, 5, 10]")
+            .toList();
     Assert.assertEquals(result.size(), 3);
 
     for (var i = 0; i <= 10; i += 5) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2155,7 +2152,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     final var result =
         session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 in [?, ?, ?]", 0, 5, 10)
+            .query("select * from sqlSelectIndexReuseTestClass where prop3 in [?, ?, ?]", 0, 5,
+                10)
             .toList();
 
     Assert.assertEquals(result.size(), 3);
@@ -2163,7 +2161,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     for (var i = 0; i <= 10; i += 5) {
       final var document = ((EntityImpl) session.newEntity());
       document.setProperty("prop3", i);
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2195,7 +2193,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 11);
@@ -2230,7 +2228,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
                     + " prop4 >= 1").toList();
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
@@ -2266,7 +2264,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop5").intValue(), 1);
@@ -2307,7 +2305,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop2", i);
       document.setProperty("prop4", 1);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2346,7 +2344,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop2", i);
       document.setProperty("prop4", 1);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2384,7 +2382,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       document.setProperty("prop6", i);
       document.setProperty("prop4", 0);
 
-      Assert.assertEquals(containsDocument(result, document), 1);
+      Assert.assertEquals(containsEntity(result, document), 1);
     }
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2417,7 +2415,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2456,7 +2454,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     document.setProperty("fEmbeddedMap", embeddedMap);
 
-    Assert.assertEquals(containsDocument(result, document), 10);
+    Assert.assertEquals(containsEntity(result, document), 10);
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -2493,7 +2491,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     document.setProperty("fEmbeddedMap", embeddedMap);
 
-    Assert.assertEquals(containsDocument(result, document), 10);
+    Assert.assertEquals(containsEntity(result, document), 10);
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -2530,7 +2528,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     document.setProperty("fEmbeddedMap", embeddedMap);
 
-    Assert.assertEquals(containsDocument(result, document), 10);
+    Assert.assertEquals(containsEntity(result, document), 10);
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -2562,7 +2560,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     final var document = ((EntityImpl) session.newEntity());
     document.setProperty("fEmbeddedList", embeddedList);
 
-    Assert.assertEquals(containsDocument(result, document), 10);
+    Assert.assertEquals(containsEntity(result, document), 10);
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
     Assert.assertEquals(
@@ -2596,7 +2594,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
     Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
@@ -2622,7 +2620,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
     Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
@@ -2795,13 +2793,12 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     session.commit();
   }
 
-  private static int containsDocument(final List<Result> resultList,
-      final EntityImpl document) {
+  private static int containsEntity(final List<Result> resultList, final Entity entity) {
     var count = 0;
-    for (final var docItem : resultList) {
+    for (final var result : resultList) {
       var containsAllFields = true;
-      for (final var fieldName : document.propertyNames()) {
-        if (!document.getProperty(fieldName).equals(docItem.getProperty(fieldName))) {
+      for (final var fieldName : entity.getPropertyNames()) {
+        if (!entity.getProperty(fieldName).equals(result.getProperty(fieldName))) {
           containsAllFields = false;
           break;
         }
@@ -2841,7 +2838,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
@@ -2883,7 +2880,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
@@ -2894,7 +2891,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     Assert.assertEquals(
         profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
     Assert.assertTrue(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3") < oldcompositeIndexUsed33 + 1);
+        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
+            < oldcompositeIndexUsed33 + 1);
   }
 
   @Test
@@ -2925,11 +2923,12 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 2);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertTrue(
-        document.<Integer>getProperty("prop3").equals(13) || document.<Integer>getProperty("prop3")
+        document.<Integer>getProperty("prop3").equals(13) || document.<Integer>getProperty(
+                "prop3")
             .equals(15));
 
     Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
@@ -2938,7 +2937,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     Assert.assertEquals(
         profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
     Assert.assertTrue(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3") < oldcompositeIndexUsed33 + 1);
+        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
+            < oldcompositeIndexUsed33 + 1);
   }
 
   @Test
@@ -2969,7 +2969,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     Assert.assertEquals(result.size(), 1);
 
-    final var document = result.get(0);
+    final var document = result.getFirst();
     Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
     Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
@@ -2980,6 +2980,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     Assert.assertTrue(
         profiler.getCounter("db.demo.query.compositeIndexUsed.3") < oldcompositeIndexUsed3 + 1);
     Assert.assertTrue(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3") < oldcompositeIndexUsed33 + 1);
+        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
+            < oldcompositeIndexUsed33 + 1);
   }
 }
