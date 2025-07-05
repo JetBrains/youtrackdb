@@ -31,27 +31,12 @@ import org.junit.AssumptionViolatedException;
 
 
 public class YTDBGraphProvider extends AbstractGraphProvider {
-
-  protected static final Map<Class<?>, List<String>> IGNORED_TESTS;
-
-  static {
-    IGNORED_TESTS = new HashMap<>();
-    IGNORED_TESTS.put(
-        TransactionTest.class,
-        List.of(
-            "shouldExecuteWithCompetingThreads"));
-  }
-
   @Override
   public Map<String, Object> getBaseConfiguration(
       String graphName,
       Class<?> test,
       String testMethodName,
       LoadGraphWith.GraphData loadGraphWith) {
-    if (IGNORED_TESTS.containsKey(test) && IGNORED_TESTS.get(test).contains(testMethodName)) {
-      throw new AssumptionViolatedException("We allow mixed ids");
-    }
-
     if (testMethodName.contains("graphson-v1-embedded")) {
       throw new AssumptionViolatedException("graphson-v1-embedded support not implemented");
     }

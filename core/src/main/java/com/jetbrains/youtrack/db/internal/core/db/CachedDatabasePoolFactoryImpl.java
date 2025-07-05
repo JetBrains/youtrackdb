@@ -25,7 +25,7 @@ public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>>
   /**
    * Max size of connections which one pool can contains
    */
-  private volatile int maxPoolSize = 100;
+  private volatile int maxPoolSize = GlobalConfiguration.DB_POOL_MAX.getValueAsInteger();
 
   private volatile boolean closed;
   private final ConcurrentLinkedHashMap<String, DatabasePoolInternal> poolCache;
