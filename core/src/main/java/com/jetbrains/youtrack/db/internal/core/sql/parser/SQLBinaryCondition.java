@@ -606,7 +606,7 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean createRangeWith(SQLBooleanExpression match) {
+  public boolean canCreateRangeWith(SQLBooleanExpression match) {
     if (!(match instanceof SQLBinaryCondition matchingCondition)) {
       return false;
     }
@@ -638,7 +638,6 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       return additional.right;
     } else {
       return null;
-      //      throw new UnsupportedOperationException("Cannot execute index query with " + this);
     }
   }
 

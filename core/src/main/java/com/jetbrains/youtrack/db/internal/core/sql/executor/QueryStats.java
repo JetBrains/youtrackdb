@@ -59,48 +59,6 @@ public class QueryStats {
     pushValue(key, value);
   }
 
-  public long getAverageOutEdgeSpan(String vertexClass, String edgeClass) {
-    var key = generateKey(vertexClass, "-", edgeClass, "->");
-    var val = stats.get(key);
-    if (val != null) {
-      return val;
-    }
-    return -1;
-  }
-
-  public long getAverageInEdgeSpan(String vertexClass, String edgeClass) {
-    var key = generateKey(vertexClass, "<-", edgeClass, "-");
-    var val = stats.get(key);
-    if (val != null) {
-      return val;
-    }
-    return -1;
-  }
-
-  public long getAverageBothEdgeSpan(String vertexClass, String edgeClass) {
-    var key = generateKey(vertexClass, "-", edgeClass, "-");
-    var val = stats.get(key);
-    if (val != null) {
-      return val;
-    }
-    return -1;
-  }
-
-  public void pushAverageOutEdgeSpan(String vertexClass, String edgeClass, Long value) {
-    var key = generateKey(vertexClass, "-", edgeClass, "->");
-    pushValue(key, value);
-  }
-
-  public void pushAverageInEdgeSpan(String vertexClass, String edgeClass, Long value) {
-    var key = generateKey(vertexClass, "<-", edgeClass, "-");
-    pushValue(key, value);
-  }
-
-  public void pushAverageBothEdgeSpan(String vertexClass, String edgeClass, Long value) {
-    var key = generateKey(vertexClass, "-", edgeClass, "-");
-    pushValue(key, value);
-  }
-
   private void pushValue(String key, Long value) {
     if (value == null) {
       return;
