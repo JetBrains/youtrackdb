@@ -382,7 +382,7 @@ public enum GlobalConfiguration {
   // DATABASE
   DB_POOL_MIN("youtrackdb.db.pool.min", "Default database pool minimum size", Integer.class, 1),
 
-  DB_POOL_MAX("youtrackdb.db.pool.max", "Default database pool maximum size", Integer.class, 100),
+  DB_POOL_MAX("youtrackdb.db.pool.max", "Default database pool maximum size", Integer.class, 500),
 
   DB_CACHED_POOL_CAPACITY(
       "youtrackdb.db.cached.pool.capacity", "Default database cached pools capacity", Integer.class,
