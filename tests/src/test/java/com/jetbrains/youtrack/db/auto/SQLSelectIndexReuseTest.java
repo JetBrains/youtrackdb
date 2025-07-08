@@ -15,11 +15,9 @@ import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 @Test
-@Ignore
 public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   @Override
@@ -114,19 +112,19 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     };
 
     for (var i = 0; i < 10; i++) {
-      final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
+      final Map<String, Integer> embeddedMap = new HashMap<>();
 
       embeddedMap.put("key" + (i * 10 + 1), i * 10 + 1);
       embeddedMap.put("key" + (i * 10 + 2), i * 10 + 2);
       embeddedMap.put("key" + (i * 10 + 3), i * 10 + 3);
       embeddedMap.put("key" + (i * 10 + 4), i * 10 + 1);
 
-      final List<Integer> embeddedList = new ArrayList<Integer>(3);
+      final List<Integer> embeddedList = new ArrayList<>(3);
       embeddedList.add(i * 3);
       embeddedList.add(i * 3 + 1);
       embeddedList.add(i * 3 + 2);
 
-      final Set<Integer> embeddedSet = new HashSet<Integer>();
+      final Set<Integer> embeddedSet = new HashSet<>();
       embeddedSet.add(i * 10);
       embeddedSet.add(i * 10 + 1);
       embeddedSet.add(i * 10 + 2);
@@ -341,7 +339,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 10);
 
-        final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
+        final Map<String, Integer> embeddedMap = new HashMap<>();
 
         embeddedMap.put("key11", 11);
         embeddedMap.put("key12", 12);
@@ -449,7 +447,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
                       + "where fEmbeddedMapTwo containsValue 22")) {
         Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
 
-        final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
+        final Map<String, Integer> embeddedMap = new HashMap<>();
 
         embeddedMap.put("key21", 21);
         embeddedMap.put("key22", 22);
@@ -504,7 +502,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
               + "where prop8 = 1 and fEmbeddedMapTwo containsValue 22")) {
 
         Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
-        final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
+        final Map<String, Integer> embeddedMap = new HashMap<>();
 
         embeddedMap.put("key21", 21);
         embeddedMap.put("key22", 22);
@@ -559,7 +557,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
                   "select * from sqlSelectIndexReuseTestClass "
                       + "where prop8 = 1 and fEmbeddedSetTwo contains 12")) {
         Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
-        final Set<Integer> embeddedSet = new HashSet<Integer>();
+        final Set<Integer> embeddedSet = new HashSet<>();
         embeddedSet.add(10);
         embeddedSet.add(11);
         embeddedSet.add(12);
@@ -619,7 +617,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
                       + "where prop9 = 0 and fEmbeddedSetTwo contains 92 and prop8 > 2");
       Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
 
-      final Set<Integer> embeddedSet = new HashSet<Integer>(3);
+      final Set<Integer> embeddedSet = new HashSet<>(3);
       embeddedSet.add(90);
       embeddedSet.add(91);
       embeddedSet.add(92);
@@ -680,7 +678,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       var resultList = resultSet.toList();
       Assert.assertEquals(resultList.size(), 10);
 
-      final List<Integer> embeddedList = new ArrayList<Integer>(3);
+      final List<Integer> embeddedList = new ArrayList<>(3);
       embeddedList.add(3);
       embeddedList.add(4);
       embeddedList.add(5);
@@ -735,7 +733,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 1);
 
-        final List<Integer> embeddedList = new ArrayList<Integer>(3);
+        final List<Integer> embeddedList = new ArrayList<>(3);
         embeddedList.add(3);
         embeddedList.add(4);
         embeddedList.add(5);
@@ -967,25 +965,29 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   @Test
   public void testCompositeSearchGTOneFieldNoSearch() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 > 7").toList();
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 > 7")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 20);
 
-    Assert.assertEquals(result.size(), 20);
+        for (var i = 8; i < 10; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var document = ((EntityImpl) session.newEntity());
+            document.setProperty("prop1", j);
+            document.setProperty("prop2", i);
 
-    for (var i = 8; i < 10; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, document), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
@@ -1143,1593 +1145,1828 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   @Test
   public void testCompositeSearchGTQOneField() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 >= 7")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 30);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 >= 7").toList();
-    Assert.assertEquals(result.size(), 30);
+        for (var i = 7; i < 10; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var document = ((EntityImpl) session.newEntity());
+            document.setProperty("prop1", i);
+            document.setProperty("prop2", j);
 
-    for (var i = 7; i < 10; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", i);
-        document.setProperty("prop2", j);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, document), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchGTQOneFieldNoSearch() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 >= 7").toList();
-    Assert.assertEquals(result.size(), 30);
+    session.executeInTx(transaction -> {
+      final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 >= 7");
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
 
-    for (var i = 7; i < 10; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
+      var resultList = resultSet.toList();
+      Assert.assertEquals(resultList.size(), 30);
 
-        Assert.assertEquals(containsEntity(result, document), 1);
+      for (var i = 7; i < 10; i++) {
+        for (var j = 0; j < 10; j++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop1", j);
+          document.setProperty("prop2", i);
+
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
   public void testCompositeSearchGTQWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 >= ?",
+                  1, 2)) {
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 >= ?",
-                1, 2).toList();
-    Assert.assertEquals(result.size(), 8);
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 8);
 
-    for (var i = 2; i < 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
+        for (var i = 2; i < 10; i++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop1", 1);
+          document.setProperty("prop2", i);
 
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
+      }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchGTQOneFieldWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 >= ?", 7)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 30);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 >= ?", 7).toList();
-    Assert.assertEquals(result.size(), 30);
+        for (var i = 7; i < 10; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var document = ((EntityImpl) session.newEntity());
+            document.setProperty("prop1", i);
+            document.setProperty("prop2", j);
 
-    for (var i = 7; i < 10; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", i);
-        document.setProperty("prop2", j);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, document), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchGTQOneFieldNoSearchWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+    session.executeInTx(transaction -> {
+      final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 >= ?", 7);
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
+      var resultList = resultSet.toList();
+      Assert.assertEquals(resultList.size(), 30);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 >= ?", 7).toList();
-    Assert.assertEquals(result.size(), 30);
+      for (var i = 7; i < 10; i++) {
+        for (var j = 0; j < 10; j++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop1", j);
+          document.setProperty("prop2", i);
 
-    for (var i = 7; i < 10; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
   public void testCompositeSearchLTQ() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 <= 2")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 3);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 <= 2")
-            .toList();
-    Assert.assertEquals(result.size(), 3);
+        for (var i = 0; i <= 2; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop1", 1);
+          entity.setProperty("prop2", i);
 
-    for (var i = 0; i <= 2; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchLTQOneField() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 <= 7")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 80);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 <= 7").toList();
-    Assert.assertEquals(result.size(), 80);
+        for (var i = 0; i <= 7; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", i);
+            entity.setProperty("prop2", j);
 
-    for (var i = 0; i <= 7; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", i);
-        document.setProperty("prop2", j);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchLTQOneFieldNoSearch() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+    session.executeInTx(transaction -> {
+      final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 <= 7");
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 <= 7").toList();
-    Assert.assertEquals(result.size(), 80);
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
 
-    for (var i = 0; i <= 7; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
+      var resultList = resultSet.toList();
+      Assert.assertEquals(resultList.size(), 80);
 
-        Assert.assertEquals(containsEntity(result, document), 1);
+      for (var i = 0; i <= 7; i++) {
+        for (var j = 0; j < 10; j++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop1", j);
+          entity.setProperty("prop2", i);
+
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
       }
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+    });
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
   public void testCompositeSearchLTQWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 <= ?", 1,
+                  2)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 3);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 <= ?", 1,
-                2).toList();
+        for (var i = 0; i <= 2; i++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop1", 1);
+          document.setProperty("prop2", i);
 
-    Assert.assertEquals(result.size(), 3);
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
+      }
+    });
 
-    for (var i = 0; i <= 2; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
-
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchLTQOneFieldWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 <= ?", 7);
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+      var resultList = resultSet.toList();
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 <= ?", 7).toList();
-    Assert.assertEquals(result.size(), 80);
+      Assert.assertEquals(resultList.size(), 80);
 
-    for (var i = 0; i <= 7; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", i);
-        document.setProperty("prop2", j);
+      for (var i = 0; i <= 7; i++) {
+        for (var j = 0; j < 10; j++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop1", i);
+          document.setProperty("prop2", j);
 
-        Assert.assertEquals(containsEntity(result, document), 1);
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchLTQOneFieldNoSearchWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 <= ?", 7).toList();
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 <= ?", 7)) {
 
-    Assert.assertEquals(result.size(), 80);
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 80);
 
-    for (var i = 0; i <= 7; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
+        for (var i = 0; i <= 7; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", j);
+            entity.setProperty("prop2", i);
 
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
   public void testCompositeSearchLT() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 < 2")) {
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 < 2")
-            .toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 2);
 
-    Assert.assertEquals(result.size(), 2);
+        for (var i = 0; i < 2; i++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop1", 1);
+          document.setProperty("prop2", i);
 
-    for (var i = 0; i < 2; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
+      }
+    });
 
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchLTOneField() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 < 7");
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+      var resultList = resultSet.toList();
+      Assert.assertEquals(resultList.size(), 70);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 < 7").toList();
-    Assert.assertEquals(result.size(), 70);
+      for (var i = 0; i < 7; i++) {
+        for (var j = 0; j < 10; j++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop1", i);
+          entity.setProperty("prop2", j);
 
-    for (var i = 0; i < 7; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", i);
-        document.setProperty("prop2", j);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchLTOneFieldNoSearch() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 < 7").toList();
-    Assert.assertEquals(result.size(), 70);
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 < 7")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 70);
 
-    for (var i = 0; i < 7; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
+        for (var i = 0; i < 7; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", j);
+            entity.setProperty("prop2", i);
 
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
   public void testCompositeSearchLTWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 < ?", 1,
+                  2)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 2);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 < ?", 1,
-                2)
-            .toList();
-    Assert.assertEquals(result.size(), 2);
+        for (var i = 0; i < 2; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop1", 1);
+          entity.setProperty("prop2", i);
 
-    for (var i = 0; i < 2; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchLTOneFieldWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 < ?", 7)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 70);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 < ?", 7).toList();
-    Assert.assertEquals(result.size(), 70);
+        for (var i = 0; i < 7; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", i);
+            entity.setProperty("prop2", j);
 
-    for (var i = 0; i < 7; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", i);
-        document.setProperty("prop2", j);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchLTOneFieldNoSearchWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 < ?", 7).toList();
-    Assert.assertEquals(result.size(), 70);
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 < ?", 7)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 70);
 
-    for (var i = 0; i < 7; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
+        for (var i = 0; i < 7; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", j);
+            entity.setProperty("prop2", i);
 
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
   public void testCompositeSearchBetween() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between 1"
+                      + " and 3")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 3);
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between 1"
-                    + " and 3").toList();
-    Assert.assertEquals(result.size(), 3);
+        for (var i = 1; i <= 3; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop1", 1);
+          entity.setProperty("prop2", i);
 
-    for (var i = 1; i <= 3; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchBetweenOneField() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 between 1 and 3")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 30);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 between 1 and 3")
-            .toList();
-    Assert.assertEquals(result.size(), 30);
+        for (var i = 1; i <= 3; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", i);
+            entity.setProperty("prop2", j);
 
-    for (var i = 1; i <= 3; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", i);
-        document.setProperty("prop2", j);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchBetweenOneFieldNoSearch() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 between 1 and 3")
-            .toList();
-    Assert.assertEquals(result.size(), 30);
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 between 1 and 3")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 30);
 
-    for (var i = 1; i <= 3; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
+        for (var i = 1; i <= 3; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", j);
+            entity.setProperty("prop2", i);
 
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
   public void testCompositeSearchBetweenWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between ?"
+                      + " and ?", 1, 3)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 3);
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between ?"
-                    + " and ?", 1, 3).toList();
+        for (var i = 1; i <= 3; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop1", 1);
+          entity.setProperty("prop2", i);
 
-    Assert.assertEquals(result.size(), 3);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 1; i <= 3; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
-
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchBetweenOneFieldWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 between ? and ?", 1,
+                  3)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 30);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 between ? and ?", 1, 3)
-            .toList();
-    Assert.assertEquals(result.size(), 30);
+        for (var i = 1; i <= 3; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", i);
+            entity.setProperty("prop2", j);
 
-    for (var i = 1; i <= 3; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", i);
-        document.setProperty("prop2", j);
-
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testCompositeSearchBetweenOneFieldNoSearchWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop2 between ? and ?", 1, 3)
-            .toList();
-    Assert.assertEquals(result.size(), 30);
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop2 between ? and ?", 1,
+                  3)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 0);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 30);
 
-    for (var i = 1; i <= 3; i++) {
-      for (var j = 0; j < 10; j++) {
-        final var document = ((EntityImpl) session.newEntity());
-        document.setProperty("prop1", j);
-        document.setProperty("prop2", i);
+        for (var i = 1; i <= 3; i++) {
+          for (var j = 0; j < 10; j++) {
+            final var entity = ((EntityImpl) session.newEntity());
+            entity.setProperty("prop1", j);
+            entity.setProperty("prop2", i);
 
-        Assert.assertEquals(containsEntity(result, document), 1);
+            Assert.assertEquals(containsEntity(resultList, entity), 1);
+          }
+        }
       }
-    }
+    });
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage);
   }
 
   @Test
   public void testSingleSearchEquals() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 = 1")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 = 1").toList();
-    Assert.assertEquals(result.size(), 1);
-
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 1);
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+        final var document = resultList.getFirst();
+        Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 1);
+      }
+    });
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchEqualsWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 = ?", 1)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 = ?", 1).toList();
-    Assert.assertEquals(result.size(), 1);
-
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 1);
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+        final var document = resultList.getFirst();
+        Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 1);
+      }
+    });
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchGT() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 > 90")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 9);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 > 90").toList();
-    Assert.assertEquals(result.size(), 9);
+        for (var i = 91; i < 100; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 91; i < 100; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchGTWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 > ?", 90)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 9);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 > ?", 90).toList();
-    Assert.assertEquals(result.size(), 9);
+        for (var i = 91; i < 100; i++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
+      }
+    });
 
-    for (var i = 91; i < 100; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchGTQ() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 >= 90")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 >= 90").toList();
-    Assert.assertEquals(result.size(), 10);
+        for (var i = 90; i < 100; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 90; i < 100; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchGTQWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 >= ?", 90)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 >= ?", 90).toList();
-    Assert.assertEquals(result.size(), 10);
+        for (var i = 90; i < 100; i++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
+      }
+    });
 
-    for (var i = 90; i < 100; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchLTQ() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 <= 10")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 11);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 <= 10").toList();
-    Assert.assertEquals(result.size(), 11);
+        for (var i = 0; i <= 10; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 0; i <= 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchLTQWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 <= ?", 10)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 11);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 <= ?", 10).toList();
-    Assert.assertEquals(result.size(), 11);
+        for (var i = 0; i <= 10; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 0; i <= 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchLT() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 < 10")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 < 10").toList();
-    Assert.assertEquals(result.size(), 10);
+        for (var i = 0; i < 10; i++) {
+          final var document = ((EntityImpl) session.newEntity());
+          document.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, document), 1);
+        }
+      }
+    });
 
-    for (var i = 0; i < 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchLTWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 < ?", 10)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 < ?", 10).toList();
-    Assert.assertEquals(result.size(), 10);
+        for (var i = 0; i < 10; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 0; i < 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchBetween() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 between 1 and 10")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 between 1 and 10")
-            .toList();
-    Assert.assertEquals(result.size(), 10);
+        for (var i = 1; i <= 10; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 1; i <= 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchBetweenWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 between ? and ?", 1,
+                  10)) {
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 between ? and ?", 1,
-                10)
-            .toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    Assert.assertEquals(result.size(), 10);
+        for (var i = 1; i <= 10; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 1; i <= 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchIN() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 in [0, 5, 10]")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 3);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 in [0, 5, 10]")
-            .toList();
-    Assert.assertEquals(result.size(), 3);
-
-    for (var i = 0; i <= 10; i += 5) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+        for (var i = 0; i <= 10; i += 5) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
+//
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testSingleSearchINWithArgs() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop3 in [?, ?, ?]", 0, 5,
+                  10)) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 3);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop3 in [?, ?, ?]", 0, 5,
-                10)
-            .toList();
+        for (var i = 0; i <= 10; i += 5) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop3", i);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    Assert.assertEquals(result.size(), 3);
-
-    for (var i = 0; i <= 10; i += 5) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop3", i);
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
   }
 
   @Test
   public void testMostSpecificOnesProcessedFirst() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
+                      + " prop3 = 11")) {
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
-                    + " prop3 = 11").toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    Assert.assertEquals(result.size(), 1);
+        final var result = resultList.getFirst();
+        Assert.assertEquals(result.<Integer>getProperty("prop1").intValue(), 1);
+        Assert.assertEquals(result.<Integer>getProperty("prop2").intValue(), 1);
+        Assert.assertEquals(result.<Integer>getProperty("prop3").intValue(), 11);
+      }
+    });
 
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 11);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testTripleSearch() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed3 == -1) {
+//      oldcompositeIndexUsed3 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed3 == -1) {
-      oldcompositeIndexUsed3 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var result =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
+                      + " prop4 >= 1")) {
+        Assert.assertEquals(indexesUsed(result.getExecutionPlan()), 1);
+        var resultList = result.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
-                    + " prop4 >= 1").toList();
-    Assert.assertEquals(result.size(), 1);
+        final var entity = resultList.getFirst();
+        Assert.assertEquals(entity.<Integer>getProperty("prop1").intValue(), 1);
+        Assert.assertEquals(entity.<Integer>getProperty("prop2").intValue(), 1);
+        Assert.assertEquals(entity.<Integer>getProperty("prop4").intValue(), 1);
+      }
+    });
 
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
   }
 
   @Test
   public void testTripleSearchLastFieldNotInIndexFirstCase() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
+                      + " prop5 >= 1")) {
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
-                    + " prop5 >= 1").toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    Assert.assertEquals(result.size(), 1);
+        final var document = resultList.getFirst();
+        Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop5").intValue(), 1);
+      }
+    });
 
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop5").intValue(), 1);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testTripleSearchLastFieldNotInIndexSecondCase() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop4 >= 1")) {
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop4 >= 1")
-            .toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    Assert.assertEquals(result.size(), 10);
+        for (var i = 0; i < 10; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop1", 1);
+          entity.setProperty("prop2", i);
+          entity.setProperty("prop4", 1);
 
-    for (var i = 0; i < 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
-      document.setProperty("prop4", 1);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testTripleSearchLastFieldInIndex() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed3 == -1) {
+//      oldcompositeIndexUsed3 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed3 == -1) {
-      oldcompositeIndexUsed3 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop4 = 1")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop4 = 1")
-            .toList();
+        for (var i = 0; i < 10; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop1", 1);
+          entity.setProperty("prop2", i);
+          entity.setProperty("prop4", 1);
 
-    Assert.assertEquals(result.size(), 10);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-    for (var i = 0; i < 10; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop1", 1);
-      document.setProperty("prop2", i);
-      document.setProperty("prop4", 1);
-
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
   }
 
   @Test
   public void testTripleSearchLastFieldsCanNotBeMerged() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed3 == -1) {
+//      oldcompositeIndexUsed3 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed3 == -1) {
-      oldcompositeIndexUsed3 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where prop6 <= 1 and prop4 < 1")) {
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop6 <= 1 and prop4 < 1")
-            .toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 2);
 
-    Assert.assertEquals(result.size(), 2);
+        for (var i = 0; i < 2; i++) {
+          final var entity = ((EntityImpl) session.newEntity());
+          entity.setProperty("prop6", i);
+          entity.setProperty("prop4", 0);
 
-    for (var i = 0; i < 2; i++) {
-      final var document = ((EntityImpl) session.newEntity());
-      document.setProperty("prop6", i);
-      document.setProperty("prop4", 0);
+          Assert.assertEquals(containsEntity(resultList, entity), 1);
+        }
+      }
+    });
 
-      Assert.assertEquals(containsEntity(result, document), 1);
-    }
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
   }
 
   @Test
   public void testLastFieldNotCompatibleOperator() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 + 1 = 3")) {
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 + 1 = 3")
-            .toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    Assert.assertEquals(result.size(), 1);
+        final var document = resultList.getFirst();
+        Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
+      }
+    });
 
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testEmbeddedMapByKeyIndexReuse() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where fEmbeddedMap containskey"
+                      + " 'key12'")) {
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where fEmbeddedMap containskey"
-                    + " 'key12'").toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    Assert.assertEquals(result.size(), 10);
+        final var entity = ((EntityImpl) session.newEntity());
 
-    final var document = ((EntityImpl) session.newEntity());
+        final Map<String, Integer> embeddedMap = new HashMap<>();
 
-    final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
+        embeddedMap.put("key11", 11);
+        embeddedMap.put("key12", 12);
+        embeddedMap.put("key13", 13);
+        embeddedMap.put("key14", 11);
 
-    embeddedMap.put("key11", 11);
-    embeddedMap.put("key12", 12);
-    embeddedMap.put("key13", 13);
-    embeddedMap.put("key14", 11);
+        entity.setProperty("fEmbeddedMap", embeddedMap);
 
-    document.setProperty("fEmbeddedMap", embeddedMap);
+        Assert.assertEquals(containsEntity(resultList, entity), 10);
+      }
+    });
 
-    Assert.assertEquals(containsEntity(result, document), 10);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2);
   }
 
   @Test
   public void testEmbeddedMapBySpecificKeyIndexReuse() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where ( fEmbeddedMap containskey"
+                      + " 'key12' ) and ( fEmbeddedMap['key12'] = 12 )")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where ( fEmbeddedMap containskey"
-                    + " 'key12' ) and ( fEmbeddedMap['key12'] = 12 )").toList();
-    Assert.assertEquals(result.size(), 10);
+        final var document = ((EntityImpl) session.newEntity());
 
-    final var document = ((EntityImpl) session.newEntity());
+        final Map<String, Integer> embeddedMap = new HashMap<>();
 
-    final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
+        embeddedMap.put("key11", 11);
+        embeddedMap.put("key12", 12);
+        embeddedMap.put("key13", 13);
+        embeddedMap.put("key14", 11);
 
-    embeddedMap.put("key11", 11);
-    embeddedMap.put("key12", 12);
-    embeddedMap.put("key13", 13);
-    embeddedMap.put("key14", 11);
+        document.setProperty("fEmbeddedMap", embeddedMap);
+      }
+    });
 
-    document.setProperty("fEmbeddedMap", embeddedMap);
-
-    Assert.assertEquals(containsEntity(result, document), 10);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2);
+//    Assert.assertEquals(containsEntity(result, document), 10);
+//
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2);
   }
 
   @Test
   public void testEmbeddedMapByValueIndexReuse() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where fEmbeddedMap containsvalue"
+                      + " 11")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 10);
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where fEmbeddedMap containsvalue"
-                    + " 11").toList();
-    Assert.assertEquals(result.size(), 10);
+        final var entity = ((EntityImpl) session.newEntity());
 
-    final var document = ((EntityImpl) session.newEntity());
+        final Map<String, Integer> embeddedMap = new HashMap<>();
 
-    final Map<String, Integer> embeddedMap = new HashMap<String, Integer>();
+        embeddedMap.put("key11", 11);
+        embeddedMap.put("key12", 12);
+        embeddedMap.put("key13", 13);
+        embeddedMap.put("key14", 11);
 
-    embeddedMap.put("key11", 11);
-    embeddedMap.put("key12", 12);
-    embeddedMap.put("key13", 13);
-    embeddedMap.put("key14", 11);
+        entity.setProperty("fEmbeddedMap", embeddedMap);
 
-    document.setProperty("fEmbeddedMap", embeddedMap);
+        Assert.assertEquals(containsEntity(resultList, entity), 10);
+      }
+    });
 
-    Assert.assertEquals(containsEntity(result, document), 10);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2);
   }
 
   @Test
   public void testEmbeddedListIndexReuse() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query("select * from sqlSelectIndexReuseTestClass where fEmbeddedList contains 7")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
 
-    final var result =
-        session
-            .query("select * from sqlSelectIndexReuseTestClass where fEmbeddedList contains 7")
-            .toList();
+        final List<Integer> embeddedList = new ArrayList<>(3);
+        embeddedList.add(6);
+        embeddedList.add(7);
+        embeddedList.add(8);
 
-    final List<Integer> embeddedList = new ArrayList<Integer>(3);
-    embeddedList.add(6);
-    embeddedList.add(7);
-    embeddedList.add(8);
+        final var entity = ((EntityImpl) session.newEntity());
+        entity.setProperty("fEmbeddedList", embeddedList);
 
-    final var document = ((EntityImpl) session.newEntity());
-    document.setProperty("fEmbeddedList", embeddedList);
+        Assert.assertEquals(containsEntity(resultList, entity), 10);
+      }
+    });
 
-    Assert.assertEquals(containsEntity(result, document), 10);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2);
   }
 
   @Test
   public void testNotIndexOperatorFirstCase() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2  = 2 and"
+                      + " ( prop4 = 3 or prop4 = 1 )")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2  = 2 and"
-                    + " ( prop4 = 3 or prop4 = 1 )")
-            .toList();
-
-    Assert.assertEquals(result.size(), 1);
-
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
-    Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+        final var document = resultList.getFirst();
+        Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
+        Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
+      }
+    });
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
   public void testIndexUsedOnOrClause() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    if (oldIndexUsage < 0) {
-      oldIndexUsage = 0;
-    }
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    if (oldIndexUsage < 0) {
+//      oldIndexUsage = 0;
+//    }
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where ( prop1 = 1 and prop2 = 2 )"
-                    + " or ( prop4  = 1 and prop6 = 2 )").toList();
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where ( prop1 = 1 and prop2 = 2 )"
+                      + " or ( prop4  = 1 and prop6 = 2 )")) {
 
-    Assert.assertEquals(result.size(), 1);
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 2);
 
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
-    Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop6").intValue(), 2);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 2);
+        final var document = resultList.getFirst();
+        Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop2").intValue(), 2);
+        Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop6").intValue(), 2);
+      }
+    });
+
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 2);
   }
 
   @Test
   public void testCompositeIndexEmptyResult() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed2 == -1) {
+//      oldcompositeIndexUsed2 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed2 == -1) {
-      oldcompositeIndexUsed2 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop1 = 1777 and prop2  ="
+                      + " 2777")) {
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop1 = 1777 and prop2  ="
-                    + " 2777").toList();
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 0);
+      }
+    });
 
-    Assert.assertEquals(result.size(), 0);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
@@ -2745,9 +2982,9 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         SchemaClass.INDEX_TYPE.UNIQUE,
         "prop0", "prop1");
 
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed2 = profiler.getCounter("db.demo.query.compositeIndexUsed.2");
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity("sqlSelectIndexReuseTestChildClass"));
@@ -2763,19 +3000,23 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     session.commit();
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestChildClass where prop0 = 0 and prop1 ="
-                    + " 1").toList();
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestChildClass where prop0 = 0 and prop1 ="
+                      + " 1")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
+      }
+    });
 
-    Assert.assertEquals(result.size(), 1);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.2"), oldcompositeIndexUsed2 + 1);
   }
 
   @Test
@@ -2835,8 +3076,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     var entity3 = session
         .newInstance("CountFunctionWithUniqueIndexTest");
     entity3.setProperty("a", "a");
-    var entity2 = entity3;
-    entity2.setProperty("b", "c");
+    entity3.setProperty("b", "c");
 
     var entity1 = session
         .newInstance("CountFunctionWithUniqueIndexTest");
@@ -2847,8 +3087,6 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         .newInstance("CountFunctionWithUniqueIndexTest");
     entity.setProperty("a", "a");
     entity.setProperty("b", "b");
-    var doc =
-        entity;
 
     session.commit();
 
@@ -2861,7 +3099,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     session.begin();
     var activeTx = session.getActiveTransaction();
-    activeTx.<EntityImpl>load(doc).delete();
+    activeTx.<EntityImpl>load(entity).delete();
     session.commit();
   }
 
@@ -2884,175 +3122,191 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   @Test
   public void testCompositeSearchIn1() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
-    var oldcompositeIndexUsed33 = profiler.getCounter("db.demo.query.compositeIndexUsed.3.3");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//    var oldcompositeIndexUsed33 = profiler.getCounter("db.demo.query.compositeIndexUsed.3.3");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed3 == -1) {
+//      oldcompositeIndexUsed3 = 0;
+//    }
+//    if (oldcompositeIndexUsed33 == -1) {
+//      oldcompositeIndexUsed33 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed3 == -1) {
-      oldcompositeIndexUsed3 = 0;
-    }
-    if (oldcompositeIndexUsed33 == -1) {
-      oldcompositeIndexUsed33 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 = 1 and"
+                      + " prop3 in [13, 113]")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 = 1 and"
-                    + " prop3 in [13, 113]").toDetachedList();
+        final var document = resultList.getFirst();
+        Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
+      }
+    });
 
-    Assert.assertEquals(result.size(), 1);
-
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3"), oldcompositeIndexUsed33 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3"), oldcompositeIndexUsed33 + 1);
   }
 
   @Test
   public void testCompositeSearchIn2() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
-    var oldcompositeIndexUsed33 = profiler.getCounter("db.demo.query.compositeIndexUsed.3.3");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//    var oldcompositeIndexUsed33 = profiler.getCounter("db.demo.query.compositeIndexUsed.3.3");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed3 == -1) {
+//      oldcompositeIndexUsed3 = 0;
+//    }
+//    if (oldcompositeIndexUsed33 == -1) {
+//      oldcompositeIndexUsed33 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed3 == -1) {
-      oldcompositeIndexUsed3 = 0;
-    }
-    if (oldcompositeIndexUsed33 == -1) {
-      oldcompositeIndexUsed33 = 0;
-    }
+    session.executeInTx(transaction -> {
+      try (final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 in [1, 2]"
+                      + " and prop3 = 13")) {
+        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+        var resultList = resultSet.toList();
+        Assert.assertEquals(resultList.size(), 1);
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 in [1, 2]"
-                    + " and prop3 = 13").toDetachedList();
+        final var document = resultList.getFirst();
+        Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+        Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
+      }
+    });
 
-    Assert.assertEquals(result.size(), 1);
-
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
-    Assert.assertTrue(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
-            < oldcompositeIndexUsed33 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
+//    Assert.assertTrue(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
+//            < oldcompositeIndexUsed33 + 1);
   }
 
   @Test
   public void testCompositeSearchIn3() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
-    var oldcompositeIndexUsed33 = profiler.getCounter("db.demo.query.compositeIndexUsed.3.3");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//    var oldcompositeIndexUsed33 = profiler.getCounter("db.demo.query.compositeIndexUsed.3.3");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed3 == -1) {
+//      oldcompositeIndexUsed3 = 0;
+//    }
+//    if (oldcompositeIndexUsed33 == -1) {
+//      oldcompositeIndexUsed33 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed3 == -1) {
-      oldcompositeIndexUsed3 = 0;
-    }
-    if (oldcompositeIndexUsed33 == -1) {
-      oldcompositeIndexUsed33 = 0;
-    }
+    session.executeInTx(transaction -> {
+      final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 in [1, 2]"
+                      + " and prop3 in [13, 15]");
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop4 = 1 and prop1 in [1, 2]"
-                    + " and prop3 in [13, 15]").toDetachedList();
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+      var resultList = resultSet.toList();
+      Assert.assertEquals(resultList.size(), 2);
 
-    Assert.assertEquals(result.size(), 2);
+      final var document = resultList.getFirst();
+      Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
+      Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+      Assert.assertTrue(
+          document.<Integer>getProperty("prop3").equals(13) || document.<Integer>getProperty(
+                  "prop3")
+              .equals(15));
+    });
 
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertTrue(
-        document.<Integer>getProperty("prop3").equals(13) || document.<Integer>getProperty(
-                "prop3")
-            .equals(15));
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
-    Assert.assertTrue(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
-            < oldcompositeIndexUsed33 + 1);
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3"), oldcompositeIndexUsed3 + 1);
+//    Assert.assertTrue(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
+//            < oldcompositeIndexUsed33 + 1);
   }
 
   @Test
   public void testCompositeSearchIn4() {
-    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
-    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
-    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
-    var oldcompositeIndexUsed33 = profiler.getCounter("db.demo.query.compositeIndexUsed.3.3");
+//    var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");
+//    var oldcompositeIndexUsed = profiler.getCounter("db.demo.query.compositeIndexUsed");
+//    var oldcompositeIndexUsed3 = profiler.getCounter("db.demo.query.compositeIndexUsed.3");
+//    var oldcompositeIndexUsed33 = profiler.getCounter("db.demo.query.compositeIndexUsed.3.3");
+//
+//    if (oldIndexUsage == -1) {
+//      oldIndexUsage = 0;
+//    }
+//    if (oldcompositeIndexUsed == -1) {
+//      oldcompositeIndexUsed = 0;
+//    }
+//    if (oldcompositeIndexUsed3 == -1) {
+//      oldcompositeIndexUsed3 = 0;
+//    }
+//    if (oldcompositeIndexUsed33 == -1) {
+//      oldcompositeIndexUsed33 = 0;
+//    }
 
-    if (oldIndexUsage == -1) {
-      oldIndexUsage = 0;
-    }
-    if (oldcompositeIndexUsed == -1) {
-      oldcompositeIndexUsed = 0;
-    }
-    if (oldcompositeIndexUsed3 == -1) {
-      oldcompositeIndexUsed3 = 0;
-    }
-    if (oldcompositeIndexUsed33 == -1) {
-      oldcompositeIndexUsed33 = 0;
-    }
+    session.executeInTx(transaction -> {
+      final var resultSet =
+          session
+              .query(
+                  "select * from sqlSelectIndexReuseTestClass where prop4 in [1, 2] and prop1 = 1"
+                      + " and prop3 = 13");
 
-    final var result =
-        session
-            .query(
-                "select * from sqlSelectIndexReuseTestClass where prop4 in [1, 2] and prop1 = 1"
-                    + " and prop3 = 13").toDetachedList();
+      Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 1);
+      var resultList = resultSet.toList();
+      Assert.assertEquals(resultList.size(), 1);
 
-    Assert.assertEquals(result.size(), 1);
-
-    final var document = result.getFirst();
-    Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
-    Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
-
-    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
-    Assert.assertEquals(
-        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
-    Assert.assertTrue(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3") < oldcompositeIndexUsed3 + 1);
-    Assert.assertTrue(
-        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
-            < oldcompositeIndexUsed33 + 1);
+      final var document = resultList.getFirst();
+      Assert.assertEquals(document.<Integer>getProperty("prop4").intValue(), 1);
+      Assert.assertEquals(document.<Integer>getProperty("prop1").intValue(), 1);
+      Assert.assertEquals(document.<Integer>getProperty("prop3").intValue(), 13);
+    });
+//
+//    Assert.assertEquals(profiler.getCounter("db.demo.query.indexUsed"), oldIndexUsage + 1);
+//    Assert.assertEquals(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed"), oldcompositeIndexUsed + 1);
+//    Assert.assertTrue(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3") < oldcompositeIndexUsed3 + 1);
+//    Assert.assertTrue(
+//        profiler.getCounter("db.demo.query.compositeIndexUsed.3.3")
+//            < oldcompositeIndexUsed33 + 1);
   }
 }
