@@ -3028,27 +3028,26 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       klazz.createIndex("a", "NOTUNIQUE", "a");
     }
 
-    session.begin();
-    var e1 = session
-        .newInstance("CountFunctionWithNotUniqueIndexTest");
-    e1.setProperty("a", "a");
-    e1.setProperty("b", "b");
+    session.executeInTx(transaction -> {
+      var e1 = transaction
+          .newEntity("CountFunctionWithNotUniqueIndexTest");
+      e1.setProperty("a", "a");
+      e1.setProperty("b", "b");
 
-    var e2 = session
-        .newInstance("CountFunctionWithNotUniqueIndexTest");
-    e2.setProperty("a", "a");
-    e1.setProperty("b", "b");
+      var e2 = transaction
+          .newEntity("CountFunctionWithNotUniqueIndexTest");
+      e2.setProperty("a", "a");
+      e1.setProperty("b", "b");
 
-    var entity = session
-        .newInstance("CountFunctionWithNotUniqueIndexTest");
-    entity.setProperty("a", "a");
+      var entity = transaction
+          .newEntity("CountFunctionWithNotUniqueIndexTest");
+      entity.setProperty("a", "a");
 
-    var entity1 = session
-        .newInstance("CountFunctionWithNotUniqueIndexTest");
-    entity1.setProperty("a", "c");
-    entity.setProperty("b", "c");
-
-    session.commit();
+      var entity1 = transaction
+          .newEntity("CountFunctionWithNotUniqueIndexTest");
+      entity1.setProperty("a", "c");
+      entity1.setProperty("b", "c");
+    });
 
     try (var rs = session.query(
         "select count(*) as count from CountFunctionWithNotUniqueIndexTest where a = 'a' and"

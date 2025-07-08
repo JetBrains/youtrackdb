@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -76,6 +77,25 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     var thirdValue = third.execute(currentRecord, ctx);
 
     return evaluate(db, firstValue, secondValue, thirdValue);
+  }
+
+  @Override
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
+    var andBlock = new SQLAndBlock(-1);
+    var geCondition = new SQLBinaryCondition(-1);
+    geCondition.left = first;
+    geCondition.right = second;
+    geCondition.operator = new SQLGeOperator(-1);
+
+    andBlock.addSubBlock(geCondition);
+
+    var leCondition = new SQLBinaryCondition(-1);
+    leCondition.left = first;
+    leCondition.right = third;
+    leCondition.operator = new SQLLeOperator(-1);
+    andBlock.addSubBlock(leCondition);
+
+    return List.of(andBlock);
   }
 
   private static boolean evaluate(DatabaseSessionInternal session, Object firstValue,
@@ -154,6 +174,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     this.third = third;
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     first.toString(params, builder);
     builder.append(" BETWEEN ");
@@ -162,6 +183,7 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
     third.toString(params, builder);
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     first.toGenericStatement(builder);
     builder.append(" BETWEEN ");
