@@ -349,7 +349,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         for (var i = 0; i < 10; i++) {
           final var entity = session.newEntity();
           entity.setProperty("prop8", 1);
-          entity.setProperty("fEmbeddedMapTwo", embeddedMap);
+          entity.newEmbeddedMap("fEmbeddedMapTwo", embeddedMap);
 
           Assert.assertEquals(containsEntity(resultList, entity), 1);
         }
@@ -460,7 +460,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         for (var i = 0; i < 10; i++) {
           final var document = ((EntityImpl) session.newEntity());
           document.setProperty("prop8", i);
-          document.setProperty("fEmbeddedMapTwo", embeddedMap);
+          document.newEmbeddedMap("fEmbeddedMapTwo", embeddedMap);
 
           Assert.assertEquals(containsEntity(resultList, document), 1);
         }
@@ -514,7 +514,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
         final var entity = ((EntityImpl) session.newEntity());
         entity.setProperty("prop8", 1);
-        entity.setProperty("fEmbeddedMap", embeddedMap);
+        entity.newEmbeddedMap("fEmbeddedMap", embeddedMap);
 
         Assert.assertEquals(containsEntity(resultList, entity), 1);
       }
@@ -567,7 +567,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
         final var entity = session.newEntity();
         entity.setProperty("prop8", 1);
-        entity.setProperty("fEmbeddedSet", embeddedSet);
+        entity.newEmbeddedSet("fEmbeddedSet", embeddedSet);
 
         Assert.assertEquals(containsEntity(resultList, entity), 1);
       }
@@ -629,7 +629,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         final var entity = ((EntityImpl) session.newEntity());
         entity.setProperty("prop8", (i << 1) + 4);
         entity.setProperty("prop9", 0);
-        entity.setProperty("fEmbeddedSet", embeddedSet);
+        entity.newEmbeddedSet("fEmbeddedSet", embeddedSet);
 
         Assert.assertEquals(containsEntity(resultList, entity), 1);
       }
@@ -686,7 +686,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       for (var i = 0; i < 10; i++) {
         final var entity = ((EntityImpl) session.newEntity());
         entity.setProperty("prop8", i);
-        entity.setProperty("fEmbeddedListTwo", embeddedList);
+        entity.newEmbeddedList("fEmbeddedListTwo", embeddedList);
 
         Assert.assertEquals(containsEntity(resultList, entity), 1);
       }
@@ -740,7 +740,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
         final var entity = session.newEntity();
         entity.setProperty("prop8", 1);
-        entity.setProperty("fEmbeddedListTwo", embeddedList);
+        entity.newEmbeddedList("fEmbeddedListTwo", embeddedList);
 
         Assert.assertEquals(containsEntity(resultList, entity), 1);
       }
@@ -2731,7 +2731,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         embeddedMap.put("key13", 13);
         embeddedMap.put("key14", 11);
 
-        entity.setProperty("fEmbeddedMap", embeddedMap);
+        entity.newEmbeddedMap("fEmbeddedMap", embeddedMap);
 
         Assert.assertEquals(containsEntity(resultList, entity), 10);
       }
@@ -2773,7 +2773,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         embeddedMap.put("key13", 13);
         embeddedMap.put("key14", 11);
 
-        document.setProperty("fEmbeddedMap", embeddedMap);
+        document.newEmbeddedMap("fEmbeddedMap", embeddedMap);
       }
     });
 
@@ -2815,7 +2815,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         embeddedMap.put("key13", 13);
         embeddedMap.put("key14", 11);
 
-        entity.setProperty("fEmbeddedMap", embeddedMap);
+        entity.newEmbeddedMap("fEmbeddedMap", embeddedMap);
 
         Assert.assertEquals(containsEntity(resultList, entity), 10);
       }
@@ -2850,8 +2850,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
         embeddedList.add(7);
         embeddedList.add(8);
 
-        final var entity = ((EntityImpl) session.newEntity());
-        entity.setProperty("fEmbeddedList", embeddedList);
+        final var entity = session.newEntity();
+        entity.newEmbeddedList("fEmbeddedList", embeddedList);
 
         Assert.assertEquals(containsEntity(resultList, entity), 10);
       }
@@ -3067,40 +3067,43 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       klazz.createIndex("testCountFunctionWithUniqueIndex", "NOTUNIQUE", "a");
     }
 
-    session.begin();
-    var entity4 = session
-        .newInstance("CountFunctionWithUniqueIndexTest");
-    entity4.setProperty("a", "a");
-    entity4.setProperty("b", "c");
+    var ent = session.computeInTx(transaction -> {
+      var entity4 = transaction
+          .newEntity("CountFunctionWithUniqueIndexTest");
+      entity4.setProperty("a", "a");
+      entity4.setProperty("b", "c");
 
-    var entity3 = session
-        .newInstance("CountFunctionWithUniqueIndexTest");
-    entity3.setProperty("a", "a");
-    entity3.setProperty("b", "c");
+      var entity3 = transaction
+          .newEntity("CountFunctionWithUniqueIndexTest");
+      entity3.setProperty("a", "a");
+      entity3.setProperty("b", "c");
 
-    var entity1 = session
-        .newInstance("CountFunctionWithUniqueIndexTest");
-    entity1.setProperty("a", "a");
-    entity1.setProperty("b", "e");
+      var entity1 = transaction
+          .newEntity("CountFunctionWithUniqueIndexTest");
+      entity1.setProperty("a", "a");
+      entity1.setProperty("b", "e");
 
-    var entity = session
-        .newInstance("CountFunctionWithUniqueIndexTest");
-    entity.setProperty("a", "a");
-    entity.setProperty("b", "b");
+      var entity = transaction
+          .newEntity("CountFunctionWithUniqueIndexTest");
+      entity.setProperty("a", "a");
+      entity.setProperty("b", "b");
 
-    session.commit();
+      return entity;
+    });
 
-    try (var rs = session.query(
-        "select count(*) as count from CountFunctionWithUniqueIndexTest where a = 'a' and b"
-            + " = 'c'")) {
-      Assert.assertEquals(indexesUsed(rs.getExecutionPlan()), 1);
-      Assert.assertEquals(rs.findFirst(r -> r.getLong("count")).longValue(), 2L);
-    }
+    session.executeInTx(transaction -> {
 
-    session.begin();
-    var activeTx = session.getActiveTransaction();
-    activeTx.<EntityImpl>load(entity).delete();
-    session.commit();
+      try (var rs = transaction.query(
+          "select count(*) as count from CountFunctionWithUniqueIndexTest where a = 'a' and b"
+              + " = 'c'")) {
+        Assert.assertEquals(indexesUsed(rs.getExecutionPlan()), 1);
+        Assert.assertEquals(rs.findFirst(r -> r.getLong("count")).longValue(), 2L);
+      }
+    });
+
+    session.executeInTx(transaction -> {
+      transaction.<EntityImpl>load(ent).delete();
+    });
   }
 
   private static int containsEntity(final List<Result> resultList, final Entity entity) {
