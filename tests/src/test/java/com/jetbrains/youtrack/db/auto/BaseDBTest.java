@@ -634,12 +634,15 @@ public abstract class BaseDBTest extends BaseTest {
 
     for (var expectedIndex : expectedIndexUsages.entrySet()) {
       Assert.assertTrue(indexesUsed.containsKey(expectedIndex.getKey()),
-          "Index " + expectedIndex.getKey() + " was not found in the list of used indexes.");
+          "Unexpected usage of indexes. Expected: " + expectedIndexUsages + ", actual: "
+              + indexesUsed);
 
       final var actualUsagesSorted = indexesUsed.get(expectedIndex.getKey()).stream().sorted()
           .toList();
       final var expectedUsagesSorted = expectedIndex.getValue().stream().sorted().toList();
-      Assert.assertEquals(expectedUsagesSorted, actualUsagesSorted);
+      Assert.assertEquals(expectedUsagesSorted, actualUsagesSorted,
+          "Unexpected usage of indexes. Expected: " + expectedIndexUsages + ", actual: "
+              + indexesUsed);
     }
   }
 

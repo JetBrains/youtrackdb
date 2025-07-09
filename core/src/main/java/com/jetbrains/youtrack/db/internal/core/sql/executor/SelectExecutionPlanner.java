@@ -7,7 +7,6 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.common.util.PairIntegerObject;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
@@ -1990,21 +1989,6 @@ public class SelectExecutionPlanner {
     // is redundant, just discard it)
     descriptors = removePrefixIndexes(descriptors);
 
-    // sort by cost
-    var sortedDescriptors =
-        descriptors.stream().map(x -> new PairIntegerObject<>(x.cost(ctx), x)).sorted().toList();
-
-    // get only the descriptors with the lowest cost
-    if (sortedDescriptors.isEmpty()) {
-      descriptors = Collections.emptyList();
-    } else {
-      descriptors =
-          sortedDescriptors.stream()
-              .filter(x -> x.key == sortedDescriptors.getFirst().key)
-              .map(x -> x.value)
-              .collect(Collectors.toList());
-    }
-
     // sort remaining by the number of indexed fields
     descriptors =
         descriptors.stream()
@@ -2031,7 +2015,9 @@ public class SelectExecutionPlanner {
         }
       }
       if (matching != null) {
-        if (clazz.getName().equals(desc.getIndex().getDefinition().getClassName())) {
+        var clsName = clazz.getName();
+        if (clsName.equals(desc.getIndex().getDefinition().getClassName()) && !matching.getIndex()
+            .getDefinition().getClassName().equals(clsName)) {
           results.remove(matching);
           results.add(desc);
         }

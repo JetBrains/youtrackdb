@@ -177,7 +177,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void testCompositeSearchEquals() {
     try (var resultSet = session
         .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 2")) {
-      assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+      assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
 
       final var resultList = resultSet.toList();
 
@@ -210,7 +210,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     session.executeInTx(transaction -> {
       try (var resultSet = transaction
           .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
 
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 10);
@@ -502,7 +502,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 = ?", 1,
                   2)) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
 
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 1);
@@ -520,7 +520,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = ?", 1);
-      assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+      assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
 
       var resultList = resultSet.toList();
       Assert.assertEquals(resultList.size(), 10);
@@ -562,7 +562,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 > 2")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 7);
 
@@ -583,7 +583,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 > 7")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
 
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 20);
@@ -631,7 +631,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 > ?", 1,
                   2);
-      assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+      assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
       var resultList = resultSet.toList();
       Assert.assertEquals(resultList.size(), 7);
 
@@ -651,7 +651,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 > ?", 7);
-      assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+      assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
       var resultList = resultSet.toList();
       Assert.assertEquals(resultList.size(), 20);
 
@@ -697,7 +697,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 >= 2")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 8);
 
@@ -718,7 +718,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 >= 7")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 30);
 
@@ -765,7 +765,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 >= ?",
                   1, 2)) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 8);
 
@@ -786,7 +786,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 >= ?", 7)) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 30);
 
@@ -831,7 +831,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 <= 2")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 3);
 
@@ -852,7 +852,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 <= 7")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 80);
 
@@ -899,7 +899,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 <= ?", 1,
                   2)) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 3);
 
@@ -920,7 +920,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 <= ?", 7);
-      assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+      assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
       var resultList = resultSet.toList();
 
       Assert.assertEquals(resultList.size(), 80);
@@ -967,7 +967,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 < 2")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 2);
 
@@ -988,7 +988,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 < 7");
-      assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+      assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
 
       var resultList = resultSet.toList();
       Assert.assertEquals(resultList.size(), 70);
@@ -1035,7 +1035,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 = ? and prop2 < ?", 1,
                   2)) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 2);
 
@@ -1056,7 +1056,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 < ?", 7)) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 70);
 
@@ -1105,7 +1105,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
               .query(
                   "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between 1"
                       + " and 3")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 3);
 
@@ -1126,7 +1126,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (final var resultSet =
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 between 1 and 3")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 30);
 
@@ -1174,7 +1174,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
               .query(
                   "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 between ?"
                       + " and ?", 1, 3)) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 3);
 
@@ -1196,7 +1196,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
           session
               .query("select * from sqlSelectIndexReuseTestClass where prop1 between ? and ?", 1,
                   3)) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 30);
 
@@ -1509,7 +1509,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
                   "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
                       + " prop3 = 11")) {
 
-        assertIndexesUsed(Map.of("indextwo", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 1);
 
@@ -1550,7 +1550,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
                   "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 = 1 and"
                       + " prop5 >= 1")) {
 
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 1);
 
@@ -1634,7 +1634,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
           session
               .query(
                   "select * from sqlSelectIndexReuseTestClass where prop1 = 1 and prop2 + 1 = 3")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(1)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(1)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 1);
 
@@ -1781,9 +1781,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
               .query(
                   "select * from sqlSelectIndexReuseTestClass where ( prop1 = 1 and prop2 = 2 )"
                       + " or ( prop4  = 1 and prop6 = 2 )")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2), "indexfour", List.of(2)),
+        assertIndexesUsed(Map.of("indexone", List.of(2), "indexfour", List.of(1)),
             resultSet.getExecutionPlan());
-        Assert.assertEquals(indexesUsed(resultSet.getExecutionPlan()), 2);
 
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 1);
@@ -1805,7 +1804,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
               .query(
                   "select * from sqlSelectIndexReuseTestClass where prop1 = 1777 and prop2  ="
                       + " 2777")) {
-        assertIndexesUsed(Map.of("indexthree", List.of(2)), resultSet.getExecutionPlan());
+        assertIndexesUsed(Map.of("indexone", List.of(2)), resultSet.getExecutionPlan());
         var resultList = resultSet.toList();
         Assert.assertEquals(resultList.size(), 0);
       }
@@ -1928,7 +1927,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
       try (var rs = transaction.query(
           "select count(*) as count from CountFunctionWithUniqueIndexTest where a = 'a' and b"
               + " = 'c'")) {
-        assertIndexesUsed(Map.of("a", List.of(1)), rs.getExecutionPlan());
+        assertIndexesUsed(Map.of("testCountFunctionWithUniqueIndex", List.of(1)),
+            rs.getExecutionPlan());
         Assert.assertEquals(rs.findFirst(r -> r.getLong("count")).longValue(), 2L);
       }
     });

@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
@@ -38,30 +37,6 @@ public class IndexSearchDescriptor {
     this.keyCondition = null;
     this.additionalRangeCondition = null;
     this.remainingCondition = null;
-  }
-
-  public int cost(CommandContext ctx) {
-    var stats = QueryStats.get(ctx.getDatabaseSession());
-
-    var indexName = index.getName();
-    var size = getSubBlocks().size();
-    var range = false;
-    var lastOp = getSubBlocks().get(getSubBlocks().size() - 1);
-    if (lastOp instanceof SQLBinaryCondition) {
-      var op = ((SQLBinaryCondition) lastOp).getOperator();
-      range = op.isRangeOperator();
-    }
-
-    var val =
-        stats.getIndexStats(
-            indexName, size, range, additionalRangeCondition != null, ctx.getDatabaseSession());
-    if (val == -1) {
-      // TODO query the index!
-    }
-    if (val >= 0) {
-      return val > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) val;
-    }
-    return Integer.MAX_VALUE;
   }
 
   private List<SQLBooleanExpression> getSubBlocks() {

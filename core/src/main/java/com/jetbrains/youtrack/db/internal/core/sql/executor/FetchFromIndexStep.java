@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionS
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBetweenCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCompareOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
@@ -58,12 +57,9 @@ import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 public class FetchFromIndexStep extends AbstractExecutionStep {
-
   protected IndexSearchDescriptor desc;
 
   private boolean orderAsc;
-
-  private long count = 0;
 
   public FetchFromIndexStep(
       IndexSearchDescriptor desc, boolean orderAsc, CommandContext ctx, boolean profilingEnabled) {
@@ -111,19 +107,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             }
           }
         };
-    return new MultipleExecutionStream(res).onClose(this::close);
+    return new MultipleExecutionStream(res);
   }
 
-  private void close(CommandContext context) {
-    updateIndexStats();
-  }
 
-  private Result readResult(CommandContext ctx, RawPair<Object, RID> nextEntry) {
+  private static Result readResult(CommandContext ctx, RawPair<Object, RID> nextEntry) {
     if (ExecutionThreadLocal.isInterruptCurrentOperation()) {
       throw new CommandInterruptedException(ctx.getDatabaseSession(),
           "The command has been interrupted");
     }
-    count++;
     var key = nextEntry.first();
     Identifiable value = nextEntry.second();
 
@@ -139,31 +131,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       return new ArrayList<>(((CompositeKey) key).getKeys());
     }
     return key;
-  }
-
-  private void updateIndexStats() {
-    // stats
-    var stats = QueryStats.get(ctx.getDatabaseSession());
-    var index = desc.getIndex();
-    var condition = desc.getKeyCondition();
-    var additionalRangeCondition = desc.getAdditionalRangeCondition();
-    if (index == null) {
-      return; // this could happen, if not inited yet
-    }
-    var indexName = index.getName();
-    var range = false;
-    var size = 0;
-
-    if (condition != null) {
-      size = condition.getSubBlocks().size();
-      var lastOp = condition.getSubBlocks().getLast();
-      if (lastOp instanceof SQLBinaryCondition) {
-        var op = ((SQLBinaryCondition) lastOp).getOperator();
-        range = op.isRangeOperator();
-      }
-    }
-
-    stats.pushIndexStats(indexName, size, range, additionalRangeCondition != null, count);
   }
 
   private static List<Stream<RawPair<Object, RID>>> init(
@@ -527,63 +494,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return true;
   }
 
-  private static List<Stream<RawPair<Object, RID>>> processBetweenCondition(
-      Index index, SQLBooleanExpression condition, boolean isOrderAsc,
-      CommandContext ctx) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-
-    var definition = index.getDefinition();
-    var key = ((SQLBetweenCondition) condition).getFirst();
-    if (!key.toString().equalsIgnoreCase("key")) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "search for index for " + condition + " is not supported yet");
-    }
-    var second = ((SQLBetweenCondition) condition).getSecond();
-    var third = ((SQLBetweenCondition) condition).getThird();
-
-    var secondValue = second.execute((Result) null, ctx);
-    secondValue = unboxResult(secondValue);
-    var thirdValue = third.execute((Result) null, ctx);
-    thirdValue = unboxResult(thirdValue);
-    var session = ctx.getDatabaseSession();
-    var transaction = session.getActiveTransaction();
-    var stream =
-        index.streamEntriesBetween(session,
-            toBetweenIndexKey(transaction, definition, secondValue),
-            true,
-            toBetweenIndexKey(transaction, definition, thirdValue),
-            true, isOrderAsc);
-    streams.add(stream);
-    return streams;
-  }
-
-  private static List<Stream<RawPair<Object, RID>>> processBinaryCondition(
-      FrontendTransaction transaction,
-      Index index,
-      SQLBooleanExpression condition,
-      boolean isOrderAsc,
-      CommandContext ctx) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-    Set<Stream<RawPair<Object, RID>>> acquiredStreams =
-        Collections.newSetFromMap(new IdentityHashMap<>());
-
-    var definition = index.getDefinition();
-    var operator = ((SQLBinaryCondition) condition).getOperator();
-    var left = ((SQLBinaryCondition) condition).getLeft();
-    if (!left.toString().equalsIgnoreCase("key")) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "search for index for " + condition + " is not supported yet");
-    }
-    var rightValue = ((SQLBinaryCondition) condition).getRight().execute((Result) null, ctx);
-    var stream =
-        createCursor(transaction, index, operator, definition, rightValue, isOrderAsc, condition);
-    if (acquiredStreams.add(stream)) {
-      streams.add(stream);
-    }
-
-    return streams;
-  }
-
   private static Collection<?> toIndexKey(
       FrontendTransaction transaction, IndexDefinition definition, Object rightValue) {
     if (definition.getProperties().size() == 1 && rightValue instanceof Collection) {
@@ -617,33 +527,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
 
     return rightValue;
-  }
-
-  private static Stream<RawPair<Object, RID>> createCursor(
-      FrontendTransaction transaction,
-      Index index,
-      SQLBinaryCompareOperator operator,
-      IndexDefinition definition,
-      Object value,
-      boolean orderAsc,
-      SQLBooleanExpression condition) {
-    var session = transaction.getDatabaseSession();
-    if (operator instanceof SQLEqualsOperator
-        || operator instanceof SQLContainsKeyOperator
-        || operator instanceof SQLContainsValueOperator) {
-      return index.streamEntries(session, toIndexKey(transaction, definition, value), orderAsc);
-    } else if (operator instanceof SQLGeOperator) {
-      return index.streamEntriesMajor(session, value, true, orderAsc);
-    } else if (operator instanceof SQLGtOperator) {
-      return index.streamEntriesMajor(session, value, false, orderAsc);
-    } else if (operator instanceof SQLLeOperator) {
-      return index.streamEntriesMinor(session, value, true, orderAsc);
-    } else if (operator instanceof SQLLtOperator) {
-      return index.streamEntriesMinor(session, value, false, orderAsc);
-    } else {
-      throw new CommandExecutionException(session,
-          "search for index for " + condition + " is not supported yet");
-    }
   }
 
   protected boolean isOrderAsc() {
@@ -826,7 +709,6 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   @Override
   public void reset() {
     desc = null;
-    count = 0;
   }
 
   @Override
