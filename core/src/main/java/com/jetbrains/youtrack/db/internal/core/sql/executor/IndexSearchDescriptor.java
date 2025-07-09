@@ -18,13 +18,13 @@ import java.util.List;
 public class IndexSearchDescriptor {
 
   private final Index index;
-  private final SQLBooleanExpression keyCondition;
+  private final SQLAndBlock keyCondition;
   private final SQLBinaryCondition additionalRangeCondition;
   private final SQLBooleanExpression remainingCondition;
 
   public IndexSearchDescriptor(
       Index idx,
-      SQLBooleanExpression keyCondition,
+      SQLAndBlock keyCondition,
       SQLBinaryCondition additional,
       SQLBooleanExpression remainingCondition) {
     this.index = idx;
@@ -36,13 +36,6 @@ public class IndexSearchDescriptor {
   public IndexSearchDescriptor(Index idx) {
     this.index = idx;
     this.keyCondition = null;
-    this.additionalRangeCondition = null;
-    this.remainingCondition = null;
-  }
-
-  public IndexSearchDescriptor(Index idx, SQLBooleanExpression keyCondition) {
-    this.index = idx;
-    this.keyCondition = keyCondition;
     this.additionalRangeCondition = null;
     this.remainingCondition = null;
   }
@@ -73,7 +66,7 @@ public class IndexSearchDescriptor {
 
   private List<SQLBooleanExpression> getSubBlocks() {
     if (keyCondition instanceof SQLAndBlock) {
-      return ((SQLAndBlock) keyCondition).getSubBlocks();
+      return keyCondition.getSubBlocks();
     } else {
       return Collections.singletonList(keyCondition);
     }
@@ -83,11 +76,11 @@ public class IndexSearchDescriptor {
     return getSubBlocks().size();
   }
 
-  protected Index getIndex() {
+  public Index getIndex() {
     return index;
   }
 
-  protected SQLBooleanExpression getKeyCondition() {
+  protected SQLAndBlock getKeyCondition() {
     return keyCondition;
   }
 
@@ -180,10 +173,6 @@ public class IndexSearchDescriptor {
   /**
    * returns true if the first argument is a prefix for the second argument, eg. if the first
    * argument is [a] and the second argument is [a, b]
-   *
-   * @param item
-   * @param desc
-   * @return
    */
   public boolean isPrefixOf(IndexSearchDescriptor other) {
     var left = getSubBlocks();

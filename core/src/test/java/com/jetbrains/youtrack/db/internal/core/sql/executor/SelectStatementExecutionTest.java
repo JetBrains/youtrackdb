@@ -4920,9 +4920,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
         var keyCondition = ((FetchFromIndexStep) fetchFromIndex).getDesc().getKeyCondition();
         Assert.assertTrue(keyCondition instanceof SQLAndBlock);
-        var sqlAndBlock = (SQLAndBlock) keyCondition;
-        Assert.assertEquals(2, sqlAndBlock.getSubBlocks().size());
-        var firstExpression = sqlAndBlock.getSubBlocks().getFirst();
+        Assert.assertEquals(2, keyCondition.getSubBlocks().size());
+        var firstExpression = keyCondition.getSubBlocks().getFirst();
         Assert.assertTrue(firstExpression instanceof SQLBinaryCondition);
 
         var firstBinaryCondition = (SQLBinaryCondition) firstExpression;
@@ -4932,7 +4931,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         Assert.assertEquals(":inV", firstBinaryCondition.getRight().toString());
         Assert.assertTrue(firstBinaryCondition.getOperator() instanceof SQLEqualsOperator);
 
-        var secondExpression = sqlAndBlock.getSubBlocks().getLast();
+        var secondExpression = keyCondition.getSubBlocks().getLast();
         Assert.assertTrue(secondExpression instanceof SQLBinaryCondition);
 
         var secondBinaryCondition = (SQLBinaryCondition) secondExpression;
@@ -5025,10 +5024,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
         var keyCondition = fetchFromIndexStep.getDesc().getKeyCondition();
         Assert.assertTrue(keyCondition instanceof SQLAndBlock);
-        var sqlAndBlock = (SQLAndBlock) keyCondition;
-        Assert.assertEquals(1, sqlAndBlock.getSubBlocks().size());
+        Assert.assertEquals(1, keyCondition.getSubBlocks().size());
 
-        var expression = sqlAndBlock.getSubBlocks().getFirst();
+        var expression = keyCondition.getSubBlocks().getFirst();
         Assert.assertTrue(expression instanceof SQLContainsCondition);
 
         var containsCondition = (SQLContainsCondition) expression;
@@ -5129,10 +5127,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
         var keyCondition = fetchFromIndexStep.getDesc().getKeyCondition();
         Assert.assertTrue(keyCondition instanceof SQLAndBlock);
-        var sqlAndBlock = (SQLAndBlock) keyCondition;
-        Assert.assertEquals(1, sqlAndBlock.getSubBlocks().size());
+        Assert.assertEquals(1, keyCondition.getSubBlocks().size());
 
-        var expression = sqlAndBlock.getSubBlocks().getFirst();
+        var expression = keyCondition.getSubBlocks().getFirst();
         Assert.assertTrue(expression instanceof SQLContainsCondition);
 
         var containsCondition = (SQLContainsCondition) expression;

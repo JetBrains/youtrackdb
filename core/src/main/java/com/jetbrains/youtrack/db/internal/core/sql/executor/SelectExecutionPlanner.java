@@ -2336,7 +2336,7 @@ public class SelectExecutionPlanner {
         result.add(
             new IndexSearchDescriptor(
                 item.getKey(),
-                filters.getKey().mainCondition,
+                (SQLAndBlock) filters.getKey().mainCondition,
                 filters.getKey().additionalRange,
                 filters.getValue()));
       }

@@ -14,7 +14,9 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.FetchFromIndexStep;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -616,23 +618,44 @@ public abstract class BaseDBTest extends BaseTest {
     session.commit();
   }
 
-  public static int indexesUsed(ExecutionPlan executionPlan) {
-    var indexes = new HashSet<String>();
+  /// Returns used indexes and amount of keys used to fetch index for each execution step or 1 if
+  /// index is not composite.
+  public static HashMap<String, List<Integer>> indexesUsed(ExecutionPlan executionPlan) {
+    var indexes = new HashMap<String, List<Integer>>();
     indexesUsed(indexes, executionPlan);
 
-    return indexes.size();
+    return indexes;
   }
 
-  private static void indexesUsed(Set<String> indexes, ExecutionPlan executionPlan) {
+  protected static void assertIndexesUsed(Map<String, List<Integer>> expectedIndexUsages,
+      ExecutionPlan executionPlan) {
+    var indexesUsed = indexesUsed(executionPlan);
+    Assert.assertEquals(indexesUsed.size(), expectedIndexUsages.size());
+
+    for (var expectedIndex : expectedIndexUsages.entrySet()) {
+      Assert.assertTrue(indexesUsed.containsKey(expectedIndex.getKey()),
+          "Index " + expectedIndex.getKey() + " was not found in the list of used indexes.");
+
+      final var actualUsagesSorted = indexesUsed.get(expectedIndex.getKey()).stream().sorted()
+          .toList();
+      final var expectedUsagesSorted = expectedIndex.getValue().stream().sorted().toList();
+      Assert.assertEquals(expectedUsagesSorted, actualUsagesSorted);
+    }
+  }
+
+  private static void indexesUsed(HashMap<String, List<Integer>> indexes,
+      ExecutionPlan executionPlan) {
     var steps = executionPlan.getSteps();
     for (var step : steps) {
       indexesUsed(indexes, step);
     }
   }
 
-  private static void indexesUsed(Set<String> indexes, ExecutionStep step) {
+  private static void indexesUsed(HashMap<String, List<Integer>> indexes, ExecutionStep step) {
     if (step instanceof FetchFromIndexStep fetchFromIndexStep) {
-      indexes.add(fetchFromIndexStep.getIndexName());
+      var desc = fetchFromIndexStep.getDesc();
+      var usages = indexes.computeIfAbsent(desc.getIndex().getName(), k -> new ArrayList<>());
+      usages.add(desc.blockCount());
     }
 
     var subSteps = step.getSubSteps();

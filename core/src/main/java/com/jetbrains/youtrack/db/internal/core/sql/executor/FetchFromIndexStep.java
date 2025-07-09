@@ -155,9 +155,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     var size = 0;
 
     if (condition != null) {
-      var andBlock = (SQLAndBlock) condition;
-      size = andBlock.getSubBlocks().size();
-      var lastOp = andBlock.getSubBlocks().getLast();
+      size = condition.getSubBlocks().size();
+      var lastOp = condition.getSubBlocks().getLast();
       if (lastOp instanceof SQLBinaryCondition) {
         var op = ((SQLBinaryCondition) lastOp).getOperator();
         range = op.isRangeOperator();
@@ -177,61 +176,11 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     if (index.getDefinition() == null) {
       return Collections.emptyList();
     }
-    return switch (condition) {
-      case null -> processFlatIteration(ctx.getDatabaseSession(), index, isOrderAsc);
-      case SQLAndBlock sqlAndBlock ->
-          processAndBlock(index, condition, additionalRangeCondition, isOrderAsc, ctx);
-      default -> throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "search for index for " + condition + " is not supported yet");
-    };
-  }
-
-  private static List<Stream<RawPair<Object, RID>>> processInCondition(
-      Index index, SQLBooleanExpression condition, CommandContext ctx, boolean orderAsc) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-    Set<Stream<RawPair<Object, RID>>> acquiredStreams =
-        Collections.newSetFromMap(new IdentityHashMap<>());
-    var definition = index.getDefinition();
-    var inCondition = (SQLInCondition) condition;
-
-    var left = inCondition.getLeft();
-    if (!left.toString().equalsIgnoreCase("key")) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "search for index for " + condition + " is not supported yet");
-    }
-    var transaction = ctx.getDatabaseSession().getActiveTransaction();
-    var rightValue = inCondition.evaluateRight((Result) null, ctx);
-    var equals = new SQLEqualsOperator(-1);
-    if (MultiValue.isMultiValue(rightValue)) {
-      for (var item : MultiValue.getMultiValueIterable(rightValue)) {
-        if (item instanceof Result) {
-          if (((Result) item).isEntity()) {
-            item = ((Result) item).asEntity();
-          } else if (((Result) item).getPropertyNames().size() == 1) {
-            item =
-                ((Result) item).getProperty(
-                    ((Result) item).getPropertyNames().getFirst());
-          }
-        }
-
-        var localCursor =
-            createCursor(transaction, index, equals, definition, item, orderAsc,
-                condition);
-
-        if (acquiredStreams.add(localCursor)) {
-          streams.add(localCursor);
-        }
-      }
-    } else {
-      var stream =
-          createCursor(
-              transaction, index, equals, definition, rightValue, orderAsc, condition);
-      if (acquiredStreams.add(stream)) {
-        streams.add(stream);
-      }
+    if (condition == null) {
+      return processFlatIteration(ctx.getDatabaseSession(), index, isOrderAsc);
     }
 
-    return streams;
+    return processAndBlock(index, condition, additionalRangeCondition, isOrderAsc, ctx);
   }
 
   /**
@@ -856,9 +805,9 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     try {
       ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       String indexName = fromResult.getProperty("indexName");
-      SQLBooleanExpression condition = null;
+      SQLAndBlock condition = null;
       if (fromResult.getProperty("condition") != null) {
-        condition = SQLBooleanExpression.deserializeFromOResult(
+        condition = (SQLAndBlock) SQLAndBlock.deserializeFromOResult(
             fromResult.getProperty("condition"));
       }
       SQLBinaryCondition additionalRangeCondition = null;
