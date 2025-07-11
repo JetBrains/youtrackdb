@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
@@ -83,5 +84,15 @@ public class ForEachStep extends AbstractExecutionStep {
       }
     }
     return false;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    List<SQLStatement> bodyCopy = null;
+    if (body != null) {
+      bodyCopy = body.stream().map(SQLStatement::copy).toList();
+    }
+
+    return new ForEachStep(loopVariable, source, bodyCopy, ctx, profilingEnabled);
   }
 }

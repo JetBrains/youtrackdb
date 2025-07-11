@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Edge;
@@ -99,7 +100,7 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
       Stream<Result> stream =
           StreamSupport.stream(edges.spliterator(), false)
               .filter((edge) -> matchesClass(session, edge) && matchesCollection(edge))
-              .map(e -> new ResultInternal(session, (EdgeInternal) e));
+              .map(e -> new ResultInternal(session, e));
       return ExecutionStream.resultIterator(stream.iterator());
     } else {
       throw new CommandExecutionException(session, "Invalid vertex: " + from);
@@ -143,5 +144,11 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
       result += "\n" + spaces + "       (target collection " + targetCollection + ")";
     }
     return result;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new FetchEdgesToVerticesStep(toAlias, targetClass, targetCollection, ctx,
+        profilingEnabled);
   }
 }

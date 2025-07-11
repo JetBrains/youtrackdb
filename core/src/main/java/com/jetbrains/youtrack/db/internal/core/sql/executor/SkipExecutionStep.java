@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -45,5 +46,10 @@ public class SkipExecutionStep extends AbstractExecutionStep {
   @Override
   public String prettyPrint(int depth, int indent) {
     return ExecutionStepInternal.getIndent(depth, indent) + "+ SKIP (" + skip.toString() + ")";
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new SkipExecutionStep(skip.copy(), ctx, profilingEnabled);
   }
 }

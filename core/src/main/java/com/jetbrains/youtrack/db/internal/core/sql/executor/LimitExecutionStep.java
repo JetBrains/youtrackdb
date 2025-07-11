@@ -1,15 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLimit;
 
-/**
- *
- */
 public class LimitExecutionStep extends AbstractExecutionStep {
-
   private final SQLLimit limit;
 
   public LimitExecutionStep(SQLLimit limit, CommandContext ctx, boolean profilingEnabled) {
@@ -42,5 +39,15 @@ public class LimitExecutionStep extends AbstractExecutionStep {
   @Override
   public String prettyPrint(int depth, int indent) {
     return ExecutionStepInternal.getIndent(depth, indent) + "+ LIMIT (" + limit.toString() + ")";
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    SQLLimit limitCopy = null;
+    if (limit != null) {
+      limitCopy = limit.copy();
+    }
+
+    return new LimitExecutionStep(limitCopy, ctx, profilingEnabled);
   }
 }
