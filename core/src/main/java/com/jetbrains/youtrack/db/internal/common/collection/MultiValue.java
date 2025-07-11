@@ -137,35 +137,41 @@ public class MultiValue {
   /**
    * Returns the first item of the Multi-value object (array, collection or map)
    *
-   * @param iObject Multi-value object (array, collection or map)
+   * @param value Multi-value object (array, collection or map)
    * @return The first item if any
    */
   @Nullable
-  public static Object getFirstValue(final Object iObject) {
-    if (iObject == null) {
+  public static Object getFirstValue(final Object value) {
+    if (value == null) {
       return null;
     }
 
-    if (!isMultiValue(iObject) || getSize(iObject) == 0) {
+    if (!isMultiValue(value) || getSize(value) == 0) {
       return null;
     }
 
     try {
-      if (iObject instanceof List<?>) {
-        return ((List<Object>) iObject).get(0);
-      } else if (iObject instanceof Iterable<?>) {
-        return ((Iterable<Object>) iObject).iterator().next();
-      } else if (iObject instanceof Map<?, ?>) {
-        return ((Map<?, Object>) iObject).values().iterator().next();
-      } else if (iObject.getClass().isArray()) {
-        return Array.get(iObject, 0);
+      if (value instanceof ResultSet resultSet) {
+        if (resultSet.hasNext()) {
+          return resultSet.next();
+        }
+
+        return null;
+      } else if (value instanceof List<?>) {
+        return ((List<Object>) value).getFirst();
+      } else if (value instanceof Iterable<?>) {
+        return ((Iterable<Object>) value).iterator().next();
+      } else if (value instanceof Map<?, ?>) {
+        return ((Map<?, Object>) value).values().iterator().next();
+      } else if (value.getClass().isArray()) {
+        return Array.get(value, 0);
       }
     } catch (RuntimeException e) {
       // IGNORE IT
       LogManager.instance()
           .debug(
-              iObject, "Error on reading the first item of the Multi-value field '%s'", logger,
-              iObject,
+              value, "Error on reading the first item of the Multi-value field '%s'", logger,
+              value,
               e);
     }
 
