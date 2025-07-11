@@ -9,9 +9,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import java.io.IOException;
 
-/**
- *
- */
 public class CacheEntryChanges implements CacheEntry {
 
   protected CacheEntry delegate;
