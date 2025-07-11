@@ -1289,13 +1289,16 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   public void testMaxLongNumber() {
     initMaxLongNumber(session);
     // issue #5664
-    var results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
-    assertEquals(3, results.stream().count());
-    results.close();
+    session.executeInTx(tx -> {
+      var results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
+      assertEquals(3, results.stream().count());
+      results.close();
+    });
+
     session.begin();
     session.execute("update MaxLongNumberTest set last = max(91,ifnull(last,0))").close();
     session.commit();
-    results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
+    var results = session.query("select from MaxLongNumberTest WHERE last < 10 OR last is null");
     assertEquals(0, results.stream().count());
     results.close();
   }
@@ -1535,6 +1538,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         .close();
     session.commit();
 
+    session.begin();
     checkQueryResults(
         "select from CompositeIndexWithoutNullValues where one = ?", List.of("foo"), 1);
 
@@ -1542,6 +1546,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
         "select from CompositeIndexWithoutNullValues where one = ? and two = ?",
         List.of("foo", "bar"),
         1);
+    session.commit();
 
     session.execute("create class CompositeIndexWithoutNullValues2").close();
     session.execute("create property CompositeIndexWithoutNullValues2.one String").close();
@@ -1887,12 +1892,14 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.execute("insert into " + className + " SET name = \"2\"").close();
     session.commit();
 
+    session.begin();
     var results = session.query("SELECT * FROM " + className + " WHERE name >= \"0\"");
     assertEquals(2, results.stream().count());
 
     results = session.query("SELECT * FROM " + className + " WHERE \"0\" <= name");
     assertEquals(2, results.stream().count());
     results.close();
+    session.commit();
 
     session.execute("CREATE INDEX " + className + ".name on " + className + " (name) UNIQUE")
         .close();

@@ -27,8 +27,8 @@ import javax.servlet.ServletContextListener;
 import javax.servlet.annotation.WebListener;
 
 /**
- * Listener which is used to automatically start/shutdown YouTrackDB engine inside of web application
- * container.
+ * Listener which is used to automatically start/shutdown YouTrackDB engine inside of web
+ * application container.
  */
 @SuppressWarnings("unused")
 @WebListener
@@ -54,7 +54,6 @@ public class ServletContextLifeCycleListener implements ServletContextListener {
                 this,
                 "Shutting down of YouTrackDB engine because web application is going to be stopped");
         youTrack.shutdown();
-        LogManager.instance().shutdown();
       }
     }
   }

@@ -33,7 +33,7 @@ public interface DoubleWriteLog {
 
   void truncate() throws IOException;
 
-  void open(String storageName, Path storagePath, int pageSize) throws IOException;
+  void open(String storageName, String baseName, Path storagePath, int pageSize) throws IOException;
 
   Pointer loadPage(final int fileId, final int pageIndex, ByteBufferPool bufferPool)
       throws IOException;

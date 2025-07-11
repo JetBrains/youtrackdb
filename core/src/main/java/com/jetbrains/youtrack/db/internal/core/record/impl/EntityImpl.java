@@ -178,6 +178,16 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
+  /// Returns the name of the property that contains the link bag that is used for tracking
+  /// consistency of the links in the database.
+  ///
+  /// This property is a system property (see [#isSystemProperty(String)]) and is not visible to the
+  /// user.
+  @Nonnull
+  public static String getOppositeLinkBagPropertyName(String propertyName) {
+    return OPPOSITE_LINK_CONTAINER_PREFIX + propertyName;
+  }
+
   @Override
   @Nonnull
   public Vertex asVertex() {
@@ -1410,7 +1420,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
       case EntityImpl entity -> {
         if (propertyType == PropertyTypeInternal.EMBEDDED) {
           entity.setOwner(this);
+          return entity;
         }
+
+        return entity.getIdentity();
       }
       case StorageBackedMultiValue storageBackedMultiValue -> {
         storageBackedMultiValue.setOwner(this);
@@ -2089,7 +2102,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     for (var entry : properties.entrySet()) {
       var propertyName = entry.getKey();
-      var value = entry.getValue().value;
+      var propertyEntry = entry.getValue();
+
+      if (!propertyEntry.exists()) {
+        continue;
+      }
+      var value = propertyEntry.value;
 
       if (propertyAccess == null || propertyAccess.isReadable(propertyName)) {
         if (!isSystemProperty(propertyName)) {
@@ -2742,6 +2760,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return result;
   }
 
+  /// Checks if passed in property name is a name of system property.
+  ///
+  /// System properties are not exposed to the user and are used internally by YouTrackDB.
+  ///
+  /// Property is treated to be system property if it starts with non-letter character except of '_'
+  /// .
   public static boolean isSystemProperty(String propertyName) {
     if (propertyName != null && !propertyName.isEmpty()) {
       var firstChar = propertyName.charAt(0);
@@ -2988,12 +3012,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     internalReset();
   }
 
-  @Override
-  public void markDeletedInServerTx() {
-    super.markDeletedInServerTx();
-
-    internalReset();
-  }
 
   @Nullable
   public ArrayList<BTreeBasedLinkBag> getLinkBagsToDelete() {
@@ -3959,7 +3977,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private void validatePropertyValue(String propertyName, @Nullable Object propertyValue) {
     var error = checkPropertyValue(propertyName, propertyValue);
     if (error != null) {
-      throw new DatabaseException(session.getDatabaseName(), error);
+      throw new IllegalArgumentException("[" + session.getDatabaseName() + "]:" + error);
     }
   }
 

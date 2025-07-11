@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
@@ -38,10 +39,10 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
 
     Iterator<DBRecord> data;
     data = init(ctx);
-    return ExecutionStream.iterator(data).map(this::setContext);
+    return ExecutionStream.iterator(data).map(FetchTemporaryFromTxStep::setContext);
   }
 
-  private Result setContext(Result result, CommandContext context) {
+  private static Result setContext(Result result, CommandContext context) {
     context.setVariable("$current", result);
     return result;
   }
@@ -118,7 +119,7 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal session) {
+  public Result serialize(DatabaseSessionEmbedded session) {
     var result = ExecutionStepInternal.basicSerialize(session, this);
     result.setProperty("className", className);
     return result;

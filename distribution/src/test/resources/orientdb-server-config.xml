@@ -8,11 +8,6 @@
         <parameter value="SQL" name="allowedLanguages"/>
       </parameters>
     </handler>
-    <handler class="com.jetbrains.youtrack.db.internal.server.plugin.livequery.LiveQueryPlugin">
-      <parameters>
-        <parameter value="true" name="enabled"/>
-      </parameters>
-    </handler>
   </handlers>
   <network>
     <sockets>

@@ -17,6 +17,7 @@ public class SQLUpdateEdgeStatement extends SQLUpdateStatement {
     super(p, id);
   }
 
+  @Override
   protected String getStatementType() {
     return "UPDATE EDGE ";
   }

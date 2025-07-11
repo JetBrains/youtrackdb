@@ -68,7 +68,7 @@ public class LuceneSpatialIndexEngineDelegator
   public void init(DatabaseSessionInternal session, IndexMetadata im) {
     if (delegate == null) {
       if (SchemaClass.INDEX_TYPE.SPATIAL.name().equalsIgnoreCase(im.getType())) {
-        if (im.getIndexDefinition().getFields().size() > 1) {
+        if (im.getIndexDefinition().getProperties().size() > 1) {
           delegate =
               new LuceneLegacySpatialIndexEngine(this.storage, indexName, id,
                   ShapeFactory.INSTANCE);

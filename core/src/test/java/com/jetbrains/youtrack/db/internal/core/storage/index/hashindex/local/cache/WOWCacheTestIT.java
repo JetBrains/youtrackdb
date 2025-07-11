@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.internal.common.directmemory.DirectMemoryAlloca
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.CachePointer;
@@ -44,6 +45,7 @@ import org.junit.Test;
 
 
 public class WOWCacheTestIT {
+
   private static final int pageSize = DurablePage.NEXT_FREE_POSITION + 8;
 
   private static String fileName;
@@ -130,6 +132,7 @@ public class WOWCacheTestIT {
             storageName,
             storagePath,
             storagePath,
+            ContextConfiguration.WAL_DEFAULT_NAME,
             12_000,
             128,
             null,
@@ -159,6 +162,7 @@ public class WOWCacheTestIT {
             storageName,
             files,
             1,
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
             ChecksumMode.StoreAndVerify,
             null,
             null,
@@ -233,6 +237,7 @@ public class WOWCacheTestIT {
             storageName,
             storagePath,
             storagePath,
+            ContextConfiguration.WAL_DEFAULT_NAME,
             12_000,
             128,
             aesKey,
@@ -263,6 +268,7 @@ public class WOWCacheTestIT {
 
             files,
             1,
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
             ChecksumMode.StoreAndVerify,
             iv,
             aesKey,
@@ -460,6 +466,7 @@ public class WOWCacheTestIT {
             storageName,
             storagePath,
             storagePath,
+            ContextConfiguration.WAL_DEFAULT_NAME,
             12_000,
             128,
             aesKey,
@@ -489,6 +496,7 @@ public class WOWCacheTestIT {
             storageName,
             files,
             1,
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
             ChecksumMode.StoreAndVerify,
             iv,
             aesKey,

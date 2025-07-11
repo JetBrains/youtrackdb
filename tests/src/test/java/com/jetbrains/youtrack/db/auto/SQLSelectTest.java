@@ -158,11 +158,13 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery("select from Profile where tags CONTAINS 'smart'", session);
 
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -182,6 +184,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery("select from Profile where tags[0] = 'smart'", session);
 
@@ -193,6 +196,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -219,6 +223,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery(
             "select coll[name='Jay'] as value from Profile where @rid = " + doc.getIdentity(),
@@ -228,6 +233,7 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertEquals(
         resultset.getFirst().<Result>getEmbeddedList("value").getFirst().getProperty("name"),
         "Jay");
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -292,6 +298,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery("select from Profile where customReferences CONTAINSKEY 'first'", session);
 
@@ -304,6 +311,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -330,6 +338,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     session.commit();
 
+    session.begin();
     var resultset =
         executeQuery(
             "select from Profile where customReferences.keys() CONTAINS 'first'", session);
@@ -344,6 +353,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
     Assert.assertEquals(resultset.size(), 1);
     Assert.assertEquals(resultset.getFirst().getIdentity(), doc.getIdentity());
+    session.commit();
 
     session.begin();
     var activeTx = session.getActiveTransaction();
@@ -1402,11 +1412,13 @@ public class SQLSelectTest extends AbstractSelectTest {
     Assert.assertTrue(
         secondPlaceId.getCollectionPosition() > famousPlaceId.getCollectionPosition());
 
+    session.begin();
     var result =
         executeQuery(
             "select from Place where @rid in [" + secondPlaceId + "," + famousPlaceId + "]",
             session);
     Assert.assertEquals(result.size(), 2);
+    session.commit();
 
     session.getMetadata().getSchema().dropClass("FamousPlace");
     session.getMetadata().getSchema().dropClass("Place");

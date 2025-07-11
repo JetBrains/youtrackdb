@@ -24,7 +24,7 @@ public class DoubleWriteLogNoOP implements DoubleWriteLog {
   }
 
   @Override
-  public void open(String storageName, Path storagePath, int pageSize) {
+  public void open(String storageName, String baseName, Path storagePath, int pageSize) {
   }
 
   @Nullable

@@ -45,8 +45,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testGetFields() {
-    final var fields = compositeIndex.getFields();
+  public void testGetProperties() {
+    final var fields = compositeIndex.getProperties();
 
     Assert.assertEquals(2, fields.size());
     Assert.assertEquals("fOne", fields.get(0));

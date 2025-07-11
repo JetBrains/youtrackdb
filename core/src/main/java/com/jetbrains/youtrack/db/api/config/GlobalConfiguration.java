@@ -382,7 +382,7 @@ public enum GlobalConfiguration {
   // DATABASE
   DB_POOL_MIN("youtrackdb.db.pool.min", "Default database pool minimum size", Integer.class, 1),
 
-  DB_POOL_MAX("youtrackdb.db.pool.max", "Default database pool maximum size", Integer.class, 100),
+  DB_POOL_MAX("youtrackdb.db.pool.max", "Default database pool maximum size", Integer.class, 500),
 
   DB_CACHED_POOL_CAPACITY(
       "youtrackdb.db.cached.pool.capacity", "Default database cached pools capacity", Integer.class,
@@ -410,6 +410,13 @@ public enum GlobalConfiguration {
   DB_VALIDATION(
       "youtrackdb.db.validation", "Enables or disables validation of records", Boolean.class, true,
       true),
+
+  DB_SYSTEM_DATABASE_ENABLED(
+      "youtrack.db.systemDatabase.enabled",
+      "Enables usage of system database. If disabled, it will turn off the initialization "
+          + "of system database and system users in server mode and will initiate an error on "
+          + "all attempts to access the system database.",
+      Boolean.class, true, true),
 
   // INDEX
   INDEX_EMBEDDED_TO_SBTREEBONSAI_THRESHOLD(
@@ -746,27 +753,6 @@ public enum GlobalConfiguration {
   COMMAND_TIMEOUT("youtrackdb.command.timeout",
       "Default timeout for commands (in ms)", Long.class, 0, true),
 
-  COMMAND_CACHE_ENABLED("youtrackdb.command.cache.enabled",
-      "Enable command cache", Boolean.class, false),
-
-  COMMAND_CACHE_EVICT_STRATEGY(
-      "youtrackdb.command.cache.evictStrategy",
-      "Command cache strategy between: [INVALIDATE_ALL,PER_COLLECTION]",
-      String.class,
-      "PER_COLLECTION"),
-
-  COMMAND_CACHE_MIN_EXECUTION_TIME(
-      "youtrackdb.command.cache.minExecutionTime",
-      "Minimum execution time to consider caching the result set",
-      Integer.class,
-      10),
-
-  COMMAND_CACHE_MAX_RESULSET_SIZE(
-      "youtrackdb.command.cache.maxResultsetSize",
-      "Maximum resultset time to consider caching result set",
-      Integer.class,
-      500),
-
   // QUERY
   QUERY_REMOTE_RESULTSET_PAGE_SIZE(
       "youtrackdb.query.remoteResultSet.pageSize",
@@ -825,6 +811,12 @@ public enum GlobalConfiguration {
       "Enable/Disable the support of live query. (Use false to disable)",
       Boolean.class,
       true),
+
+  QUERY_RESULT_SET_OPEN_WARNING_THRESHOLD(
+      "youtrackdb.query.resultSetOpenThresholdWarning",
+      "Number of simultaneous open result sets to warn about. Negative number means no warning.",
+      Integer.class,
+      10),
 
   STATEMENT_CACHE_SIZE(
       "youtrackdb.statement.cacheSize",

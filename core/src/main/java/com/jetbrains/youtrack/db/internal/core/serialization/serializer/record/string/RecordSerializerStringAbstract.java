@@ -30,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInter
 import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
-import com.jetbrains.youtrack.db.internal.core.serialization.serializer.string.StringSerializerEmbedded;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
 import java.io.StringWriter;
 import java.math.BigDecimal;
@@ -80,21 +79,12 @@ public abstract class RecordSerializerStringAbstract {
 
       case EMBEDDED: {
         // EMBEDED RECORD
-        final var embeddedObject =
-            StringSerializerEmbedded.INSTANCE.fromStream(session, (String) iValue);
-        if (embeddedObject instanceof EntityImpl) {
-          ((EntityImpl) embeddedObject).setOwner(entity);
-        }
-
-        // EMBEDDED OBJECT
-        return embeddedObject;
+        return null;
       }
 
       case EMBEDDEDSET:
       case EMBEDDEDLIST: {
-        final var value = (String) iValue;
-        return RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionFromStream(session,
-            entity, iType, null, null, value);
+        return null;
       }
 
       case EMBEDDEDMAP: {
@@ -187,40 +177,15 @@ public abstract class RecordSerializerStringAbstract {
         break;
 
       case EMBEDDEDSET:
-        RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionToStream(
-            session,
-            iBuffer,
-            null,
-            null,
-            iValue,
-            true);
         break;
 
       case EMBEDDEDLIST:
-        RecordSerializerSchemaAware2CSV.INSTANCE.embeddedCollectionToStream(
-            session,
-            iBuffer,
-            null,
-            null,
-            iValue,
-            false);
         break;
 
       case EMBEDDEDMAP:
-        RecordSerializerSchemaAware2CSV.INSTANCE.embeddedMapToStream(
-            session,
-            iBuffer,
-            null,
-            iValue);
         break;
 
       case EMBEDDED:
-        if (iValue instanceof EntityImpl) {
-          RecordSerializerSchemaAware2CSV.INSTANCE.toString(session, (EntityImpl) iValue, iBuffer,
-              null);
-        } else {
-          StringSerializerEmbedded.INSTANCE.toStream(session, iBuffer, iValue);
-        }
         break;
 
       default:

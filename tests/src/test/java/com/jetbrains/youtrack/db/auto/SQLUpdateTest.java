@@ -663,6 +663,7 @@ public class SQLUpdateTest extends BaseDBTest {
     session.execute("create edge UpdateEdgeContentE from " + vOneId + " to " + vTwoId).close();
     session.commit();
 
+    session.begin();
     var rs = session.query("select outV() as outV, inV() as inV from UpdateEdgeContentE");
     var result =
         rs.stream()
@@ -675,6 +676,7 @@ public class SQLUpdateTest extends BaseDBTest {
       Assert.assertEquals(doc.getProperty("outV"), vOneId);
       Assert.assertEquals(doc.getProperty("inV"), vTwoId);
     }
+    session.commit();
 
     session.begin();
     session.execute("update UpdateEdgeContentE content {value : 'val'}").close();

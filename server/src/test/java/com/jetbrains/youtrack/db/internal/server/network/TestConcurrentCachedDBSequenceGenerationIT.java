@@ -69,8 +69,9 @@ public class TestConcurrentCachedDBSequenceGenerationIT {
                         commit;
                         return $v;
                         """).findFirst().getIdentity();
-                    var entity = db.query("select id from ?", rid)
-                        .findFirst();
+                    db.begin();
+                    var entity = db.query("select id from ?", rid).findFirst();
+                    db.commit();
                     assertNotNull(entity.getLong("id"));
                   }
                 } catch (Exception e) {

@@ -185,6 +185,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
     return new LocalResultSet(session, executionPlan);
   }
 
+  @Override
   public InternalExecutionPlan createExecutionPlan(CommandContext ctx, boolean enableProfiling) {
     var planner = new MatchExecutionPlanner(this);
     var result = planner.createExecutionPlan(ctx, enableProfiling);

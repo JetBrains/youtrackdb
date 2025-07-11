@@ -28,9 +28,13 @@ public interface PluginLifecycleListener {
 
   void onAfterConfig(final ServerPlugin plugin, final ServerParameterConfiguration[] cfg);
 
+  void onAfterConfigError(final ServerPlugin plugin, final Throwable error);
+
   void onBeforeStartup(final ServerPlugin plugin);
 
   void onAfterStartup(final ServerPlugin plugin);
+
+  void onAfterStartupError(final ServerPlugin plugin, Throwable error);
 
   void onBeforeShutdown(final ServerPlugin plugin);
 

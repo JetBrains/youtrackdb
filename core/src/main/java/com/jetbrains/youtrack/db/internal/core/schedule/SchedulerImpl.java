@@ -140,12 +140,14 @@ public class SchedulerImpl {
 
   public void load(DatabaseSessionInternal session) {
     if (session.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
-      try (var result = session.query("select from " + ScheduledEvent.CLASS_NAME)) {
-        while (result.hasNext()) {
-          var d = result.next();
-          scheduleEvent(session, new ScheduledEvent((EntityImpl) d.asEntity(), session));
+      session.executeInTx(tx -> {
+        try (var result = tx.query("select from " + ScheduledEvent.CLASS_NAME)) {
+          while (result.hasNext()) {
+            var d = result.next();
+            scheduleEvent(session, new ScheduledEvent((EntityImpl) d.asEntity(), session));
+          }
         }
-      }
+      });
     }
   }
 

@@ -75,17 +75,18 @@ public class CommandExecutorSQLSelectIndexTest extends BaseMemoryInternalDatabas
       session.execute("INSERT INTO Foo SET name = 'foo'").close();
     });
 
-    var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
-    assertEquals(1, result.stream().count());
-    result.close();
+    session.executeInTx(tx -> {
+      var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
+      assertEquals(1, result.stream().count());
+      result.close();
 
-    result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
-    assertEquals(1, result.stream().count());
-    result.close();
-
+      result = session.query("SELECT * FROM Foo WHERE name IN ['foo', 'bar']");
+      assertEquals(1, result.stream().count());
+      result.close();
+    });
     session.execute("CREATE INDEX Foo.name UNIQUE").close();
 
-    result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
+    var result = session.query("SELECT * FROM Foo WHERE ['foo', 'bar'] CONTAINS name");
     assertEquals(1, result.stream().count());
     result.close();
 

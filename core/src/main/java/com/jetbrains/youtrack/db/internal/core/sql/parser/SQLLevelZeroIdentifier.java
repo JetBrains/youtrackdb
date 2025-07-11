@@ -5,9 +5,9 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Collection;
@@ -30,6 +30,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     if (functionCall != null) {
       functionCall.toString(params, builder);
@@ -40,6 +41,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     if (functionCall != null) {
       functionCall.toGenericStatement(builder);
@@ -76,7 +78,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     throw new UnsupportedOperationException();
   }
 
-  public boolean isIndexedFunctionCall(DatabaseSessionInternal session) {
+  public boolean isIndexedFunctionCall(DatabaseSessionEmbedded session) {
     if (functionCall != null) {
       return functionCall.isIndexedFunctionCall(session);
     }
@@ -99,18 +101,20 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     return false;
   }
 
-  public boolean isGraphRelationFunction(DatabaseSessionEmbedded session) {
+  public boolean isGraphNavigationFunction(DatabaseSessionEmbedded session) {
     if (functionCall != null) {
-      return functionCall.isGraphRelationFunction(session);
+      return functionCall.isGraphNavigationFunction(session);
     }
 
     return false;
   }
 
+
   @Nullable
-  public Collection<String> getGraphRelationFunctionProperties(CommandContext ctx) {
+  public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
+      SchemaClass schemaClass) {
     if (functionCall != null) {
-      return functionCall.getGraphRelationFunctionProperties(ctx);
+      return functionCall.getGraphNavigationFunctionProperties(ctx, schemaClass);
     }
 
     return null;
@@ -142,8 +146,6 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
    *
    * @param target   the query target
    * @param context  the execution context
-   * @param operator
-   * @param right
    * @return true if current expression is an indexed funciton AND that function can also be
    * executed without using the index, false otherwise
    */
@@ -162,8 +164,6 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
    *
    * @param target   the query target
    * @param context  the execution context
-   * @param operator
-   * @param right
    * @return true if current expression involves an indexed function AND that function can be used
    * on this target, false otherwise
    */
@@ -206,9 +206,9 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
   public SQLExpression getExpandContent() {
     if (functionCall.getParams().size() != 1) {
       throw new CommandExecutionException(
-          "Invalid expand expression: " + functionCall.toString());
+          "Invalid expand expression: " + functionCall);
     }
-    return functionCall.getParams().get(0);
+    return functionCall.getParams().getFirst();
   }
 
   public boolean needsAliases(Set<String> aliases) {
@@ -218,7 +218,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     return collection != null && collection.needsAliases(aliases);
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     if (functionCall != null && functionCall.isAggregate(session)) {
       return true;
     }
@@ -271,6 +271,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     throw new CommandExecutionException(ctx.getDatabaseSession(), "cannot aggregate on " + this);
   }
 
+  @Override
   public SQLLevelZeroIdentifier copy() {
     var result = new SQLLevelZeroIdentifier(-1);
     result.functionCall = functionCall == null ? null : functionCall.copy();
@@ -330,14 +331,14 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     return collection;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (functionCall != null) {
-      result.setProperty("functionCall", functionCall.serialize(db));
+      result.setProperty("functionCall", functionCall.serialize(session));
     }
     result.setProperty("self", self);
     if (collection != null) {
-      result.setProperty("collection", collection.serialize(db));
+      result.setProperty("collection", collection.serialize(session));
     }
     return result;
   }
@@ -366,15 +367,14 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (functionCall != null) {
-      return functionCall.isCacheable();
+      return functionCall.isCacheable(session);
     }
     if (collection != null) {
       return collection.isCacheable(session);
     }
     return false;
   }
-
 }
 /* JavaCC - OriginalChecksum=0305fcf120ba9395b4c975f85cdade72 (do not edit this line) */

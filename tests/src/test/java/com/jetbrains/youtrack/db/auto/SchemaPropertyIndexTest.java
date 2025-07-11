@@ -83,8 +83,8 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     Assert.assertNotNull(indexDefinition);
     Assert.assertEquals(indexDefinition.getParamCount(), 1);
-    Assert.assertEquals(indexDefinition.getFields().size(), 1);
-    Assert.assertTrue(indexDefinition.getFields().contains("prop1"));
+    Assert.assertEquals(indexDefinition.getProperties().size(), 1);
+    Assert.assertTrue(indexDefinition.getProperties().contains("prop1"));
     Assert.assertEquals(indexDefinition.getTypes().length, 1);
     Assert.assertEquals(indexDefinition.getTypes()[0], PropertyTypeInternal.STRING);
   }

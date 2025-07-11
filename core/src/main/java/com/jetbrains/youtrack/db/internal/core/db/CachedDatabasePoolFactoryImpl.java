@@ -25,7 +25,7 @@ public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>>
   /**
    * Max size of connections which one pool can contains
    */
-  private volatile int maxPoolSize = 100;
+  private volatile int maxPoolSize = GlobalConfiguration.DB_POOL_MAX.getValueAsInteger();
 
   private volatile boolean closed;
   private final ConcurrentLinkedHashMap<String, DatabasePoolInternal> poolCache;
@@ -94,11 +94,10 @@ public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>>
    * storage
    */
   @Override
-  public DatabasePoolInternal get(
+  public DatabasePoolInternal getOrCreate(
       String database, String username, String password, YouTrackDBConfigImpl parentConfig) {
     checkForClose();
-
-    var key = SecurityManager.createSHA256(database + username + password);
+    var key = database + "!!" + username;
 
     var pool = poolCache.get(key);
     if (pool != null && !pool.isClosed()) {
@@ -113,7 +112,35 @@ public class CachedDatabasePoolFactoryImpl<S extends BasicDatabaseSession<?, ?>>
     if (parentConfig != null) {
       config.setParent(parentConfig);
     }
+
     pool = new DatabasePoolImpl(youTrackDB, database, username, password, config);
+    poolCache.put(key, pool);
+
+    return pool;
+  }
+
+  @Override
+  public DatabasePoolInternal<S> getOrCreateNoAuthentication(String database, String username,
+      YouTrackDBConfigImpl parentConfig) {
+    checkForClose();
+    var key = database + "!!" + username;
+
+    var pool = poolCache.get(key);
+    if (pool != null && !pool.isClosed()) {
+      //noinspection unchecked
+      return pool;
+    }
+
+    var config = (YouTrackDBConfigImpl)
+        YouTrackDBConfig.builder()
+            .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, maxPoolSize)
+            .build();
+
+    if (parentConfig != null) {
+      config.setParent(parentConfig);
+    }
+
+    pool = new DatabasePoolImpl(youTrackDB, database, username, config);
 
     poolCache.put(key, pool);
 

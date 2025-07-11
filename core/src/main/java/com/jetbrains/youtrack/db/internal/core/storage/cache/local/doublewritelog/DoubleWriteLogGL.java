@@ -40,7 +40,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   public static final String EXTENSION = ".dwl";
 
   private static final DirectMemoryAllocator ALLOCATOR = DirectMemoryAllocator.instance();
-  static final int DEFAULT_BLOCK_SIZE = 4 * 1024;
+  static final int DEFAULT_BLOCK_SIZE = 4 << 10;
 
   private static final byte DATA_RECORD = 0;
 
@@ -76,6 +76,8 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
 
   private Path storagePath;
   private String storageName;
+  private String baseFileName;
+
   private TimeRate diskWriteMeter = TimeRate.NOOP;
 
   private int pageSize;
@@ -119,12 +121,14 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   }
 
   @Override
-  public void open(final String storageName, final Path storagePath, int pageSize)
+  public void open(final String storageName, String baseFileName, final Path storagePath,
+      int pageSize)
       throws IOException {
     synchronized (mutex) {
       this.pageSize = pageSize;
       this.storagePath = storagePath;
       this.storageName = storageName;
+      this.baseFileName = baseFileName;
       this.diskWriteMeter = YouTrackDBEnginesManager.instance()
           .getMetricsRegistry()
           .databaseMetric(CoreMetrics.DISK_WRITE_RATE, storageName);
@@ -166,15 +170,16 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
       LogManager.instance()
           .info(
               this,
-              "DWL:%s: block size = %d bytes, maximum segment size = %d MB",
+              "DWL:%s: block size = %d bytes, maximum segment size = %d MB, base file name: %s",
               storageName,
               blockSize,
-              maxSegSize / 1024 / 1024);
+              maxSegSize / 1024 / 1024,
+              baseFileName);
     }
   }
 
   private long extractSegmentId(final String segmentName) {
-    final var len = storageName.length();
+    final var len = baseFileName.length();
 
     var index = segmentName.substring(len + 1);
     index = index.substring(0, index.length() - EXTENSION.length());
@@ -182,7 +187,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
     return Long.parseLong(index);
   }
 
-  private FileChannel createLogFile(Path path) throws IOException {
+  private static FileChannel createLogFile(Path path) throws IOException {
     return FileChannel.open(path, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
   }
 
@@ -195,7 +200,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   }
 
   private String generateSegmentsName(long id) {
-    return storageName + "_" + id + EXTENSION;
+    return baseFileName + "_" + id + EXTENSION;
   }
 
   private static boolean fileFilter(final Path path) {

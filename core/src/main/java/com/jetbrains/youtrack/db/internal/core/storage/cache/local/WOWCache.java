@@ -406,6 +406,7 @@ public final class WOWCache extends AbstractWriteCache
   private final ByteBufferPool bufferPool;
 
   private final String storageName;
+  private final String doubleWriteLogFileName;
 
   private volatile ChecksumMode checksumMode;
 
@@ -467,7 +468,7 @@ public final class WOWCache extends AbstractWriteCache
       final Path storagePath,
       final String storageName,
       final ClosableLinkedContainer<Long, File> files,
-      final int id,
+      final int id, String doubleWriteLogFileName,
       final ChecksumMode checksumMode,
       final byte[] iv,
       final byte[] aesKey,
@@ -475,6 +476,7 @@ public final class WOWCache extends AbstractWriteCache
       ExecutorService executor) {
 
     this.logFileDeletion = logFileDeletion;
+    this.doubleWriteLogFileName = doubleWriteLogFileName;
     if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
       throw new InvalidStorageEncryptionKeyException(storageName,
           "Invalid length of the encryption key, provided size is " + aesKey.length);
@@ -537,7 +539,7 @@ public final class WOWCache extends AbstractWriteCache
     try {
       initNameIdMapping();
 
-      doubleWriteLog.open(storageName, storagePath, pageSize);
+      doubleWriteLog.open(storageName, doubleWriteLogFileName, storagePath, pageSize);
 
       closed = false;
     } finally {
@@ -937,6 +939,7 @@ public final class WOWCache extends AbstractWriteCache
     return freeSpace < freeSpaceLimit;
   }
 
+  @Override
   public void syncDataFiles(final long segmentId, final byte[] lastMetadata) throws IOException {
     filesLock.acquireReadLock();
     try {

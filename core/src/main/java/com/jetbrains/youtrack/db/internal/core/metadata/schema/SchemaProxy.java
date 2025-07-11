@@ -291,7 +291,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
     }
 
     return new IndexDefinition(indexName, indexDefinition.getClassName(),
-        Collections.unmodifiableList(indexDefinition.getFields()),
+        Collections.unmodifiableList(indexDefinition.getProperties()),
         SchemaClass.INDEX_TYPE.valueOf(index.getType()), indexDefinition.isNullValuesIgnored(),
         indexDefinition.getCollate().getName(), metadata);
   }

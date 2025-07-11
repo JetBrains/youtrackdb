@@ -49,6 +49,7 @@ public class LuceneSpatialQueryIntegrationTest extends BaseLuceneTest {
     session.execute("CREATE INDEX POI.location ON POI(location) SPATIAL ENGINE LUCENE");
     session.execute("CREATE INDEX Country.geometry ON Country(geometry) SPATIAL ENGINE LUCENE;");
 
+    session.begin();
     try (var resultSet =
         session.query(
             "select name from Country let locations = (select from Poi) where ST_Contains(geometry,"
@@ -72,6 +73,7 @@ public class LuceneSpatialQueryIntegrationTest extends BaseLuceneTest {
 
       assertThat(resultSet.stream().count()).isEqualTo(0);
     }
+    session.commit();
 
     session.begin();
     session.execute(

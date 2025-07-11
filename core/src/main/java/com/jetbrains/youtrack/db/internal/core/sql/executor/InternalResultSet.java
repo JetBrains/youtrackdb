@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -37,7 +38,9 @@ public class InternalResultSet implements ResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      return false;
+    }
 
     return content.size() > next;
   }
@@ -45,7 +48,9 @@ public class InternalResultSet implements ResultSet {
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      throw new NoSuchElementException();
+    }
 
     return content.get(next++);
   }

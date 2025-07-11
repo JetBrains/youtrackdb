@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.collate.DefaultCollate;
@@ -23,7 +22,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     super(owner);
   }
 
-  protected SchemaPropertyEmbedded(SchemaClassImpl oClassImpl, GlobalProperty global) {
+  protected SchemaPropertyEmbedded(SchemaClassImpl oClassImpl, GlobalPropertyImpl global) {
     super(oClassImpl, global);
   }
 
@@ -164,7 +163,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
         for (var index : indexes) {
           var definition = index.getDefinition();
 
-          final var fields = definition.getFields();
+          final var fields = definition.getProperties();
           if (fields.contains(getName())) {
             indexesToRecreate.add(index);
           }
@@ -184,7 +183,7 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
                 indexToRecreate
                     .loadMetadata(transaction, indexToRecreate.getConfiguration(session)));
 
-            final var fields = indexMetadata.getIndexDefinition().getFields();
+            final var fields = indexMetadata.getIndexDefinition().getProperties();
             final var fieldsToIndex = fields.toArray(new String[0]);
 
             indexManager.dropIndex(session, indexMetadata.getName());

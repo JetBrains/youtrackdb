@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.sql.parser.operators;
 
+import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLLeOperator;
 import java.math.BigDecimal;
 import org.junit.Assert;
@@ -27,37 +28,32 @@ import org.junit.Test;
 /**
  *
  */
-public class LeOperatorTest {
+public class LeOperatorTest extends DbTestBase {
 
   @Test
   public void test() {
     var op = new SQLLeOperator(-1);
-    Assert.assertTrue(op.execute(1, 1));
-    Assert.assertFalse(op.execute(1, 0));
-    Assert.assertTrue(op.execute(0, 1));
+    Assert.assertTrue(op.execute(session, 1, 1));
+    Assert.assertFalse(op.execute(session, 1, 0));
+    Assert.assertTrue(op.execute(session, 0, 1));
 
-    Assert.assertTrue(op.execute("aaa", "zzz"));
-    Assert.assertFalse(op.execute("zzz", "aaa"));
+    Assert.assertTrue(op.execute(session, "aaa", "zzz"));
+    Assert.assertFalse(op.execute(session, "zzz", "aaa"));
 
-    Assert.assertTrue(op.execute(1, 1.1));
-    Assert.assertFalse(op.execute(1.1, 1));
+    Assert.assertTrue(op.execute(session, 1, 1.1));
+    Assert.assertFalse(op.execute(session, 1.1, 1));
 
-    Assert.assertTrue(op.execute(BigDecimal.ONE, 1));
-    Assert.assertTrue(op.execute(1, BigDecimal.ONE));
+    Assert.assertTrue(op.execute(session, BigDecimal.ONE, 1));
+    Assert.assertTrue(op.execute(session, 1, BigDecimal.ONE));
 
-    Assert.assertFalse(op.execute(1.1, BigDecimal.ONE));
-    Assert.assertFalse(op.execute(2, BigDecimal.ONE));
+    Assert.assertFalse(op.execute(session, 1.1, BigDecimal.ONE));
+    Assert.assertFalse(op.execute(session, 2, BigDecimal.ONE));
 
-    Assert.assertFalse(op.execute(BigDecimal.ONE, 0.999999));
-    Assert.assertFalse(op.execute(BigDecimal.ONE, 0));
+    Assert.assertFalse(op.execute(session, BigDecimal.ONE, 0.999999));
+    Assert.assertFalse(op.execute(session, BigDecimal.ONE, 0));
 
-    Assert.assertTrue(op.execute(BigDecimal.ONE, 2));
-    Assert.assertTrue(op.execute(BigDecimal.ONE, 1.0001));
-    try {
-      Assert.assertFalse(op.execute(new Object(), new Object()));
-      Assert.fail();
-    } catch (Exception e) {
-      Assert.assertTrue(e instanceof ClassCastException);
-    }
+    Assert.assertTrue(op.execute(session, BigDecimal.ONE, 2));
+    Assert.assertTrue(op.execute(session, BigDecimal.ONE, 1.0001));
+    Assert.assertFalse(op.execute(session, new Object(), new Object()));
   }
 }

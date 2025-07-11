@@ -10,15 +10,23 @@ import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
+import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
+import java.io.File;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 public class StorageEncryptionTestIT {
+
+  @Before
+  public void before() {
+    FileUtils.deleteRecursively(new File(DbTestBase.getBaseDirectoryPath(getClass())));
+  }
 
   @Test
   public void testEncryption() {

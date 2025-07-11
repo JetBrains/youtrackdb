@@ -10,11 +10,13 @@ public class SecurityPolicyTest extends DbTestBase {
 
   @Test
   public void testSecurityPolicyCreate() {
+    session.begin();
     var rs =
         session.query(
             "select from " + SecurityPolicy.CLASS_NAME + " WHERE name = ?", "test");
     Assert.assertFalse(rs.hasNext());
     rs.close();
+    session.rollback();
     var security = session.getSharedContext().getSecurity();
 
     session.begin();

@@ -74,7 +74,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     }
   }
 
-  public List<String> getFields() {
+  public List<String> getProperties() {
     return Collections.emptyList();
   }
 

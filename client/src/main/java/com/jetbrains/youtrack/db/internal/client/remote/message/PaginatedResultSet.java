@@ -4,12 +4,12 @@ import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResult;
 import com.jetbrains.youtrack.db.api.remote.query.RemoteResultSet;
 import com.jetbrains.youtrack.db.internal.client.remote.db.DatabaseSessionRemote;
-import com.jetbrains.youtrack.db.internal.core.db.QueryDatabaseState;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.graalvm.nativeimage.c.struct.SizeOf;
 
 public class PaginatedResultSet implements RemoteResultSet {
 
@@ -32,14 +32,17 @@ public class PaginatedResultSet implements RemoteResultSet {
     this.hasNextPage = hasNextPage;
 
     if (session != null) {
-      session.queryStarted(queryId, new QueryDatabaseState<>(this));
+      session.queryStarted(queryId, this);
     }
   }
 
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      return false;
+    }
+    ;
 
     if (!currentPage.isEmpty()) {
       return true;
@@ -64,7 +67,9 @@ public class PaginatedResultSet implements RemoteResultSet {
   @Override
   public RemoteResult next() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      throw new NoSuchElementException();
+    }
 
     if (currentPage.isEmpty()) {
       if (!hasNextPage()) {
@@ -105,7 +110,9 @@ public class PaginatedResultSet implements RemoteResultSet {
 
   public void add(RemoteResult item) {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      throw new IllegalStateException("ResultSet is closed and can not be used.");
+    }
 
     currentPage.add(item);
   }
@@ -166,9 +173,4 @@ public class PaginatedResultSet implements RemoteResultSet {
     return closed;
   }
 
-  private void checkClosed() {
-    if (closed) {
-      throw new IllegalStateException("ResultSet is closed and can not be used");
-    }
-  }
 }

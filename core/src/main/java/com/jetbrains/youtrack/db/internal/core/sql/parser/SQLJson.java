@@ -5,9 +5,9 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.FieldTypesString;
@@ -35,6 +35,7 @@ public class SQLJson extends SimpleNode {
     super(p, id);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     builder.append("{");
     var first = true;
@@ -49,6 +50,7 @@ public class SQLJson extends SimpleNode {
     builder.append("}");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     builder.append("{");
     var first = true;
@@ -174,10 +176,6 @@ public class SQLJson extends SimpleNode {
 
   /**
    * choosing return type is based on existence of @class and @type field in JSON
-   *
-   * @param source
-   * @param ctx
-   * @return
    */
   public Object toObjectDetermineType(Result source, CommandContext ctx) {
     var className = getClassNameForEntity(ctx);
@@ -271,7 +269,7 @@ public class SQLJson extends SimpleNode {
     return false;
   }
 
-  public boolean isAggregate(DatabaseSessionInternal session) {
+  public boolean isAggregate(DatabaseSessionEmbedded session) {
     for (var item : items) {
       if (item.isAggregate(session)) {
         return true;
@@ -292,9 +290,10 @@ public class SQLJson extends SimpleNode {
     }
   }
 
+  @Override
   public SQLJson copy() {
     var result = new SQLJson(-1);
-    result.items = items.stream().map(x -> x.copy()).collect(Collectors.toList());
+    result.items = items.stream().map(SQLJsonItem::copy).collect(Collectors.toList());
     return result;
   }
 
@@ -332,12 +331,13 @@ public class SQLJson extends SimpleNode {
     return false;
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     if (items != null) {
       result.setProperty(
           "items",
-          items.stream().map(oJsonItem -> oJsonItem.serialize(db)).collect(Collectors.toList()));
+          items.stream().map(oJsonItem -> oJsonItem.serialize(session))
+              .collect(Collectors.toList()));
     }
     return result;
   }
@@ -359,8 +359,5 @@ public class SQLJson extends SimpleNode {
     this.items.add(item);
   }
 
-  public boolean isCacheable() {
-    return false; // TODO optimize
-  }
 }
 /* JavaCC - OriginalChecksum=3beec9f6db486de944498588b51a505d (do not edit this line) */

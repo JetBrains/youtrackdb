@@ -25,7 +25,6 @@ public class ScriptResultSet extends IteratorResultSet {
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
 
     if (!iterator.hasNext()) {
       throw new NoSuchElementException();

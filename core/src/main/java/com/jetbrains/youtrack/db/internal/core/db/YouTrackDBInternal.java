@@ -27,12 +27,14 @@ import com.jetbrains.youtrack.db.api.common.query.BasicResult;
 import com.jetbrains.youtrack.db.api.common.query.BasicResultSet;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
+import com.jetbrains.youtrack.db.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrack.db.internal.core.security.SecuritySystem;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.StatementCache;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
@@ -59,7 +61,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   static YouTrackDBInternal<?> fromUrl(String url, YouTrackDBConfig configuration) {
     var what = url.substring(0, url.indexOf(':'));
     if ("embedded".equals(what)) {
-      return embedded(url.substring(url.indexOf(':') + 1), configuration);
+      return embedded(url.substring(url.indexOf(':') + 1), configuration, false);
     } else if ("remote".equals(what)) {
       return remote(url.substring(url.indexOf(':') + 1).split(";"),
           (YouTrackDBConfigImpl) configuration);
@@ -116,11 +118,15 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
    * @param directoryPath base path where the database are hosted
    * @param config        configuration for the specific factory for the list of option
    *                      {@see GlobalConfiguration}
+   * @param serverMode
    * @return a new embedded databases factory
    */
-  static YouTrackDBInternal<DatabaseSession> embedded(String directoryPath,
-      YouTrackDBConfig config) {
-    return new YouTrackDBInternalEmbedded(directoryPath, config, YouTrackDBEnginesManager.instance());
+  static YouTrackDBInternal<DatabaseSession> embedded(
+      String directoryPath,
+      YouTrackDBConfig config,
+      boolean serverMode) {
+    return new YouTrackDBInternalEmbedded(directoryPath, config,
+        YouTrackDBEnginesManager.instance(), serverMode);
   }
 
 
@@ -243,6 +249,9 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   DatabasePoolInternal<S> cachedPool(
       String database, String user, String password, YouTrackDBConfig config);
 
+  DatabasePoolInternal<S> cachedPoolNoAuthentication(String database, String user,
+      YouTrackDBConfig config);
+
   /**
    * Internal api for request to open a database with a pool
    */
@@ -292,7 +301,8 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
     return false;
   }
 
-   static <S extends BasicDatabaseSession<?, ?>> YouTrackDBInternal<S> extract(YouTrackDBAbstract<?, S> youTrackDB) {
+  static <S extends BasicDatabaseSession<?, ?>> YouTrackDBInternal<S> extract(
+      YouTrackDBAbstract<?, S> youTrackDB) {
     return youTrackDB.internal;
   }
 
@@ -303,6 +313,15 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   void removeShutdownHook();
 
   void forceDatabaseClose(String databaseName);
+
+  default boolean validateServerStatement(String query) {
+    try {
+      StatementCache.getServerStatement(query, this);
+      return true;
+    } catch (CommandSQLParsingException e) {
+      return false;
+    }
+  }
 
   BasicResultSet<BasicResult> executeServerStatementNamedParams(String script,
       String user, String pw,

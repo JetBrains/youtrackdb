@@ -2,12 +2,14 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
 public class SQLLtOperator extends SimpleNode implements SQLBinaryCompareOperator {
+
+  public static final SQLLtOperator INSTANCE = new SQLLtOperator(-1);
 
   public SQLLtOperator(int id) {
     super(id);
@@ -18,30 +20,9 @@ public class SQLLtOperator extends SimpleNode implements SQLBinaryCompareOperato
   }
 
   @Override
-  public boolean execute(Object iLeft, Object iRight) {
-    if (iLeft == null || iRight == null) {
-      return false;
-    }
-    if (iLeft instanceof Number
-        && iRight instanceof Number
-        && iLeft.getClass() != iRight.getClass()) {
-      var couple = PropertyTypeInternal.castComparableNumber((Number) iLeft, (Number) iRight);
-      iLeft = couple[0];
-      iRight = couple[1];
-    } else {
-      try {
-        iRight = PropertyTypeInternal.convert(null, iRight, iLeft.getClass());
-      } catch (RuntimeException e) {
-        iRight = null;
-        // Can't convert to the target value do nothing will return false
-        LogManager.instance()
-            .warn(this, "Issue converting value to target type, ignoring value", e);
-      }
-    }
-    if (iRight == null) {
-      return false;
-    }
-    return ((Comparable<Object>) iLeft).compareTo(iRight) < 0;
+  public boolean execute(@Nonnull DatabaseSessionEmbedded session, Object iLeft, Object iRight) {
+    var compareResult = SQLBinaryCompareOperator.doCompare(iLeft, iRight);
+    return compareResult != null && compareResult < 0;
   }
 
   @Override

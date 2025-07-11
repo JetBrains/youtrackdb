@@ -7,12 +7,15 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLIsDefinedCondition extends SQLBooleanExpression implements
     SimpleBooleanExpression {
@@ -56,11 +59,13 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
     return expression.isDefinedFor(currentRecord);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     expression.toString(params, builder);
     builder.append(" is defined");
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     expression.toGenericStatement(builder);
     builder.append(" is defined");
@@ -78,7 +83,7 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
 
   @Override
   protected List<Object> getExternalCalculationConditions() {
-    return Collections.EMPTY_LIST;
+    return Collections.emptyList();
   }
 
   @Override
@@ -128,8 +133,31 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     return expression.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=075954b212c8cb44c8538bf5dea047d3 (do not edit this line) */

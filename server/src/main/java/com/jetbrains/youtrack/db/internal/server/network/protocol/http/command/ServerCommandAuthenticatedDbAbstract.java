@@ -293,7 +293,7 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
     // after authentication, if current login user is different compare with current DB user, reset
     // DB user to login user
 
-    var localDatabase = server.openSession(iRequest.getDatabaseName(), iRequest.getBearerToken());
+    var localDatabase = server.openSession(iRequest.getBearerToken());
 
     var currentUserId = iRequest.getBearerToken().getToken().getUserId();
     if (currentUserId != null && localDatabase.getCurrentUser() != null) {

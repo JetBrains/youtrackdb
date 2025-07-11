@@ -41,13 +41,6 @@ public class TestNGTestListener implements ISuiteListener {
 
   @Override
   public void onFinish(ISuite suite) {
-
-    if (LogManager.instance().isShutdown()) {
-      final var msg = "LogManager was switched off before shutdown";
-
-      System.err.println(msg);
-      Assert.fail(msg);
-    }
     if (!isFailed(suite)) {
       System.out.println("Shutting down engine and checking for direct memory leaks...");
       final var youTrack = YouTrackDBEnginesManager.instance();

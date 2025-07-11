@@ -15,6 +15,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class CollateTest extends BaseDBTest {
+
   public void testQuery() {
     final Schema schema = session.getMetadata().getSchema();
     var clazz = schema.createClass("collateTest");
@@ -310,10 +311,11 @@ public class CollateTest extends BaseDBTest {
     var clazz = schema.createClass("collateTestViaSQL");
 
     clazz.createProperty("csp", PropertyType.STRING);
-    clazz.createProperty("cip", PropertyType.STRING);
+    var cipProperty = clazz.createProperty("cip", PropertyType.STRING);
+    cipProperty.setCollate(CaseInsensitiveCollate.NAME);
 
     session.command(
-        "create index collateTestViaSQL.index on collateTestViaSQL (cip COLLATE CI) NOTUNIQUE");
+        "create index collateTestViaSQL on collateTestViaSQL (cip) NOTUNIQUE");
 
     for (var i = 0; i < 10; i++) {
       session.begin();

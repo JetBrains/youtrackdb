@@ -16,9 +16,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
 public class CountRealationshipsTest {
 
   private static final String SERVER_DIRECTORY = "./target/collection";
@@ -73,7 +70,12 @@ public class CountRealationshipsTest {
   }
 
   private static long countOutEdges(RemoteDatabaseSession session, RID v) {
-    return session.query("select out().size() as size from ?", v).findFirst().getLong("size");
+    session.begin();
+    try {
+      return session.query("select out().size() as size from ?", v).findFirst().getLong("size");
+    } finally {
+      session.commit();
+    }
   }
 
   @After

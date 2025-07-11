@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -447,29 +448,29 @@ public class SQLModifier extends SimpleNode {
     }
   }
 
-  public Result serialize(DatabaseSessionInternal db) {
-    var result = new ResultInternal(db);
+  public Result serialize(DatabaseSessionEmbedded session) {
+    var result = new ResultInternal(session);
     result.setProperty("squareBrackets", squareBrackets);
     if (arrayRange != null) {
-      result.setProperty("arrayRange", arrayRange.serialize(db));
+      result.setProperty("arrayRange", arrayRange.serialize(session));
     }
     if (condition != null) {
-      result.setProperty("condition", condition.serialize(db));
+      result.setProperty("condition", condition.serialize(session));
     }
     if (arraySingleValues != null) {
-      result.setProperty("arraySingleValues", arraySingleValues.serialize(db));
+      result.setProperty("arraySingleValues", arraySingleValues.serialize(session));
     }
     if (rightBinaryCondition != null) {
-      result.setProperty("rightBinaryCondition", rightBinaryCondition.serialize(db));
+      result.setProperty("rightBinaryCondition", rightBinaryCondition.serialize(session));
     }
     if (methodCall != null) {
-      result.setProperty("methodCall", methodCall.serialize(db));
+      result.setProperty("methodCall", methodCall.serialize(session));
     }
     if (suffix != null) {
-      result.setProperty("suffix", suffix.serialize(db));
+      result.setProperty("suffix", suffix.serialize(session));
     }
     if (next != null) {
-      result.setProperty("next", next.serialize(db));
+      result.setProperty("next", next.serialize(session));
     }
     return result;
   }
@@ -508,7 +509,7 @@ public class SQLModifier extends SimpleNode {
     }
   }
 
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (arrayRange != null || arraySingleValues != null || rightBinaryCondition != null) {
       return false; // TODO enhance a bit
     }
@@ -529,7 +530,7 @@ public class SQLModifier extends SimpleNode {
       var prop = clazz.getPropertyInternal(suffix.getIdentifier().getStringValue());
       if (prop != null
           && prop.getAllIndexesInternal().stream()
-          .anyMatch(idx -> idx.getDefinition().getFields().size() == 1)) {
+          .anyMatch(idx -> idx.getDefinition().getProperties().size() == 1)) {
         if (next != null) {
           var linkedClazz = (SchemaClassInternal) prop.getLinkedClass();
           return next.isIndexChain(ctx, linkedClazz);

@@ -19,9 +19,11 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
     session.execute("create vertex testFromToV set name = 'Luca'").close();
     session.commit();
 
+    session.begin();
     var rs = session.query("select from testFromToV");
     var result = rs.toList();
     rs.close();
+    session.commit();
 
     session.begin();
     session
@@ -40,10 +42,12 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
         .close();
     session.commit();
 
+    session.begin();
     try (var resultTwo =
         session.query("select expand(outE()) from " + result.get(1).getIdentity())) {
       Assert.assertEquals(resultTwo.stream().count(), 2);
     }
+    session.commit();
 
     session.begin();
     session
@@ -75,10 +79,12 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
     session.execute("create vertex testFromV set name = 'Luca'").close();
     session.commit();
 
+    session.begin();
     List<Result> resultList;
     try (var rs = session.query("select from testFromV")) {
       resultList = rs.toList();
     }
+    session.commit();
 
     session.begin();
     session
@@ -97,11 +103,13 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
         .close();
     session.commit();
 
+    session.begin();
     List<Result> resultListTwo;
     try (var rs = session.query("select expand(outE()) from " + resultList.get(1).getIdentity())) {
       resultListTwo = rs.toList();
     }
     Assert.assertEquals(resultListTwo.size(), 2);
+    session.commit();
 
     try {
       session.begin();
@@ -112,10 +120,12 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
       throw e;
     }
 
+    session.begin();
     try (var rs = session.query("select expand(outE()) from " + resultList.get(1).getIdentity())) {
       resultListTwo = rs.toList();
       Assert.assertEquals(resultListTwo.size(), 1);
     }
+    session.commit();
 
     session.begin();
     session.execute("DELETE FROM testFromOneE unsafe").close();
@@ -134,9 +144,11 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
     session.execute("create vertex testToV set name = 'Luca'").close();
     session.commit();
 
+    session.begin();
     var rs = session.query("select from testToV");
     var entityList = rs.toEntityList();
     rs.close();
+    session.commit();
 
     session.begin();
     session
@@ -155,18 +167,23 @@ public class SQLDeleteEdgeTest extends BaseDBTest {
         .close();
     session.commit();
 
+    session.begin();
     try (var resultSetTwo =
         session.query("select expand(outE()) from " + entityList.get(1).getIdentity())) {
       Assert.assertEquals(resultSetTwo.stream().count(), 2);
     }
+    session.commit();
+
     session.begin();
     session.execute("DELETE EDGE testToTwoE to " + entityList.get(0).getIdentity()).close();
     session.commit();
 
+    session.begin();
     try (var resultSetTwo = session.query(
         "select expand(outE()) from " + entityList.get(1).getIdentity())) {
       Assert.assertEquals(resultSetTwo.stream().count(), 1);
     }
+    session.commit();
 
     session.begin();
     session.execute("DELETE FROM testToOneE unsafe").close();

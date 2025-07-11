@@ -4,18 +4,21 @@ import com.jetbrains.youtrack.db.api.record.Direction;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.Relation;
 import com.jetbrains.youtrack.db.api.record.Vertex;
+import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrack.db.internal.common.util.Sizeable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 
-public class SQLFunctionIn extends SQLFunctionMoveFiltered {
+public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphNavigationFunction {
+
   public static final String NAME = "in";
 
   public SQLFunctionIn() {
@@ -35,6 +38,7 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
         "Function in is not supported for bidirectional links");
   }
 
+  @Override
   protected Object move(
       final DatabaseSessionEmbedded graph,
       final Identifiable iRecord,
@@ -107,5 +111,15 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered {
     }
 
     return result;
+  }
+
+  @Nullable
+  @Override
+  public Collection<String> propertyNamesForIndexCandidates(String[] labels,
+      SchemaClass schemaClass,
+      boolean polymorphic, DatabaseSessionEmbedded session) {
+    return SQLGraphNavigationFunction.propertiesForV2VNavigation(schemaClass, session,
+        Direction.IN,
+        labels);
   }
 }

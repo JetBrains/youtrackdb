@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseStats;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
+import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -36,7 +37,9 @@ public class ExplainResultSet implements ResultSet {
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
+    if (closed) {
+      return false;
+    }
 
     return hasNext;
   }
@@ -44,11 +47,10 @@ public class ExplainResultSet implements ResultSet {
   @Override
   public Result next() {
     assert session == null || session.assertIfNotActive();
-    checkClosed();
-
-    if (!hasNext) {
-      throw new IllegalStateException();
+    if (closed || !hasNext) {
+      throw new NoSuchElementException();
     }
+
 
     var result = new ResultInternal(session);
     if (executionPlan != null) {
@@ -121,9 +123,4 @@ public class ExplainResultSet implements ResultSet {
     return closed;
   }
 
-  private void checkClosed() {
-    if (closed) {
-      throw new IllegalStateException("ResultSet is closed and can not be used");
-    }
-  }
 }

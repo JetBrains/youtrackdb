@@ -65,8 +65,8 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   protected boolean contentChanged = true;
   protected STATUS status = STATUS.NOT_LOADED;
 
-  @Nullable
-  protected DatabaseSessionEmbedded session;
+  @Nonnull
+  protected final DatabaseSessionEmbedded session;
 
   @Nullable
   public RecordOperation txEntry;
@@ -153,7 +153,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public void setDirty() {
-    assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    assert session.assertIfNotActive() : createNotBoundToSessionMessage();
     checkForBinding();
 
     if (status != STATUS.UNMARSHALLING) {
@@ -166,7 +166,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   }
 
   public void setDirty(long counter) {
-    assert session != null && session.assertIfNotActive() : createNotBoundToSessionMessage();
+    assert session.assertIfNotActive() : createNotBoundToSessionMessage();
     checkForBinding();
 
     this.dirty = counter;
@@ -298,7 +298,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     if (status != STATUS.NOT_LOADED) {
       source = null;
       status = STATUS.NOT_LOADED;
-      session = null;
       unsetDirty();
       txEntry = null;
     }
@@ -312,16 +311,12 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   @Override
   public boolean isNotBound(@Nonnull DatabaseSession session) {
     assert ((DatabaseSessionInternal) session).assertIfNotActive();
-    return this.session == null || this.session != session || this.status != STATUS.LOADED;
+    return this.session != session || this.status != STATUS.LOADED;
   }
 
   @Override
   @Nonnull
   public DatabaseSessionInternal getSession() {
-    if (session == null) {
-      throw new DatabaseException(createNotBoundToSessionMessage());
-    }
-
     assert session.assertIfNotActive();
     return session;
   }
@@ -341,21 +336,11 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
     source = null;
     status = STATUS.NOT_LOADED;
-    session = null;
     txEntry = null;
   }
 
   protected void internalReset() {
 
-  }
-
-  public void markDeletedInServerTx() {
-    checkForBinding();
-
-    source = null;
-    status = STATUS.NOT_LOADED;
-    session = null;
-    txEntry = null;
   }
 
   public int getSize() {
@@ -369,11 +354,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   public boolean equals(final Object obj) {
-    if (session == null) {
-      throw new IllegalStateException(
-          "Record : " + this + "is not bound to any session");
-    }
-
     if (this == obj) {
       return true;
     }
@@ -502,10 +482,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
       throw new DatabaseException(session, createNotBoundToSessionMessage());
     }
 
-    if (session == null) {
-      throw new DatabaseException(createNotBoundToSessionMessage());
-    }
-
     assert session.assertIfNotActive();
   }
 
@@ -530,15 +506,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   public void clearSource() {
     this.source = null;
-  }
-
-  public void resetToNew() {
-    if (!recordId.isNew()) {
-      throw new IllegalStateException(
-          "Record id is not new " + recordId + " as expected, so record can't be reset.");
-    }
-
-    reset();
   }
 
 
@@ -568,7 +535,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   @Nullable
   @Override
   public DatabaseSession getBoundedToSession() {
-    assert session == null || session.assertIfNotActive();
+    assert session.assertIfNotActive();
     return session;
   }
 }

@@ -2,15 +2,18 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
-import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.query.Result;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 public class SQLMatchesCondition extends SQLBooleanExpression {
 
@@ -53,7 +56,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     return matches(value, regex, ctx);
   }
 
-  private boolean matches(Object value, String regex, CommandContext ctx) {
+  private static boolean matches(Object value, String regex, CommandContext ctx) {
     final var key = "MATCHES_" + regex.hashCode();
     var p = (java.util.regex.Pattern) ctx.getVariable(key);
     if (p == null) {
@@ -93,6 +96,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     return matches(value, regex, ctx);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     expression.toString(params, builder);
     builder.append(" MATCHES ");
@@ -105,6 +109,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
     expression.toGenericStatement(builder);
     builder.append(" MATCHES ");
@@ -217,8 +222,7 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
 
   @Override
   public List<String> getMatchPatternInvolvedAliases() {
-    List<String> result = new ArrayList<>();
-    result.addAll(expression.getMatchPatternInvolvedAliases());
+    List<String> result = new ArrayList<>(expression.getMatchPatternInvolvedAliases());
     if (rightExpression != null) {
       result.addAll(rightExpression.getMatchPatternInvolvedAliases());
     }
@@ -226,11 +230,34 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (!expression.isCacheable(session)) {
       return false;
     }
     return rightExpression == null || rightExpression.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=68712f476e2e633c2bbfc34cb6c39356 (do not edit this line) */

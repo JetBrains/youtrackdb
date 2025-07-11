@@ -84,10 +84,36 @@
     <dependency>
       <groupId>org.apache.httpcomponents.client5</groupId>
       <artifactId>httpclient5</artifactId>
-      <version>5.4.2</version>
+      <version>5.5</version>
       <scope>test</scope>
     </dependency>
 
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-server</artifactId>
+      <version>3.7.4-YTDB-20250618.095831-3</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.tinkerpop</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-util</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-driver</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.apache.httpcomponents</groupId>
       <artifactId>fluent-hc</artifactId>
@@ -105,6 +131,7 @@
       <properties>
         <argLine>
           -ea
+          -Xms${heapSize}
           -Xmx${heapSize}
           -Dyoutrackdb.storage.diskCache.bufferSize=4096
           -Dyoutrackdb.security.userPasswordSaltIterations=10
@@ -115,6 +142,7 @@
           -Dyoutrackdb.file.log.deletion=false
           --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
           --add-opens java.base/sun.security.x509=ALL-UNNAMED
+          --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
         </argLine>
       </properties>
     </profile>
@@ -212,6 +240,7 @@
         <configuration>
           <systemPropertyVariables>
             <buildDirectory>${project.build.directory}</buildDirectory>
+            <build.dir>${project.build.directory}</build.dir>
           </systemPropertyVariables>
           <excludes>
             <exclude>${exclude.test.1}</exclude>

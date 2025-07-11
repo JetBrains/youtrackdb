@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritel
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrack.db.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
+import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.io.File;
 import java.io.IOException;
@@ -49,7 +50,8 @@ public class DoubleWriteLogGLTestIT {
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test",
+          ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, Paths.get(buildDirectory), pageSize);
       try {
         Pointer pointer;
 
@@ -103,7 +105,8 @@ public class DoubleWriteLogGLTestIT {
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         final var buffer = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
         var random = ThreadLocalRandom.current();
@@ -162,7 +165,8 @@ public class DoubleWriteLogGLTestIT {
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         var random = ThreadLocalRandom.current();
 
@@ -200,7 +204,7 @@ public class DoubleWriteLogGLTestIT {
         loadedBuffer.rewind();
         loadedBuffer.get(loadedData);
 
-        Assert.assertArrayEquals(datas.get(0), loadedData);
+        Assert.assertArrayEquals(datas.getFirst(), loadedData);
         bufferPool.release(pointer);
 
         pointer = doubleWriteLog.loadPage(12, 25, bufferPool);
@@ -228,7 +232,8 @@ public class DoubleWriteLogGLTestIT {
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         var random = ThreadLocalRandom.current();
 
@@ -286,7 +291,8 @@ public class DoubleWriteLogGLTestIT {
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         var random = ThreadLocalRandom.current();
 
@@ -343,7 +349,8 @@ public class DoubleWriteLogGLTestIT {
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         var random = ThreadLocalRandom.current();
 
@@ -408,7 +415,8 @@ public class DoubleWriteLogGLTestIT {
       try {
         final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
 
-        doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+        doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
         try {
           final var pagesToWrite = random.nextInt(20_000) + 100;
 
@@ -478,7 +486,8 @@ public class DoubleWriteLogGLTestIT {
       final var bufferPool = new ByteBufferPool(pageSize);
       try {
         final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
-        doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+        doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
         try {
           final Map<Integer, ByteBuffer> pageMap = new HashMap<>();
           final var pages = random.nextInt(900) + 100;
@@ -533,8 +542,8 @@ public class DoubleWriteLogGLTestIT {
 
           doubleWriteLog.restoreModeOn();
 
-          for (final int pageIndex : pageMap.keySet()) {
-            final var pointer = doubleWriteLog.loadPage(12, pageIndex, bufferPool);
+          for (final var entry : pageMap.entrySet()) {
+            final var pointer = doubleWriteLog.loadPage(12, entry.getKey(), bufferPool);
 
             final var loadedBuffer = pointer.getNativeByteBuffer();
 
@@ -545,7 +554,7 @@ public class DoubleWriteLogGLTestIT {
             loadedBuffer.get(loadedData);
 
             final var data = new byte[pageSize];
-            final var buffer = pageMap.get(pageIndex);
+            final var buffer = entry.getValue();
 
             buffer.rewind();
             buffer.get(data);
@@ -579,7 +588,8 @@ public class DoubleWriteLogGLTestIT {
       try {
         final var doubleWriteLog = new DoubleWriteLogGL(4 * 4 * 1024, 512);
 
-        doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+        doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
         try {
           final var pagesToWrite = random.nextInt(20_000) + 100;
 
@@ -611,7 +621,8 @@ public class DoubleWriteLogGLTestIT {
           }
 
           final var doubleWriteLogRestore = new DoubleWriteLogGL(2 * 4 * 1024, 512);
-          doubleWriteLogRestore.open("test", Paths.get(buildDirectory), pageSize);
+          doubleWriteLogRestore.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+              Paths.get(buildDirectory), pageSize);
 
           doubleWriteLogRestore.restoreModeOn();
 
@@ -653,7 +664,8 @@ public class DoubleWriteLogGLTestIT {
       final var bufferPool = new ByteBufferPool(pageSize);
       try {
         final var doubleWriteLog = new DoubleWriteLogGL(2 * 4 * 1024, 512);
-        doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+        doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+            Paths.get(buildDirectory), pageSize);
         try {
           final Map<Integer, ByteBuffer> pageMap = new HashMap<>();
           final var pages = random.nextInt(900) + 100;
@@ -705,12 +717,13 @@ public class DoubleWriteLogGLTestIT {
           }
 
           final var doubleWriteLogRestore = new DoubleWriteLogGL(2 * 4 * 1024, 512);
-          doubleWriteLogRestore.open("test", Paths.get(buildDirectory), pageSize);
+          doubleWriteLogRestore.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+              Paths.get(buildDirectory), pageSize);
 
           doubleWriteLogRestore.restoreModeOn();
 
-          for (final int pageIndex : pageMap.keySet()) {
-            final var pointer = doubleWriteLogRestore.loadPage(12, pageIndex, bufferPool);
+          for (final var entry : pageMap.entrySet()) {
+            final var pointer = doubleWriteLogRestore.loadPage(12, entry.getKey(), bufferPool);
 
             final var loadedBuffer = pointer.getNativeByteBuffer();
 
@@ -721,7 +734,7 @@ public class DoubleWriteLogGLTestIT {
             loadedBuffer.get(loadedData);
 
             final var data = new byte[pageSize];
-            final var buffer = pageMap.get(pageIndex);
+            final var buffer = entry.getValue();
 
             buffer.rewind();
             buffer.get(data);
@@ -746,12 +759,14 @@ public class DoubleWriteLogGLTestIT {
     final var bufferPool = new ByteBufferPool(pageSize);
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(512, 512);
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         var paths = listFiles();
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
         for (var i = 0; i < 4; i++) {
           final var overflow =
@@ -766,13 +781,17 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(4, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
 
         doubleWriteLog.restoreModeOn();
         doubleWriteLog.truncate();
@@ -781,13 +800,17 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(4, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
 
         doubleWriteLog.restoreModeOff();
 
@@ -797,7 +820,8 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(1, paths.size());
 
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
       } finally {
         doubleWriteLog.close();
       }
@@ -822,12 +846,14 @@ public class DoubleWriteLogGLTestIT {
     final var bufferPool = new ByteBufferPool(pageSize);
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         var paths = listFiles();
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
         for (var i = 0; i < 4; i++) {
           doubleWriteLog.write(
@@ -840,13 +866,17 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(4, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
 
       } finally {
         doubleWriteLog.close();
@@ -867,7 +897,8 @@ public class DoubleWriteLogGLTestIT {
     final var bufferPool = new ByteBufferPool(pageSize);
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         for (var i = 0; i < 4; i++) {
           doubleWriteLog.write(
@@ -880,30 +911,40 @@ public class DoubleWriteLogGLTestIT {
         Assert.assertEquals(4, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
 
         final var doubleWriteLogRestore = new DoubleWriteLogGL(maxLogSize, maxLogSize);
-        doubleWriteLogRestore.open("test", Paths.get(buildDirectory), pageSize);
+        doubleWriteLogRestore.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME
+            , Paths.get(buildDirectory), pageSize);
 
         paths = listFiles();
         Assert.assertEquals(5, paths.size());
 
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME +
+                "_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME +
+                "_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
         Assert.assertEquals(
-            "test_4" + DoubleWriteLogGL.EXTENSION, paths.get(4).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_4" + DoubleWriteLogGL.EXTENSION,
+            paths.get(4).getFileName().toString());
 
         doubleWriteLogRestore.close();
       } finally {
@@ -922,12 +963,15 @@ public class DoubleWriteLogGLTestIT {
     final var bufferPool = new ByteBufferPool(pageSize);
     try {
       final var doubleWriteLog = new DoubleWriteLogGL(maxLogSize, 512);
-      doubleWriteLog.open("test", Paths.get(buildDirectory), pageSize);
+      doubleWriteLog.open("test", ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          Paths.get(buildDirectory), pageSize);
       try {
         var paths = listFiles();
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME +
+                "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
         doubleWriteLog.startCheckpoint();
         doubleWriteLog.truncate();
@@ -945,7 +989,8 @@ public class DoubleWriteLogGLTestIT {
 
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
         doubleWriteLog.endCheckpoint();
 
@@ -953,7 +998,8 @@ public class DoubleWriteLogGLTestIT {
 
         Assert.assertEquals(1, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.getFirst().getFileName().toString());
 
         for (var i = 0; i < 4; i++) {
           final var overflow =
@@ -968,15 +1014,20 @@ public class DoubleWriteLogGLTestIT {
 
         Assert.assertEquals(5, paths.size());
         Assert.assertEquals(
-            "test_0" + DoubleWriteLogGL.EXTENSION, paths.get(0).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0" + DoubleWriteLogGL.EXTENSION,
+            paths.get(0).getFileName().toString());
         Assert.assertEquals(
-            "test_1" + DoubleWriteLogGL.EXTENSION, paths.get(1).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_1" + DoubleWriteLogGL.EXTENSION,
+            paths.get(1).getFileName().toString());
         Assert.assertEquals(
-            "test_2" + DoubleWriteLogGL.EXTENSION, paths.get(2).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_2" + DoubleWriteLogGL.EXTENSION,
+            paths.get(2).getFileName().toString());
         Assert.assertEquals(
-            "test_3" + DoubleWriteLogGL.EXTENSION, paths.get(3).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_3" + DoubleWriteLogGL.EXTENSION,
+            paths.get(3).getFileName().toString());
         Assert.assertEquals(
-            "test_4" + DoubleWriteLogGL.EXTENSION, paths.get(4).getFileName().toString());
+            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_4" + DoubleWriteLogGL.EXTENSION,
+            paths.get(4).getFileName().toString());
       } finally {
         doubleWriteLog.close();
       }

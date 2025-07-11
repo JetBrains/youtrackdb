@@ -39,7 +39,7 @@ public class SecurityEngine {
    * @return always returns a valid predicate (it is never supposed to be null)
    */
   static SQLBooleanExpression getPredicateForSecurityResource(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       String resourceString,
       SecurityPolicy.Scope scope) {
@@ -100,7 +100,7 @@ public class SecurityEngine {
 
   @Nullable
   private static SQLBooleanExpression getPredicateForProperty(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityResourceProperty resource,
       SecurityPolicy.Scope scope) {
@@ -135,7 +135,7 @@ public class SecurityEngine {
 
   @Nullable
   private static SQLBooleanExpression getPredicateForClass(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityResourceClass resource,
       SecurityPolicy.Scope scope) {
@@ -212,7 +212,7 @@ public class SecurityEngine {
   }
 
   private static SQLBooleanExpression getPredicateForRoleHierarchy(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityRole role,
       SchemaClass clazz,
@@ -241,7 +241,7 @@ public class SecurityEngine {
   }
 
   private static SQLBooleanExpression getPredicateForRoleHierarchy(
-      DatabaseSessionInternal session,
+      DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityRole role,
       SchemaClass clazz,

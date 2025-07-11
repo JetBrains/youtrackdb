@@ -1512,52 +1512,54 @@ public abstract class SchemaClassImpl {
       builder.append(" and ").append(getEscapedName(propertyName, true)).append(".size() > 0");
     }
 
-    try (final var res = session.query(builder.toString())) {
-      while (res.hasNext()) {
-        var item = res.next();
-        switch (type) {
-          case EMBEDDEDLIST:
-          case LINKLIST:
-          case EMBEDDEDSET:
-          case LINKSET:
-            Collection<?> emb = item.getProperty(propertyName);
-            emb.stream()
-                .filter(x -> !matchesType(session, x, linkedClass))
-                .findFirst()
-                .ifPresent(
-                    x -> {
-                      throw new SchemaException(session.getDatabaseName(),
-                          "The database contains some schema-less data in the property '"
-                              + name
-                              + "."
-                              + propertyName
-                              + "' that is not compatible with the type "
-                              + type
-                              + " "
-                              + linkedClass.getName()
-                              + ". Fix those records and change the schema again. "
-                              + x);
-                    });
-            break;
-          case EMBEDDED:
-          case LINK:
-            var elem = item.getProperty(propertyName);
-            if (!matchesType(session, elem, linkedClass)) {
-              throw new SchemaException(session.getDatabaseName(),
-                  "The database contains some schema-less data in the property '"
-                      + name
-                      + "."
-                      + propertyName
-                      + "' that is not compatible with the type "
-                      + type
-                      + " "
-                      + linkedClass.getName()
-                      + ". Fix those records and change the schema again!");
-            }
-            break;
+    db.executeInTx(tx -> {
+      try (final var res = tx.query(builder.toString())) {
+        while (res.hasNext()) {
+          var item = res.next();
+          switch (type) {
+            case EMBEDDEDLIST:
+            case LINKLIST:
+            case EMBEDDEDSET:
+            case LINKSET:
+              Collection<?> emb = item.getProperty(propertyName);
+              emb.stream()
+                  .filter(x -> !matchesType(db, x, linkedClass))
+                  .findFirst()
+                  .ifPresent(
+                      x -> {
+                        throw new SchemaException(db.getDatabaseName(),
+                            "The database contains some schema-less data in the property '"
+                                + name
+                                + "."
+                                + propertyName
+                                + "' that is not compatible with the type "
+                                + type
+                                + " "
+                                + linkedClass.getName()
+                                + ". Fix those records and change the schema again. "
+                                + x);
+                      });
+              break;
+            case EMBEDDED:
+            case LINK:
+              var elem = item.getProperty(propertyName);
+              if (!matchesType(db, elem, linkedClass)) {
+                throw new SchemaException(db.getDatabaseName(),
+                    "The database contains some schema-less data in the property '"
+                        + name
+                        + "."
+                        + propertyName
+                        + "' that is not compatible with the type "
+                        + type
+                        + " "
+                        + linkedClass.getName()
+                        + ". Fix those records and change the schema again!");
+              }
+              break;
+          }
         }
       }
-    }
+    });
   }
 
   protected static boolean matchesType(DatabaseSessionInternal session, Object x,

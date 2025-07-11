@@ -47,6 +47,7 @@ import com.jetbrains.youtrack.db.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.util.DateHelper;
+import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -482,6 +483,22 @@ public enum PropertyTypeInternal {
           return embeddedList;
         }
         default -> {
+          if (value.getClass().isArray()) {
+            var size = Array.getLength(value);
+            var embeddedList = session.newEmbeddedList(size);
+
+            for (var i = 0; i < size; i++) {
+              var item = Array.get(value, i);
+              var converted = PropertyTypeInternal.convertEmbeddedCollectionItem(linkedType,
+                  linkedClass,
+                  session, item,
+                  this);
+              embeddedList.add(converted);
+            }
+
+            return embeddedList;
+          }
+
           var embeddedList = session.newEmbeddedList();
           var converted = PropertyTypeInternal.convertEmbeddedCollectionItem(linkedType,
               linkedClass,

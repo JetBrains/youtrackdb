@@ -6,15 +6,13 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLFromClause;
 import java.util.Iterator;
 
-/**
- *
- */
 public class FetchFromIndexedFunctionStep extends AbstractExecutionStep {
 
   private SQLBinaryCondition functionCondition;
@@ -58,7 +56,7 @@ public class FetchFromIndexedFunctionStep extends AbstractExecutionStep {
   }
 
   @Override
-  public Result serialize(DatabaseSessionInternal session) {
+  public Result serialize(DatabaseSessionEmbedded session) {
     var result = ExecutionStepInternal.basicSerialize(session, this);
     result.setProperty("functionCondition", this.functionCondition.serialize(session));
     result.setProperty("queryTarget", this.queryTarget.serialize(session));

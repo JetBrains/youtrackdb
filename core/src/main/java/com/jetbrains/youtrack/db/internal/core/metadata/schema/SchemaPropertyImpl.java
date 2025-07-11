@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.schema.Collate;
-import com.jetbrains.youtrack.db.api.schema.GlobalProperty;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty.ATTRIBUTES;
@@ -72,13 +71,13 @@ public abstract class SchemaPropertyImpl {
   protected boolean readonly;
   protected Map<String, String> customFields;
   protected Collate collate = new DefaultCollate();
-  protected GlobalProperty globalRef;
+  protected GlobalPropertyImpl globalRef;
 
   public SchemaPropertyImpl(final SchemaClassImpl owner) {
     this.owner = owner;
   }
 
-  public SchemaPropertyImpl(SchemaClassImpl oClassImpl, GlobalProperty global) {
+  public SchemaPropertyImpl(SchemaClassImpl oClassImpl, GlobalPropertyImpl global) {
     this(oClassImpl);
     this.globalRef = global;
   }
@@ -114,6 +113,15 @@ public abstract class SchemaPropertyImpl {
     acquireSchemaReadLock();
     try {
       return globalRef.getType();
+    } finally {
+      releaseSchemaReadLock();
+    }
+  }
+
+  public PropertyTypeInternal getTypeInternal() {
+    acquireSchemaReadLock();
+    try {
+      return globalRef.getTypeInternal();
     } finally {
       releaseSchemaReadLock();
     }
@@ -190,7 +198,7 @@ public abstract class SchemaPropertyImpl {
         final var definition = index.getDefinition();
 
         if (Collections.indexOf(
-            definition.getFields(), globalRef.getName(), new CaseInsentiveComparator())
+            definition.getProperties(), globalRef.getName(), new CaseInsentiveComparator())
             > -1) {
           if (definition instanceof PropertyIndexDefinition) {
             relatedIndexes.add(index);
@@ -674,7 +682,7 @@ public abstract class SchemaPropertyImpl {
       final List<Index> indexList = new LinkedList<>();
       for (final var index : indexes) {
         final var indexDefinition = index.getDefinition();
-        if (indexDefinition.getFields().contains(globalRef.getName())) {
+        if (indexDefinition.getProperties().contains(globalRef.getName())) {
           indexList.add(index);
         }
       }

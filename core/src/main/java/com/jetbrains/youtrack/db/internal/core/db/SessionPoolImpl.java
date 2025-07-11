@@ -1,10 +1,15 @@
 package com.jetbrains.youtrack.db.internal.core.db;
 
+import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.exception.AcquireTimeoutException;
+import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphFactory;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrack.db.internal.core.util.URLHelper;
+import org.apache.commons.configuration2.BaseConfiguration;
 
 /**
  * A Pool of databases.
@@ -187,6 +192,33 @@ public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     if (autoclose) {
       youTrackDb.close();
     }
+  }
+
+  @Override
+  public String getDbName() {
+    return internal.getDatabaseName();
+  }
+
+  @Override
+  public String getUserName() {
+    return internal.getUserName();
+  }
+
+  @Override
+  public YTDBGraph asGraph() {
+    if (!(youTrackDb instanceof YouTrackDBImpl)) {
+      throw new UnsupportedOperationException("Only embedded databases are supported");
+    }
+
+    var config = new BaseConfiguration();
+    var userName = getUserName();
+    var dbName = getDbName();
+
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME, dbName);
+    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER, userName);
+
+    //noinspection unchecked
+    return new YTDBGraphImplSessionPool((SessionPool<DatabaseSession>) this, config);
   }
 
   /**

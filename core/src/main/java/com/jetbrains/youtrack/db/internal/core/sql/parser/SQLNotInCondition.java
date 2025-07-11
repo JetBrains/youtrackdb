@@ -5,12 +5,14 @@ package com.jetbrains.youtrack.db.internal.core.sql.parser;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.IndexSearchInfo;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SQLNotInCondition extends SQLBooleanExpression {
@@ -68,6 +70,7 @@ public class SQLNotInCondition extends SQLBooleanExpression {
     return !SQLInCondition.evaluateExpression(ctx.getDatabaseSession(), leftVal, rightVal);
   }
 
+  @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
 
     left.toString(params, builder);
@@ -85,6 +88,7 @@ public class SQLNotInCondition extends SQLBooleanExpression {
     }
   }
 
+  @Override
   public void toGenericStatement(StringBuilder builder) {
 
     left.toGenericStatement(builder);
@@ -102,7 +106,7 @@ public class SQLNotInCondition extends SQLBooleanExpression {
     }
   }
 
-  private String convertToString(Object o) {
+  private static String convertToString(Object o) {
     if (o instanceof String) {
       return "\"" + ((String) o).replaceAll("\"", "\\\"") + "\"";
     }
@@ -254,11 +258,11 @@ public class SQLNotInCondition extends SQLBooleanExpression {
       result.addAll(rightX);
     }
 
-    return result.size() == 0 ? null : result;
+    return result.isEmpty() ? null : result;
   }
 
   @Override
-  public boolean isCacheable(DatabaseSessionInternal session) {
+  public boolean isCacheable(DatabaseSessionEmbedded session) {
     if (left != null && !left.isCacheable(session)) {
       return false;
     }
@@ -268,6 +272,29 @@ public class SQLNotInCondition extends SQLBooleanExpression {
     }
 
     return rightMathExpression == null || rightMathExpression.isCacheable(session);
+  }
+
+  @Override
+  public boolean isIndexAware(IndexSearchInfo info, CommandContext ctx) {
+    return false;
+  }
+
+  @Override
+  public boolean isRangeExpression() {
+    return false;
+  }
+
+  @Nullable
+  @Override
+  public String getRelatedIndexPropertyName() {
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx) {
+    return null;
   }
 }
 /* JavaCC - OriginalChecksum=8fb82bf72cc7d9cbdf2f9e2323ca8ee1 (do not edit this line) */

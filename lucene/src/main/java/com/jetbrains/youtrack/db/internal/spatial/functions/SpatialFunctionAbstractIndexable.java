@@ -17,7 +17,7 @@ import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.IndexableSQLFunction;
@@ -51,25 +51,25 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
   }
 
   @Nullable
-  protected LuceneSpatialIndex searchForIndex(DatabaseSessionInternal session,
+  protected LuceneSpatialIndex searchForIndex(DatabaseSessionEmbedded session,
       SQLFromClause target,
       SQLExpression[] args) {
-    var dbMetadata = session.getMetadata();
 
-    var item = target.getItem();
-    var identifier = item.getIdentifier();
     var fieldName = args[0].toString();
 
-    var className = identifier.getStringValue();
+    var shemaClass = target.getSchemaClass(session);
+    if (shemaClass == null) {
+      return null;
+    }
+
     var indices =
-        dbMetadata.getImmutableSchemaSnapshot().getClassInternal(className)
-            .getIndexesInternal().stream()
+        shemaClass.getIndexesInternal().stream()
             .filter(idx -> idx instanceof LuceneSpatialIndex)
             .map(idx -> (LuceneSpatialIndex) idx)
             .filter(
                 idx ->
                     intersect(
-                        idx.getDefinition().getFields(), Collections.singletonList(fieldName)))
+                        idx.getDefinition().getProperties(), Collections.singletonList(fieldName)))
             .toList();
 
     if (indices.size() > 1) {
@@ -77,7 +77,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
           "too many indices matching given field name: " + String.join(",", fieldName));
     }
 
-    return indices.isEmpty() ? null : indices.get(0);
+    return indices.isEmpty() ? null : indices.getFirst();
   }
 
   @Nullable
@@ -123,7 +123,7 @@ public abstract class SpatialFunctionAbstractIndexable extends SpatialFunctionAb
           if (!shapeFound) {
             var propertyNames = inner.getPropertyNames();
             if (propertyNames.size() == 1) {
-              var property = inner.getProperty(propertyNames.iterator().next());
+              var property = inner.getProperty(propertyNames.getFirst());
               if (property instanceof Result) {
                 shape = ((Result) property).asEntityOrNull();
               }
