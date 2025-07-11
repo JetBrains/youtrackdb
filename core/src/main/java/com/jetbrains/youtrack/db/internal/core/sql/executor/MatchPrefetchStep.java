@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -57,5 +58,16 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
         + alias
         + "\n"
         + prefetchExecutionPlan.prettyPrint(depth + 1, indent);
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    InternalExecutionPlan prefetchExecutionPlanCopy = null;
+
+    if (prefetchExecutionPlan != null) {
+      prefetchExecutionPlanCopy = prefetchExecutionPlan.copy(ctx);
+    }
+
+    return new MatchPrefetchStep(ctx, prefetchExecutionPlanCopy, alias, profilingEnabled);
   }
 }

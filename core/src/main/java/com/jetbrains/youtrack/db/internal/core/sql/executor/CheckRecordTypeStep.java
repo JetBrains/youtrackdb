@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -55,5 +56,10 @@ public class CheckRecordTypeStep extends AbstractExecutionStep {
     }
     result += (ExecutionStepInternal.getIndent(depth, indent) + "  " + clazz);
     return result;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new CheckRecordTypeStep(ctx, clazz, profilingEnabled);
   }
 }

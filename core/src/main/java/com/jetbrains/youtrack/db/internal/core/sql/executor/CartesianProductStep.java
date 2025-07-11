@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -176,5 +177,15 @@ public class CartesianProductStep extends AbstractExecutionStep {
 
   private String appendPipe(String p) {
     return "| " + p;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    var copy = new CartesianProductStep(ctx, profilingEnabled);
+    for (var p : this.subPlans) {
+      copy.addSubPlan(p.copy(ctx));
+    }
+
+    return copy;
   }
 }

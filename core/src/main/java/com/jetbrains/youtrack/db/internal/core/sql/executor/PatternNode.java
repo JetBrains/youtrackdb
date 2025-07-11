@@ -9,7 +9,6 @@ public class PatternNode {
   public String alias;
   public Set<PatternEdge> out = new LinkedHashSet<PatternEdge>();
   public Set<PatternEdge> in = new LinkedHashSet<PatternEdge>();
-  public int centrality = 0;
   public boolean optional = false;
 
   public int addEdge(SQLMatchPathItem item, PatternNode to) {
@@ -24,5 +23,17 @@ public class PatternNode {
 
   public boolean isOptionalNode() {
     return optional;
+  }
+
+  public PatternNode copy() {
+    var copy = new PatternNode();
+    copy.alias = alias;
+    copy.optional = optional;
+
+    for (var edge : out) {
+      copy.addEdge(edge.item, edge.in);
+    }
+
+    return copy;
   }
 }

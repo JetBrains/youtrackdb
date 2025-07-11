@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.DatabaseException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
@@ -24,6 +25,13 @@ public class CreateRecordStep extends AbstractExecutionStep {
     if (targetClass != null) {
       this.targetClass = targetClass.getStringValue();
     }
+  }
+
+  private CreateRecordStep(CommandContext ctx, String targetClass, int total,
+      boolean profilingEnabled) {
+    super(ctx, profilingEnabled);
+    this.total = total;
+    this.targetClass = targetClass;
   }
 
   @Override
@@ -75,5 +83,10 @@ public class CreateRecordStep extends AbstractExecutionStep {
       result.append("  ").append(total).append(" record");
     }
     return result.toString();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new CreateRecordStep(ctx, targetClass, total, profilingEnabled);
   }
 }
