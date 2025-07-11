@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Entity;
@@ -120,5 +121,10 @@ public class FetchFromVariableStep extends AbstractExecutionStep {
     } catch (Exception e) {
       throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new FetchFromVariableStep(variableName, ctx, profilingEnabled);
   }
 }

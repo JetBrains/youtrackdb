@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
@@ -9,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionS
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SubQueryCollector;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -45,6 +47,15 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
     }
   }
 
+  private GlobalLetQueryStep(
+      SQLIdentifier varName,
+      InternalExecutionPlan subExecutionPlan, CommandContext ctx, boolean profilingEnabled) {
+    super(ctx, profilingEnabled);
+
+    this.varName = varName;
+    this.subExecutionPlan = subExecutionPlan;
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev != null) {
@@ -56,8 +67,14 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
   }
 
   private void calculate(CommandContext ctx) {
-    ctx.setVariable(varName.getStringValue(),
-        toList(new LocalResultSet(ctx.getDatabaseSession(), subExecutionPlan)));
+    var varName = this.varName.getStringValue();
+    if (varName.startsWith(SubQueryCollector.GENERATED_ALIAS_PREFIX)) {
+      ctx.setVariable(varName,
+          toList(new LocalResultSet(ctx.getDatabaseSession(), subExecutionPlan)));
+    } else {
+      ctx.setVariable(varName,
+          new LocalResultSet(ctx.getDatabaseSession(), subExecutionPlan));
+    }
   }
 
   private List<Result> toList(LocalResultSet oLocalResultSet) {
@@ -100,5 +117,19 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
     result.append(spaces);
     result.append("+-------------------------");
     return result.toString();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    SQLIdentifier varNameCopy = null;
+    if (varName != null) {
+      varNameCopy = varName.copy();
+    }
+    InternalExecutionPlan subExecutionPlanCopy = null;
+    if (subExecutionPlan != null) {
+      subExecutionPlanCopy = subExecutionPlan.copy(ctx);
+    }
+
+    return new GlobalLetQueryStep(varNameCopy, subExecutionPlanCopy, ctx, profilingEnabled);
   }
 }

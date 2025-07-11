@@ -1,12 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
 public class CastToVertexStep extends AbstractExecutionStep {
+
   public CastToVertexStep(CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
   }
@@ -40,5 +42,10 @@ public class CastToVertexStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new CastToVertexStep(ctx, profilingEnabled);
   }
 }

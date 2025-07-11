@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -19,10 +20,10 @@ public class ReturnMatchPatternsStep extends AbstractExecutionStep {
     assert prev != null;
 
     var upstream = prev.start(ctx);
-    return upstream.map(this::mapResult);
+    return upstream.map(ReturnMatchPatternsStep::mapResult);
   }
 
-  private Result mapResult(Result next, CommandContext ctx) {
+  private static Result mapResult(Result next, CommandContext ctx) {
     next.getPropertyNames().stream()
         .filter(s -> s.startsWith(MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX))
         .forEach(((ResultInternal) next)::removeProperty);
@@ -33,5 +34,10 @@ public class ReturnMatchPatternsStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ RETURN $patterns";
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new ReturnMatchPatternsStep(ctx, profilingEnabled);
   }
 }

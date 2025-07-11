@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.schema.SchemaProperty;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
@@ -122,5 +123,21 @@ public class InsertValuesStep extends AbstractExecutionStep {
       result.append("  ...");
     }
     return result.toString();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    List<SQLIdentifier> identifiersCopy = null;
+    if (identifiers != null) {
+      identifiersCopy = identifiers.stream().map(SQLIdentifier::copy).toList();
+    }
+
+    List<List<SQLExpression>> valuesCopy = null;
+    if (values != null) {
+      valuesCopy = values.stream().map(exprs -> exprs.stream().map(SQLExpression::copy).toList())
+          .toList();
+    }
+
+    return new InsertValuesStep(identifiersCopy, valuesCopy, ctx, profilingEnabled);
   }
 }

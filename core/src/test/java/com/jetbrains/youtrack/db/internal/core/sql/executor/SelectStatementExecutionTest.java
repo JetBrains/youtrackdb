@@ -4739,8 +4739,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var classNamePrefix = "testComplexIndexChain_";
     var a = session.getMetadata().getSchema().createClass(classNamePrefix + "A");
-    var b = session.getMetadata().getSchema().createClass(classNamePrefix + "C");
-    var c = session.getMetadata().getSchema().createClass(classNamePrefix + "B");
+    var b = session.getMetadata().getSchema().createClass(classNamePrefix + "B");
+    var c = session.getMetadata().getSchema().createClass(classNamePrefix + "C");
     var d = session.getMetadata().getSchema().createClass(classNamePrefix + "D");
 
     a.createProperty("b", PropertyType.LINK, b)
@@ -5553,5 +5553,54 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(names.size(), engineNames.size());
     Assert.assertEquals(new HashSet<>(names), engineNames);
     session.commit();
+  }
+
+  @Test
+  public void testSelectIntersectWithExpandAndLet() {
+    var schema = session.getSchema();
+
+    schema.createVertexClass("V1");
+    schema.createVertexClass("V2");
+    schema.createVertexClass("V3");
+
+    schema.createEdgeClass("link1");
+    schema.createEdgeClass("link2");
+
+    //V1 -> V2
+    //V2 -> V3
+    var rids = session.computeInTx(transaction -> {
+      var v1 = transaction.newVertex("V1");
+      var v2 = transaction.newVertex("V2");
+
+      var v3 = transaction.newVertex("V3");
+
+      v1.addEdge(v2, "link1");
+      v2.addEdge(v3, "link2");
+
+      var v1rid = v1.getIdentity();
+      var v2rid = v2.getIdentity();
+      var v3rid = v3.getIdentity();
+
+      for (var i = 0; i < 10; i++) {
+        v2 = transaction.newVertex("V2");
+        v1.addEdge(v2, "link1");
+      }
+
+      for (var i = 0; i < 10; i++) {
+        v2 = transaction.newVertex("V2");
+        v2.addEdge(v3, "link2");
+      }
+
+      return new RID[]{v1rid, v3rid, v2rid};
+    });
+
+    session.executeInTx(transaction -> {
+      var result = transaction.query("SELECT expand(intersect($a0, $b0)) "
+              + "LET $a0=(SELECT expand(out('link1')) FROM :targetIds1), "
+              + "$b0=(SELECT expand(in('link2')) FROM :targetIds2)",
+          Map.of("targetIds1", rids[0], "targetIds2", rids[1])).toList();
+      Assert.assertEquals(1, result.size());
+      Assert.assertEquals(rids[2], result.getFirst().getIdentity());
+    });
   }
 }

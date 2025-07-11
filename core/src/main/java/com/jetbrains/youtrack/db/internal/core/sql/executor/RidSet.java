@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.Collection;
 import java.util.HashSet;
@@ -57,20 +58,25 @@ public class RidSet implements Set<RID> {
 
   @Override
   public boolean contains(Object o) {
-    if (size == 0L && negatives.size() == 0) {
+    if (size == 0L && negatives.isEmpty()) {
       return false;
     }
-    if (!(o instanceof RID identifiable)) {
-      throw new IllegalArgumentException();
+
+    if (!(o instanceof RID)) {
+      if (o instanceof Identifiable identifiable) {
+        o = identifiable.getIdentity();
+      } else {
+        return false;
+      }
     }
-    if (identifiable == null) {
-      throw new IllegalArgumentException();
-    }
-    var collection = identifiable.getCollectionId();
-    var position = identifiable.getCollectionPosition();
+
+    var rid = (RID) o;
+    var collection = rid.getCollectionId();
+    var position = rid.getCollectionPosition();
     if (collection < 0 || position < 0) {
-      return negatives.contains(identifiable);
+      return negatives.contains(rid);
     }
+
     var positionByte = (position / 63);
     var positionBit = (int) (position % 63);
     var block = (int) (positionByte / maxArraySize);
@@ -139,14 +145,16 @@ public class RidSet implements Set<RID> {
     }
 
     if (content[collection].length <= block) {
-      content[collection] = expandCollectionBlocks(content[collection], block, blockPositionByteInt);
+      content[collection] = expandCollectionBlocks(content[collection], block,
+          blockPositionByteInt);
     }
     if (content[collection][block] == null) {
       content[collection][block] =
           expandCollectionArray(new long[INITIAL_BLOCK_SIZE], blockPositionByteInt);
     }
     if (content[collection][block].length <= blockPositionByteInt) {
-      content[collection][block] = expandCollectionArray(content[collection][block], blockPositionByteInt);
+      content[collection][block] = expandCollectionArray(content[collection][block],
+          blockPositionByteInt);
     }
 
     var original = content[collection][block][blockPositionByteInt];
@@ -159,7 +167,8 @@ public class RidSet implements Set<RID> {
     return existed == 0L;
   }
 
-  private static long[][] expandCollectionBlocks(long[][] longs, int block, int blockPositionByteInt) {
+  private static long[][] expandCollectionBlocks(long[][] longs, int block,
+      int blockPositionByteInt) {
     var result = new long[block + 1][];
     System.arraycopy(longs, 0, result, 0, longs.length);
     result[block] = expandCollectionArray(new long[INITIAL_BLOCK_SIZE], blockPositionByteInt);

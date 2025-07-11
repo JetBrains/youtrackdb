@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -67,5 +68,10 @@ public class MatchStep extends AbstractExecutionStep {
     }
     result.append("{").append(edge.edge.in.alias).append("}");
     return result.toString();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new MatchStep(ctx, edge.copy(), profilingEnabled);
   }
 }

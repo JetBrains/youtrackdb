@@ -1,9 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ProduceExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLExpression;
@@ -63,5 +63,11 @@ public class CountFromIndexWithKeyStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ CALCULATE INDEX SIZE BY KEY: " + target;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new CountFromIndexWithKeyStep(target.copy(), keyValue.copy(), alias, ctx,
+        profilingEnabled);
   }
 }
