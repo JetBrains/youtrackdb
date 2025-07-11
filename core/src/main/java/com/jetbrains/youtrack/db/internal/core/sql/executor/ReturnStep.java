@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -21,5 +22,10 @@ public class ReturnStep extends AbstractExecutionStep {
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     return statement.executeSimple(ctx);
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new ReturnStep((SQLSimpleExecStatement) statement.copy(), ctx, profilingEnabled);
   }
 }

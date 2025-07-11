@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -36,9 +37,12 @@ public class LetExpressionStep extends AbstractExecutionStep {
   }
 
   private Result mapResult(Result result, CommandContext ctx) {
+    var varName = varname.getStringValue();
     var value = expression.execute(result, ctx);
-    ((ResultInternal) result)
-        .setMetadata(varname.getStringValue(), SQLProjectionItem.convert(value, ctx));
+    if (ctx.getVariable(varName) == null) {
+      ((ResultInternal) result)
+          .setMetadata(varname.getStringValue(), SQLProjectionItem.convert(value, ctx));
+    }
     return result;
   }
 
@@ -75,5 +79,19 @@ public class LetExpressionStep extends AbstractExecutionStep {
     } catch (Exception e) {
       throw BaseException.wrapException(new CommandExecutionException(session, ""), e, session);
     }
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    SQLIdentifier varnameCopy = null;
+    if (varname != null) {
+      varnameCopy = varname.copy();
+    }
+    SQLExpression expressionCopy = null;
+    if (expression != null) {
+      expressionCopy = expression.copy();
+    }
+
+    return new LetExpressionStep(varnameCopy, expressionCopy, ctx, profilingEnabled);
   }
 }

@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
+import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -49,28 +50,9 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
   private SelectExecutionPlan createExecutionPlan(Result nextItem, CommandContext ctx) {
     var plan = new SelectExecutionPlan(ctx);
     var db = ctx.getDatabaseSession();
+
     plan.chain(
-        new AbstractExecutionStep(ctx, profilingEnabled) {
-
-          @Override
-          public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-            return ExecutionStream.singleton(copy(nextItem));
-          }
-
-          private Result copy(Result nextItem) {
-            var result = new ResultInternal(db);
-            for (var prop : nextItem.getPropertyNames()) {
-              result.setProperty(prop, nextItem.getProperty(prop));
-            }
-            if (nextItem instanceof ResultInternal nextResult) {
-              for (var md : nextResult.getMetadataKeys()) {
-                result.setMetadata(md, nextResult.getMetadata(md));
-              }
-            }
-
-            return result;
-          }
-        });
+        new ChainStep(ctx, nextItem, db));
     subSteps.forEach(plan::chain);
     return plan;
   }
@@ -97,5 +79,47 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
   @Override
   public void close() {
     super.close();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    var subStepsCopy = subSteps.stream().map(x -> (AbstractExecutionStep) x.copy(ctx)).toList();
+    return new FilterNotMatchPatternStep(subStepsCopy, ctx, profilingEnabled);
+  }
+
+  private class ChainStep extends AbstractExecutionStep {
+
+    private final Result nextItem;
+    private final DatabaseSessionEmbedded db;
+
+    public ChainStep(CommandContext ctx, Result nextItem, DatabaseSessionEmbedded db) {
+      super(ctx, FilterNotMatchPatternStep.this.profilingEnabled);
+      this.nextItem = nextItem;
+      this.db = db;
+    }
+
+    @Override
+    public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+      return ExecutionStream.singleton(copy(nextItem));
+    }
+
+    private Result copy(Result nextItem) {
+      var result = new ResultInternal(db);
+      for (var prop : nextItem.getPropertyNames()) {
+        result.setProperty(prop, nextItem.getProperty(prop));
+      }
+      if (nextItem instanceof ResultInternal nextResult) {
+        for (var md : nextResult.getMetadataKeys()) {
+          result.setMetadata(md, nextResult.getMetadata(md));
+        }
+      }
+
+      return result;
+    }
+
+    @Override
+    public ExecutionStep copy(CommandContext ctx) {
+      return new ChainStep(ctx, nextItem, db);
+    }
   }
 }

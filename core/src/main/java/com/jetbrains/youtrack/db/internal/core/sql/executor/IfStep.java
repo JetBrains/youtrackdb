@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
@@ -9,6 +10,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIfStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLReturnStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
+import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 
@@ -109,5 +111,28 @@ public class IfStep extends AbstractExecutionStep {
       }
     }
     return false;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    var copy = new IfStep(ctx, profilingEnabled);
+    copy.condition = condition.copy();
+    if (positiveStatements != null) {
+      copy.positiveStatements = new ArrayList<>();
+      for (var statement : positiveStatements) {
+        var stc = statement.copy();
+        copy.positiveStatements.add(stc);
+      }
+    }
+
+    if (negativeStatements != null) {
+      copy.negativeStatements = new ArrayList<>();
+      for (var statement : negativeStatements) {
+        var stc = statement.copy();
+        copy.negativeStatements.add(stc);
+      }
+    }
+
+    return copy;
   }
 }

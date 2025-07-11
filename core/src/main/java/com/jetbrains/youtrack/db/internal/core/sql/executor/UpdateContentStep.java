@@ -1,20 +1,16 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Security;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLInputParameter;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLJson;
-import java.util.HashSet;
 import java.util.Map;
 
-/**
- *
- */
 public class UpdateContentStep extends AbstractExecutionStep {
 
   private SQLJson json;
@@ -88,5 +84,16 @@ public class UpdateContentStep extends AbstractExecutionStep {
       result.append(inputParameter);
     }
     return result.toString();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    if (json != null) {
+      var jsonCopy = json.copy();
+      return new UpdateContentStep(jsonCopy, ctx, profilingEnabled);
+    }
+
+    var inputParameterCopy = inputParameter.copy();
+    return new UpdateContentStep(inputParameterCopy, ctx, profilingEnabled);
   }
 }

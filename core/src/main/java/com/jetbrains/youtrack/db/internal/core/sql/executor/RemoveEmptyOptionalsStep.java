@@ -1,15 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 
-/**
- *
- */
 public class RemoveEmptyOptionalsStep extends AbstractExecutionStep {
-
   public RemoveEmptyOptionalsStep(CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
   }
@@ -19,10 +16,10 @@ public class RemoveEmptyOptionalsStep extends AbstractExecutionStep {
     assert prev != null;
 
     var upstream = prev.start(ctx);
-    return upstream.map(this::mapResult);
+    return upstream.map(RemoveEmptyOptionalsStep::mapResult);
   }
 
-  private Result mapResult(Result result, CommandContext ctx) {
+  private static Result mapResult(Result result, CommandContext ctx) {
     for (var s : result.getPropertyNames()) {
       if (OptionalMatchEdgeTraverser.isEmptyOptional(result.getProperty(s))) {
         ((ResultInternal) result).setProperty(s, null);
@@ -35,5 +32,10 @@ public class RemoveEmptyOptionalsStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ REMOVE EMPTY OPTIONALS";
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new RemoveEmptyOptionalsStep(ctx, profilingEnabled);
   }
 }
