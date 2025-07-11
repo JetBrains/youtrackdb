@@ -20,7 +20,7 @@ import java.util.Map;
  */
 public class SubQueryCollector {
 
-  protected static final String GENERATED_ALIAS_PREFIX = "$$$SUBQUERY$$_";
+  public static final String GENERATED_ALIAS_PREFIX = "$$$SUBQUERY$$_";
   protected int nextAliasId = 0;
 
   protected Map<SQLIdentifier, SQLStatement> subQueries = new LinkedHashMap<>();

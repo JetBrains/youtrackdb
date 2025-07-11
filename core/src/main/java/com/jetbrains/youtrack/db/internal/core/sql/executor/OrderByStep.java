@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -11,11 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- *
- **/
 public class OrderByStep extends AbstractExecutionStep {
-
   private final SQLOrderBy orderBy;
   private final long timeoutMillis;
   private Integer maxResults;
@@ -107,5 +104,10 @@ public class OrderByStep extends AbstractExecutionStep {
     }
     result += (maxResults != null ? "\n  (buffer size: " + maxResults + ")" : "");
     return result;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new OrderByStep(orderBy.copy(), maxResults, ctx, timeoutMillis, profilingEnabled);
   }
 }

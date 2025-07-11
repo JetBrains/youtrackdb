@@ -58,6 +58,7 @@ import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 public class FetchFromIndexStep extends AbstractExecutionStep {
+
   protected IndexSearchDescriptor desc;
 
   private boolean orderAsc;
@@ -154,23 +155,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     var size = 0;
 
     if (condition != null) {
-      if (condition instanceof SQLBinaryCondition) {
-        size = 1;
-      } else if (condition instanceof SQLBetweenCondition) {
-        size = 1;
-        range = true;
-      } else if (condition instanceof SQLAndBlock andBlock) {
-        size = andBlock.getSubBlocks().size();
-        var lastOp = andBlock.getSubBlocks()
-            .get(andBlock.getSubBlocks().size() - 1);
-        if (lastOp instanceof SQLBinaryCondition) {
-          var op = ((SQLBinaryCondition) lastOp).getOperator();
-          range = op.isRangeOperator();
-        }
-      } else if (condition instanceof SQLInCondition) {
-        size = 1;
+      var andBlock = (SQLAndBlock) condition;
+      size = andBlock.getSubBlocks().size();
+      var lastOp = andBlock.getSubBlocks().getLast();
+      if (lastOp instanceof SQLBinaryCondition) {
+        var op = ((SQLBinaryCondition) lastOp).getOperator();
+        range = op.isRangeOperator();
       }
     }
+
     stats.pushIndexStats(indexName, size, range, additionalRangeCondition != null, count);
   }
 
@@ -184,17 +177,10 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     if (index.getDefinition() == null) {
       return Collections.emptyList();
     }
-    var session = ctx.getDatabaseSession();
-    var transaction = session.getActiveTransaction();
     return switch (condition) {
       case null -> processFlatIteration(ctx.getDatabaseSession(), index, isOrderAsc);
-      case SQLBinaryCondition sqlBinaryCondition ->
-          processBinaryCondition(transaction, index, condition, isOrderAsc, ctx);
-      case SQLBetweenCondition sqlBetweenCondition ->
-          processBetweenCondition(index, condition, isOrderAsc, ctx);
       case SQLAndBlock sqlAndBlock ->
           processAndBlock(index, condition, additionalRangeCondition, isOrderAsc, ctx);
-      case SQLInCondition sqlInCondition -> processInCondition(index, condition, ctx, isOrderAsc);
       default -> throw new CommandExecutionException(ctx.getDatabaseSession(),
           "search for index for " + condition + " is not supported yet");
     };
@@ -224,7 +210,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           } else if (((Result) item).getPropertyNames().size() == 1) {
             item =
                 ((Result) item).getProperty(
-                    ((Result) item).getPropertyNames().iterator().next());
+                    ((Result) item).getPropertyNames().getFirst());
           }
         }
 
@@ -331,16 +317,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           && ((List<?>) secondValue).size() == 1
           && indexDef.getProperties().size() == 1
           && !(indexDef instanceof IndexDefinitionMultiValue)) {
-        secondValue = ((List<?>) secondValue).get(0);
+        secondValue = ((List<?>) secondValue).getFirst();
       }
       secondValue = unboxResult(secondValue);
-      // TODO unwind collections!
       var thirdValue = thirdValueCombinations.get(i).execute((Result) null, ctx);
       if (thirdValue instanceof List
           && ((List<?>) thirdValue).size() == 1
           && indexDef.getProperties().size() == 1
           && !(indexDef instanceof IndexDefinitionMultiValue)) {
-        thirdValue = ((List<?>) thirdValue).get(0);
+        thirdValue = ((List<?>) thirdValue).getFirst();
       }
       thirdValue = unboxResult(thirdValue);
 
@@ -352,6 +337,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       } catch (Exception e) {
         // manage subquery that returns a single collection
         if (secondValue instanceof Collection && secondValue.equals(thirdValue)) {
+          //noinspection rawtypes,unchecked
           ((Collection) secondValue)
               .forEach(
                   item -> {
@@ -484,14 +470,14 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
       var props = ((Result) value).getPropertyNames();
       if (props.size() == 1) {
-        return ((Result) value).getProperty(props.iterator().next());
+        return ((Result) value).getProperty(props.getFirst());
       }
     }
     return value;
   }
 
   private static List<SQLCollection> cartesianProduct(SQLCollection key, CommandContext ctx) {
-    return cartesianProduct(new SQLCollection(-1), key, ctx); // TODO
+    return cartesianProduct(new SQLCollection(-1), key, ctx);
   }
 
   private static List<SQLCollection> cartesianProduct(
@@ -501,7 +487,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     }
 
     var db = ctx.getDatabaseSession();
-    var nextElementInKey = key.getExpressions().get(0);
+    var nextElementInKey = key.getExpressions().getFirst();
     var value = nextElementInKey.execute(new ResultInternal(db), ctx);
     if (value instanceof Iterable && !(value instanceof Identifiable)) {
       List<SQLCollection> result = new ArrayList<>();
@@ -512,7 +498,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         }
         newHead.add(toExpression(elemInKey));
         var tail = key.copy();
-        tail.getExpressions().remove(0);
+        tail.getExpressions().removeFirst();
         result.addAll(cartesianProduct(newHead, tail, ctx));
       }
       return result;
@@ -523,7 +509,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       }
       newHead.add(nextElementInKey);
       var tail = key.copy();
-      tail.getExpressions().remove(0);
+      tail.getExpressions().removeFirst();
       return cartesianProduct(newHead, tail, ctx);
     }
   }
@@ -741,7 +727,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   private static boolean indexKeyFromIncluded(
       SQLAndBlock keyCondition, SQLBinaryCondition additional) {
     var exp =
-        keyCondition.getSubBlocks().get(keyCondition.getSubBlocks().size() - 1);
+        keyCondition.getSubBlocks().getLast();
     var additionalOperator =
         Optional.ofNullable(additional).map(SQLBinaryCondition::getOperator).orElse(null);
     if (exp instanceof SQLBinaryCondition) {
@@ -795,7 +781,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   private static boolean indexKeyToIncluded(SQLAndBlock keyCondition,
       SQLBinaryCondition additional) {
     var exp =
-        keyCondition.getSubBlocks().get(keyCondition.getSubBlocks().size() - 1);
+        keyCondition.getSubBlocks().getLast();
     var additionalOperator =
         Optional.ofNullable(additional).map(SQLBinaryCondition::getOperator).orElse(null);
     if (exp instanceof SQLBinaryCondition) {

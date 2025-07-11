@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -49,5 +50,11 @@ public class UpdateRemoveStep extends AbstractExecutionStep {
       result.append(item.toString());
     }
     return result.toString();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new UpdateRemoveStep(items.stream().map(SQLUpdateRemoveItem::copy).toList(), ctx,
+        profilingEnabled);
   }
 }

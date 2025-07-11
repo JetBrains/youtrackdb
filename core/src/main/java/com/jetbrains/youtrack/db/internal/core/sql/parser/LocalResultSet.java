@@ -4,6 +4,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.ExecutionPlan;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -124,5 +125,11 @@ public class LocalResultSet implements ResultSet {
     if (closed) {
       throw new IllegalStateException("ResultSet is closed and can not be used");
     }
+  }
+
+  public LocalResultSet copy(CommandContext context) {
+    var executionPlan = this.executionPlan.copy(context);
+    var session = context.getDatabaseSession();
+    return new LocalResultSet(session, executionPlan);
   }
 }

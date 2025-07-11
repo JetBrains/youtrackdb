@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
@@ -54,6 +55,11 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
       var step = new CheckSafeDeleteStep(context, false);
       var previous =
           new AbstractExecutionStep(context, false) {
+            @Override
+            public ExecutionStep copy(CommandContext ctx) {
+              throw new UnsupportedOperationException("Not supported yet.");
+            }
+
             boolean done = false;
 
             @Override
@@ -101,6 +107,11 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
       var step = new CheckSafeDeleteStep(context, false);
       var previous =
           new AbstractExecutionStep(context, false) {
+            @Override
+            public ExecutionStep copy(CommandContext ctx) {
+              throw new UnsupportedOperationException("Not supported yet.");
+            }
+
             boolean done = false;
 
             @Override

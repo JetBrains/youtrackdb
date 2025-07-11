@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -77,5 +78,11 @@ public class ScriptLineStep extends AbstractExecutionStep {
       return "Script Line";
     }
     return plan.prettyPrint(depth, indent);
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    var planCopy = plan.copy(ctx);
+    return new ScriptLineStep(planCopy, ctx, profilingEnabled);
   }
 }

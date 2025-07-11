@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -12,6 +13,11 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBatch;
 public class BatchStep extends AbstractExecutionStep {
 
   private final Integer batchSize;
+
+  private BatchStep(Integer batchSize, CommandContext ctx, boolean profilingEnabled) {
+    super(ctx, profilingEnabled);
+    this.batchSize = batchSize;
+  }
 
   public BatchStep(SQLBatch batch, CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
@@ -41,5 +47,10 @@ public class BatchStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ BATCH COMMIT EVERY " + batchSize;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new BatchStep(batchSize, ctx, profilingEnabled);
   }
 }

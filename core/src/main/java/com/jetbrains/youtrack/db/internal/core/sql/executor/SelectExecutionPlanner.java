@@ -1662,13 +1662,16 @@ public class SelectExecutionPlanner {
 
     var result =
         handleClassAsTargetWithIndex(
-            targetClass.getStringValue(), null, info, ctx, profilingEnabled, true);
+            targetClass.getStringValue(), null, info, ctx,
+            profilingEnabled, true);
+
     if (result != null) {
       result.forEach(plan::chain);
       info.whereClause = null;
       info.flattenedWhereClause = null;
       return true;
     }
+
     var schema = getSchemaFromContext(ctx);
     var clazz = schema.getClassInternal(targetClass.getStringValue());
 
@@ -2199,7 +2202,7 @@ public class SelectExecutionPlanner {
       if (propertyExpressions.size() == 2) {
         var secondPropertyExpression = propertyExpressions.get(1);
         if (secondPropertyExpression.isIndexAware(info, ctx)) {
-          if (secondPropertyExpression.createRangeWith(firstPropertyExpression)) {
+          if (secondPropertyExpression.canCreateRangeWith(firstPropertyExpression)) {
             additionalRangeCondition = (SQLBinaryCondition) secondPropertyExpression;
           } else {
             break;
