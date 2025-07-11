@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -86,5 +87,11 @@ public class WhileStep extends AbstractExecutionStep {
       }
     }
     return false;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new WhileStep(condition.copy(), statements.stream().map(SQLStatement::copy).toList(),
+        ctx, profilingEnabled);
   }
 }

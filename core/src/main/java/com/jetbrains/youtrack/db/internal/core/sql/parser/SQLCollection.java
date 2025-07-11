@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -71,15 +72,22 @@ public class SQLCollection extends SimpleNode {
   public Object execute(Result iCurrentRecord, CommandContext ctx) {
     List<Object> result = new ArrayList<Object>();
     for (var exp : expressions) {
-      result.add(convert(exp.execute(iCurrentRecord, ctx)));
+      result.add(convert(exp.execute(iCurrentRecord, ctx), ctx));
     }
     return result;
   }
 
-  private static Object convert(Object item) {
-    if (item instanceof ResultSet) {
-      return ((ResultSet) item).stream().collect(Collectors.toList());
+  private static Object convert(Object item, CommandContext ctx) {
+    if (item instanceof ResultSet resultSet) {
+      if (resultSet instanceof LocalResultSet localResultSet) {
+        resultSet = localResultSet.copy(ctx);
+      } else if (resultSet instanceof InternalResultSet internalResultSet) {
+        resultSet = internalResultSet.copy(ctx.getDatabaseSession());
+      }
+
+      return resultSet.stream().collect(Collectors.toList());
     }
+
     return item;
   }
 

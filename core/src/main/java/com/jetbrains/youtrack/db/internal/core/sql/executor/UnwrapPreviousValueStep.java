@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -20,10 +21,10 @@ public class UnwrapPreviousValueStep extends AbstractExecutionStep {
     assert prev != null;
 
     var upstream = prev.start(ctx);
-    return upstream.map(this::mapResult);
+    return upstream.map(UnwrapPreviousValueStep::mapResult);
   }
 
-  private Result mapResult(Result result, CommandContext ctx) {
+  private static Result mapResult(Result result, CommandContext ctx) {
     if (result instanceof UpdatableResult) {
       result = ((UpdatableResult) result).previousValue;
       if (result == null) {
@@ -44,5 +45,10 @@ public class UnwrapPreviousValueStep extends AbstractExecutionStep {
       result += " (" + getCostFormatted() + ")";
     }
     return result;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new UnwrapPreviousValueStep(ctx, profilingEnabled);
   }
 }

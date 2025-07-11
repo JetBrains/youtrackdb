@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
@@ -29,5 +30,10 @@ public class EmptyStep extends AbstractExecutionStep {
     // This step is there most of the cases because the query was early optimized based on DATA, eg.
     // an empty collection,
     // so this execution plan cannot be cached!!!
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new EmptyStep(ctx, profilingEnabled);
   }
 }

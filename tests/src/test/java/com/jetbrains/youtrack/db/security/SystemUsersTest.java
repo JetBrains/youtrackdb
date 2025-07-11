@@ -1,16 +1,13 @@
 package com.jetbrains.youtrack.db.security;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
 import com.jetbrains.youtrack.db.api.YourTracks;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import java.io.File;
 import org.junit.Test;
 
 public class SystemUsersTest {
-
   @Test
   public void test() {
     final var buildDirectory = System.getProperty("buildDirectory", ".");

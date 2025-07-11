@@ -1,18 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-/**
- *
- */
 public class WhileMatchStep extends AbstractUnrollStep {
-
   private final InternalExecutionPlan body;
   private final SQLWhereClause condition;
 
@@ -58,5 +54,10 @@ public class WhileMatchStep extends AbstractUnrollStep {
             + "  END\n";
 
     return result;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new WhileMatchStep(ctx, condition.copy(), body.copy(ctx), profilingEnabled);
   }
 }

@@ -1,14 +1,12 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.List;
 
-/**
- *
- */
 public class MatchFirstStep extends AbstractExecutionStep {
 
   private final PatternNode node;
@@ -83,5 +81,20 @@ public class MatchFirstStep extends AbstractExecutionStep {
 
   private String getAlias() {
     return this.node.alias;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    PatternNode nodeCopy = null;
+    InternalExecutionPlan executionPlanCopy = null;
+
+    if (node != null) {
+      nodeCopy = node.copy();
+    }
+    if (executionPlan != null) {
+      executionPlanCopy = executionPlan.copy(ctx);
+    }
+
+    return new MatchFirstStep(ctx, nodeCopy, executionPlanCopy, profilingEnabled);
   }
 }
