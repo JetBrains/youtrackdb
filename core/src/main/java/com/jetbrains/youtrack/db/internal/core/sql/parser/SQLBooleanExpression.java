@@ -20,9 +20,6 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- *
- */
 public abstract class SQLBooleanExpression extends SimpleNode {
 
   public static final SQLBooleanExpression TRUE =
@@ -374,7 +371,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
     return null;
   }
 
-  public boolean createRangeWith(SQLBooleanExpression match) {
+  public boolean canCreateRangeWith(SQLBooleanExpression match) {
     return false;
   }
 

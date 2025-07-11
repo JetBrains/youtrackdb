@@ -3,9 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLWhereClause;
 
-/**
- *
- */
 public class EdgeTraversal {
 
   protected boolean out = true;
@@ -46,5 +43,18 @@ public class EdgeTraversal {
   @Override
   public String toString() {
     return edge.toString();
+  }
+
+  public EdgeTraversal copy() {
+    var copy = new EdgeTraversal(edge, out);
+
+    copy.leftClass = leftClass;
+    if (leftFilter != null) {
+      copy.leftFilter = leftFilter.copy();
+    }
+    if (leftRid != null) {
+      copy.leftRid = leftRid.copy();
+    }
+    return copy;
   }
 }

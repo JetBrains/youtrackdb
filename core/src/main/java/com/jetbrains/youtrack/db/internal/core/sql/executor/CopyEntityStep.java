@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
@@ -84,5 +85,10 @@ public class CopyEntityStep extends AbstractExecutionStep {
       result.append(" (").append(getCostFormatted()).append(")");
     }
     return result.toString();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new CopyEntityStep(ctx, profilingEnabled, className);
   }
 }

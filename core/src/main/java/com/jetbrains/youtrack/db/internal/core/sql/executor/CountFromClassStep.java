@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -59,5 +60,10 @@ public class CountFromClassStep extends AbstractExecutionStep {
   @Override
   public boolean canBeCached() {
     return false; // explicit: in case of active security policies, the COUNT has to be manual
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new CountFromClassStep(target, alias, ctx, profilingEnabled);
   }
 }

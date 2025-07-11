@@ -148,9 +148,7 @@ public interface ExecutionStepInternal extends ExecutionStep {
     }
   }
 
-  default ExecutionStep copy(CommandContext ctx) {
-    throw new UnsupportedOperationException();
-  }
+  ExecutionStep copy(CommandContext ctx);
 
   default boolean canBeCached() {
     return false;

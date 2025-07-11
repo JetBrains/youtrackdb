@@ -134,6 +134,12 @@ buildNumber.properties
 .idea/shelf/*
 .idea/remote-targets.xml
 .idea/mavenHomeManager.xml
+.idea/compiler.xml
+.idea/encodings.xml
+.idea/jarRepositories.xml
+.idea/misc.xml
+.idea/vcs.xml
+.idea/workspace.xml
 
 # Gradle:
 .idea/**/gradle.xml
@@ -226,4 +232,3 @@ local.properties
 
 # stack-pr config
 .stack-pr.cfg
-

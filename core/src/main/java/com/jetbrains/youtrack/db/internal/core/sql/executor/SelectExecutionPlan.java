@@ -81,8 +81,8 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
 
   public void setSteps(List<ExecutionStepInternal> steps) {
     this.steps = steps;
-    if (steps.size() > 0) {
-      lastStep = steps.get(steps.size() - 1);
+    if (!steps.isEmpty()) {
+      lastStep = steps.getLast();
     } else {
       lastStep = null;
     }
@@ -150,18 +150,20 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   }
 
   protected void copyOn(SelectExecutionPlan copy, CommandContext ctx) {
-    ExecutionStep lastStep = null;
-    for (ExecutionStep step : this.steps) {
+    ExecutionStepInternal lastStep = null;
+
+    for (var step : this.steps) {
       var newStep =
-          (ExecutionStepInternal) ((ExecutionStepInternal) step).copy(ctx);
-      newStep.setPrevious((ExecutionStepInternal) lastStep);
+          (ExecutionStepInternal) step.copy(ctx);
+      newStep.setPrevious(lastStep);
       if (lastStep != null) {
-        ((ExecutionStepInternal) lastStep).setNext(newStep);
+        lastStep.setNext(newStep);
       }
       lastStep = newStep;
       copy.getSteps().add(newStep);
     }
-    copy.lastStep = copy.steps.size() == 0 ? null : copy.steps.get(copy.steps.size() - 1);
+
+    copy.lastStep = copy.steps.isEmpty() ? null : copy.steps.getLast();
     copy.location = this.location;
     copy.statement = this.statement;
   }

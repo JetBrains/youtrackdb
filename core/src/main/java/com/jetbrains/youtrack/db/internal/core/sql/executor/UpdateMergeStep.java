@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
@@ -8,11 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLJson;
 
-/**
- *
- */
 public class UpdateMergeStep extends AbstractExecutionStep {
-
   private final SQLJson json;
 
   public UpdateMergeStep(SQLJson json, CommandContext ctx, boolean profilingEnabled) {
@@ -52,5 +49,10 @@ public class UpdateMergeStep extends AbstractExecutionStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ UPDATE MERGE\n" + spaces + "  " + json;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new UpdateMergeStep(json.copy(), ctx, profilingEnabled);
   }
 }

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -40,5 +41,10 @@ public class ReturnMatchElementsStep extends AbstractUnrollStep {
   public String prettyPrint(int depth, int indent) {
     var spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ UNROLL $elements";
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new ReturnMatchElementsStep(ctx, profilingEnabled);
   }
 }

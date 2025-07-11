@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -14,13 +15,13 @@ import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLWhereClause;
  *
  */
 public class UpsertStep extends AbstractExecutionStep {
-
   private final SQLFromClause commandTarget;
   private final SQLWhereClause initialFilter;
 
   public UpsertStep(
       SQLFromClause target, SQLWhereClause where, CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
+
     this.commandTarget = target;
     this.initialFilter = where;
   }
@@ -85,5 +86,10 @@ public class UpsertStep extends AbstractExecutionStep {
         + spaces
         + "  content: "
         + initialFilter;
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    return new UpsertStep(commandTarget.copy(), initialFilter.copy(), ctx, profilingEnabled);
   }
 }
