@@ -694,5 +694,10 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
 
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return left.varMightBeInUse(varName) || right.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=99ed1dd2812eb730de8e1931b1764da5 (do not edit this line) */

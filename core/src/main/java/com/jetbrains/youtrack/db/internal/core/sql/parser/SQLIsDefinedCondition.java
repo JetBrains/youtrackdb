@@ -159,5 +159,10 @@ public class SQLIsDefinedCondition extends SQLBooleanExpression implements
       @Nonnull CommandContext ctx) {
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return expression != null && expression.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=075954b212c8cb44c8538bf5dea047d3 (do not edit this line) */

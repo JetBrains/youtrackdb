@@ -26,11 +26,13 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.StringSerializerHelper;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -64,6 +66,7 @@ public class BasicCommandContext implements CommandContext {
 
   private final Map<ExecutionStep, StepStats> stepStats = new IdentityHashMap<>();
   private final LinkedList<StepStats> currentStepStats = new LinkedList<>();
+  private final List<SQLBooleanExpression> parentWhereExpressions = new LinkedList<>();
 
   public BasicCommandContext() {
   }
@@ -548,5 +551,25 @@ public class BasicCommandContext implements CommandContext {
   @Override
   public StepStats getStats(ExecutionStep step) {
     return stepStats.get(step);
+  }
+
+  @Override
+  public void registerBooleanExpression(SQLBooleanExpression expression) {
+    parentWhereExpressions.add(expression);
+  }
+
+  @Override
+  public List<SQLBooleanExpression> getParentWhereExpressions() {
+    if (parent == null) {
+      return parentWhereExpressions;
+    }
+
+    if (parentWhereExpressions.isEmpty()) {
+      return parent.getParentWhereExpressions();
+    }
+
+    final var result = new LinkedList<>(parentWhereExpressions);
+    result.addAll(parent.getParentWhereExpressions());
+    return result;
   }
 }

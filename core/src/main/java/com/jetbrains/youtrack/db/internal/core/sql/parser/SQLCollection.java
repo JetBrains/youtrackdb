@@ -79,9 +79,7 @@ public class SQLCollection extends SimpleNode {
 
   private static Object convert(Object item, CommandContext ctx) {
     if (item instanceof ResultSet resultSet) {
-      if (resultSet instanceof LocalResultSet localResultSet) {
-        resultSet = localResultSet.copy(ctx);
-      } else if (resultSet instanceof InternalResultSet internalResultSet) {
+      if (resultSet instanceof InternalResultSet internalResultSet) {
         resultSet = internalResultSet.copy(ctx.getDatabaseSession());
       }
 
@@ -210,6 +208,15 @@ public class SQLCollection extends SimpleNode {
 
   public List<SQLExpression> getExpressions() {
     return expressions;
+  }
+
+  public boolean varMightBeInUse(String varName) {
+    for (var expression : expressions) {
+      if (expression.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 /* JavaCC - OriginalChecksum=c93b20138b2ae58c5f76e458c34b5946 (do not edit this line) */

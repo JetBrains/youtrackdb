@@ -367,5 +367,14 @@ public class SQLMethodCall extends SimpleNode {
   public void addParam(SQLExpression param) {
     this.params.add(param);
   }
+
+  public boolean varMightBeInUse(String varName) {
+    for (var param : params) {
+      if (param.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 /* JavaCC - OriginalChecksum=da95662da21ceb8dee3ad88c0d980413 (do not edit this line) */

@@ -345,5 +345,15 @@ public class SQLOrBlock extends SQLBooleanExpression {
       @Nonnull CommandContext ctx) {
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    for (var subBlock : subBlocks) {
+      if (subBlock.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 /* JavaCC - OriginalChecksum=98d3077303a598705894dbb7bd4e1573 (do not edit this line) */

@@ -9,6 +9,7 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nullable;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * This class is used to represent all the indentifies in the SQL grammar, ie. class names, property
@@ -182,6 +183,18 @@ public class SQLIdentifier extends SimpleNode {
     }
     var stringVal = getStringValue();
     return ctx.isScriptVariableDeclared(stringVal); // context variable, for batch scripts
+  }
+
+  public boolean isVariable(String varName) {
+
+    final var stringVal = getStringValue();
+    if (stringVal == null) {
+      return false;
+    }
+    final var valueToCompare =
+        varName.charAt(0) == '$' ? stringVal : stringVal.substring(1);
+
+    return varName.equals(valueToCompare);
   }
 }
 /* JavaCC - OriginalChecksum=691a2eb5096f7b5e634b2ca8ac2ded3a (do not edit this line) */

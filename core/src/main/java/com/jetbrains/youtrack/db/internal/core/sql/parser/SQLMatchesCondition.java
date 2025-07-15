@@ -259,5 +259,11 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
       @Nonnull CommandContext ctx) {
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return expression != null && expression.varMightBeInUse(varName) ||
+        rightExpression != null && rightExpression.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=68712f476e2e633c2bbfc34cb6c39356 (do not edit this line) */

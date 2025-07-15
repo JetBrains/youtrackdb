@@ -296,5 +296,12 @@ public class SQLNotInCondition extends SQLBooleanExpression {
       @Nonnull CommandContext ctx) {
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return left != null && left.varMightBeInUse(varName) ||
+        rightMathExpression != null && rightMathExpression.varMightBeInUse(varName) ||
+        rightStatement != null; // todo: implement varMightBeInUse for SQLSelectStatement?
+  }
 }
 /* JavaCC - OriginalChecksum=8fb82bf72cc7d9cbdf2f9e2323ca8ee1 (do not edit this line) */

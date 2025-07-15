@@ -120,6 +120,11 @@ public abstract class SQLBooleanExpression extends SimpleNode {
             @Nonnull CommandContext ctx) {
           return other;
         }
+
+        @Override
+        public boolean varMightBeInUse(String varName) {
+          return false;
+        }
       };
 
   public static final SQLBooleanExpression FALSE =
@@ -213,6 +218,11 @@ public abstract class SQLBooleanExpression extends SimpleNode {
 
         @Override
         public boolean refersToParent() {
+          return false;
+        }
+
+        @Override
+        public boolean varMightBeInUse(String varName) {
           return false;
         }
       };
@@ -386,4 +396,6 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   public SQLExpression resolveKeyTo(SQLBinaryCondition additional) {
     throw new UnsupportedOperationException("Cannot execute index query with " + this);
   }
+
+  public abstract boolean varMightBeInUse(String varNames);
 }

@@ -211,5 +211,10 @@ public class SQLValueExpression extends SQLExpression {
   public boolean isCacheable(DatabaseSessionEmbedded session) {
     return true;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return false;
+  }
 }
 /* JavaCC - OriginalChecksum=9c860224b121acdc89522ae97010be01 (do not edit this line) */

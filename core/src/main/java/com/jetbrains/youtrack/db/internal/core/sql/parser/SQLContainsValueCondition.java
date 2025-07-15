@@ -353,5 +353,12 @@ public class SQLContainsValueCondition extends SQLBooleanExpression {
   public SQLExpression resolveKeyTo(SQLBinaryCondition additional) {
     return expression;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return left != null && left.varMightBeInUse(varName)
+        || condition != null && condition.varMightBeInUse(varName)
+        || expression != null && expression.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=6fda752f10c8d8731f43efa706e39459 (do not edit this line) */

@@ -304,5 +304,14 @@ public class SQLArrayConcatExpression extends SimpleNode {
     }
     return true;
   }
+
+  public boolean varMightBeInUse(String varName) {
+    for (var exp : childExpressions) {
+      if (exp.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 /* JavaCC - OriginalChecksum=8d976a02f84460bf21c4304009135345 (do not edit this line) */

@@ -8,12 +8,14 @@ import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SubQueryCollector;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  *
@@ -67,14 +69,18 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
   }
 
   private void calculate(CommandContext ctx) {
-    var varName = this.varName.getStringValue();
-    if (varName.startsWith(SubQueryCollector.GENERATED_ALIAS_PREFIX)) {
-      ctx.setVariable(varName,
-          toList(new LocalResultSet(ctx.getDatabaseSession(), subExecutionPlan)));
-    } else {
-      ctx.setVariable(varName,
-          new LocalResultSet(ctx.getDatabaseSession(), subExecutionPlan));
+    final var varName = this.varName.getStringValue();
+    var convertToList = varName.startsWith(SubQueryCollector.GENERATED_ALIAS_PREFIX);
+    if (!convertToList) {
+      for (var expr : ctx.getParentWhereExpressions()) {
+        if (expr.varMightBeInUse(varName)) {
+          convertToList = true;
+          break;
+        }
+      }
     }
+    final var rs = new LocalResultSet(ctx.getDatabaseSession(), subExecutionPlan);
+    ctx.setVariable(varName, convertToList ? toList(rs) : rs);
   }
 
   private List<Result> toList(LocalResultSet oLocalResultSet) {

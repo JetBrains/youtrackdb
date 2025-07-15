@@ -427,5 +427,22 @@ public class SQLBaseIdentifier extends SimpleNode {
 
     return null;
   }
+
+  public boolean varMightBeInUse(String varName) {
+
+    if (levelZero != null) {
+      if (levelZero.functionCall != null && levelZero.functionCall.varMightBeInUse(varName)) {
+        return true;
+      }
+
+      if (levelZero.collection != null && levelZero.collection.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+
+    return suffix != null &&
+        suffix.identifier != null &&
+        suffix.identifier.isVariable(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=ed89af10d8be41a83428c5608a4834f6 (do not edit this line) */

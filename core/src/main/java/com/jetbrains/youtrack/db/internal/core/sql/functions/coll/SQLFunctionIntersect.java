@@ -28,10 +28,8 @@ import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemVariable;
-import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -86,9 +84,9 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
         }
       } else {
         if (context instanceof Set<?> contextSet) {
-          context = intersectWith(contextSet, value, ctx);
+          context = intersectWith(contextSet, value);
         } else if (context instanceof LinkBag linkBag) {
-          context = intersectWith(linkBag, value, ctx);
+          context = intersectWith(linkBag, value);
         } else {
           Iterator<?> contextIterator = null;
           if (context instanceof Iterator) {
@@ -128,9 +126,9 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
         }
 
         if (value instanceof Set<?> set) {
-          currentResult = intersectWith(set, currentResult, ctx);
+          currentResult = intersectWith(set, currentResult);
         } else if (value instanceof LinkBag linkBag) {
-          currentResult = intersectWith(linkBag, currentResult, ctx);
+          currentResult = intersectWith(linkBag, currentResult);
         } else {
           var iterator = MultiValue.getMultiValueIterator(currentResult);
           currentResult = intersectWith(iterator, value, ctx);
@@ -159,12 +157,6 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
         && (!(value instanceof SupportsContains)
         || !((SupportsContains) value).supportsFastContains())) {
       if (value instanceof ResultSet resultSet) {
-        if (resultSet instanceof InternalResultSet internalResultSet) {
-          resultSet = internalResultSet.copy(ctx.getDatabaseSession());
-        } else if (resultSet instanceof LocalResultSet localResultSet) {
-          resultSet = localResultSet.copy(ctx);
-        }
-
         var ids = new RidSet();
         var nonIds = new HashSet<>();
 
@@ -227,15 +219,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     return tempSet;
   }
 
-  static LinkedHashSet<?> intersectWith(final Set<?> current, Object value, CommandContext ctx) {
-    if (value instanceof ResultSet resultSet) {
-      if (resultSet instanceof InternalResultSet internalResultSet) {
-        value = internalResultSet.copy(ctx.getDatabaseSession());
-      } else if (resultSet instanceof LocalResultSet localResultSet) {
-        value = localResultSet.copy(ctx);
-      }
-    }
-
+  static LinkedHashSet<?> intersectWith(final Set<?> current, Object value) {
     Iterator<?> iter;
     if (value instanceof Iterable<?> iterable) {
       iter = iterable.iterator();
@@ -256,14 +240,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     return tempSet;
   }
 
-  static LinkedHashSet<?> intersectWith(final LinkBag current, Object value, CommandContext ctx) {
-    if (value instanceof ResultSet resultSet) {
-      if (resultSet instanceof InternalResultSet internalResultSet) {
-        value = internalResultSet.copy(ctx.getDatabaseSession());
-      } else if (resultSet instanceof LocalResultSet localResultSet) {
-        value = localResultSet.copy(ctx);
-      }
-    }
+  static LinkedHashSet<?> intersectWith(final LinkBag current, Object value) {
 
     Iterator<?> iter;
     if (value instanceof Iterable<?> iterable) {

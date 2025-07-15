@@ -1386,5 +1386,16 @@ public class SQLMathExpression extends SimpleNode {
   private static Operator deserializeOperator(String x) {
     return Operator.valueOf(x);
   }
+
+  public boolean varMightBeInUse(String varName) {
+    if (childExpressions != null) {
+      for (var expr : childExpressions) {
+        if (expr.varMightBeInUse(varName)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 }
 /* JavaCC - OriginalChecksum=c255bea24e12493e1005ba2a4d1dbb9d (do not edit this line) */

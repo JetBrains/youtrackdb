@@ -152,5 +152,10 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
   public int hashCode() {
     return expression != null ? expression.hashCode() : 0;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return expression.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=1c766d6caf5ccae19c1c291396bb56f2 (do not edit this line) */

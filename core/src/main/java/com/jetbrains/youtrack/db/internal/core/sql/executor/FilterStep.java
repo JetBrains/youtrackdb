@@ -31,6 +31,7 @@ public class FilterStep extends AbstractExecutionStep {
       throw new IllegalStateException("filter step requires a previous step");
     }
 
+    ctx.registerBooleanExpression(whereClause.getBaseExpression());
     var resultSet = prev.start(ctx);
     resultSet = resultSet.filter(this::filterMap);
     if (timeoutMillis > 0) {

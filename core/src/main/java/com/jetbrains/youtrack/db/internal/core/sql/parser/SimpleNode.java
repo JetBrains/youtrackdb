@@ -3,6 +3,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.parser;
 
 import java.util.Map;
+import java.util.Set;
 
 public abstract class SimpleNode implements Node {
 

@@ -148,8 +148,8 @@ public class SQLSuffixIdentifier extends SimpleNode {
         if (result instanceof Resettable resettable && resettable.isResetable()) {
           resettable.reset();
         }
-        if (result instanceof LocalResultSet localResultSet) {
-          result = localResultSet.copy(ctx);
+        if (result instanceof LocalResultSet) {
+          ctx.setVariable(varName, null);
         } else if (result instanceof InternalResultSet internalResultSet) {
           result = internalResultSet.copy(ctx.getDatabaseSession());
         }
@@ -536,6 +536,10 @@ public class SQLSuffixIdentifier extends SimpleNode {
 
   public boolean isStar() {
     return star;
+  }
+
+  public boolean varMightBeInUse(String varName) {
+    return identifier != null && identifier.isVariable(varName);
   }
 }
 /* JavaCC - OriginalChecksum=5d9be0188c7d6e2b67d691fb88a518f8 (do not edit this line) */

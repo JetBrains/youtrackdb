@@ -562,5 +562,12 @@ public final class SQLContainsCondition extends SQLBooleanExpression {
     }
     return condition == null || condition.isCacheable(session);
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return left != null && left.varMightBeInUse(varName) ||
+        right != null && right.varMightBeInUse(varName) ||
+        condition != null && condition.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=bad1118296ea74860e88d66bfe9fa222 (do not edit this line) */

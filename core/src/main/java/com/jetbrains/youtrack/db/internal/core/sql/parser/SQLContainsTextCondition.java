@@ -279,5 +279,11 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   public SQLExpression resolveKeyTo(SQLBinaryCondition additional) {
     return right;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return left != null && left.varMightBeInUse(varName) ||
+        right != null && right.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=b588492ba2cbd0f932055f1f64bbbecd (do not edit this line) */

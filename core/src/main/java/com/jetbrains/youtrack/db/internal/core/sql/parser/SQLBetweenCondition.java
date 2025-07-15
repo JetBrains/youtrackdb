@@ -302,5 +302,12 @@ public class SQLBetweenCondition extends SQLBooleanExpression {
       @Nonnull CommandContext ctx) {
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return first != null && first.varMightBeInUse(varName) ||
+        second != null && second.varMightBeInUse(varName) ||
+        third != null && third.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=f94f4779c4a6c6d09539446045ceca89 (do not edit this line) */

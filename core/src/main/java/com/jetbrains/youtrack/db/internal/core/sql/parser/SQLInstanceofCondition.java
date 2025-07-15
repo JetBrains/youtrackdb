@@ -232,5 +232,12 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
       @Nonnull CommandContext ctx) {
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+
+    return right != null && right.isVariable(varName) ||
+        left != null && left.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=0b5eb529744f307228faa6b26f0592dc (do not edit this line) */
