@@ -23,7 +23,6 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.query.ResultSet;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
-import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
 import com.jetbrains.youtrack.db.internal.common.util.SupportsContains;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
@@ -85,8 +84,6 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
       } else {
         if (context instanceof Set<?> contextSet) {
           context = intersectWith(contextSet, value);
-        } else if (context instanceof LinkBag linkBag) {
-          context = intersectWith(linkBag, value);
         } else {
           Iterator<?> contextIterator = null;
           if (context instanceof Iterator) {
@@ -95,7 +92,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
             contextIterator = MultiValue.getMultiValueIterator(context);
           }
 
-          context = intersectWith(contextIterator, value, ctx);
+          context = intersectWith(contextIterator, value);
         }
       }
 
@@ -127,11 +124,9 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
 
         if (value instanceof Set<?> set) {
           currentResult = intersectWith(set, currentResult);
-        } else if (value instanceof LinkBag linkBag) {
-          currentResult = intersectWith(linkBag, currentResult);
         } else {
           var iterator = MultiValue.getMultiValueIterator(currentResult);
-          currentResult = intersectWith(iterator, value, ctx);
+          currentResult = intersectWith(iterator, value);
         }
       }
 
@@ -150,7 +145,7 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     return MultiValue.toSet(context);
   }
 
-  static Collection intersectWith(final Iterator current, Object value, CommandContext ctx) {
+  static Collection intersectWith(final Iterator current, Object value) {
     final var tempSet = new LinkedHashSet<>();
 
     if (!(value instanceof Set)
@@ -233,38 +228,6 @@ public class SQLFunctionIntersect extends SQLFunctionMultiValueAbstract<Object> 
     while (iter.hasNext()) {
       var item = iter.next();
       if (current.contains(item)) {
-        tempSet.add(item);
-      }
-    }
-
-    return tempSet;
-  }
-
-  static LinkedHashSet<?> intersectWith(final LinkBag current, Object value) {
-
-    Iterator<?> iter;
-    if (value instanceof Iterable<?> iterable) {
-      iter = iterable.iterator();
-    } else if (value instanceof Iterator<?> iterator) {
-      iter = iterator;
-    } else {
-      iter = MultiValue.getMultiValueIterator(value);
-    }
-
-    final var tempSet = new LinkedHashSet<>();
-    while (iter.hasNext()) {
-      var item = iter.next();
-      RID rid = null;
-
-      if (item instanceof RID r) {
-        rid = r;
-      } else if (item instanceof Identifiable identifiable) {
-        rid = identifiable.getIdentity();
-      } else if (item instanceof Result result && result.isIdentifiable()) {
-        rid = result.getIdentity();
-      }
-
-      if (rid != null && current.contains(rid)) {
         tempSet.add(item);
       }
     }
