@@ -288,5 +288,14 @@ public class SQLArraySingleValuesSelector extends SimpleNode {
   public void addItem(SQLArraySelector item) {
     this.items.add(item);
   }
+
+  public boolean varMightBeInUse(String varName) {
+    for (var item : items) {
+      if (item.expression != null && item.expression.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 /* JavaCC - OriginalChecksum=991998c77a4831184b6dca572513fd8d (do not edit this line) */

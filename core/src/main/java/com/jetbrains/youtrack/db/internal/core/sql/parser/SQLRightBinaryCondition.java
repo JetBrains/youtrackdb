@@ -214,5 +214,10 @@ public class SQLRightBinaryCondition extends SimpleNode {
     right = new SQLExpression(-1);
     right.deserialize(fromResult.getProperty("right"));
   }
+
+
+  public boolean varMightBeInUse(String varName) {
+    return right != null && right.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=29d59ae04778eb611547292a27863da4 (do not edit this line) */

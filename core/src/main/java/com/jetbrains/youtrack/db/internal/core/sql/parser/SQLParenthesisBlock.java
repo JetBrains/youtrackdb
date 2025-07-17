@@ -162,5 +162,10 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
       @Nonnull CommandContext ctx) {
     return subElement.mergeUsingAnd(other, ctx);
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return subElement != null && subElement.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=9a16b6cf7d051382acb94c45067631a9 (do not edit this line) */

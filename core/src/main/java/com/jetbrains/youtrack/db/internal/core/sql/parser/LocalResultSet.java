@@ -126,10 +126,4 @@ public class LocalResultSet implements ResultSet {
       throw new IllegalStateException("ResultSet is closed and can not be used");
     }
   }
-
-  public LocalResultSet copy(CommandContext context) {
-    var executionPlan = this.executionPlan.copy(context);
-    var session = context.getDatabaseSession();
-    return new LocalResultSet(session, executionPlan);
-  }
 }

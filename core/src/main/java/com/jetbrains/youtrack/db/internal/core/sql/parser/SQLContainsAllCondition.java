@@ -394,5 +394,12 @@ public class SQLContainsAllCondition extends SQLBooleanExpression {
       @Nonnull CommandContext ctx) {
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return left != null && left.varMightBeInUse(varName) ||
+        right != null && right.varMightBeInUse(varName) ||
+        rightBlock != null && rightBlock.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=ab7b4e192a01cda09a82d5b80ef4ec60 (do not edit this line) */

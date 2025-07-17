@@ -770,5 +770,11 @@ public class SQLExpression extends SimpleNode {
     }
     return false;
   }
+
+  public boolean varMightBeInUse(String varName) {
+    return mathExpression != null && mathExpression.varMightBeInUse(varName) ||
+        arrayConcatExpression != null && arrayConcatExpression.varMightBeInUse(varName);
+
+  }
 }
 /* JavaCC - OriginalChecksum=9c860224b121acdc89522ae97010be01 (do not edit this line) */

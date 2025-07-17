@@ -435,5 +435,12 @@ public class SQLArrayRangeSelector extends SimpleNode {
       toSelector.deserialize(fromResult.getProperty("toSelector"));
     }
   }
+
+  public boolean varMightBeInUse(String varName) {
+    return fromSelector != null && fromSelector.expressionValue != null
+        && fromSelector.expressionValue.varMightBeInUse(varName) ||
+        toSelector != null && toSelector.expressionValue != null &&
+            toSelector.expressionValue.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=594a372e31fcbcd3ed962c2260e76468 (do not edit this line) */

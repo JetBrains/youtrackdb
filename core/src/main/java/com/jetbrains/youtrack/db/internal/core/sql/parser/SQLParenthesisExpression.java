@@ -277,5 +277,11 @@ public class SQLParenthesisExpression extends SQLMathExpression {
     }
     return true;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return super.varMightBeInUse(varName) ||
+        expression != null && expression.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=4656e5faf4f54dc3fc45a06d8e375c35 (do not edit this line) */

@@ -235,5 +235,10 @@ public final class SQLNotBlock extends SQLBooleanExpression {
       @Nonnull CommandContext ctx) {
     return null;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return sub != null && sub.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=1926313b3f854235aaa20811c22d583b (do not edit this line) */

@@ -647,6 +647,13 @@ public final class SQLBaseExpression extends SQLMathExpression {
     }
     return false;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return super.varMightBeInUse(varName) ||
+        identifier != null && identifier.varMightBeInUse(varName) ||
+        modifier != null && modifier.varMightBeInUse(varName);
+  }
 }
 
 /* JavaCC - OriginalChecksum=71b3e2d1b65c923dc7cfe11f9f449d2b (do not edit this line) */

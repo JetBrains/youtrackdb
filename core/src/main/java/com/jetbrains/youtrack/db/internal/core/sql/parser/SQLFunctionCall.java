@@ -563,5 +563,13 @@ public final class SQLFunctionCall extends SimpleNode {
     return isGraphNavigationFunction(session); // TODO
   }
 
+  public boolean varMightBeInUse(String varName) {
+    for (var param : params) {
+      if (param.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 /* JavaCC - OriginalChecksum=290d4e1a3f663299452e05f8db718419 (do not edit this line) */

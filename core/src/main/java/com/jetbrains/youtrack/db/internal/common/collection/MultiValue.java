@@ -134,6 +134,14 @@ public class MultiValue {
     return 0;
   }
 
+  public static boolean isEmpty(final Object obj) {
+    if (obj instanceof ResultSet rs) {
+      return !rs.hasNext();
+    }
+
+    return getSize(obj) == 0;
+  }
+
   /**
    * Returns the first item of the Multi-value object (array, collection or map)
    *
@@ -146,7 +154,7 @@ public class MultiValue {
       return null;
     }
 
-    if (!isMultiValue(value) || getSize(value) == 0) {
+    if (!isMultiValue(value) || isEmpty(value)) {
       return null;
     }
 

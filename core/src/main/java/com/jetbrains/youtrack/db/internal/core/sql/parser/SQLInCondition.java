@@ -525,5 +525,11 @@ public class SQLInCondition extends SQLBooleanExpression {
       throw new UnsupportedOperationException("Cannot execute index query with " + this);
     }
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return left != null && left.varMightBeInUse(varName) ||
+        rightMathExpression != null && rightMathExpression.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=00df7cb1877c0a12d24205c1700653c7 (do not edit this line) */

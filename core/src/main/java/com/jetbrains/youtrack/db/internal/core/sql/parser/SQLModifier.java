@@ -559,5 +559,15 @@ public class SQLModifier extends SimpleNode {
 
     return null;
   }
+
+  public boolean varMightBeInUse(String varName) {
+    return arrayRange != null && arrayRange.varMightBeInUse(varName) ||
+        condition != null && condition.varMightBeInUse(varName) ||
+        arraySingleValues != null && arraySingleValues.varMightBeInUse(varName) ||
+        rightBinaryCondition != null && rightBinaryCondition.varMightBeInUse(varName) ||
+        methodCall != null && methodCall.varMightBeInUse(varName) ||
+        suffix != null && suffix.identifier != null && suffix.identifier.isVariable(varName) ||
+        next != null && next.varMightBeInUse(varName);
+  }
 }
 /* JavaCC - OriginalChecksum=39c21495d02f9b5007b4a2d6915496e1 (do not edit this line) */

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import static com.jetbrains.youtrack.db.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.common.query.BasicResult;
@@ -20,16 +21,19 @@ import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.common.concur.TimeoutException;
+import com.jetbrains.youtrack.db.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrack.db.internal.core.sql.functions.SQLFunction;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLContainsCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLGetInternalPropertyExpression;
+import com.jetbrains.youtrack.db.internal.core.sql.parser.SQLSelectStatement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -5594,13 +5598,36 @@ public class SelectStatementExecutionTest extends DbTestBase {
       return new RID[]{v1rid, v3rid, v2rid};
     });
 
+
+    final var query = "SELECT expand(intersect($a0, $b0)) "
+        + "LET $a0=(SELECT expand(out('link1')) FROM :targetIds1), "
+        + "$b0=(SELECT expand(in('link2')) FROM :targetIds2)";
+    final Map<Object, Object> params =
+        Map.of("targetIds1", rids[0], "targetIds2", rids[1]);
+
     session.executeInTx(transaction -> {
-      var result = transaction.query("SELECT expand(intersect($a0, $b0)) "
-              + "LET $a0=(SELECT expand(out('link1')) FROM :targetIds1), "
-              + "$b0=(SELECT expand(in('link2')) FROM :targetIds2)",
-          Map.of("targetIds1", rids[0], "targetIds2", rids[1])).toList();
+      final var result = transaction.query(query, params).toList();
       Assert.assertEquals(1, result.size());
       Assert.assertEquals(rids[2], result.getFirst().getIdentity());
+    });
+
+    session.executeInTx(tx -> {
+
+      var statement = (SQLSelectStatement) SQLEngine.parse(query, session);
+      var ctx = new BasicCommandContext();
+      ctx.setDatabaseSession(session);
+      ctx.setInputParameters(params);
+
+      final var plan = statement.createExecutionPlan(ctx);
+      new LocalResultSet(session, plan).toList();
+
+      final var a = ctx.getVariable("$a0");
+      final var b = ctx.getVariable("$b0");
+
+      // checking that the variables have not been converted to collections, killing
+      // the performance of "intersect" function.
+      assertThat(a).isInstanceOf(LocalResultSet.class);
+      assertThat(b).isInstanceOf(LocalResultSet.class);
     });
   }
 }

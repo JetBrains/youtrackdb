@@ -213,4 +213,9 @@ public class SQLGetInternalPropertyExpression extends SQLExpression {
   public boolean isCacheable(DatabaseSessionEmbedded session) {
     return true;
   }
+
+  @Override
+  public boolean varMightBeInUse(String varName) {
+    return false;
+  }
 }
