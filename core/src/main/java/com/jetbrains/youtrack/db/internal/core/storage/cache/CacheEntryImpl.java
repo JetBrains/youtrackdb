@@ -61,14 +61,17 @@ public class CacheEntryImpl implements CacheEntry {
     this.pageKey = new PageKey(fileId, pageIndex);
   }
 
+  @Override
   public boolean isNewlyAllocatedPage() {
     return allocatedPage;
   }
 
+  @Override
   public void markAllocated() {
     allocatedPage = true;
   }
 
+  @Override
   public void clearAllocationFlag() {
     allocatedPage = false;
   }
@@ -85,12 +88,12 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public long getFileId() {
-    return pageKey.getFileId();
+    return pageKey.fileId();
   }
 
   @Override
   public int getPageIndex() {
-    return pageKey.getPageIndex();
+    return pageKey.pageIndex();
   }
 
   @Override

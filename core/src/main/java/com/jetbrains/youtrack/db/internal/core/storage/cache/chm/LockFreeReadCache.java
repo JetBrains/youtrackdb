@@ -34,8 +34,10 @@ import javax.annotation.Nullable;
 /**
  * Disk cache based on ConcurrentHashMap and eviction policy which is asynchronously processed by
  * handling set of events logged in lock free event buffer. This feature first was introduced in
- * Caffeine framework https://github.com/ben-manes/caffeine and in ConcurrentLinkedHashMap library
- * https://github.com/ben-manes/concurrentlinkedhashmap . The difference is that if consumption of
+ * Caffeine framework <a href="https://github.com/ben-manes/caffeine">...</a> and in
+ * ConcurrentLinkedHashMap library
+ * <a href="https://github.com/ben-manes/concurrentlinkedhashmap">...</a>. The difference is that if
+ * consumption of
  * memory in cache is bigger than 1% disk cache is switched from asynchronous processing of stream
  * of events to synchronous processing. But that is true only for threads which cause loading of
  * additional pages from write cache to disk cache. Window TinyLFU policy is used as cache eviction
@@ -160,7 +162,7 @@ public final class LockFreeReadCache implements ReadCache {
 
                       updatedEntry[0] =
                           new CacheEntryImpl(
-                              page.getFileId(), page.getPageIndex(), pointer, false, this);
+                              page.fileId(), page.pageIndex(), pointer, false, this);
                       return null;
                     } catch (final IOException e) {
                       throw BaseException.wrapException(
@@ -231,7 +233,7 @@ public final class LockFreeReadCache implements ReadCache {
 
                         cacheSize.incrementAndGet();
                         return new CacheEntryImpl(
-                            page.getFileId(), page.getPageIndex(), pointer, true, this);
+                            page.fileId(), page.pageIndex(), pointer, true, this);
                       } catch (final IOException e) {
                         throw BaseException.wrapException(
                             new StorageException(writeCache.getStorageName(),
@@ -529,6 +531,7 @@ public final class LockFreeReadCache implements ReadCache {
     writeCache.close(fileId, flush);
   }
 
+  @Override
   public void deleteFile(long fileId, final WriteCache writeCache) throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
     final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);

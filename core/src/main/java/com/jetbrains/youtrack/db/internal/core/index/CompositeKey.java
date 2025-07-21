@@ -21,17 +21,12 @@ package com.jetbrains.youtrack.db.internal.core.index;
 
 import com.jetbrains.youtrack.db.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.exception.SerializationException;
 import com.jetbrains.youtrack.db.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrack.db.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrack.db.internal.core.index.comparator.AlwaysLessKey;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.EntitySerializable;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,11 +44,8 @@ public class CompositeKey
     implements Comparable<CompositeKey>,
     Serializable,
     EntitySerializable,
-    ChangeableIdentity,
-    IdentityChangeListener {
-
-  private boolean canChangeIdentity;
-
+    ChangeableIdentity {
+  private KeyIdentityChangeListener identityChangeListener;
   private Set<IdentityChangeListener> identityChangeListeners;
 
   private final List<Object> keys;
@@ -119,8 +111,11 @@ public class CompositeKey
       var canChangeIdentity = changeableIdentity.canChangeIdentity();
 
       if (canChangeIdentity) {
-        changeableIdentity.addIdentityChangeListener(this);
-        this.canChangeIdentity = true;
+        if (this.identityChangeListener == null) {
+          this.identityChangeListener = new KeyIdentityChangeListener();
+        }
+
+        changeableIdentity.addIdentityChangeListener(this.identityChangeListener);
       }
     }
   }
@@ -136,6 +131,7 @@ public class CompositeKey
    * @return a negative integer, zero, or a positive integer as this object is less than, equal to,
    * or greater than the specified object.
    */
+  @Override
   public int compareTo(final CompositeKey otherKey) {
     final var inIter = keys.iterator();
     final var outIter = otherKey.keys.iterator();
@@ -230,6 +226,7 @@ public class CompositeKey
     keys.addAll(keyMap.values());
   }
 
+  @Override
   public void addIdentityChangeListener(IdentityChangeListener identityChangeListeners) {
     if (!canChangeIdentity()) {
       return;
@@ -242,6 +239,7 @@ public class CompositeKey
     this.identityChangeListeners.add(identityChangeListeners);
   }
 
+  @Override
   public void removeIdentityChangeListener(IdentityChangeListener identityChangeListener) {
     if (this.identityChangeListeners != null) {
       this.identityChangeListeners.remove(identityChangeListener);
@@ -269,17 +267,19 @@ public class CompositeKey
   }
 
   @Override
-  public void onBeforeIdentityChange(Object source) {
-    fireBeforeIdentityChange();
-  }
-
-  @Override
-  public void onAfterIdentityChange(Object source) {
-    fireAfterIdentityChange();
-  }
-
-  @Override
   public boolean canChangeIdentity() {
-    return canChangeIdentity;
+    return identityChangeListener != null;
+  }
+
+  private final class KeyIdentityChangeListener implements IdentityChangeListener {
+    @Override
+    public void onBeforeIdentityChange(Object source) {
+      fireBeforeIdentityChange();
+    }
+
+    @Override
+    public void onAfterIdentityChange(Object source) {
+      fireAfterIdentityChange();
+    }
   }
 }

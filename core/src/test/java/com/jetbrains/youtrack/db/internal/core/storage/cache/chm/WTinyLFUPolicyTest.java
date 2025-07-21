@@ -216,8 +216,8 @@ public class WTinyLFUPolicyTest {
 
     generateEntries(cacheEntries, cachePointers, pool);
 
-    when(admittor.frequency(PageKey.hashCode(1, 0))).thenReturn(0);
-    when(admittor.frequency(PageKey.hashCode(1, 12))).thenReturn(1);
+    when(admittor.frequency(new PageKey(1, 0).hashCode())).thenReturn(0);
+    when(admittor.frequency(new PageKey(1, 12).hashCode())).thenReturn(1);
 
     for (var i = 0; i < 16; i++) {
       cacheSize.incrementAndGet();
@@ -265,8 +265,8 @@ public class WTinyLFUPolicyTest {
 
     generateEntries(cacheEntries, cachePointers, pool);
 
-    when(admittor.frequency(PageKey.hashCode(1, 0))).thenReturn(1);
-    when(admittor.frequency(PageKey.hashCode(1, 12))).thenReturn(0);
+    when(admittor.frequency(new PageKey(1, 0).hashCode())).thenReturn(1);
+    when(admittor.frequency(new PageKey(1, 12).hashCode())).thenReturn(0);
 
     for (var i = 0; i < 16; i++) {
       cacheSize.incrementAndGet();
@@ -314,11 +314,11 @@ public class WTinyLFUPolicyTest {
 
     generateEntries(cacheEntries, cachePointers, pool);
 
-    when(admittor.frequency(PageKey.hashCode(1, 0))).thenReturn(0);
-    when(admittor.frequency(PageKey.hashCode(1, 12))).thenReturn(1);
+    when(admittor.frequency(new PageKey(1, 0).hashCode())).thenReturn(0);
+    when(admittor.frequency(new PageKey(1, 12).hashCode())).thenReturn(1);
 
-    when(admittor.frequency(PageKey.hashCode(1, 1))).thenReturn(0);
-    when(admittor.frequency(PageKey.hashCode(1, 13))).thenReturn(1);
+    when(admittor.frequency(new PageKey(1, 1).hashCode())).thenReturn(0);
+    when(admittor.frequency(new PageKey(1, 13).hashCode())).thenReturn(1);
 
     cacheEntries[0].acquireEntry();
 
@@ -372,11 +372,11 @@ public class WTinyLFUPolicyTest {
 
     generateEntries(cacheEntries, cachePointers, pool);
 
-    when(admittor.frequency(PageKey.hashCode(1, 0))).thenReturn(1);
-    when(admittor.frequency(PageKey.hashCode(1, 12))).thenReturn(0);
+    when(admittor.frequency(new PageKey(1, 0).hashCode())).thenReturn(1);
+    when(admittor.frequency(new PageKey(1, 12).hashCode())).thenReturn(0);
 
-    when(admittor.frequency(PageKey.hashCode(1, 0))).thenReturn(1);
-    when(admittor.frequency(PageKey.hashCode(1, 13))).thenReturn(0);
+    when(admittor.frequency(new PageKey(1, 0).hashCode())).thenReturn(1);
+    when(admittor.frequency(new PageKey(1, 13).hashCode())).thenReturn(0);
 
     cacheEntries[12].acquireEntry();
 
