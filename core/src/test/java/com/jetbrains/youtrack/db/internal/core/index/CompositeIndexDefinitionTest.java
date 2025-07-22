@@ -208,7 +208,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
         Collections.emptyList(), 12);
-    Assert.assertEquals(result, List.of(new CompositeKey(null, 12)));
+    Assert.assertEquals(result, new CompositeKey(null, 12));
   }
 
   @Test
@@ -225,7 +225,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
         Collections.emptyList());
-    Assert.assertEquals(result, List.of(new CompositeKey(12, null)));
+    Assert.assertEquals(result, new CompositeKey(12, null));
   }
 
   @Test
@@ -509,7 +509,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(
         session.getActiveTransaction(), document);
-    Assert.assertEquals(result, List.of(new CompositeKey(12, null)));
+    Assert.assertEquals(result, new CompositeKey(12, null));
     session.rollback();
   }
 
@@ -533,7 +533,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(
         session.getActiveTransaction(), document);
-    Assert.assertEquals(result, List.of(new CompositeKey(null, 12)));
+    Assert.assertEquals(result, new CompositeKey(null, 12));
     session.rollback();
   }
 

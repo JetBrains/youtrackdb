@@ -100,6 +100,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   public String getClassName() {
     return className;
   }
@@ -125,6 +126,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   public List<String> getProperties() {
     final List<String> fields = new LinkedList<>();
     for (final var indexDefinition : indexDefinitions) {
@@ -136,6 +138,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   public List<String> getFieldsToIndex() {
     final List<String> fields = new LinkedList<>();
     for (final var indexDefinition : indexDefinitions) {
@@ -147,12 +150,12 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   @Nullable
   public Object getDocumentValueToIndex(
       FrontendTransaction transaction, final EntityImpl entity) {
     final List<CompositeKey> compositeKeys = new ArrayList<>(10);
     final var firstKey = new CompositeKey();
-    var containsCollection = false;
 
     compositeKeys.add(firstKey);
 
@@ -170,10 +173,10 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
         return null;
       }
 
-      containsCollection = addKey(firstKey, compositeKeys, containsCollection, result);
+      addKey(firstKey, compositeKeys, result);
     }
 
-    if (!containsCollection) {
+    if (compositeKeys.size() == 1) {
       return firstKey;
     }
 
@@ -196,6 +199,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   @Nullable
   public Object createValue(FrontendTransaction transaction, final List<?> params) {
     var currentParamIndex = 0;
@@ -203,8 +207,6 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
     final List<CompositeKey> compositeKeys = new ArrayList<>(10);
     compositeKeys.add(firstKey);
-
-    var containsCollection = false;
 
     for (final var indexDefinition : indexDefinitions) {
       if (currentParamIndex + 1 > params.size()) {
@@ -229,10 +231,10 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
         return null;
       }
 
-      containsCollection = addKey(firstKey, compositeKeys, containsCollection, keyValue);
+      addKey(firstKey, compositeKeys, keyValue);
     }
 
-    if (!containsCollection) {
+    if (compositeKeys.size() == 1) {
       return firstKey;
     }
 
@@ -284,10 +286,9 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return compositeKey;
   }
 
-  private static boolean addKey(
+  private static void addKey(
       CompositeKey firstKey,
       List<CompositeKey> compositeKeys,
-      boolean containsCollection,
       Object keyValue) {
     // in case of collection we split single composite key on several composite keys
     // each of those composite keys contain single collection item.
@@ -304,17 +305,11 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
       // if that is first collection we split single composite key on several keys, each of those
       // composite keys contain single item from collection
-      if (!containsCollection)
       // sure we need to expand collection only if collection size more than one, otherwise
       // collection of composite keys already contains original composite key
-      {
-        for (var i = 1; i < collectionSize; i++) {
-          final var compositeKey = new CompositeKey(firstKey.getKeys());
-          compositeKeys.add(compositeKey);
-        }
-      } else {
-        throw new IndexException((String) null,
-            "Composite key cannot contain more than one collection item");
+      for (var i = 1; i < collectionSize; i++) {
+        final var compositeKey = new CompositeKey(firstKey.getKeys());
+        compositeKeys.add(compositeKey);
       }
 
       var compositeIndex = 0;
@@ -329,21 +324,19 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
         firstKey.addKey(null);
       }
 
-      containsCollection = true;
-    } else if (containsCollection) {
+    } else if (compositeKeys.size() > 1) {
       for (final var compositeKey : compositeKeys) {
         compositeKey.addKey(keyValue);
       }
     } else {
       firstKey.addKey(keyValue);
     }
-
-    return containsCollection;
   }
 
   /**
    * {@inheritDoc}
    */
+  @Override
   public Object createValue(FrontendTransaction transaction, final Object... params) {
     if (params.length == 1 && params[0] instanceof Collection) {
       return params[0];
@@ -377,6 +370,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   public int getParamCount() {
     var total = 0;
     for (final var indexDefinition : indexDefinitions) {
@@ -388,6 +382,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   public PropertyTypeInternal[] getTypes() {
     final List<PropertyTypeInternal> types = new LinkedList<>();
     for (final var indexDefinition : indexDefinitions) {
@@ -492,6 +487,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   public String toCreateIndexDDL(final String indexName, final String indexType, String engine) {
     final var ddl = new StringBuilder("create index ");
     ddl.append('`').append(indexName).append('`').append(" on ").append(className).append(" ( ");
@@ -541,6 +537,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return "`" + next + "`";
   }
 
+  @Override
   public void fromMap(@Nonnull Map<String, ?> map) {
     serializeFromMap(map);
   }
@@ -618,14 +615,17 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
       this.indexDefinitions = indexDefinitions;
     }
 
+    @Override
     public int size() {
       return underlying.size();
     }
 
+    @Override
     public boolean isEmpty() {
       return underlying.isEmpty();
     }
 
+    @Override
     public boolean containsKey(Object key) {
       final var compositeKey = convertToCompositeKey(transaction, key);
 
@@ -657,15 +657,18 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
       return underlying.getInt(convertToCompositeKey(transaction, o));
     }
 
+    @Override
     public int put(Object key, int value) {
       final var compositeKey = convertToCompositeKey(transaction, key);
       return underlying.put(compositeKey, value);
     }
 
+    @Override
     public int removeInt(Object key) {
       return underlying.removeInt(convertToCompositeKey(transaction, key));
     }
 
+    @Override
     public void clear() {
       underlying.clear();
     }
@@ -681,6 +684,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
       throw new UnsupportedOperationException();
     }
 
+    @Override
     @Nonnull
     public IntCollection values() {
       return underlying.values();
