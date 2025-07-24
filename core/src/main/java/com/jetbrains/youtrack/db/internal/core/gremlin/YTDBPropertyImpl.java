@@ -1,7 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 
-import com.jetbrains.youtrack.db.api.gremlin.YTDBElement;
+import com.jetbrains.youtrack.db.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import java.util.Collection;
@@ -32,7 +32,7 @@ public class YTDBPropertyImpl<V> implements
     var graph = element.getGraph();
     var graphTx = graph.tx();
     if (result instanceof RID rid) {
-      var session = graphTx.getSession();
+      var session = graphTx.getDatabaseSession();
       var tx = session.getActiveTransaction();
       result = tx.loadEntity(rid);
     }

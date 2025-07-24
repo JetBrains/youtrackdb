@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.api.gremlin;
+package com.jetbrains.youtrack.db.api.gremlin.embedded;
 
 import org.apache.tinkerpop.gremlin.structure.Edge;
 

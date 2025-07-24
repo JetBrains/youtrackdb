@@ -1,11 +1,14 @@
 package com.jetbrains.youtrack.db.internal.core.gremlin.traversal.step.sideeffect;
 
+
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrack.db.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphBaseQuery;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphQueryBuilder;
+import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBSchemaClassImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBVertexImpl;
 import java.util.ArrayList;
@@ -21,9 +24,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.DefaultCloseableIterator;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
+import org.apache.tinkerpop.gremlin.util.iterator.MultiIterator;
 
 public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     implements HasContainerHolder {
@@ -48,9 +54,22 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
 
   private Iterator<? extends Vertex> vertices() {
     var graph = getGraph();
-    return elements(
+
+    var userVertices = elements(
         YTDBGraph::vertices, YTDBGraph::vertices,
         result -> new YTDBVertexImpl(graph, result.asVertex()));
+
+    var schemaVertices = createClassIterator(graph);
+    if (schemaVertices == null) {
+      return userVertices;
+    }
+
+    var multiIterator = new MultiIterator<Vertex>();
+    //noinspection unchecked
+    multiIterator.addIterator((Iterator<Vertex>) userVertices);
+    multiIterator.addIterator(schemaVertices);
+
+    return multiIterator;
   }
 
   private Iterator<? extends Edge> edges() {
@@ -79,11 +98,12 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     var tx = graph.tx();
     tx.readWrite();
 
-    var session = tx.getSession();
+    var session = tx.getDatabaseSession();
 
     if (this.ids != null && this.ids.length > 0) {
       /* Got some element IDs, so just get the elements using those */
-      return this.iteratorList(getElementsByIds.apply(graph, this.ids));
+      return IteratorUtils.filter(getElementsByIds.apply(graph, this.ids),
+          element -> HasContainer.testAll(element, this.hasContainers));
     } else {
       var query = buildQuery(session);
       if (query != null) {
@@ -92,12 +112,30 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
             .filter(element -> HasContainer.testAll(element, this.hasContainers)).iterator());
       }
 
-      return this.iteratorList(getAllElements.apply(graph));
+      return IteratorUtils.filter(getAllElements.apply(graph),
+          element -> HasContainer.testAll(element, this.hasContainers));
     }
   }
 
   private YTDBGraphInternal getGraph() {
     return (YTDBGraphInternal) this.getTraversal().getGraph().orElseThrow();
+  }
+
+  @Nullable
+  private Iterator<Vertex> createClassIterator(YTDBGraphInternal graph) {
+    for (var hasContainer : this.hasContainers) {
+      if (T.label.getAccessor().equals(hasContainer.getKey()) && YTDBSchemaClass.LABEL.equals(
+          hasContainer.getValue())) {
+        var tx = graph.tx();
+        var session = tx.getDatabaseSession();
+
+        return IteratorUtils.map(
+            session.getSharedContext().getSchema().getClasses(session).iterator(),
+            schemaClass -> new YTDBSchemaClassImpl(schemaClass, graph));
+      }
+    }
+
+    return null;
   }
 
   @Nullable
@@ -123,16 +161,6 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     }
   }
 
-  private <X extends Element> Iterator<X> iteratorList(final Iterator<X> iterator) {
-    final List<X> list = new ArrayList<>();
-    while (iterator.hasNext()) {
-      final var e = iterator.next();
-      if (HasContainer.testAll(e, this.hasContainers)) {
-        list.add(e);
-      }
-    }
-    return list.iterator();
-  }
 
   @Override
   public List<HasContainer> getHasContainers() {

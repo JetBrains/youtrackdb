@@ -35,7 +35,7 @@ public class VertexEdgeListWrapper implements List {
     var graph = parent.getGraph();
     var graphTx = graph.tx();
     if (elem instanceof RID rid) {
-      var session = graphTx.getSession();
+      var session = graphTx.getDatabaseSession();
       var tx = session.getActiveTransaction();
       elem = tx.loadEntity(rid);
     }

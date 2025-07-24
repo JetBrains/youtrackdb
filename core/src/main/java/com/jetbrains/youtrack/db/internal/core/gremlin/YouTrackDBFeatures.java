@@ -125,7 +125,7 @@ public class YouTrackDBFeatures {
     }
   }
 
-  public static class YTDBVariableFeatures implements Features.VariableFeatures {
+  public static class YTDBVariableFeatures implements VariableFeatures {
 
     static final YTDBVariableFeatures INSTANCE = new YTDBVariableFeatures();
 
@@ -225,7 +225,7 @@ public class YouTrackDBFeatures {
     }
   }
 
-  public static class YTDBVertexPropertyFeatures implements Features.VertexPropertyFeatures {
+  public static class YTDBVertexPropertyFeatures implements VertexPropertyFeatures {
 
     static final YTDBVertexPropertyFeatures INSTANCE = new YTDBVertexPropertyFeatures();
 
@@ -295,7 +295,7 @@ public class YouTrackDBFeatures {
     }
   }
 
-  public static class YTDBEdgePropertyFeatures implements Features.EdgePropertyFeatures {
+  public static class YTDBEdgePropertyFeatures implements EdgePropertyFeatures {
 
     static final YTDBEdgePropertyFeatures INSTANCE = new YTDBEdgePropertyFeatures();
 

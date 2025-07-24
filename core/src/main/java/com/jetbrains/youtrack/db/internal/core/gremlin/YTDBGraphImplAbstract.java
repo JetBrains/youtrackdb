@@ -3,7 +3,7 @@ package com.jetbrains.youtrack.db.internal.core.gremlin;
 import static com.jetbrains.youtrack.db.internal.core.gremlin.StreamUtils.asStream;
 
 import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.gremlin.YTDBVertex;
+import com.jetbrains.youtrack.db.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -17,8 +17,10 @@ import com.jetbrains.youtrack.db.internal.core.gremlin.traversal.strategy.optimi
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import java.util.Iterator;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
@@ -27,6 +29,7 @@ import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Transaction.Status;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
@@ -34,7 +37,7 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
+public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consumer<Status> {
 
   public static void registerOptimizationStrategies(Class<? extends YTDBGraphImplAbstract> cls) {
     TraversalStrategies.GlobalCache.registerStrategies(
@@ -53,8 +56,9 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
   private final Features features;
   private final Configuration configuration;
-  private final ThreadLocal<YTDBTransaction> tx = ThreadLocal.withInitial(
-      () -> new YTDBTransaction(this));
+
+  private final ThreadLocal<ThreadLocalState> threadLocalState = ThreadLocal.withInitial(
+      () -> new ThreadLocalState(new YTDBTransaction(this)));
 
   public YTDBGraphImplAbstract(final Configuration configuration) {
     this.configuration = configuration;
@@ -68,7 +72,8 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
   @Override
   public YTDBVertex addVertex(Object... keyValues) {
-    this.tx().readWrite();
+    var tx = tx();
+    tx.readWrite();
 
     ElementHelper.legalPropertyKeyValueArray(keyValues);
     if (ElementHelper.getIdValue(keyValues).isPresent()) {
@@ -76,7 +81,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
     }
 
     var label = ElementHelper.getLabelValue(keyValues).orElse(Vertex.DEFAULT_LABEL);
-    var vertex = createVertexWithClass(label);
+    var vertex = createVertexWithClass(tx.getDatabaseSession(), label);
     ((YTDBElementImpl) vertex).property(keyValues);
 
     return vertex;
@@ -87,23 +92,21 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
     return this.addVertex(T.label, label);
   }
 
-  private YTDBVertex createVertexWithClass(String label) {
-    var session = getUnderlyingDatabaseSession();
-    var vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
+  private YTDBVertex createVertexWithClass(DatabaseSessionEmbedded sessionEmbedded, String label) {
+    executeSchemaCode(session -> {
+      var schema = session.getSharedContext().getSchema();
+      var vertexClass = schema.getClass(label);
 
-    if (vertexClass == null) {
-      try (var copy = session.copy()) {
-        var schemaCopy = copy.getSchema();
-        var vClass = schemaCopy.getClass(SchemaClass.VERTEX_CLASS_NAME);
-        schemaCopy.getOrCreateClass(label, vClass);
+      if (vertexClass == null) {
+        var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
+        schema.getOrCreateClass(session, label, vClass);
+      } else if (!vertexClass.isVertexType()) {
+        throw new IllegalArgumentException("Class " + label + " is not a vertex type");
       }
-      vertexClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
-    } else if (!vertexClass.isVertexType()) {
-      throw new IllegalArgumentException("Class " + label + " is not a vertex type");
-    }
+    });
 
-    var transaction = session.getActiveTransaction();
-    var ytdbVertex = transaction.newVertex(vertexClass);
+    var transaction = sessionEmbedded.getActiveTransaction();
+    var ytdbVertex = transaction.newVertex(label);
 
     return new YTDBVertexImpl(this, ytdbVertex);
   }
@@ -122,29 +125,33 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
   @Override
   public Iterator<Vertex> vertices(Object... vertexIds) {
-    this.tx().readWrite();
+    var tx = tx();
+    tx.readWrite();
     return elements(
+        tx.getDatabaseSession(),
         SchemaClass.VERTEX_CLASS_NAME,
         entity ->
             new YTDBVertexImpl(this,
-                    entity.asVertex()),
+                entity.asVertex()),
         vertexIds);
   }
 
   @Override
   public Iterator<Edge> edges(Object... edgeIds) {
-    this.tx().readWrite();
+    var tx = tx();
+    tx.readWrite();
 
     return elements(
+        tx.getDatabaseSession(),
         SchemaClass.EDGE_CLASS_NAME,
         entity ->
             new YTDBStatefulEdgeImpl(this, entity.asStatefulEdge()),
         edgeIds);
   }
 
-  private <A extends Element> Iterator<A> elements(
-      String elementClass, Function<Entity, A> toA, Object... elementIds) {
-    var session = getUnderlyingDatabaseSession();
+  private static <A extends Element> Iterator<A> elements(
+      DatabaseSessionEmbedded session, String elementClass, Function<Entity, A> toA,
+      Object... elementIds) {
     var polymorphic = true;
     if (elementIds.length == 0) {
       // return all vertices as stream
@@ -158,7 +165,6 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
             try {
               return tx.loadEntity(rid);
             } catch (RecordNotFoundException e) {
-              //noinspection ReturnOfNull
               return null;
             }
           }).filter(Objects::nonNull);
@@ -187,7 +193,21 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
   @Override
   public YTDBTransaction tx() {
-    return this.tx.get();
+    return this.threadLocalState.get().transaction;
+  }
+
+  @Override
+  public void executeSchemaCode(Consumer<DatabaseSessionEmbedded> code) {
+    try (var session = acquireSession()) {
+      code.accept(session);
+    }
+  }
+
+  @Override
+  public <R> R computeSchemaCode(Function<DatabaseSessionEmbedded, R> code) {
+    try (var session = acquireSession()) {
+      return code.apply(session);
+    }
   }
 
   @Override
@@ -201,7 +221,19 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
   }
 
   @Override
-  public abstract void close();
+  public void close() {
+    var threadLocalState = this.threadLocalState.get();
+
+    var tx = threadLocalState.transaction;
+    if (tx.isOpen()) {
+      tx.close();
+    }
+
+    var session = threadLocalState.sessionEmbedded;
+    if (session != null) {
+      session.close();
+    }
+  }
 
   @SuppressWarnings("rawtypes")
   @Override
@@ -218,10 +250,54 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
         configuration.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME));
   }
 
-  public abstract DatabaseSessionEmbedded getUnderlyingDatabaseSession();
+  public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {
+    var threadLocalState = this.threadLocalState.get();
+    var currentSession = threadLocalState.sessionEmbedded;
 
-  public abstract DatabaseSessionEmbedded peekUnderlyingDatabaseSession();
+    if (currentSession != null) {
+      if (!currentSession.isTxActive()) {
+        tx().addTransactionListener(this);
+      }
+
+      return currentSession;
+    }
+
+    currentSession = acquireSession();
+    tx().addTransactionListener(this);
+
+    threadLocalState.sessionEmbedded = currentSession;
+    return currentSession;
+  }
+
+  @Override
+  public void accept(Status status) {
+    var threadLocalState = this.threadLocalState.get();
+    var currentSession = threadLocalState.sessionEmbedded;
+    if (currentSession == null) {
+      return;
+    }
+
+    if (currentSession.isTxActive()) {
+      throw new IllegalStateException("Transaction is still active");
+    }
+
+    currentSession.close();
+    threadLocalState.sessionEmbedded = null;
+  }
 
   @Override
   public abstract boolean isOpen();
+
+  public abstract DatabaseSessionEmbedded acquireSession();
+
+  private static final class ThreadLocalState {
+
+    @Nullable
+    private DatabaseSessionEmbedded sessionEmbedded;
+    private final YTDBTransaction transaction;
+
+    private ThreadLocalState(YTDBTransaction transaction) {
+      this.transaction = transaction;
+    }
+  }
 }

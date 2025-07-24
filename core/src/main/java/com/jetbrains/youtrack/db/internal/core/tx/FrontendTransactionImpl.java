@@ -73,7 +73,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 public class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
@@ -1751,13 +1750,6 @@ public class FrontendTransactionImpl implements
   public ResultSet computeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     return session.computeScript(language, script, args);
-  }
-
-  @Override
-  public GraphTraversalSource traversal() {
-    checkIfActive();
-
-    return session.asGraph().traversal();
   }
 
   @Override

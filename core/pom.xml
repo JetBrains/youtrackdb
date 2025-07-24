@@ -200,6 +200,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-gremlin-annotations</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>it.unimi.dsi</groupId>
       <artifactId>fastutil</artifactId>
     </dependency>

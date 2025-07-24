@@ -8,7 +8,7 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
 public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexInternal {
   public YTDBVertexImpl(final YTDBGraphInternal graph,
-      final com.jetbrains.youtrack.db.api.record.Vertex rawElement) {
+      final Vertex rawElement) {
     super(graph, rawElement);
   }
 

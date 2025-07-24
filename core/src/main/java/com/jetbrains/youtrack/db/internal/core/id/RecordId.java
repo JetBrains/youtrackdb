@@ -33,10 +33,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Serial;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class RecordId implements RID, SerializableStream {
+
+  private static final AtomicLong TEMP_ID_GENERATOR = new AtomicLong(0);
 
   @Serial
   private static final long serialVersionUID = 247070594054408657L;
@@ -350,5 +353,9 @@ public class RecordId implements RID, SerializableStream {
       return null;
     }
     return new RecordId(collection, pos);
+  }
+
+  public static RecordId tempRecordId() {
+    return new RecordId(COLLECTION_ID_INVALID, TEMP_ID_GENERATOR.decrementAndGet());
   }
 }

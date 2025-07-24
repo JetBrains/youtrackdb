@@ -2,10 +2,9 @@ package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
-import static com.jetbrains.youtrack.db.internal.core.gremlin.StreamUtils.asStream;
 
-import com.jetbrains.youtrack.db.api.gremlin.YTDBEdge;
-import com.jetbrains.youtrack.db.api.gremlin.YTDBVertex;
+import com.jetbrains.youtrack.db.api.gremlin.embedded.YTDBEdge;
+import com.jetbrains.youtrack.db.api.gremlin.embedded.YTDBVertex;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
@@ -29,10 +28,10 @@ public interface YTDBVertexInternal extends YTDBVertex {
     var graph = (YTDBGraphInternal) graph();
     graph.tx().readWrite();
     Stream<Vertex> vertexStream =
-        asStream(
-            getRawEntity().asVertex()
-                .getVertices(YTDBGraphUtils.mapDirection(direction), labels)
-                .iterator())
+        StreamUtils.asStream(
+                getRawEntity().asVertex()
+                    .getVertices(YTDBGraphUtils.mapDirection(direction), labels)
+                    .iterator())
             .map(v -> new YTDBVertexImpl(graph, v));
 
     return vertexStream.iterator();
@@ -99,13 +98,14 @@ public interface YTDBVertexInternal extends YTDBVertex {
     var tx = graph.tx();
     tx.readWrite();
 
-    var session = tx.getSession();
+    var session = tx.getDatabaseSession();
 
     var edgeClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
     if (edgeClass == null) {
       try (var copy = session.copy()) {
         var schemaCopy = copy.getSchema();
-        var edgeCls = schemaCopy.getClass(com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
+        var edgeCls = schemaCopy.getClass(
+            com.jetbrains.youtrack.db.api.record.Edge.CLASS_NAME);
         schemaCopy.getOrCreateClass(label, edgeCls);
       }
     }
@@ -128,20 +128,16 @@ public interface YTDBVertexInternal extends YTDBVertex {
     // But necessary in order to avoid loop in
     // EdgeTest#shouldNotHaveAConcurrentModificationExceptionWhenIteratingAndRemovingAddingEdges
     Stream<Edge> edgeStream =
-        asStream(
-            getRawEntity().asVertex()
-                .getEdges(YTDBGraphUtils.mapDirection(direction), edgeLabels)
-                .iterator())
+        StreamUtils.asStream(
+                getRawEntity().asVertex()
+                    .getEdges(YTDBGraphUtils.mapDirection(direction), edgeLabels)
+                    .iterator())
             .filter(e -> e != null && e.isStateful() && e.getFrom() != null && e.getTo() != null)
             .map(e -> new YTDBStatefulEdgeImpl(graph, e.asStatefulEdge()));
 
     return edgeStream.collect(Collectors.toList()).iterator();
   }
 
-  @Override
-  default com.jetbrains.youtrack.db.api.record.Vertex getUnderlyingVertex() {
-    return getRawEntity().asVertex();
-  }
 
   com.jetbrains.youtrack.db.api.record.Vertex getRawEntity();
 }

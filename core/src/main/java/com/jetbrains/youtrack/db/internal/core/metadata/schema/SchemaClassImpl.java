@@ -351,10 +351,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public Collection<SchemaPropertyImpl> properties(DatabaseSessionInternal session) {
-    session.checkSecurity(Rule.ResourceGeneric.SCHEMA,
-        Role.PERMISSION_READ);
-
+  public Collection<SchemaPropertyImpl> properties() {
     acquireSchemaReadLock();
     try {
       final Collection<SchemaPropertyImpl> props = new ArrayList<>();
@@ -416,6 +413,15 @@ public abstract class SchemaClassImpl {
       }
 
       return p;
+    } finally {
+      releaseSchemaReadLock();
+    }
+  }
+
+  public SchemaPropertyImpl getDeclaredPropertyInternal(String propertyName) {
+    acquireSchemaReadLock();
+    try {
+      return properties.get(propertyName);
     } finally {
       releaseSchemaReadLock();
     }
@@ -805,7 +811,7 @@ public abstract class SchemaClassImpl {
    * @param iClassName of class that should be checked
    * @return Returns true if the current instance extends the passed schema class (iClass)
    */
-  public boolean isSubClassOf(DatabaseSessionInternal session, final String iClassName) {
+  public boolean isSubClassOf(final String iClassName) {
     acquireSchemaReadLock();
     try {
       if (iClassName == null) {
@@ -816,7 +822,7 @@ public abstract class SchemaClassImpl {
         return true;
       }
       for (var superClass : superClasses) {
-        if (superClass.isSubClassOf(session, iClassName)) {
+        if (superClass.isSubClassOf(iClassName)) {
           return true;
         }
       }
@@ -861,6 +867,16 @@ public abstract class SchemaClassImpl {
   public boolean isSuperClassOf(final SchemaClassImpl clazz) {
     return clazz != null && clazz.isSubClassOf(this);
   }
+
+  public boolean isSuperClassOf(final String className) {
+    var clazz = owner.getClass(className);
+    if (clazz == null) {
+      return false;
+    }
+
+    return clazz.isSuperClassOf(this);
+  }
+
 
   public Object get(DatabaseSessionInternal db, final ATTRIBUTES iAttribute) {
     if (iAttribute == null) {
@@ -1164,12 +1180,12 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public boolean isEdgeType(DatabaseSessionInternal session) {
-    return isSubClassOf(session, EDGE_CLASS_NAME);
+  public boolean isEdgeType() {
+    return isSubClassOf(EDGE_CLASS_NAME);
   }
 
-  public boolean isVertexType(DatabaseSessionInternal session) {
-    return isSubClassOf(session, VERTEX_CLASS_NAME);
+  public boolean isVertexType() {
+    return isSubClassOf(VERTEX_CLASS_NAME);
   }
 
 
@@ -1515,7 +1531,7 @@ public abstract class SchemaClassImpl {
 
   protected void checkParametersConflict(DatabaseSessionInternal session,
       final SchemaClassImpl baseClass) {
-    final var baseClassProperties = baseClass.properties(session);
+    final var baseClassProperties = baseClass.properties();
     for (var property : baseClassProperties) {
       var thisProperty = getProperty(property.getName());
       if (thisProperty != null && !thisProperty.getType()

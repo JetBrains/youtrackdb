@@ -12,6 +12,7 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nonnull;
 
 public class VertexEdgeSetWrapper implements Set {
 
@@ -34,7 +35,7 @@ public class VertexEdgeSetWrapper implements Set {
     var graph = parent.getGraph();
     var graphTx = graph.tx();
     if (elem instanceof RID rid) {
-      var session = graphTx.getSession();
+      var session = graphTx.getDatabaseSession();
       var tx = session.getActiveTransaction();
       elem = tx.loadEntity(rid);
     }
@@ -141,6 +142,7 @@ public class VertexEdgeSetWrapper implements Set {
   }
 
   @Override
+  @Nonnull
   public Spliterator spliterator() {
     throw new UnsupportedOperationException();
   }

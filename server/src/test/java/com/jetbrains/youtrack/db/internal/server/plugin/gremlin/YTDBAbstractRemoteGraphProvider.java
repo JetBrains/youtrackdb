@@ -189,8 +189,9 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
       }
 
       serverContext.create(graphName, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
-      try (var session = serverContext.open(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)) {
-        var graph = session.asGraph();
+
+      try (var pool = serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)) {
+        var graph = pool.asGraph();
         readIntoGraph(graph, location);
       }
 

@@ -1,9 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
@@ -17,6 +15,7 @@ public final class YTDBTransaction extends AbstractTransaction {
 
   private final CopyOnWriteArraySet<Consumer<Status>> transactionListeners = new CopyOnWriteArraySet<>();
   private final YTDBGraphImplAbstract graph;
+  private DatabaseSessionEmbedded activeSession;
 
   public YTDBTransaction(YTDBGraphImplAbstract graph) {
     super(graph);
@@ -25,9 +24,8 @@ public final class YTDBTransaction extends AbstractTransaction {
 
   @Override
   public boolean isOpen() {
-    var session = graph.peekUnderlyingDatabaseSession();
-    if (session != null) {
-      return session.isTxActive();
+    if (activeSession != null) {
+      return activeSession.isTxActive();
     }
 
     return false;
@@ -37,7 +35,7 @@ public final class YTDBTransaction extends AbstractTransaction {
   public Transaction onReadWrite(Consumer<Transaction> consumer) {
     this.readWriteConsumerInternal =
         Optional.ofNullable(consumer)
-            .orElseThrow(Transaction.Exceptions::onReadWriteBehaviorCannotBeNull);
+            .orElseThrow(Exceptions::onReadWriteBehaviorCannotBeNull);
     return this;
   }
 
@@ -45,7 +43,7 @@ public final class YTDBTransaction extends AbstractTransaction {
   public Transaction onClose(Consumer<Transaction> consumer) {
     this.closeConsumerInternal =
         Optional.ofNullable(consumer)
-            .orElseThrow(Transaction.Exceptions::onReadWriteBehaviorCannotBeNull);
+            .orElseThrow(Exceptions::onReadWriteBehaviorCannotBeNull);
     return this;
   }
 
@@ -77,23 +75,37 @@ public final class YTDBTransaction extends AbstractTransaction {
 
   @Override
   protected void doOpen() {
-    var session = graph.getUnderlyingDatabaseSession();
-    session.begin();
+    var ok = false;
+    try {
+      activeSession = graph.getUnderlyingDatabaseSession();
+      activeSession.begin();
+      ok = true;
+    } finally {
+      if (!ok) {
+        activeSession = null;
+      }
+    }
   }
 
   @Override
   protected void doCommit() throws TransactionException {
-    var session = graph.peekUnderlyingDatabaseSession();
-    if (session != null) {
-      session.commit();
+    if (activeSession != null) {
+      try {
+        activeSession.commit();
+      } finally {
+        activeSession = null;
+      }
     }
   }
 
   @Override
   protected void doRollback() throws TransactionException {
-    var session = graph.peekUnderlyingDatabaseSession();
-    if (session != null) {
-      session.rollback();
+    if (activeSession != null) {
+      try {
+        activeSession.rollback();
+      } finally {
+        activeSession = null;
+      }
     }
   }
 
@@ -107,12 +119,11 @@ public final class YTDBTransaction extends AbstractTransaction {
     this.transactionListeners.forEach(c -> c.accept(Status.ROLLBACK));
   }
 
-  public DatabaseSessionEmbedded getSession() {
-    var session = graph.peekUnderlyingDatabaseSession();
-    if (session == null) {
+  public DatabaseSessionEmbedded getDatabaseSession() {
+    if (activeSession == null) {
       throw new IllegalStateException("Transaction is not active");
     }
 
-    return session;
+    return activeSession;
   }
 }

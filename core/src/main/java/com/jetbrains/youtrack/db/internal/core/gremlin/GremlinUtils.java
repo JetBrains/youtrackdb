@@ -3,7 +3,6 @@ package com.jetbrains.youtrack.db.internal.core.gremlin;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import javax.annotation.Nonnull;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.configuration2.Configuration;

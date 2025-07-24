@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.api.gremlin;
 
+import com.jetbrains.youtrack.db.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphFactory;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;

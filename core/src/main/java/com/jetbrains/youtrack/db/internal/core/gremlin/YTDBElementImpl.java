@@ -2,8 +2,8 @@ package com.jetbrains.youtrack.db.internal.core.gremlin;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.jetbrains.youtrack.db.api.gremlin.YTDBElement;
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrack.db.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
@@ -70,7 +70,7 @@ public abstract class YTDBElementImpl implements YTDBElement {
     }
 
     if (value instanceof LinkBagStub linkBagStub) {
-      var linkBag = new LinkBag(graphTx.getSession(), linkBagStub);
+      var linkBag = new LinkBag(graphTx.getDatabaseSession(), linkBagStub);
       entity.setProperty(key, linkBag);
       //noinspection unchecked
       return new YTDBPropertyImpl<>(key, (V) linkBag, this);
@@ -80,7 +80,7 @@ public abstract class YTDBElementImpl implements YTDBElement {
       if (type == null) {
         throw new IllegalArgumentException("Unsupported type: " + value.getClass().getName());
       }
-      var convertedValue = type.convert(value, graphTx.getSession());
+      var convertedValue = type.convert(value, graphTx.getDatabaseSession());
       entity.setProperty(key, convertedValue);
 
       return new YTDBPropertyImpl<>(key, value, this);
@@ -168,12 +168,8 @@ public abstract class YTDBElementImpl implements YTDBElement {
   }
 
   public Entity getRawEntity() {
-    if (graph.isSingleThreaded()) {
-      return fastPathEntity;
-    }
-
     var graphTx = graph.tx();
-    var session = graphTx.getSession();
+    var session = graphTx.getDatabaseSession();
 
     if (fastPathEntity.isNotBound(session)) {
       var tx = session.getActiveTransaction();
