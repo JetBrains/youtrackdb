@@ -10,10 +10,8 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 public interface YTDBEdgeInternal extends YTDBEdge {
-
   List<String> INTERNAL_FIELDS = Arrays.asList("@rid", "@class",
-      Edge.DIRECTION_IN,
-      Edge.DIRECTION_OUT);
+      Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
 
   @Override
   default Iterator<Vertex> vertices(Direction direction) {

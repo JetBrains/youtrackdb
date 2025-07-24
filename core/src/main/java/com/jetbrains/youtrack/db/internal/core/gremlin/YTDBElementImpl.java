@@ -5,6 +5,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.jetbrains.youtrack.db.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrack.db.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrack.db.internal.core.gremlin.io.LinkBagStub;
@@ -14,6 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -22,17 +24,24 @@ import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
 public abstract class YTDBElementImpl implements YTDBElement {
   private final ThreadLocal<Entity> threadLocalEntity = new ThreadLocal<>();
+
+  @Nullable
   private final Entity fastPathEntity;
 
   protected YTDBGraphInternal graph;
   protected final RID rid;
 
-  public YTDBElementImpl(final YTDBGraphInternal graph, final Entity rawEntity) {
+  public YTDBElementImpl(final YTDBGraphInternal graph, final Identifiable identifiable) {
     this.graph = checkNotNull(graph);
-    var entity = checkNotNull(rawEntity);
+    var id = checkNotNull(identifiable);
 
-    this.rid = entity.getIdentity();
-    this.fastPathEntity = entity;
+    this.rid = id.getIdentity();
+
+    if (identifiable instanceof Entity entity) {
+      this.fastPathEntity = entity;
+    } else {
+      this.fastPathEntity = null;
+    }
   }
 
   @Override
@@ -171,7 +180,7 @@ public abstract class YTDBElementImpl implements YTDBElement {
     var graphTx = graph.tx();
     var session = graphTx.getDatabaseSession();
 
-    if (fastPathEntity.isNotBound(session)) {
+    if (fastPathEntity == null || fastPathEntity.isNotBound(session)) {
       var tx = session.getActiveTransaction();
 
       var entity = threadLocalEntity.get();

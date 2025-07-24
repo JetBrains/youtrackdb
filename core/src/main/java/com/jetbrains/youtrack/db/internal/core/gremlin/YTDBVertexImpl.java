@@ -1,5 +1,6 @@
 package com.jetbrains.youtrack.db.internal.core.gremlin;
 
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.record.Vertex;
 import java.util.Iterator;
 import org.apache.tinkerpop.gremlin.structure.Property;
@@ -7,9 +8,13 @@ import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
 public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexInternal {
-  public YTDBVertexImpl(final YTDBGraphInternal graph,
-      final Vertex rawElement) {
+
+  public YTDBVertexImpl(final YTDBGraphInternal graph, final Vertex rawElement) {
     super(graph, rawElement);
+  }
+
+  public YTDBVertexImpl(final YTDBGraphInternal graph, final RID vertexId) {
+    super(graph, vertexId);
   }
 
   @Override
