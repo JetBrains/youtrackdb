@@ -40,6 +40,7 @@
     <module>lucene</module>
     <module>distribution</module>
     <module>console-distribution</module>
+    <module>gremlin-annotations</module>
   </modules>
 
   <scm>
@@ -172,6 +173,16 @@
         <artifactId>gremlin-util</artifactId>
         <version>${gremlin.version}</version>
       </dependency>
+      <dependency>
+        <groupId>com.palantir.javapoet</groupId>
+        <artifactId>javapoet</artifactId>
+        <version>0.7.0</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.testing.compile</groupId>
+        <artifactId>compile-testing</artifactId>
+        <version>0.19</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -220,13 +231,6 @@
               <youtrackdb.security.userPasswordSaltIterations>1
               </youtrackdb.security.userPasswordSaltIterations>
             </systemPropertyVariables>
-
-            <properties>
-              <property>
-                <name>listener</name>
-                <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
-              </property>
-            </properties>
             <useModulePath>false</useModulePath>
             <redirectTestOutputToFile>true</redirectTestOutputToFile>
           </configuration>

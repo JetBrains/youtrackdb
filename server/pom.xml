@@ -245,6 +245,12 @@
           <excludes>
             <exclude>${exclude.test.1}</exclude>
           </excludes>
+          <properties>
+            <property>
+              <name>listener</name>
+              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+            </property>
+          </properties>
         </configuration>
       </plugin>
       <plugin>
