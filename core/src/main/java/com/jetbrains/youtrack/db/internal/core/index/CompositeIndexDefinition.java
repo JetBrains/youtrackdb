@@ -299,11 +299,15 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
       // for empty collections we add null key in index
       if (keyValue instanceof Collection<?> collection) {
-        if (collection.isEmpty() && isNullValuesIgnored()) {
-          return null;
+        if (collection.isEmpty()) {
+          if (isNullValuesIgnored()) {
+            return null;
+          } else {
+            stream = stream.peek(compositeKey -> compositeKey.addKey(null));
+          }
+        } else {
+          stream = stream.flatMap(compositeKey -> addKey(compositeKey, collection));
         }
-
-        stream = stream.flatMap(compositeKey -> addKey(compositeKey, collection));
       } else {
         stream = stream.peek(compositeKey -> compositeKey.addKey(keyValue));
       }

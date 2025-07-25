@@ -15,8 +15,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -24,6 +26,7 @@ import org.junit.Test;
 
 @SuppressWarnings("unchecked")
 public class CompositeIndexDefinitionTest extends DbTestBase {
+
   private CompositeIndexDefinition compositeIndex;
 
   @Before
@@ -321,8 +324,189 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
         Arrays.asList(1, 2),
-        List.of(12));
-    Assert.assertEquals(List.of(new CompositeKey(1, 12), new CompositeKey(2, 12)), result);
+        List.of(12, 4));
+    //noinspection rawtypes
+    Assert.assertEquals(
+        Set.of(new CompositeKey(1, 12), new CompositeKey(2, 12), new CompositeKey(1, 4),
+            new CompositeKey(2, 4)), new HashSet<CompositeKey>((List) result));
+  }
+
+  @Test
+  public void testCreateCollectionValueTwoCollectionsSecondEmptyNullValuesIgnored() {
+    final var compositeIndexDefinition =
+        new CompositeIndexDefinition("testCollectionClass");
+
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
+
+    var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        Arrays.asList(1, 2), List.of());
+    Assert.assertNull(result);
+  }
+
+  @Test
+  public void testCreateCollectionValueTwoCollectionsSecondEmptyNullValuesNotIgnored() {
+    final var compositeIndexDefinition =
+        new CompositeIndexDefinition("testCollectionClass");
+    compositeIndexDefinition.setNullValuesIgnored(false);
+
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
+
+    var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        Arrays.asList(1, 2), List.of());
+    //noinspection rawtypes
+    Assert.assertEquals(
+        Set.of(new CompositeKey(1, null), new CompositeKey(2, null)),
+        new HashSet<CompositeKey>((List) result));
+  }
+
+  @Test
+  public void testCreateCollectionValueTwoCollectionsFirstEmptyNullValuesNotIgnored() {
+    final var compositeIndexDefinition =
+        new CompositeIndexDefinition("testCollectionClass");
+    compositeIndexDefinition.setNullValuesIgnored(false);
+
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
+
+    var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        List.of(),
+        List.of(12, 4));
+    //noinspection rawtypes
+    Assert.assertEquals(
+        Set.of(new CompositeKey(null, 12), new CompositeKey(null, 4)),
+        new HashSet<CompositeKey>((List) result));
+  }
+
+  @Test
+  public void testCreateCollectionValueTwoCollectionsFirstEmptyNullValuesIgnored() {
+    final var compositeIndexDefinition =
+        new CompositeIndexDefinition("testCollectionClass");
+
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
+
+    var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        List.of(),
+        List.of(12, 4));
+
+    Assert.assertNull(result);
+  }
+
+  @Test
+  public void testCreateCollectionValueThreeCollections() {
+    final var compositeIndexDefinition =
+        new CompositeIndexDefinition("testCollectionClass");
+    compositeIndexDefinition.setNullValuesIgnored(false);
+
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fThree",
+            PropertyTypeInternal.INTEGER));
+
+    var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        List.of(10, 11),
+        List.of(20, 21),
+        List.of(30, 31)
+    );
+    //noinspection rawtypes
+    Assert.assertEquals(
+        Set.of(
+            new CompositeKey(10, 20, 30),
+            new CompositeKey(10, 20, 31),
+
+            new CompositeKey(10, 21, 30),
+            new CompositeKey(10, 21, 31),
+
+            new CompositeKey(11, 20, 30),
+            new CompositeKey(11, 20, 31),
+
+            new CompositeKey(11, 21, 30),
+            new CompositeKey(11, 21, 31)
+        ),
+
+        new HashSet<CompositeKey>((List) result));
+  }
+
+  @Test
+  public void testCreateCollectionValueThreeCollectionsSecondCollectionIsEmpty() {
+    final var compositeIndexDefinition =
+        new CompositeIndexDefinition("testCollectionClass");
+    compositeIndexDefinition.setNullValuesIgnored(false);
+
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fThree",
+            PropertyTypeInternal.INTEGER));
+
+    var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        List.of(10, 11),
+        List.of(),
+        List.of(30, 31)
+    );
+
+    //noinspection rawtypes
+    Assert.assertEquals(
+        Set.of(
+            new CompositeKey(10, null, 30),
+            new CompositeKey(10, null, 31),
+
+            new CompositeKey(11, null, 30),
+            new CompositeKey(11, null, 31)
+        ),
+
+        new HashSet<CompositeKey>((List) result));
+  }
+
+  @Test
+  public void testCreateCollectionValueThreeCollectionsSecondCollectionIsEmptyNullValuesIgnored() {
+    final var compositeIndexDefinition =
+        new CompositeIndexDefinition("testCollectionClass");
+
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fOne",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fTwo",
+            PropertyTypeInternal.INTEGER));
+    compositeIndexDefinition.addIndex(
+        new PropertyListIndexDefinition("testCollectionClass", "fThree",
+            PropertyTypeInternal.INTEGER));
+
+    var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        List.of(10, 11),
+        List.of(),
+        List.of(30, 31)
+    );
+
+    Assert.assertNull(result);
   }
 
   @Test(expected = NumberFormatException.class)

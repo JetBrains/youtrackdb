@@ -203,7 +203,6 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   }
 
   @Override
-  @Override
   protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
     super.serializeToMap(map, session);
 
@@ -214,7 +213,6 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     map.put("nullValuesIgnored", isNullValuesIgnored());
   }
 
-  @Override
   @Override
   protected void serializeFromMap(@Nonnull Map<String, ?> map) {
     super.serializeFromMap(map);
