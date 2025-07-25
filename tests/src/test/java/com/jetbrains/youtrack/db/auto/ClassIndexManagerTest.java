@@ -20,6 +20,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class ClassIndexManagerTest extends BaseDBTest {
+
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {
@@ -295,11 +296,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
   public void testPropertiesCheckUniqueNullKeys() {
     session.begin();
-    final var docOne = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
+    session.newEntity("classIndexManagerTestClass");
     session.commit();
 
     session.begin();
-    final var docTwo = ((EntityImpl) session.newEntity("classIndexManagerTestClass"));
+    session.newEntity("classIndexManagerTestClass");
     session.commit();
   }
 
@@ -416,10 +417,6 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    final Schema schema = session.getMetadata().getSchema();
-    final var oClass = schema.getClass("classIndexManagerTestClass");
-    final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
-
     final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerTestClass.prop1");
     try (var stream = propOneIndex.getRids(session, "a")) {
@@ -461,8 +458,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     final Schema schema = session.getMetadata().getSchema();
-    final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
-    final var oClass = schema.getClass("classIndexManagerTestClass");
+    schema.getClass("classIndexManagerTestSuperClass");
+    schema.getClass("classIndexManagerTestClass");
 
     final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerTestClass.prop1");
@@ -501,8 +498,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     final Schema schema = session.getMetadata().getSchema();
-    final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
-    final var oClass = schema.getClass("classIndexManagerTestClass");
+    schema.getClass("classIndexManagerTestSuperClass");
+    schema.getClass("classIndexManagerTestClass");
 
     final var propOneIndex = session.getSharedContext().getIndexManager().getIndex(
         "classIndexManagerTestClass.prop1");
@@ -538,10 +535,6 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.setProperty("prop2", 1);
 
     session.commit();
-
-    final Schema schema = session.getMetadata().getSchema();
-    final var oSuperClass = schema.getClass("classIndexManagerTestSuperClass");
-    final var oClass = schema.getClass("classIndexManagerTestClass");
 
     final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
         "classIndexManagerTestSuperClass.prop0");
@@ -593,9 +586,6 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc.setProperty("prop2", null);
 
     session.commit();
-
-    final Schema schema = session.getMetadata().getSchema();
-    final var oClass = schema.getClass("classIndexManagerTestClass");
 
     final var propOneIndex = session.getSharedContext().getIndexManager()
         .getIndex("classIndexManagerTestClass.prop1");
@@ -1386,7 +1376,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     docList.add(4);
     docList.add(5);
 
-    docList.remove(0);
+    docList.removeFirst();
 
     session.commit();
 
@@ -1443,7 +1433,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     docList.add(4);
     docList.add(5);
 
-    docList.remove(0);
+    docList.removeFirst();
 
     doc.setProperty("prop1", "test2");
 
@@ -1608,7 +1598,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     docList.add(4);
     docList.add(5);
 
-    docList.remove(0);
+    docList.removeFirst();
 
     doc.setProperty("prop1", null);
 
@@ -1920,11 +1910,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final Schema schema = session.getMetadata().getSchema();
     final var index =
         session.getSharedContext().getIndexManager()
             .getIndex("classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass");
-
     Assert.assertEquals(index.size(session), 2);
   }
 }

@@ -22,16 +22,10 @@ package com.jetbrains.youtrack.db.internal.core.sql.operator;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
-import java.util.List;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -85,61 +79,6 @@ public class QueryOperatorIs extends QueryOperatorEquality {
     }
 
     return IndexReuseType.NO_INDEX;
-  }
-
-  @Nullable
-  @Override
-  public Stream<RawPair<Object, RID>> executeIndexQuery(
-      CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-
-    final var indexDefinition = index.getDefinition();
-
-    Stream<RawPair<Object, RID>> stream;
-    if (!index.canBeUsedInEqualityOperators()) {
-      return null;
-    }
-
-    var transaction = iContext.getDatabaseSession().getActiveTransaction();
-    if (indexDefinition.getParamCount() == 1) {
-      final Object key;
-      if (indexDefinition instanceof IndexDefinitionMultiValue) {
-        key =
-            ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(transaction, keyParams.get(0));
-      } else {
-        key = indexDefinition.createValue(transaction, keyParams);
-      }
-
-      stream = index.getRids(iContext.getDatabaseSession(), key)
-          .map((rid) -> new RawPair<>(key, rid));
-    } else {
-      // in case of composite keys several items can be returned in case we perform search
-      // using part of composite key stored in index
-
-      final var compositeIndexDefinition =
-          (CompositeIndexDefinition) indexDefinition;
-
-      final Object keyOne =
-          compositeIndexDefinition.createSingleValue(transaction, keyParams);
-      final Object keyTwo =
-          compositeIndexDefinition.createSingleValue(transaction, keyParams);
-
-      if (index.hasRangeQuerySupport()) {
-        stream = index.streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo,
-            true,
-            ascSortOrder);
-      } else {
-        if (indexDefinition.getParamCount() == keyParams.size()) {
-          stream = index.getRids(iContext.getDatabaseSession(), keyOne)
-              .map((rid) -> new RawPair<>(keyOne, rid));
-        } else {
-          return null;
-        }
-      }
-    }
-
-    updateProfiler(iContext, index, keyParams);
-    return stream;
   }
 
   @Nullable

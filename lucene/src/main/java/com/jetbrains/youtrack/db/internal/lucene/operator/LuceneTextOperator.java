@@ -22,10 +22,8 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
@@ -35,15 +33,12 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.IndexReuseType;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryTargetOperator;
 import com.jetbrains.youtrack.db.internal.core.sql.parser.ParseException;
-import com.jetbrains.youtrack.db.internal.lucene.collections.LuceneCompositeKey;
 import com.jetbrains.youtrack.db.internal.lucene.index.LuceneFullTextIndex;
-import com.jetbrains.youtrack.db.internal.lucene.query.LuceneKeyAndMetadata;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.apache.lucene.index.memory.MemoryIndex;
 
@@ -74,24 +69,6 @@ public class LuceneTextOperator extends QueryTargetOperator {
     // FIXME questo non trova l'indice se l'ordine e' errato
     return LuceneOperatorUtil.buildOIndexSearchResult(
         iSchemaClass, iCondition, iIndexSearchResults, context);
-  }
-
-  @Nullable
-  @Override
-  public Stream<RawPair<Object, RID>> executeIndexQuery(
-      CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    if (!index.getType().toLowerCase().contains("fulltext")) {
-      return null;
-    }
-    if (index.getAlgorithm() == null || !index.getAlgorithm().toLowerCase().contains("lucene")) {
-      return null;
-    }
-
-    return index
-        .getRids(iContext.getDatabaseSession(),
-            new LuceneKeyAndMetadata(
-                new LuceneCompositeKey(keyParams).setContext(iContext), Collections.emptyMap()))
-        .map((rid) -> new RawPair<>(new LuceneCompositeKey(keyParams).setContext(iContext), rid));
   }
 
   @Nullable

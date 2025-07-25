@@ -74,23 +74,28 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     }
   }
 
+  @Override
   public List<String> getProperties() {
     return Collections.emptyList();
   }
 
+  @Override
   public List<String> getFieldsToIndex() {
     return Collections.emptyList();
   }
 
+  @Override
   @Nullable
   public String getClassName() {
     return null;
   }
 
+  @Override
   public Object createValue(FrontendTransaction transaction, final List<?> params) {
     return createValue(transaction, params != null ? params.toArray() : null);
   }
 
+  @Override
   @Nullable
   public Object createValue(FrontendTransaction transaction, final Object... params) {
     if (params == null || params.length == 0) {
@@ -117,10 +122,12 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     return compositeKey;
   }
 
+  @Override
   public int getParamCount() {
     return keyTypes.length;
   }
 
+  @Override
   public PropertyTypeInternal[] getTypes() {
     return Arrays.copyOf(keyTypes, keyTypes.length);
   }
@@ -220,6 +227,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     setNullValuesIgnored(!Boolean.FALSE.equals(map.get("nullValuesIgnored")));
   }
 
+  @Override
   public Object getDocumentValueToIndex(
       FrontendTransaction transaction, final EntityImpl entity) {
     throw new IndexException(transaction.getDatabaseSession(),
@@ -260,6 +268,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
    * @param indexName
    * @param indexType
    */
+  @Override
   public String toCreateIndexDDL(
       final String indexName, final String indexType, final String engine) {
     final var ddl = new StringBuilder("create index `");

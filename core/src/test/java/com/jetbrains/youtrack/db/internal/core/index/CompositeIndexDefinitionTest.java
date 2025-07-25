@@ -1,6 +1,5 @@
 package com.jetbrains.youtrack.db.internal.core.index;
 
-import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.internal.DbTestBase;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrack.db.internal.core.db.record.EntityEmbeddedMapImpl;
@@ -25,7 +24,6 @@ import org.junit.Test;
 
 @SuppressWarnings("unchecked")
 public class CompositeIndexDefinitionTest extends DbTestBase {
-
   private CompositeIndexDefinition compositeIndex;
 
   @Before
@@ -73,7 +71,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
             "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
             PropertyMapIndexDefinition.INDEX_BY.KEY));
 
-    final Map<String, String> stringMap = new HashMap<String, String>();
+    final Map<String, String> stringMap = new HashMap<>();
     stringMap.put("key1", "val1");
     stringMap.put("key2", "val2");
 
@@ -208,7 +206,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
         Collections.emptyList(), 12);
-    Assert.assertEquals(result, new CompositeKey(null, 12));
+    Assert.assertEquals(new CompositeKey(null, 12), result);
   }
 
   @Test
@@ -225,7 +223,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
         Collections.emptyList());
-    Assert.assertEquals(result, new CompositeKey(12, null));
+    Assert.assertEquals(new CompositeKey(12, null), result);
   }
 
   @Test
@@ -309,7 +307,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     Assert.assertEquals(result, expectedResult);
   }
 
-  @Test(expected = IndexException.class)
+  @Test
   public void testCreateCollectionValueTwoCollections() {
     final var compositeIndexDefinition =
         new CompositeIndexDefinition("testCollectionClass");
@@ -321,8 +319,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyListIndexDefinition("testCollectionClass", "fOne",
             PropertyTypeInternal.INTEGER));
 
-    compositeIndexDefinition.createValue(session.getActiveTransaction(), Arrays.asList(1, 2),
+    var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
+        Arrays.asList(1, 2),
         List.of(12));
+    Assert.assertEquals(List.of(new CompositeKey(1, 12), new CompositeKey(2, 12)), result);
   }
 
   @Test(expected = NumberFormatException.class)
@@ -509,7 +509,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(
         session.getActiveTransaction(), document);
-    Assert.assertEquals(result, new CompositeKey(12, null));
+    Assert.assertEquals(new CompositeKey(12, null), result);
     session.rollback();
   }
 
@@ -533,7 +533,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var result = compositeIndexDefinition.getDocumentValueToIndex(
         session.getActiveTransaction(), document);
-    Assert.assertEquals(result, new CompositeKey(null, 12));
+    Assert.assertEquals(new CompositeKey(null, 12), result);
     session.rollback();
   }
 
@@ -703,7 +703,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     session.rollback();
   }
 
-  @Test(expected = BaseException.class)
+  @Test
   public void testDocumentToIndexCollectionValueTwoCollections() {
     session.begin();
     final var document = (EntityImpl) session.newEntity();
@@ -720,7 +720,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyListIndexDefinition("testCollectionClass", "fTwo",
             PropertyTypeInternal.INTEGER));
-    compositeIndexDefinition.getDocumentValueToIndex(session.getActiveTransaction(), document);
+    var result = compositeIndexDefinition.getDocumentValueToIndex(session.getActiveTransaction(),
+        document);
+    Assert.assertEquals(List.of(new CompositeKey(12, 1), new CompositeKey(12, 2)), result);
     session.rollback();
   }
 
@@ -841,7 +843,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         trackedList.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 1,
+          2, 3);
     }
 
     Assert.assertEquals(0, keysToRemove.size());
@@ -881,7 +884,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         ridBag.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 1,
+          2, 3);
     }
 
     Assert.assertEquals(0, keysToRemove.size());
@@ -929,7 +933,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         trackedList.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 1, 2, 3);
     }
 
     Assert.assertEquals(1, keysToRemove.size());
@@ -972,7 +976,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         ridBag.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 1,
+          2, 3);
     }
 
     Assert.assertEquals(1, keysToRemove.size());
@@ -1017,7 +1022,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         embeddedSet.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 1,
+          2, 3);
     }
 
     Assert.assertEquals(0, keysToRemove.size());
@@ -1067,7 +1073,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         embeddedSet.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
           session.getActiveTransaction(),
-          multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          multiValueChangeEvent, keysToAdd, keysToRemove, 1, 2, 3);
     }
 
     Assert.assertEquals(1, keysToRemove.size());
@@ -1113,7 +1119,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         trackedMap.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove,
+          1, 2, 3);
     }
 
     Assert.assertEquals(0, keysToRemove.size());
@@ -1163,7 +1170,8 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     for (var multiValueChangeEvent :
         trackedMap.getTimeLine().getMultiValueChangeEvents()) {
       compositeIndexDefinition.processChangeEvent(
-          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 2, 3);
+          session.getActiveTransaction(), multiValueChangeEvent, keysToAdd, keysToRemove, 1,
+          2, 3);
     }
 
     Assert.assertEquals(1, keysToRemove.size());

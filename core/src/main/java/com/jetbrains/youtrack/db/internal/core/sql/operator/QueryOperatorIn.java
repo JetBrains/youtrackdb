@@ -24,26 +24,17 @@ import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItem;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemParameter;
-import com.jetbrains.youtrack.db.internal.core.sql.query.LegacyResultSet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -58,125 +49,6 @@ public class QueryOperatorIn extends QueryOperatorEqualityNotNulls {
   @Override
   public IndexReuseType getIndexReuseType(final Object iLeft, final Object iRight) {
     return IndexReuseType.INDEX_METHOD;
-  }
-
-  @Nullable
-  @SuppressWarnings("unchecked")
-  @Override
-  public Stream<RawPair<Object, RID>> executeIndexQuery(
-      CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    final var indexDefinition = index.getDefinition();
-
-    Stream<RawPair<Object, RID>> stream;
-    if (!index.canBeUsedInEqualityOperators()) {
-      return null;
-    }
-
-    var transaction = iContext.getDatabaseSession().getActiveTransaction();
-    if (indexDefinition.getParamCount() == 1) {
-      final var inKeyValue = keyParams.get(0);
-      Collection<Object> inParams;
-      if (inKeyValue instanceof List<?>) {
-        inParams = (Collection<Object>) inKeyValue;
-      } else if (inKeyValue instanceof SQLFilterItem) {
-        inParams =
-            (Collection<Object>) ((SQLFilterItem) inKeyValue).getValue(null, null, iContext);
-      } else {
-        inParams = Collections.singleton(inKeyValue);
-      }
-
-      if (inParams instanceof LegacyResultSet) { // manage IN (subquery)
-        Set newInParams = new HashSet();
-        for (var o : inParams) {
-          if (o instanceof EntityImpl entity && entity.getIdentity().getCollectionId() < -1) {
-            var fieldNames = entity.propertyNames();
-            if (fieldNames.length == 1) {
-              newInParams.add(entity.getProperty(fieldNames[0]));
-            } else {
-              newInParams.add(o);
-            }
-          } else {
-            newInParams.add(o);
-          }
-        }
-        inParams = newInParams;
-      }
-      final List<Object> inKeys = new ArrayList<Object>();
-
-      var containsNotCompatibleKey = false;
-
-      for (final var keyValue : inParams) {
-        final Object key;
-        if (indexDefinition instanceof IndexDefinitionMultiValue) {
-          key =
-              ((IndexDefinitionMultiValue) indexDefinition)
-                  .createSingleValue(transaction, SQLHelper.getValue(keyValue));
-        } else {
-          key = indexDefinition.createValue(transaction, SQLHelper.getValue(keyValue));
-        }
-
-        if (key == null) {
-          containsNotCompatibleKey = true;
-          break;
-        }
-
-        inKeys.add(key);
-      }
-      if (containsNotCompatibleKey) {
-        return null;
-      }
-
-      stream = index
-          .streamEntries(iContext.getDatabaseSession(), inKeys, ascSortOrder);
-    } else {
-      final List<Object> partialKey = new ArrayList<Object>();
-      partialKey.addAll(keyParams);
-      partialKey.remove(keyParams.size() - 1);
-
-      final var inKeyValue = keyParams.get(keyParams.size() - 1);
-
-      final Collection<Object> inParams;
-      if (inKeyValue instanceof List<?>) {
-        inParams = (Collection<Object>) inKeyValue;
-      } else if (inKeyValue instanceof SQLFilterItem) {
-        inParams =
-            (Collection<Object>) ((SQLFilterItem) inKeyValue).getValue(null, null, iContext);
-      } else {
-        throw new IllegalArgumentException("Key '" + inKeyValue + "' is not valid");
-      }
-
-      final List<Object> inKeys = new ArrayList<Object>();
-
-      final var compositeIndexDefinition =
-          (CompositeIndexDefinition) indexDefinition;
-
-      var containsNotCompatibleKey = false;
-      for (final var keyValue : inParams) {
-        List<Object> fullKey = new ArrayList<Object>(partialKey);
-        fullKey.add(keyValue);
-        final Object key =
-            compositeIndexDefinition.createSingleValue(transaction, fullKey);
-        if (key == null) {
-          containsNotCompatibleKey = true;
-          break;
-        }
-
-        inKeys.add(key);
-      }
-      if (containsNotCompatibleKey) {
-        return null;
-      }
-
-      if (indexDefinition.getParamCount() == keyParams.size()) {
-        stream = index
-            .streamEntries(iContext.getDatabaseSession(), inKeys, ascSortOrder);
-      } else {
-        return null;
-      }
-    }
-
-    updateProfiler(iContext, index, keyParams);
-    return stream;
   }
 
   @Nullable
