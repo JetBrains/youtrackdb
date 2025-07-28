@@ -55,11 +55,15 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
 
   @Override
   public Object createValue(FrontendTransaction transaction, List<?> params) {
-    if (!(params.get(0) instanceof Collection)) {
-      params = Collections.singletonList(params);
+    var param = params.getFirst();
+    if (param == null) {
+      return null;
     }
 
-    final var multiValueCollection = (Collection<?>) params.get(0);
+    if (!(param instanceof Collection<?> multiValueCollection)) {
+      return Collections.singletonList(createSingleValue(transaction, param));
+    }
+
     final List<Object> values = new ArrayList<>(multiValueCollection.size());
     for (final var item : multiValueCollection) {
       values.add(createSingleValue(transaction, item));
@@ -71,17 +75,14 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
   @Override
   public Object createValue(FrontendTransaction transaction, final Object... params) {
     var param = params[0];
-    if (!(param instanceof Collection<?>)) {
-      try {
-        var session = transaction.getDatabaseSession();
-        return keyType.convert(refreshRid(session, param), null, null, session);
-      } catch (Exception e) {
-        return null;
-      }
+    if (param == null) {
+      return null;
     }
 
-    @SuppressWarnings("PatternVariableCanBeUsed")
-    var multiValueCollection = (Collection<?>) param;
+    if (!(param instanceof Collection<?> multiValueCollection)) {
+      return Collections.singletonList(createSingleValue(transaction, param));
+    }
+
     final List<Object> values = new ArrayList<>(multiValueCollection.size());
     for (final var item : multiValueCollection) {
       values.add(createSingleValue(transaction, item));
@@ -89,6 +90,7 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
     return values;
   }
 
+  @Override
   public Object createSingleValue(FrontendTransaction transaction, final Object... param) {
     try {
       var value = refreshRid(transaction.getDatabaseSession(), param[0]);
@@ -101,6 +103,7 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
     }
   }
 
+  @Override
   public void processChangeEvent(
       FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,

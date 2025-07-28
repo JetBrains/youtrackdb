@@ -2,6 +2,7 @@ package com.jetbrains.youtrack.db.internal.core.sql.executor;
 
 import com.jetbrains.youtrack.db.api.exception.BaseException;
 import com.jetbrains.youtrack.db.api.exception.CommandExecutionException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.query.ExecutionStep;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
@@ -407,11 +408,36 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             streams.add(stream);
           }
         } else {
-          stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
-              isOrderAsc);
-          if (acquiredStreams.add(stream)) {
-            streams.add(stream);
+          if (from instanceof Collection<?> fromColl) {
+            var toColl = (Collection<?>) to;
+
+            if (fromColl.size() != toColl.size()) {
+              throw new DatabaseException(session, "Size of from and to collections for "
+                  + "index range search do not match: " + fromColl.size() + " != " + toColl.size());
+            }
+
+            var fromIter = fromColl.iterator();
+            var toIter = toColl.iterator();
+
+            while (fromIter.hasNext()) {
+              var fromVal = fromIter.next();
+              var toVal = toIter.next();
+
+              stream = index.streamEntriesBetween(session, fromVal, fromKeyIncluded, toVal,
+                  toKeyIncluded,
+                  isOrderAsc);
+              if (acquiredStreams.add(stream)) {
+                streams.add(stream);
+              }
+            }
+          } else {
+            stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
+                isOrderAsc);
+            if (acquiredStreams.add(stream)) {
+              streams.add(stream);
+            }
           }
+
         }
 
       } else if (additionalRangeCondition == null && allEqualities((SQLAndBlock) condition)) {

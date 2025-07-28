@@ -29,6 +29,7 @@ import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Presentation of index that is used information and contained in entity {@link SchemaClass} .
@@ -81,6 +82,7 @@ public interface IndexDefinition extends IndexCallback {
    * @param params      Parameters from which index key will be calculated.
    * @return Key value or null if calculation is impossible.
    */
+  @Nullable
   Object createValue(FrontendTransaction transaction, List<?> params);
 
   /**
@@ -93,6 +95,7 @@ public interface IndexDefinition extends IndexCallback {
    * @param params      Parameters from which index key will be calculated.
    * @return Key value or null if calculation is impossible.
    */
+  @Nullable
   Object createValue(FrontendTransaction transaction, Object... params);
 
   /**
