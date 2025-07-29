@@ -35,7 +35,6 @@ public class ByteArrayKeyTest extends BaseDBTest {
   }
 
   public void testAutomaticUsage() {
-    checkEmbeddedDB();
 
     var key1 =
         new byte[]{
@@ -85,7 +84,6 @@ public class ByteArrayKeyTest extends BaseDBTest {
   }
 
   public void testAutomaticCompositeUsage() {
-    checkEmbeddedDB();
 
     var key1 = new byte[]{1, 2, 3};
     var key2 = new byte[]{4, 5, 6};
@@ -130,7 +128,6 @@ public class ByteArrayKeyTest extends BaseDBTest {
   }
 
   public void testAutomaticCompositeUsageInTX() {
-    checkEmbeddedDB();
 
     var key1 = new byte[]{7, 8, 9};
     var key2 = new byte[]{10, 11, 12};

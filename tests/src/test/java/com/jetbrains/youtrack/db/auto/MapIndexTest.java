@@ -58,7 +58,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMap() {
-    checkEmbeddedDB();
 
     session.begin();
     final var mapper = session.newEntity("Mapper");
@@ -95,7 +94,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapInTx() {
-    checkEmbeddedDB();
 
     try {
       session.begin();
@@ -144,7 +142,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapUpdateOne() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -202,7 +199,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapUpdateOneTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -263,7 +259,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapUpdateOneTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -318,7 +313,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapAddItem() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -367,7 +361,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapAddItemTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -422,7 +415,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapAddItemTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -472,7 +464,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapUpdateItem() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -521,7 +512,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapUpdateItemInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -575,7 +565,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapUpdateItemInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -625,7 +614,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapRemoveItem() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -675,7 +663,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapRemoveItemInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -730,7 +717,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapRemoveItemInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -781,7 +767,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapRemove() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -807,7 +792,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapRemoveInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");
@@ -838,7 +822,6 @@ public class MapIndexTest extends BaseDBTest {
   }
 
   public void testIndexMapRemoveInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var mapper = session.newEntity("Mapper");

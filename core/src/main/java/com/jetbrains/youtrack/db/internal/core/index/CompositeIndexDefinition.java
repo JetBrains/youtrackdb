@@ -391,19 +391,15 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
     final var compositeWrapperKeysToAdd =
         new CompositeWrapperMap(
-            transaction, keysToAdd, indexDefinitions, params, propertyIndex);
+            transaction, keysToAdd, indexDefinitions, params, propertyIndex, isNullValuesIgnored());
 
     final var compositeWrapperKeysToRemove =
         new CompositeWrapperMap(
-            transaction, keysToRemove, indexDefinitions, params, propertyIndex);
+            transaction, keysToRemove, indexDefinitions, params, propertyIndex,
+            isNullValuesIgnored());
 
     indexDefinitionMultiValue.processChangeEvent(
         transaction, changeEvent, compositeWrapperKeysToAdd, compositeWrapperKeysToRemove);
-  }
-
-  @Nullable
-  public IntOpenHashSet getMultiValueDefinitionIndexes() {
-    return multiValueDefinitionIndexes;
   }
 
   /**
@@ -626,100 +622,185 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   private record CompositeWrapperMap(FrontendTransaction transaction,
                                      Object2IntOpenHashMap<CompositeKey> underlying,
                                      List<IndexDefinition> indexDefinitions, Object[] params,
-                                     int multiValueIndex) implements Object2IntMap<Object> {
+                                     int multiValueIndex, boolean isNullValuesIgnored) implements
+      Object2IntMap<Object> {
 
     @Override
-      public int size() {
-        return underlying.size();
-      }
-
-      @Override
-      public boolean isEmpty() {
-        return underlying.isEmpty();
-      }
-
-      @Override
-      public boolean containsKey(Object key) {
-        final var compositeKey = convertToCompositeKey(transaction, key);
-
-        return underlying.containsKey(compositeKey);
-      }
-
-      @Override
-      public void defaultReturnValue(int i) {
-        underlying.defaultReturnValue(i);
-      }
-
-      @Override
-      public int defaultReturnValue() {
-        return underlying.defaultReturnValue();
-      }
-
-      @Override
-      public ObjectSet<Entry<Object>> object2IntEntrySet() {
-        throw new UnsupportedOperationException();
-      }
-
-      @Override
-      public boolean containsValue(int i) {
-        return underlying.containsValue(i);
-      }
-
-      @Override
-      public int getInt(Object o) {
-        return underlying.getInt(convertToCompositeKey(transaction, o));
-      }
-
-      @Override
-      public int put(Object key, int value) {
-        final var compositeKey = convertToCompositeKey(transaction, key);
-        return underlying.put(compositeKey, value);
-      }
-
-      @Override
-      public int removeInt(Object key) {
-        return underlying.removeInt(convertToCompositeKey(transaction, key));
-      }
-
-      @Override
-      public void clear() {
-        underlying.clear();
-      }
-
-      @Nonnull
-      @Override
-      public ObjectSet<Object> keySet() {
-        throw new UnsupportedOperationException();
-      }
-
-      @Override
-      public void putAll(@Nonnull Map<?, ? extends Integer> m) {
-        throw new UnsupportedOperationException();
-      }
-
-      @Override
-      @Nonnull
-      public IntCollection values() {
-        return underlying.values();
-      }
-
-      private CompositeKey convertToCompositeKey(FrontendTransaction transaction, Object key) {
-        final var compositeKey = new CompositeKey();
-
-        var paramsIndex = 0;
-        for (var i = 0; i < indexDefinitions.size(); i++) {
-          final var indexDefinition = indexDefinitions.get(i);
-          if (i != multiValueIndex) {
-            compositeKey.addKey(indexDefinition.createValue(transaction, params[paramsIndex]));
-            paramsIndex++;
-          } else {
-            compositeKey.addKey(
-                ((IndexDefinitionMultiValue) indexDefinition).createSingleValue(transaction, key));
-          }
-        }
-        return compositeKey;
-      }
+    public int size() {
+      return underlying.size();
     }
+
+    @Override
+    public boolean isEmpty() {
+      return underlying.isEmpty();
+    }
+
+    @Override
+    public boolean containsKey(Object key) {
+      final var compositeKey = convertToCompositeKeyFast(transaction, key);
+      if (compositeKey == null) {
+        return false;
+      }
+
+      return underlying.containsKey(compositeKey);
+    }
+
+    @Override
+    public void defaultReturnValue(int i) {
+      underlying.defaultReturnValue(i);
+    }
+
+    @Override
+    public int defaultReturnValue() {
+      return underlying.defaultReturnValue();
+    }
+
+    @Override
+    public ObjectSet<Entry<Object>> object2IntEntrySet() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean containsValue(int i) {
+      return underlying.containsValue(i);
+    }
+
+    @Override
+    public int getInt(Object o) {
+      var key = convertToCompositeKeyFast(transaction, o);
+      if (key == null) {
+        return defaultReturnValue();
+      }
+
+      return underlying.getInt(key);
+    }
+
+    @Override
+    public int put(Object key, int value) {
+      final var result = convertToCompositeKeyFast(transaction, key);
+      if (result != null) {
+        if (result instanceof CompositeKey compositeKey) {
+          return underlying.put(compositeKey, value);
+        } else if (result instanceof Stream<?> compositeKeyStream) {
+          compositeKeyStream.forEach(
+              compositeKey -> underlying.put((CompositeKey) compositeKey, value));
+        } else {
+          throw new IllegalStateException("Unexpected result type: " + result.getClass());
+        }
+      }
+
+      return value;
+    }
+
+    @Override
+    public int removeInt(Object key) {
+      var compositeKey = convertToCompositeKeyFast(transaction, key);
+      if (compositeKey == null) {
+        return defaultReturnValue();
+      }
+
+      return underlying.removeInt(compositeKey);
+    }
+
+    @Override
+    public void clear() {
+      underlying.clear();
+    }
+
+    @Nonnull
+    @Override
+    public ObjectSet<Object> keySet() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void putAll(@Nonnull Map<?, ? extends Integer> m) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    @Nonnull
+    public IntCollection values() {
+      return underlying.values();
+    }
+
+    @Nullable
+    private Object convertToCompositeKeyFast(FrontendTransaction transaction, Object key) {
+      final var compositeKey = new CompositeKey();
+
+      var paramsIndex = 0;
+      for (var i = 0; i < indexDefinitions.size(); i++) {
+        final var indexDefinition = indexDefinitions.get(i);
+
+        if (i != multiValueIndex) {
+          var keyValue = indexDefinition.createValue(transaction, params[paramsIndex]);
+          if (keyValue == null && isNullValuesIgnored) {
+            return null;
+          }
+
+          if (keyValue instanceof Collection<?> collection) {
+            if (collection.isEmpty() && isNullValuesIgnored) {
+              return null;
+            }
+
+            if (collection.isEmpty()) {
+              compositeKey.addKey(null);
+            } else if (collection.size() == 1) {
+              compositeKey.addKey(collection.iterator().next());
+            } else {
+              return convertToCompositeKeySlow(transaction, i, paramsIndex, compositeKey, key);
+            }
+          } else {
+            compositeKey.addKey(keyValue);
+          }
+
+          paramsIndex++;
+        } else {
+          compositeKey.addKey(
+              ((IndexDefinitionMultiValue) indexDefinition).createSingleValue(transaction, key));
+        }
+      }
+      return compositeKey;
+    }
+
+    @Nullable
+    Stream<CompositeKey> convertToCompositeKeySlow(FrontendTransaction transaction,
+        int currentIndexDefinition, int paramasIndex, CompositeKey startCompositeKey,
+        Object key) {
+      var stream = Stream.of(startCompositeKey);
+      for (var i = currentIndexDefinition; i < indexDefinitions.size(); i++) {
+        var indexDefinition = indexDefinitions.get(i);
+        if (i != multiValueIndex) {
+          final var keyValue = indexDefinition.createValue(transaction, params[paramasIndex]);
+          if (keyValue == null && isNullValuesIgnored) {
+            return null;
+          }
+          // for empty collections we add null key in index
+          if (keyValue instanceof Collection<?> collection) {
+            if (collection.isEmpty()) {
+              if (isNullValuesIgnored) {
+                return null;
+              } else {
+                stream = stream.peek(compositeKey -> compositeKey.addKey(null));
+              }
+            } else {
+              stream = stream.flatMap(compositeKey -> addKey(compositeKey, collection));
+            }
+          } else {
+            stream = stream.peek(compositeKey -> compositeKey.addKey(keyValue));
+          }
+
+          paramasIndex++;
+        } else {
+          var singleKey =
+              ((IndexDefinitionMultiValue) indexDefinition).createSingleValue(transaction, key);
+          stream = stream.peek(compositeKey -> compositeKey.addKey(singleKey));
+        }
+      }
+
+      return stream;
+    }
+  }
 
   @Override
   public boolean isAutomatic() {

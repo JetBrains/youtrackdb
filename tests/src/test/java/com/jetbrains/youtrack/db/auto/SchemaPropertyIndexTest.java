@@ -166,7 +166,6 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = {"testIsIndexedIndexedField"})
   public void testIndexingCompositeRIDAndOthers() throws Exception {
-    checkEmbeddedDB();
 
     var prev0 =
         session

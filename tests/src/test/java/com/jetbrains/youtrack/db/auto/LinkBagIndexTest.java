@@ -62,7 +62,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBag() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = session.newEntity();
@@ -96,7 +95,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -135,7 +133,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdate() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -185,7 +182,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdateInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -238,7 +234,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdateInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -285,7 +280,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdateAddItem() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -331,7 +325,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdateAddItemInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -381,7 +374,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdateAddItemInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -425,7 +417,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdateRemoveItemInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -468,7 +459,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdateRemoveItemInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -507,7 +497,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagUpdateRemoveItem() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -547,7 +536,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagRemove() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -570,7 +558,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagRemoveInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -602,7 +589,6 @@ public class LinkBagIndexTest extends BaseDBTest {
   }
 
   public void testIndexRidBagRemoveInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());

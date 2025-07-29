@@ -9,7 +9,6 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import java.util.Locale;
-import org.testng.SkipException;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.AfterSuite;
@@ -194,12 +193,6 @@ public abstract class BaseTest {
 
   protected final String getStorageType() {
     return databaseType.toString().toLowerCase(Locale.ROOT);
-  }
-
-  protected void checkEmbeddedDB() {
-    if (session.getStorage().isRemote()) {
-      throw new SkipException("Test is running only in embedded database");
-    }
   }
 
   protected Index getIndex(final String indexName) {

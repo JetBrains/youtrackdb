@@ -41,7 +41,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   @Override
   @AfterMethod
   public void afterMethod() {
-    checkEmbeddedDB();
 
     session.begin();
     session.execute("DELETE FROM LinkSetIndexTestClass").close();
@@ -62,7 +61,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSet() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -96,7 +94,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -140,7 +137,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdate() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -182,7 +178,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdateInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -237,7 +232,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdateInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -287,7 +281,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdateAddItem() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -333,7 +326,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdateAddItemInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -383,7 +375,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdateAddItemInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -427,7 +418,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdateRemoveItemInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -470,7 +460,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdateRemoveItemInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -509,7 +498,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetUpdateRemoveItem() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -548,7 +536,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetRemove() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -575,7 +562,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetRemoveInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -607,7 +593,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetRemoveInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());
@@ -647,7 +632,6 @@ public class LinkSetIndexTest extends BaseDBTest {
   }
 
   public void testIndexLinkSetSQL() {
-    checkEmbeddedDB();
 
     session.begin();
     final var docOne = ((EntityImpl) session.newEntity());

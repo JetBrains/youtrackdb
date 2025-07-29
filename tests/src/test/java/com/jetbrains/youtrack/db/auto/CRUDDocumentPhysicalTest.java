@@ -36,8 +36,6 @@ import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 
@@ -161,7 +159,6 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testUpdate")
   public void testDoubleChanges() {
-    checkEmbeddedDB();
 
     final Set<Integer> profileCollectionIds =
         Arrays.stream(session.getMetadata().getSchema().getClass("Profile").getCollectionIds())

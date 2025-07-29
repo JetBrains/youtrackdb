@@ -84,7 +84,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populateIndexDocuments")
   public void testIndexInUniqueIndex() {
-    checkEmbeddedDB();
     session.begin();
     Assert.assertEquals(
         session.getMetadata().getSchema().getClassInternal("Profile")
@@ -127,7 +126,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
   public void testIndexEntries() {
-    checkEmbeddedDB();
 
     var resultSet = executeQuery("select * from Profile where nick is not null");
 
@@ -139,7 +137,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
   public void testIndexSize() {
-    checkEmbeddedDB();
 
     session.begin();
     var resultSet = executeQuery("select * from Profile where nick is not null");
@@ -456,7 +453,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test
   public void indexLinks() {
-    checkEmbeddedDB();
 
     session
         .getMetadata()
@@ -580,7 +576,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testConcurrentRemoveDelete() {
-    checkEmbeddedDB();
 
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("MyFruit")) {
@@ -653,7 +648,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testIndexParamsAutoConversion() {
-    checkEmbeddedDB();
 
     final EntityImpl doc;
     final RecordId result;
@@ -689,7 +683,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testTransactionUniqueIndexTestOne() {
-    checkEmbeddedDB();
 
     var db = acquireSession();
     if (!db.getMetadata().getSchema().existsClass("TransactionUniqueIndexTest")) {
@@ -730,7 +723,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestOne")
   public void testTransactionUniqueIndexTestTwo() {
-    checkEmbeddedDB();
 
     var session = acquireSession();
     if (!session.getMetadata().getSchema().existsClass("TransactionUniqueIndexTest")) {
@@ -769,7 +761,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testTransactionUniqueIndexTestWithDotNameOne() {
-    checkEmbeddedDB();
 
     var db = acquireSession();
     if (!db.getMetadata().getSchema().existsClass("TransactionUniqueIndexWithDotTest")) {
@@ -813,7 +804,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testTransactionUniqueIndexTestWithDotNameOne")
   public void testTransactionUniqueIndexTestWithDotNameTwo() {
-    checkEmbeddedDB();
 
     var db = acquireSession();
     if (!db.getMetadata().getSchema().existsClass("TransactionUniqueIndexWithDotTest")) {
@@ -850,7 +840,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "linkedIndexedProperty")
   public void testIndexRemoval() {
-    checkEmbeddedDB();
 
     final var index = getIndex("Profile.nick");
 
@@ -932,7 +921,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNotUniqueIndexKeySize() {
-    checkEmbeddedDB();
 
     final Schema schema = session.getMetadata().getSchema();
     var cls = schema.createClass("IndexNotUniqueIndexKeySize");
@@ -962,7 +950,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNotUniqueIndexSize() {
-    checkEmbeddedDB();
 
     final Schema schema = session.getMetadata().getSchema();
     var cls = schema.createClass("IndexNotUniqueIndexSize");
@@ -987,7 +974,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test
   public void testIndexRebuildDuringNonProxiedObjectDelete() {
-    checkEmbeddedDB();
 
     session.begin();
     var profile = session.newEntity("Profile");
@@ -1018,7 +1004,6 @@ public class IndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testIndexRebuildDuringNonProxiedObjectDelete")
   public void testIndexRebuildDuringDetachAllNonProxiedObjectDelete() {
-    checkEmbeddedDB();
 
     session.begin();
     var profile = session.newEntity("Profile");
@@ -1389,7 +1374,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testPreservingIdentityInIndexTx() {
-    checkEmbeddedDB();
     if (!session.getMetadata().getSchema().existsClass("PreservingIdentityInIndexTxParent")) {
       session.createVertexClass("PreservingIdentityInIndexTxParent");
     }
@@ -1459,7 +1443,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testEmptyNotUniqueIndex() {
-    checkEmbeddedDB();
 
     var emptyNotUniqueIndexClazz =
         session
@@ -1532,7 +1515,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testMultikeyWithoutFieldAndNullSupport() {
-    checkEmbeddedDB();
 
     // generates stubs for index
     session.begin();
@@ -1742,7 +1724,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testMultikeyWithoutFieldAndNoNullSupport() {
-    checkEmbeddedDB();
 
     // generates stubs for index
     session.begin();
@@ -1940,7 +1921,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullValuesCountSBTreeUnique() {
-    checkEmbeddedDB();
 
     var nullSBTreeClass = session.getSchema().createClass("NullValuesCountSBTreeUnique");
     nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
@@ -1971,7 +1951,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullValuesCountSBTreeNotUniqueOne() {
-    checkEmbeddedDB();
 
     var nullSBTreeClass =
         session.getMetadata().getSchema().createClass("NullValuesCountSBTreeNotUniqueOne");
@@ -2003,7 +1982,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullValuesCountSBTreeNotUniqueTwo() {
-    checkEmbeddedDB();
 
     var nullSBTreeClass =
         session.getMetadata().getSchema().createClass("NullValuesCountSBTreeNotUniqueTwo");
@@ -2037,7 +2015,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullValuesCountHashUnique() {
-    checkEmbeddedDB();
     var nullSBTreeClass = session.getSchema().createClass("NullValuesCountHashUnique");
     nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
     nullSBTreeClass.createIndex(
@@ -2067,7 +2044,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullValuesCountHashNotUniqueOne() {
-    checkEmbeddedDB();
 
     var nullSBTreeClass = session.getSchema()
         .createClass("NullValuesCountHashNotUniqueOne");
@@ -2099,7 +2075,6 @@ public class IndexTest extends BaseDBTest {
   }
 
   public void testNullValuesCountHashNotUniqueTwo() {
-    checkEmbeddedDB();
 
     var nullSBTreeClass =
         session.getMetadata().getSchema().createClass("NullValuesCountHashNotUniqueTwo");

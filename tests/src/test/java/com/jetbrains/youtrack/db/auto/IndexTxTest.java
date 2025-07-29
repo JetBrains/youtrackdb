@@ -11,8 +11,6 @@ import java.util.Map;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -44,7 +42,6 @@ public class IndexTxTest extends BaseDBTest {
 
   @Test
   public void testIndexCrossReferencedDocuments() {
-    checkEmbeddedDB();
 
     session.begin();
 
