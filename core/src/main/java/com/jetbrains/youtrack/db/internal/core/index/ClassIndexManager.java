@@ -26,10 +26,8 @@ import com.jetbrains.youtrack.db.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -106,23 +104,42 @@ public class ClassIndexManager {
     final var indexProperties = indexDefinition.getProperties();
     for (final var indexField : indexProperties) {
       if (dirtyFields.contains(indexField)) {
-        IntOpenHashSet dirtyMultiValueProperties = null;
+        var multiValueIndex = -1;
 
         final List<Object> origValues = new ArrayList<>(indexProperties.size());
         for (var i = 0; i < indexProperties.size(); i++) {
           final var indexProperty = indexProperties.get(i);
+
           if (!indexDefinition.isMultivaluePropertyIndex(i)) {
             if (dirtyFields.contains(indexProperty)) {
               origValues.add(record.getOriginalValue(indexProperty));
             } else {
               origValues.add(record.getProperty(indexProperty));
             }
-          } else if (dirtyFields.contains(indexProperty)) {
-            if (dirtyMultiValueProperties == null) {
-              dirtyMultiValueProperties = new IntOpenHashSet();
-            }
+          } else {
+            final MultiValueChangeTimeLine<?, ?> multiValueChangeTimeLine = record.getCollectionTimeLine(
+                indexProperty);
+            if (multiValueChangeTimeLine == null) {
+              if (dirtyFields.contains(indexProperty)) {
+                origValues.add(
+                    record.getOriginalValue(indexProperty));
+              } else {
+                origValues.add(
+                    record.getPropertyInternal(indexProperty));
+              }
+            } else {
+              if (dirtyFields.size() == 1 && indexDefinition.isNullValuesIgnored()) {
+                multiValueIndex = i;
+              } else {
+                @SuppressWarnings("rawtypes") final TrackedMultiValue fieldValue =
+                    record.getProperty(indexProperty);
+                @SuppressWarnings("unchecked") final var restoredMultiValue =
+                    fieldValue.returnOriginalState(transaction,
+                        multiValueChangeTimeLine.getMultiValueChangeEvents());
 
-            dirtyMultiValueProperties.add(i);
+                origValues.add(restoredMultiValue);
+              }
+            }
           }
         }
 
@@ -138,70 +155,34 @@ public class ClassIndexManager {
             addPut(transaction, index, newValue, record.getIdentity());
           }
         } else {
-          var multiValuePropertiesIndexes = indexDefinition.getMultiValueDefinitionIndexes()
-              .toIntArray();
-          Arrays.sort(multiValuePropertiesIndexes);
+          if (multiValueIndex == -1) {
+            final var origValue = indexDefinition.createValue(transaction, origValues);
+            final var newValue = indexDefinition.getDocumentValueToIndex(transaction, record);
 
-          for (var multiValuePropertyIndex : multiValuePropertiesIndexes) {
-            var multiValueProperty = indexProperties.get(multiValuePropertyIndex);
+            processIndexUpdateFieldAssignment(transaction, index, record, origValue, newValue);
+          } else {
+            final var keysToAdd = new Object2IntOpenHashMap<CompositeKey>();
+            keysToAdd.defaultReturnValue(-1);
+            final var keysToRemove =
+                new Object2IntOpenHashMap<CompositeKey>();
+            keysToRemove.defaultReturnValue(-1);
+
+            var indexProperty = indexProperties.get(multiValueIndex);
             final MultiValueChangeTimeLine<?, ?> multiValueChangeTimeLine =
-                record.getCollectionTimeLine(multiValueProperty);
-            if (multiValueChangeTimeLine == null) {
-              if (dirtyMultiValueProperties != null && dirtyMultiValueProperties.contains(
-                  multiValuePropertyIndex)) {
-                origValues.add(
-                    multiValuePropertyIndex,
-                    record.getOriginalValue(multiValueProperty));
-              } else {
-                origValues.add(
-                    multiValuePropertyIndex,
-                    record.getPropertyInternal(multiValueProperty));
-              }
+                record.getCollectionTimeLine(indexProperty);
+            for (var changeEvent : multiValueChangeTimeLine.getMultiValueChangeEvents()) {
+              indexDefinition.processChangeEvent(
+                  transaction, changeEvent, keysToAdd, keysToRemove,
+                  multiValueIndex,
+                  origValues.toArray());
+            }
 
-              final var origValue = indexDefinition.createValue(transaction, origValues);
-              final var newValue = indexDefinition.getDocumentValueToIndex(transaction, record);
+            for (final Object keyToRemove : keysToRemove.keySet()) {
+              addRemove(transaction, index, keyToRemove, record);
+            }
 
-              processIndexUpdateFieldAssignment(transaction, index, record, origValue, newValue);
-            } else {
-              // in case of null values support and empty collection field we put null placeholder in
-              // place where collection item should be located so we can not use "fast path" to
-              // update index values
-              if (dirtyFields.size() == 1 && indexDefinition.isNullValuesIgnored()) {
-                final var keysToAdd = new Object2IntOpenHashMap<CompositeKey>();
-                keysToAdd.defaultReturnValue(-1);
-                final var keysToRemove =
-                    new Object2IntOpenHashMap<CompositeKey>();
-                keysToRemove.defaultReturnValue(-1);
-
-                for (var changeEvent :
-                    multiValueChangeTimeLine.getMultiValueChangeEvents()) {
-                  indexDefinition.processChangeEvent(
-                      transaction, changeEvent, keysToAdd, keysToRemove,
-                      dirtyMultiValueProperties.iterator().nextInt(),
-                      origValues.toArray());
-                }
-
-                for (final Object keyToRemove : keysToRemove.keySet()) {
-                  addRemove(transaction, index, keyToRemove, record);
-                }
-
-                for (final Object keyToAdd : keysToAdd.keySet()) {
-                  addPut(transaction, index, keyToAdd, record.getIdentity());
-                }
-              } else {
-                @SuppressWarnings("rawtypes") final TrackedMultiValue fieldValue =
-                    record.getProperty(multiValueProperty);
-                @SuppressWarnings("unchecked") final var restoredMultiValue =
-                    fieldValue.returnOriginalState(transaction,
-                        multiValueChangeTimeLine.getMultiValueChangeEvents());
-
-                origValues.add(multiValuePropertyIndex, restoredMultiValue);
-
-                final var origValue = indexDefinition.createValue(transaction, origValues);
-                final var newValue = indexDefinition.getDocumentValueToIndex(transaction, record);
-
-                processIndexUpdateFieldAssignment(transaction, index, record, origValue, newValue);
-              }
+            for (final Object keyToAdd : keysToAdd.keySet()) {
+              addPut(transaction, index, keyToAdd, record.getIdentity());
             }
           }
         }
@@ -307,7 +288,7 @@ public class ClassIndexManager {
       if (dirtyFields.contains(indexProperty)) {
         final List<Object> origValues = new ArrayList<>(indexProperties.size());
 
-        IntOpenHashSet dirtyMultiValueIndexes = null;
+        var multiValueIndex = -1;
         for (var i = 0; i < indexProperties.size(); ++i) {
           final var property = indexProperties.get(i);
           if (!indexDefinition.isMultivaluePropertyIndex(i)) {
@@ -316,34 +297,19 @@ public class ClassIndexManager {
             } else {
               origValues.add(record.getProperty(property));
             }
-          } else if (dirtyFields.contains(property)) {
-            if (dirtyMultiValueIndexes == null) {
-              dirtyMultiValueIndexes = new IntOpenHashSet();
-            }
-
-            dirtyMultiValueIndexes.add(i);
-          }
-        }
-
-        if (indexDefinition.hasMultiValueProperties()) {
-          var multiValuePropertiesIndexes = indexDefinition.getMultiValueDefinitionIndexes()
-              .toIntArray();
-          Arrays.sort(multiValuePropertiesIndexes);
-          for (var multiValueIndex : multiValuePropertiesIndexes) {
-            var multiValueProperty = indexProperties.get(multiValueIndex);
-            var multiValueChangeTimeLine = record.getCollectionTimeLine(multiValueProperty);
+          } else {
+            var multiValueChangeTimeLine = record.getCollectionTimeLine(property);
             if (multiValueChangeTimeLine != null) {
               @SuppressWarnings("rawtypes") final TrackedMultiValue propertyValue = record.getProperty(
-                  multiValueProperty);
+                  property);
               @SuppressWarnings("unchecked") final var restoredMultiValue =
                   propertyValue.returnOriginalState(transaction,
                       multiValueChangeTimeLine.getMultiValueChangeEvents());
               origValues.add(multiValueIndex, restoredMultiValue);
-            } else if (dirtyMultiValueIndexes != null &&
-                dirtyMultiValueIndexes.contains(multiValueIndex)) {
-              origValues.add(multiValueIndex, record.getOriginalValue(multiValueProperty));
+            } else if (dirtyFields.contains(property)) {
+              origValues.add(multiValueIndex, record.getOriginalValue(property));
             } else {
-              origValues.add(multiValueIndex, record.getProperty(multiValueProperty));
+              origValues.add(multiValueIndex, record.getProperty(property));
             }
           }
         }
