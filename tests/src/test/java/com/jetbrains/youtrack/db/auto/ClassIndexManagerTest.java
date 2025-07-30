@@ -2404,194 +2404,182 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 0);
   }
-//
-//  public void testCollectionCompositeDeleteBothCollectionSimpleFieldChanged() {
-//    checkEmbeddedDB();
-//
-//    session.begin();
-//    var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
-//
-//    doc.setProperty("prop1", "test1");
-//    doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 2)));
-//
-//    session.commit();
-//
-//    session.begin();
-//    var activeTx = session.getActiveTransaction();
-//    doc = activeTx.load(doc);
-//    final var index =
-//        session
-//            .getSharedContext()
-//            .getIndexManager()
-//            .getIndex("classIndexManagerTestIndexValueAndCollection");
-//    Assert.assertEquals(index.size(session), 2);
-//
-//    List<Integer> docList = doc.getProperty("prop2");
-//    docList.add(3);
-//    docList.add(4);
-//
-//    docList.remove(1);
-//
-//    doc.setProperty("prop1", "test2");
-//
-//    doc.delete();
-//    session.commit();
-//
-//    Assert.assertEquals(index.size(session), 0);
-//  }
-//
-//  public void testCollectionCompositeDeleteBothCollectionSimpleFieldAssigend() {
-//    checkEmbeddedDB();
-//
-//    session.begin();
-//    var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
-//
-//    doc.setProperty("prop1", "test1");
-//    doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 2)));
-//
-//    session.commit();
-//
-//    session.begin();
-//    final var index =
-//        session
-//            .getSharedContext()
-//            .getIndexManager()
-//            .getIndex("classIndexManagerTestIndexValueAndCollection");
-//    Assert.assertEquals(index.size(session), 2);
-//
-//    var activeTx = session.getActiveTransaction();
-//    doc = activeTx.load(doc);
-//    doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 3)));
-//    doc.setProperty("prop1", "test2");
-//
-//    doc.delete();
-//    session.commit();
-//
-//    Assert.assertEquals(index.size(session), 0);
-//  }
-//
-//  public void testCollectionCompositeDeleteSimpleFieldNull() {
-//    checkEmbeddedDB();
-//
-//    session.begin();
-//    var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
-//
-//    doc.setProperty("prop1", "test1");
-//    doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 2)));
-//
-//    session.commit();
-//
-//    session.begin();
-//    var activeTx = session.getActiveTransaction();
-//    doc = activeTx.load(doc);
-//    final var index =
-//        session
-//            .getSharedContext()
-//            .getIndexManager()
-//            .getIndex("classIndexManagerTestIndexValueAndCollection");
-//    Assert.assertEquals(index.size(session), 2);
-//
-//    doc.setProperty("prop1", null);
-//
-//    doc.delete();
-//    session.commit();
-//
-//    Assert.assertEquals(index.size(session), 0);
-//  }
-//
-//  public void testCollectionCompositeDeleteCollectionFieldNull() {
-//    checkEmbeddedDB();
-//
-//    session.begin();
-//    var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
-//
-//    doc.setProperty("prop1", "test1");
-//    doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 2)));
-//
-//    session.commit();
-//
-//    session.begin();
-//    final var index =
-//        session
-//            .getSharedContext()
-//            .getIndexManager()
-//            .getIndex("classIndexManagerTestIndexValueAndCollection");
-//    Assert.assertEquals(index.size(session), 2);
-//
-//    var activeTx = session.getActiveTransaction();
-//    doc = activeTx.load(doc);
-//    doc.setProperty("prop2", null);
-//
-//    doc.delete();
-//    session.commit();
-//
-//    Assert.assertEquals(index.size(session), 0);
-//  }
-//
-//  public void testCollectionCompositeDeleteBothSimpleCollectionFieldNull() {
-//    checkEmbeddedDB();
-//
-//    session.begin();
-//    var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
-//
-//    doc.setProperty("prop1", "test1");
-//    doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 2)));
-//
-//    session.commit();
-//
-//    session.begin();
-//    var activeTx = session.getActiveTransaction();
-//    doc = activeTx.load(doc);
-//    final var index =
-//        session
-//            .getSharedContext()
-//            .getIndexManager()
-//            .getIndex("classIndexManagerTestIndexValueAndCollection");
-//    Assert.assertEquals(index.size(session), 2);
-//
-//    doc.setProperty("prop2", null);
-//    doc.setProperty("prop1", null);
-//
-//    doc.delete();
-//    session.commit();
-//
-//    Assert.assertEquals(index.size(session), 0);
-//  }
-//
-//  public void testCollectionCompositeDeleteCollectionFieldChangedSimpleFieldNull() {
-//    checkEmbeddedDB();
-//
-//    session.begin();
-//    var doc = ((EntityImpl) session.newEntity("classIndexManagerTestCompositeCollectionClass"));
-//
-//    doc.setProperty("prop1", "test1");
-//    doc.setProperty("prop2", session.newEmbeddedList(List.of(1, 2)));
-//
-//    session.commit();
-//
-//    session.begin();
-//    var activeTx = session.getActiveTransaction();
-//    doc = activeTx.load(doc);
-//    final var index =
-//        session
-//            .getSharedContext()
-//            .getIndexManager()
-//            .getIndex("classIndexManagerTestIndexValueAndCollection");
-//    Assert.assertEquals(index.size(session), 2);
-//
-//    List<Integer> docList = doc.getProperty("prop2");
-//    docList.add(3);
-//    docList.add(4);
-//
-//    docList.remove(1);
-//
-//    doc.setProperty("prop1", null);
-//
-//    doc.delete();
-//    session.commit();
-//
-//    Assert.assertEquals(index.size(session), 0);
-//  }
+
+  public void testTwoCollectionsCompositeDeleteBothCollectionFieldChanged() {
+    session.begin();
+    var doc = session.newEntity(COMPOSITE_TWO_COLLECTIONS_CLASS);
+
+    doc.setProperty(PROP_1, session.newEmbeddedList(List.of("val1", "val2")));
+    doc.setProperty(PROP_2, session.newEmbeddedList(List.of(1, 2)));
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    final var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
+    Assert.assertEquals(index.size(session), 4);
+
+    List<Integer> docList = doc.getProperty(PROP_2);
+    docList.add(3);
+    docList.add(4);
+
+    docList.remove(1);
+
+    doc.getEmbeddedList(PROP_1).remove(1);
+
+    doc.delete();
+    session.commit();
+
+    Assert.assertEquals(index.size(session), 0);
+  }
+
+  public void testTwoCollectionCompositeDeleteBothCollectionFirstFieldAssigend() {
+    session.begin();
+    var entity = ((EntityImpl) session.newEntity(COMPOSITE_TWO_COLLECTIONS_CLASS));
+
+    entity.setProperty(PROP_1, session.newEmbeddedList(List.of("val1", "val2")));
+    entity.setProperty(PROP_2, session.newEmbeddedList(List.of(1, 2)));
+
+    session.commit();
+
+    session.begin();
+    final var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
+    Assert.assertEquals(index.size(session), 4);
+
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    entity.setProperty(PROP_2, session.newEmbeddedList(List.of(1, 3)));
+    entity.setProperty(PROP_1, session.newEmbeddedList(List.of("val3", "val4")));
+
+    entity.delete();
+    session.commit();
+
+    Assert.assertEquals(index.size(session), 0);
+  }
+
+  public void testTwoCollectionsCompositeDeleteFirstFieldNull() {
+    session.begin();
+    var entity = session.newEntity(COMPOSITE_TWO_COLLECTIONS_CLASS);
+
+    entity.setProperty(PROP_1, session.newEmbeddedList(List.of("val1", "val2")));
+    entity.setProperty(PROP_2, session.newEmbeddedList(List.of(1, 2)));
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    final var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
+    Assert.assertEquals(index.size(session), 4);
+
+    entity.setProperty(PROP_1, null);
+
+    entity.delete();
+    session.commit();
+
+    Assert.assertEquals(index.size(session), 0);
+  }
+
+  public void testTwoCollectionsCompositeDeleteSecondFieldNull() {
+    session.begin();
+    var doc = session.newEntity(COMPOSITE_TWO_COLLECTIONS_CLASS);
+
+    doc.setProperty(PROP_1, session.newEmbeddedList(List.of("val1", "val2")));
+    doc.setProperty(PROP_2, session.newEmbeddedList(List.of(1, 2)));
+
+    session.commit();
+
+    session.begin();
+    final var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
+    Assert.assertEquals(index.size(session), 4);
+
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    doc.setProperty(PROP_2, null);
+
+    doc.delete();
+    session.commit();
+
+    Assert.assertEquals(index.size(session), 0);
+  }
+
+  public void testTwoCollectionsCompositeDeleteBothSimpleCollectionFieldNull() {
+    session.begin();
+    var doc = session.newEntity(COMPOSITE_TWO_COLLECTIONS_CLASS);
+
+    doc.setProperty(PROP_1, session.newEmbeddedList(List.of("val1", "val2")));
+    doc.setProperty(PROP_2, session.newEmbeddedList(List.of(1, 2)));
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    doc = activeTx.load(doc);
+    final var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
+    Assert.assertEquals(index.size(session), 4);
+
+    doc.setProperty(PROP_2, null);
+    doc.setProperty(PROP_1, null);
+
+    doc.delete();
+    session.commit();
+
+    Assert.assertEquals(index.size(session), 0);
+  }
+
+  public void testTwoCollectionsCompositeDeleteSecondCollectionFieldChangedFirstFieldNull() {
+    session.begin();
+    var entity = session.newEntity(COMPOSITE_TWO_COLLECTIONS_CLASS);
+
+    entity.setProperty(PROP_1, session.newEmbeddedList(List.of("val1", "val2")));
+    entity.setProperty(PROP_2, session.newEmbeddedList(List.of(1, 2)));
+
+    session.commit();
+
+    session.begin();
+    var activeTx = session.getActiveTransaction();
+    entity = activeTx.load(entity);
+    final var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
+    Assert.assertEquals(index.size(session), 4);
+
+    List<Integer> docList = entity.getProperty(PROP_2);
+    docList.add(3);
+    docList.add(4);
+
+    docList.remove(1);
+
+    entity.setProperty(PROP_1, null);
+
+    entity.delete();
+    session.commit();
+
+    Assert.assertEquals(index.size(session), 0);
+  }
 
   public void testIndexOnPropertiesFromClassAndSuperclass() {
 
