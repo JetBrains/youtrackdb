@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -29,7 +30,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.io.Serializable;
 import java.util.AbstractSet;
@@ -166,6 +166,38 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
       final List<MultiValueChangeEvent<Identifiable, Identifiable>> multiValueChangeEvents) {
     var reverted = new HashSet<>(this);
 
+    doRollBackChanges(multiValueChangeEvents, reverted);
+
+    return reverted;
+  }
+
+  @Override
+  public void rollbackChanges(FrontendTransaction transaction) {
+    var tracker = delegate.getTracker();
+    if (!tracker.isEnabled()) {
+      throw new DatabaseException(transaction.getDatabaseSession(),
+          "Changes are not tracked so it is impossible to rollback them");
+    }
+
+    var timeLine = tracker.getTimeLine();
+    //no changes were performed
+    if (timeLine == null) {
+      return;
+    }
+    var changeEvents = timeLine.getMultiValueChangeEvents();
+    //no changes were performed
+    if (changeEvents == null || changeEvents.isEmpty()) {
+      return;
+    }
+
+    //noinspection rawtypes,unchecked
+    doRollBackChanges((List) changeEvents, this);
+  }
+
+  private static void doRollBackChanges(
+      List<MultiValueChangeEvent<Identifiable, Identifiable>> multiValueChangeEvents,
+      Set<Identifiable> reverted) {
+    multiValueChangeEvents = List.copyOf(multiValueChangeEvents);
     final var listIterator =
         multiValueChangeEvents.listIterator(multiValueChangeEvents.size());
 
@@ -182,8 +214,6 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
           throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
-
-    return reverted;
   }
 
   @Override
@@ -225,8 +255,6 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   public int hashCode() {
     if (isEmbedded()) {
       return super.hashCode();
-    } else if (delegate instanceof RemoteTreeLinkBag remoteTreeLinkBag) {
-      return remoteTreeLinkBag.getCollectionPointer().hashCode();
     } else {
       return ((BTreeBasedLinkBag) delegate).getCollectionPointer().hashCode();
     }
@@ -330,8 +358,6 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   public LinkBagPointer getPointer() {
     if (isEmbedded()) {
       return LinkBagPointer.INVALID;
-    } else if (delegate instanceof RemoteTreeLinkBag) {
-      return ((RemoteTreeLinkBag) delegate).getCollectionPointer();
     } else {
       return ((BTreeBasedLinkBag) delegate).getCollectionPointer();
     }
@@ -339,13 +365,5 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
 
   public LinkBagDelegate getDelegate() {
     return delegate;
-  }
-
-
-  @Override
-  public void setOwnerFieldName(String fieldName) {
-    if (this.delegate instanceof RemoteTreeLinkBag) {
-      ((RemoteTreeLinkBag) this.delegate).setOwnerFieldName(fieldName);
-    }
   }
 }

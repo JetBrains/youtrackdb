@@ -13,6 +13,7 @@ import com.jetbrains.youtrack.db.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -1588,6 +1589,58 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
     session.commit();
   }
 
+  @Test
+  public void testRollBackChangesAfterCallback() {
+    session.begin();
+    final var entity = (EntityImpl) session.newEntity();
+
+    final var originalSet = new HashSet<Identifiable>();
+    var entity1 = session.newEntity();
+    originalSet.add(entity1);
+
+    var entity2 = session.newEntity();
+    originalSet.add(entity2);
+
+    var entity3 = session.newEntity();
+    originalSet.add(entity3);
+
+    var entity4 = session.newEntity();
+    originalSet.add(entity4);
+
+    var entity5 = session.newEntity();
+    originalSet.add(entity5);
+
+    var entitySet = entity.newLinkSet("linkSet");
+    entitySet.addAll(originalSet);
+
+    var tx = (FrontendTransactionImpl) session.getTransactionInternal();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    var entity6 = session.newEntity();
+    entitySet.add(entity6);
+
+    entitySet.remove(entity2);
+    entitySet.remove(entity5);
+
+    var entity7 = session.newEntity();
+    entitySet.add(entity7);
+
+    var entity8 = session.newEntity();
+    entitySet.add(entity8);
+
+    entitySet.remove(entity7);
+
+    var entity9 = session.newEntity();
+    entitySet.add(entity9);
+
+    var entity10 = session.newEntity();
+    entitySet.add(entity10);
+
+    ((EntityLinkSetImpl) entitySet).rollbackChanges(tx);
+
+    Assert.assertEquals(originalSet, entitySet);
+    session.rollback();
+  }
 
   private void massiveInsertionIteration(Random rnd, Set<Identifiable> rids,
       EntityLinkSetImpl linkSet) {

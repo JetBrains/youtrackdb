@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrack.db.internal.core.storage.ridbag;
 
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
@@ -57,6 +58,36 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
       reverted.add(identifiable);
     }
 
+    doRollBackChanges(multiValueChangeEvents, reverted);
+
+    return reverted;
+  }
+
+  @Override
+  public void rollbackChanges(FrontendTransaction transaction) {
+    if (!tracker.isEnabled()) {
+      throw new DatabaseException(transaction.getDatabaseSession(),
+          "Changes are not tracked so it is impossible to rollback them");
+    }
+
+    var timeLine = tracker.getTimeLine();
+    //no changes were performed
+    if (timeLine == null) {
+      return;
+    }
+    var changeEvents = timeLine.getMultiValueChangeEvents();
+    //no changes were performed
+    if (changeEvents == null || changeEvents.isEmpty()) {
+      return;
+    }
+
+    doRollBackChanges(changeEvents, this);
+  }
+
+  private static void doRollBackChanges(
+      List<MultiValueChangeEvent<RID, RID>> multiValueChangeEvents,
+      EmbeddedLinkBag reverted) {
+    multiValueChangeEvents = List.copyOf(multiValueChangeEvents);
     final var listIterator =
         multiValueChangeEvents.listIterator(multiValueChangeEvents.size());
 
@@ -73,8 +104,6 @@ public class EmbeddedLinkBag extends AbstractLinkBag {
           throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
-
-    return reverted;
   }
 
 

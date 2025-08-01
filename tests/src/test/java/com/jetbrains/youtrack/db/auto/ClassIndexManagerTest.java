@@ -1,6 +1,8 @@
 package com.jetbrains.youtrack.db.auto;
 
 import com.jetbrains.youtrack.db.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrack.db.api.record.Entity;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
@@ -8,11 +10,16 @@ import com.jetbrains.youtrack.db.internal.core.index.CompositeKey;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
@@ -25,8 +32,15 @@ public class ClassIndexManagerTest extends BaseDBTest {
       "ClassIndexManagerTestCompositeTwoCollectionsClass";
   public static final String COMPOSITE_TWO_COLLECTIONS_INDEX =
       "ClassIndexManagerTestIndexTwoCollections";
+
+  public static final String COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_CLASS =
+      "ClassIndexManagerTestCompositeTwoCollectionsPrimitiveClass";
+  public static final String COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX =
+      "ClassIndexManagerTestIndexThreeCollectionsPrimitive";
+
   public static final String PROP_1 = "prop1";
   public static final String PROP_2 = "prop2";
+  public static final String PROP_3 = "prop3";
 
   @Override
   @BeforeClass
@@ -126,6 +140,20 @@ public class ClassIndexManagerTest extends BaseDBTest {
         null,
         Map.of("ignoreNullValues", true),
         new String[]{PROP_1, PROP_2});
+
+    final var compositeTwoCollectionPrimitiveClass =
+        schema.createClass(COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_CLASS);
+    compositeTwoCollectionPrimitiveClass.createProperty(PROP_1, PropertyType.EMBEDDEDLIST,
+        PropertyType.STRING);
+    compositeTwoCollectionPrimitiveClass.createProperty(PROP_2, PropertyType.EMBEDDEDLIST,
+        PropertyType.INTEGER);
+    compositeTwoCollectionPrimitiveClass.createProperty(PROP_3, PropertyType.INTEGER);
+
+    compositeTwoCollectionPrimitiveClass.createIndex(COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX,
+        SchemaClass.INDEX_TYPE.UNIQUE.toString(),
+        null,
+        Map.of("ignoreNullValues", true),
+        new String[]{PROP_1, PROP_2, PROP_3});
 
     oClass.createIndex(
         "classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass",
@@ -2581,6 +2609,103 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 0);
   }
 
+  public void testThreePropertiesTwoCollectionRandomUpdate() {
+    var seed = System.nanoTime();
+    System.out.printf("testThreePropertiesTwoCollectionRandomUpdate seed %d%n", seed);
+
+    var random = new Random(seed);
+
+    var rid = session.computeInTx(transaction -> {
+      var prop1 = IntStream.generate(random::nextInt).limit(random.nextInt(10)).boxed().toList();
+      var prop2 = IntStream.generate(random::nextInt).limit(random.nextInt(10)).boxed().toList();
+      var prop3Value = random.nextInt(10);
+
+      var entity = session.newEntity(COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_CLASS);
+
+      entity.newEmbeddedList(PROP_1, prop1);
+      entity.newEmbeddedList(PROP_2, prop2);
+      entity.setInt(PROP_3, prop3Value);
+
+      return entity.getIdentity();
+    });
+
+    validateCompositeIndex(rid);
+
+    for (var i = 0; i < 100; i++) {
+      session.executeInTx(transaction -> {
+        var entity = session.loadEntity(rid);
+
+        modifyEmbeddedList(random, entity, PROP_1);
+        modifyEmbeddedList(random, entity, PROP_2);
+
+        if (random.nextBoolean()) {
+          entity.setInt(PROP_3, random.nextInt());
+        }
+
+        if (random.nextBoolean()) {
+          entity.removeProperty(PROP_1);
+        }
+        if (random.nextBoolean()) {
+          entity.removeProperty(PROP_2);
+        }
+        if (random.nextBoolean()) {
+          entity.removeProperty(PROP_3);
+        }
+      });
+
+      validateCompositeIndex(rid);
+    }
+
+    session.executeInTx(transaction -> {
+      var entity = session.loadEntity(rid);
+      entity.delete();
+    });
+
+    session.executeInTx(transaction -> {
+      var index = session.getSharedContext().getIndexManager().getIndex(
+          COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX);
+      Assert.assertEquals(index.size(session), 0);
+    });
+  }
+
+  private void validateCompositeIndex(RID rid) {
+    session.executeInTx(transaction -> {
+      var index = session.getSharedContext().getIndexManager().getIndex(
+          COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX);
+
+      var entity = session.loadEntity(rid);
+      var expectedKeys = createCompositeKeysFromEntity(entity);
+      var actualKeys = index.keyStream();
+
+      actualKeys.forEach(key -> Assert.assertTrue(expectedKeys.remove((CompositeKey) key)));
+      Assert.assertTrue(expectedKeys.isEmpty());
+    });
+  }
+
+  private static void modifyEmbeddedList(Random random, Entity entity, String propName) {
+    if (random.nextBoolean()) {
+      var embeddedList = entity.getEmbeddedList(propName);
+
+      if (embeddedList == null) {
+        embeddedList = entity.newEmbeddedList(propName);
+      }
+
+      var removeCount = 0;
+      if (!embeddedList.isEmpty()) {
+        removeCount = random.nextInt(embeddedList.size());
+      }
+
+      var addCount = random.nextInt(10);
+      for (var j = 0; j < removeCount; j++) {
+        embeddedList.remove(random.nextInt(embeddedList.size()));
+      }
+
+      for (var j = 0; j < addCount; j++) {
+        embeddedList.add(random.nextInt());
+      }
+    }
+  }
+
   public void testIndexOnPropertiesFromClassAndSuperclass() {
 
     session.begin();
@@ -2601,5 +2726,27 @@ public class ClassIndexManagerTest extends BaseDBTest {
         session.getSharedContext().getIndexManager()
             .getIndex("classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass");
     Assert.assertEquals(index.size(session), 2);
+  }
+
+  private static List<CompositeKey> createCompositeKeysFromEntity(Entity entity) {
+    var firstList = entity.getEmbeddedList(PROP_1);
+    if (firstList == null) {
+      return Collections.emptyList();
+    }
+
+    var secondList = entity.getEmbeddedList(PROP_2);
+    if (secondList == null) {
+      return Collections.emptyList();
+    }
+
+    var intVal = entity.getInt(PROP_3);
+    if (intVal == null) {
+      return Collections.emptyList();
+    }
+
+    var stream = firstList.stream().
+        flatMap(first -> secondList.stream().map(second ->
+            new CompositeKey(first, second))).peek(compositeKey -> compositeKey.addKey(intVal));
+    return stream.collect(Collectors.toCollection(ArrayList::new));
   }
 }

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.io.Serializable;
@@ -227,8 +228,15 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
   public List<T> returnOriginalState(
       FrontendTransaction transaction,
       final List<MultiValueChangeEvent<Integer, T>> multiValueChangeEvents) {
-    final List<T> reverted = new ArrayList<T>(this);
+    final List<T> reverted = new ArrayList<>(this);
+    doRollBackChanges(multiValueChangeEvents, reverted);
 
+    return reverted;
+  }
+
+  private static <T> void doRollBackChanges(
+      List<MultiValueChangeEvent<Integer, T>> multiValueChangeEvents, List<T> reverted) {
+    multiValueChangeEvents = List.copyOf(multiValueChangeEvents);
     final var listIterator =
         multiValueChangeEvents.listIterator(multiValueChangeEvents.size());
 
@@ -248,8 +256,27 @@ public class EntityEmbeddedListImpl<T> extends AbstractList<T>
           throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
+  }
 
-    return reverted;
+  @Override
+  public void rollbackChanges(FrontendTransaction transaction) {
+    if (!tracker.isEnabled()) {
+      throw new DatabaseException(transaction.getDatabaseSession(),
+          "Changes are not tracked so it is impossible to rollback them");
+    }
+
+    var timeLine = tracker.getTimeLine();
+    //no changes were performed
+    if (timeLine == null) {
+      return;
+    }
+    var changeEvents = timeLine.getMultiValueChangeEvents();
+    //no changes were performed
+    if (changeEvents == null || changeEvents.isEmpty()) {
+      return;
+    }
+
+    doRollBackChanges(changeEvents, this);
   }
 
   @Override

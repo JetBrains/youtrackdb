@@ -1427,7 +1427,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
       case StorageBackedMultiValue storageBackedMultiValue -> {
         storageBackedMultiValue.setOwner(this);
-        storageBackedMultiValue.setOwnerFieldName(name);
       }
       case RecordElement element -> {
         if (!(element instanceof Blob)) {
@@ -1480,7 +1479,11 @@ public class EntityImpl extends RecordAbstract implements Entity {
       // SAVE THE OLD VALUE IN A SEPARATE MAP
       if (entry.original == null) {
         entry.original = entry.value;
+        if (entry.original instanceof TrackedMultiValue<?, ?> trackedMultiValue) {
+          trackedMultiValue.rollbackChanges(session.getTransactionInternal());
+        }
       }
+
       entry.value = null;
       entry.setExists(false);
       entry.markChanged();

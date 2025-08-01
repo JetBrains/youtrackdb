@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedMap;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
@@ -210,11 +211,41 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
   }
 
   @Override
-  public Map<Object, T> returnOriginalState(
+  public Map<String, T> returnOriginalState(
       FrontendTransaction transaction,
       final List<MultiValueChangeEvent<String, T>> multiValueChangeEvents) {
-    final Map<Object, T> reverted = new HashMap<Object, T>(this);
+    final Map<String, T> reverted = new HashMap<>(this);
 
+    doRollBackChanges(multiValueChangeEvents, reverted);
+
+    return reverted;
+  }
+
+  @Override
+  public void rollbackChanges(FrontendTransaction transaction) {
+    if (!tracker.isEnabled()) {
+      throw new DatabaseException(transaction.getDatabaseSession(),
+          "Changes are not tracked so it is impossible to rollback them");
+    }
+
+    var timeLine = tracker.getTimeLine();
+    //no changes were performed
+    if (timeLine == null) {
+      return;
+    }
+    var changeEvents = timeLine.getMultiValueChangeEvents();
+    //no changes were performed
+    if (changeEvents == null || changeEvents.isEmpty()) {
+      return;
+    }
+
+    doRollBackChanges(changeEvents, this);
+  }
+
+  private static <T> void doRollBackChanges(
+      List<MultiValueChangeEvent<String, T>> multiValueChangeEvents,
+      Map<String, T> reverted) {
+    multiValueChangeEvents = List.copyOf(multiValueChangeEvents);
     final var listIterator =
         multiValueChangeEvents.listIterator(multiValueChangeEvents.size());
 
@@ -234,8 +265,6 @@ public final class EntityEmbeddedMapImpl<T> extends AbstractMap<String, T>
           throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
-
-    return reverted;
   }
 
   @Override
