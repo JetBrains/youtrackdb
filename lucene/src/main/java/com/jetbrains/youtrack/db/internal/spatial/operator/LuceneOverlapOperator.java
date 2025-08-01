@@ -14,43 +14,17 @@
 package com.jetbrains.youtrack.db.internal.spatial.operator;
 
 import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
-import com.jetbrains.youtrack.db.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
-import com.jetbrains.youtrack.db.internal.spatial.collections.SpatialCompositeKey;
-import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderAbstract;
-import com.jetbrains.youtrack.db.internal.spatial.strategy.SpatialQueryBuilderOverlap;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Stream;
 import org.apache.lucene.spatial.query.SpatialOperation;
 
 public class LuceneOverlapOperator extends LuceneSpatialOperator {
 
   public LuceneOverlapOperator() {
     super("&&", 5, false);
-  }
-
-  @Override
-  public Stream<RawPair<Object, RID>> executeIndexQuery(
-      CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    Object key;
-    key = keyParams.get(0);
-
-    Map<String, Object> queryParams = new HashMap<String, Object>();
-    queryParams.put(SpatialQueryBuilderAbstract.GEO_FILTER, SpatialQueryBuilderOverlap.NAME);
-    queryParams.put(SpatialQueryBuilderAbstract.SHAPE, key);
-
-    return index
-        .getRids(iContext.getDatabaseSession(), queryParams)
-        .map((rid) -> new RawPair<>(new SpatialCompositeKey(keyParams), rid));
   }
 
   @Override

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.common.query.collection.embedded.EmbeddedSet;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.internal.core.record.impl.SimpleMultiValueTracker;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.io.Serializable;
@@ -187,6 +188,36 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
       final List<MultiValueChangeEvent<T, T>> multiValueChangeEvents) {
     var reverted = new HashSet<>(this);
 
+    doRollBackChanges(multiValueChangeEvents, reverted);
+
+    return reverted;
+  }
+
+  @Override
+  public void rollbackChanges(FrontendTransaction transaction) {
+    if (!tracker.isEnabled()) {
+      throw new DatabaseException(transaction.getDatabaseSession(),
+          "Changes are not tracked so it is impossible to rollback them");
+    }
+
+    var timeLine = tracker.getTimeLine();
+    //no changes were performed
+    if (timeLine == null) {
+      return;
+    }
+    var changeEvents = timeLine.getMultiValueChangeEvents();
+    //no changes were performed
+    if (changeEvents == null || changeEvents.isEmpty()) {
+      return;
+    }
+
+    doRollBackChanges(changeEvents, this);
+  }
+
+  private static <T> void doRollBackChanges(
+      List<MultiValueChangeEvent<T, T>> multiValueChangeEvents,
+      Set<T> reverted) {
+    multiValueChangeEvents = List.copyOf(multiValueChangeEvents);
     final var listIterator =
         multiValueChangeEvents.listIterator(multiValueChangeEvents.size());
 
@@ -203,8 +234,6 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
           throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
-
-    return reverted;
   }
 
   @Override

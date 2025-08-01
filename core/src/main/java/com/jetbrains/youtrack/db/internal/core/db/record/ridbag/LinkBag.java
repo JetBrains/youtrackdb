@@ -38,7 +38,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.EmbeddedLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkBagPointer;
-import com.jetbrains.youtrack.db.internal.core.storage.ridbag.RemoteTreeLinkBag;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Collection;
@@ -260,6 +259,10 @@ public class LinkBag
         (LinkBagDelegate) delegate.returnOriginalState(transaction, multiValueChangeEvents));
   }
 
+  @Override
+  public void rollbackChanges(FrontendTransaction transaction) {
+    delegate.rollbackChanges(transaction);
+  }
 
   @Override
   public void setOwner(RecordElement owner) {
@@ -274,8 +277,6 @@ public class LinkBag
   public LinkBagPointer getPointer() {
     if (isEmbedded()) {
       return LinkBagPointer.INVALID;
-    } else if (delegate instanceof RemoteTreeLinkBag) {
-      return ((RemoteTreeLinkBag) delegate).getCollectionPointer();
     } else {
       return ((BTreeBasedLinkBag) delegate).getCollectionPointer();
     }
@@ -376,12 +377,5 @@ public class LinkBag
   @Override
   public MultiValueChangeTimeLine<? extends RID, ? extends RID> getTransactionTimeLine() {
     return delegate.getTransactionTimeLine();
-  }
-
-  @Override
-  public void setOwnerFieldName(String fieldName) {
-    if (this.delegate instanceof RemoteTreeLinkBag) {
-      ((RemoteTreeLinkBag) this.delegate).setOwnerFieldName(fieldName);
-    }
   }
 }

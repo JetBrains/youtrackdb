@@ -38,10 +38,12 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
   protected AbstractIndexDefinition() {
   }
 
+  @Override
   public Collate getCollate() {
     return collate;
   }
 
+  @Override
   public void setCollate(final Collate collate) {
     if (collate == null) {
       throw new IllegalArgumentException("COLLATE cannot be null");

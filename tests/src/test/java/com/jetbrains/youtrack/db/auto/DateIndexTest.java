@@ -74,7 +74,6 @@ public class DateIndexTest extends BaseDBTest {
   }
 
   public void testDateIndexes() {
-    checkEmbeddedDB();
 
     session.begin();
     final var dateOne = new Date();

@@ -37,7 +37,6 @@ public class TruncateClassTest extends BaseDBTest {
   @SuppressWarnings("unchecked")
   @Test
   public void testTruncateClass() {
-    checkEmbeddedDB();
 
     Schema schema = session.getMetadata().getSchema();
     var testClass = getOrCreateClass(schema);
@@ -149,7 +148,6 @@ public class TruncateClassTest extends BaseDBTest {
 
   @Test
   public void testTruncateVertexClassSubclassesWithIndex() {
-    checkEmbeddedDB();
 
     session.execute("create class TestTruncateVertexClassSuperclassWithIndex").close();
     session

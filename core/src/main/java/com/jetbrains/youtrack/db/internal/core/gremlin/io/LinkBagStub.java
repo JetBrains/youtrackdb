@@ -199,11 +199,6 @@ public class LinkBagStub extends LinkBag {
   }
 
   @Override
-  public void setOwnerFieldName(String fieldName) {
-    throw new UnsupportedOperationException("Not supported for stubs");
-  }
-
-  @Override
   public void addOwner(RID e) {
     throw new UnsupportedOperationException("Not supported for stubs");
   }

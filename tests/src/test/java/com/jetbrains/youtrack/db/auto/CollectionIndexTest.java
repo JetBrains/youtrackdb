@@ -23,8 +23,6 @@ import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 @Test
@@ -53,7 +51,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollection() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -78,7 +75,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionInTx() {
-    checkEmbeddedDB();
 
     try {
       session.begin();
@@ -106,7 +102,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdate() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -132,7 +127,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdateInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -166,7 +160,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdateInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -198,7 +191,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdateAddItem() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -232,7 +224,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdateAddItemInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -267,7 +258,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdateAddItemInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -296,7 +286,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdateRemoveItemInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -330,7 +319,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdateRemoveItemInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -359,7 +347,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionUpdateRemoveItem() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -388,7 +375,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionRemove() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -402,7 +388,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionRemoveInTx() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");
@@ -424,7 +409,6 @@ public class CollectionIndexTest extends BaseDBTest {
   }
 
   public void testIndexCollectionRemoveInTxRollback() {
-    checkEmbeddedDB();
 
     session.begin();
     var collector = session.newEntity("Collector");

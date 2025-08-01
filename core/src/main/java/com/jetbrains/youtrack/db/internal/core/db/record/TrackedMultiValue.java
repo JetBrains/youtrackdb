@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.record.Blob;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrack.db.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransaction;
 import java.util.Iterator;
@@ -38,12 +39,28 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   /**
    * Reverts all operations that were performed on collection and return original collection state.
    *
-   * @param transaction
+   * @param transaction  currently active transaction.
    * @param changeEvents List of operations that were performed on collection.
    * @return Original collection state.
    */
   Object returnOriginalState(FrontendTransaction transaction,
       List<MultiValueChangeEvent<K, V>> changeEvents);
+
+  /// Reverts all changes are done to the tracked collection since the last time DB callbacks
+  /// processing changes of the entity were called. That means that not all operations can be
+  /// reverted but only diff between callbacks. This method is mostly used to keep consistency
+  /// between the state of the entity and related property indexes.
+  ///
+  /// @see com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded#beforeCreateOperations(RecordAbstract,
+  ///  String)
+  /// @see com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded#beforeUpdateOperations(RecordAbstract,
+  ///  String)
+  /// @see com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded#beforeDeleteOperations(RecordAbstract,
+  ///  String)
+  /// @see com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded#afterCreateOperations(RecordAbstract)
+  /// @see com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded#afterUpdateOperations(RecordAbstract)
+  /// @see com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded#afterDeleteOperations(RecordAbstract)
+  void rollbackChanges(FrontendTransaction transaction);
 
   void enableTracking(RecordElement parent);
 
@@ -82,7 +99,7 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
         trackedMultiValue.transactionClear();
       } else if (x instanceof EntityImpl EntityImpl) {
         if (EntityImpl.isEmbedded()) {
-          ((EntityImpl) x).clearTransactionTrackData();
+          EntityImpl.clearTransactionTrackData();
         }
       }
     }
@@ -99,7 +116,7 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
         var rid = entity.getIdentity();
 
         if (!rid.isValidPosition() || rid.isNew()) {
-          ((EntityImpl) e).setOwner(this);
+          entity.setOwner(this);
         }
       } else if (e instanceof RecordElement recordElement) {
         if (!(recordElement instanceof Blob)) {
@@ -127,7 +144,6 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
     }
     assert session == null
         || session.assertIfNotActive() : "Data container is unloaded please acquire new one from entity";
-    ;
 
     return true;
   }

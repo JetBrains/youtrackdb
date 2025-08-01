@@ -16,9 +16,7 @@ package com.jetbrains.youtrack.db.internal.spatial.operator;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
@@ -31,9 +29,7 @@ import com.jetbrains.youtrack.db.internal.spatial.collections.SpatialCompositeKe
 import com.jetbrains.youtrack.db.internal.spatial.shape.legacy.ShapeBuilderLegacy;
 import com.jetbrains.youtrack.db.internal.spatial.shape.legacy.ShapeBuilderLegacyImpl;
 import java.util.List;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
-import org.apache.lucene.spatial.query.SpatialOperation;
 import org.locationtech.spatial4j.context.SpatialContext;
 import org.locationtech.spatial4j.shape.Shape;
 import org.locationtech.spatial4j.shape.SpatialRelation;
@@ -73,17 +69,6 @@ public class LuceneWithinOperator extends QueryTargetOperator {
   @Override
   public IndexReuseType getIndexReuseType(Object iLeft, Object iRight) {
     return IndexReuseType.INDEX_OPERATOR;
-  }
-
-  @Override
-  public Stream<RawPair<Object, RID>> executeIndexQuery(
-      CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    iContext.setVariable("$luceneIndex", true);
-    return index.getRids(iContext.getDatabaseSession(),
-            new SpatialCompositeKey(keyParams).setOperation(SpatialOperation.IsWithin)
-                .setContext(iContext))
-        .map(
-            (rid) -> new RawPair<>(new SpatialCompositeKey(keyParams).setContext(iContext), rid));
   }
 
   @Nullable

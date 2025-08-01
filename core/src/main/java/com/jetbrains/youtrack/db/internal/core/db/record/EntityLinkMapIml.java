@@ -20,6 +20,7 @@
 package com.jetbrains.youtrack.db.internal.core.db.record;
 
 import com.jetbrains.youtrack.db.api.common.query.collection.links.LinkMap;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SchemaException;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
@@ -375,6 +376,36 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
       final List<MultiValueChangeEvent<String, Identifiable>> multiValueChangeEvents) {
     var reverted = new HashMap<>(this);
 
+    doRollBackChanges(multiValueChangeEvents, reverted);
+
+    return reverted;
+  }
+
+  @Override
+  public void rollbackChanges(FrontendTransaction transaction) {
+    if (!tracker.isEnabled()) {
+      throw new DatabaseException(transaction.getDatabaseSession(),
+          "Changes are not tracked so it is impossible to rollback them");
+    }
+
+    var timeLine = tracker.getTimeLine();
+    //no changes were performed
+    if (timeLine == null) {
+      return;
+    }
+    var changeEvents = timeLine.getMultiValueChangeEvents();
+    //no changes were performed
+    if (changeEvents == null || changeEvents.isEmpty()) {
+      return;
+    }
+
+    doRollBackChanges(changeEvents, this);
+  }
+
+  private static void doRollBackChanges(
+      List<MultiValueChangeEvent<String, Identifiable>> multiValueChangeEvents,
+      Map<String, Identifiable> reverted) {
+    multiValueChangeEvents = List.copyOf(multiValueChangeEvents);
     final var listIterator =
         multiValueChangeEvents.listIterator(multiValueChangeEvents.size());
 
@@ -394,8 +425,6 @@ public class EntityLinkMapIml extends AbstractMap<String, Identifiable>
           throw new IllegalArgumentException("Invalid change type : " + event.getChangeType());
       }
     }
-
-    return reverted;
   }
 
   @Override

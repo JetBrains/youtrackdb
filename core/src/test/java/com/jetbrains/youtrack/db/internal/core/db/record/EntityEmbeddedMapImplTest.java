@@ -197,13 +197,13 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
 
     final List<MultiValueChangeEvent<Object, String>> firedEvents = new ArrayList<>();
     firedEvents.add(
-        new MultiValueChangeEvent<Object, String>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, "key1", null, "value1"));
     firedEvents.add(
-        new MultiValueChangeEvent<Object, String>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, "key2", null, "value2"));
     firedEvents.add(
-        new MultiValueChangeEvent<Object, String>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, "key3", null, "value3"));
 
     trackedMap.enableTracking(doc);
@@ -251,7 +251,7 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
     trackedMap.put("key6", "value6");
     trackedMap.put("key7", "value7");
 
-    final Map<Object, String> original = new HashMap<Object, String>(trackedMap);
+    final Map<Object, String> original = new HashMap<>(trackedMap);
     trackedMap.enableTracking(doc);
     trackedMap.put("key8", "value8");
     trackedMap.put("key9", "value9");
@@ -263,11 +263,44 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
     trackedMap.remove("key8");
     trackedMap.remove("key3");
 
-    //noinspection unchecked,rawtypes
     Assert.assertEquals(
         trackedMap.returnOriginalState(session.getActiveTransaction(),
-            (List) trackedMap.getTimeLine().getMultiValueChangeEvents()),
+            trackedMap.getTimeLine().getMultiValueChangeEvents()),
         original);
+    session.rollback();
+  }
+
+  @Test
+  public void testRollBackChangesOne() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    final var originalMap = new HashMap<String, String>();
+    originalMap.put("key1", "value1");
+    originalMap.put("key2", "value2");
+    originalMap.put("key3", "value3");
+    originalMap.put("key4", "value4");
+    originalMap.put("key5", "value5");
+    originalMap.put("key6", "value6");
+    originalMap.put("key7", "value7");
+
+    var trackedMap = entity.newEmbeddedMap("map", originalMap);
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    trackedMap.put("key8", "value8");
+    trackedMap.put("key9", "value9");
+    trackedMap.put("key2", "value10");
+    trackedMap.put("key11", "value11");
+    trackedMap.remove("key5");
+    trackedMap.remove("key5");
+    trackedMap.put("key3", "value12");
+    trackedMap.remove("key8");
+    trackedMap.remove("key3");
+
+    ((EntityEmbeddedMapImpl<?>) trackedMap).rollbackChanges(tx);
+
+    Assert.assertEquals(originalMap, trackedMap);
     session.rollback();
   }
 
@@ -298,11 +331,45 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
     trackedMap.remove("key8");
     trackedMap.remove("key3");
 
-    //noinspection unchecked,rawtypes
     Assert.assertEquals(
         trackedMap.returnOriginalState(session.getActiveTransaction(),
-            (List) trackedMap.getTimeLine().getMultiValueChangeEvents()),
+            trackedMap.getTimeLine().getMultiValueChangeEvents()),
         original);
+    session.rollback();
+  }
+
+  @Test
+  public void testRollbackChangesTwo() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    final var originalMap = new HashMap<String, String>();
+    originalMap.put("key1", "value1");
+    originalMap.put("key2", "value2");
+    originalMap.put("key3", "value3");
+    originalMap.put("key4", "value4");
+    originalMap.put("key5", "value5");
+    originalMap.put("key6", "value6");
+    originalMap.put("key7", "value7");
+
+    var trackedMap = entity.newEmbeddedMap("map", originalMap);
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    trackedMap.put("key8", "value8");
+    trackedMap.put("key9", "value9");
+    trackedMap.put("key2", "value10");
+    trackedMap.put("key11", "value11");
+    trackedMap.remove("key5");
+    trackedMap.remove("key5");
+    trackedMap.clear();
+    trackedMap.put("key3", "value12");
+    trackedMap.remove("key8");
+    trackedMap.remove("key3");
+
+    ((EntityEmbeddedMapImpl<?>) trackedMap).rollbackChanges(tx);
+
+    Assert.assertEquals(originalMap, trackedMap);
     session.rollback();
   }
 

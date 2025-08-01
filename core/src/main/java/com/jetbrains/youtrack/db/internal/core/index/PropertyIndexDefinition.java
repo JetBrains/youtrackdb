@@ -57,14 +57,17 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   public PropertyIndexDefinition() {
   }
 
+  @Override
   public String getClassName() {
     return className;
   }
 
+  @Override
   public List<String> getProperties() {
     return Collections.singletonList(field);
   }
 
+  @Override
   public List<String> getFieldsToIndex() {
     if (collate == null || collate.getName().equals(DefaultCollate.NAME)) {
       return Collections.singletonList(field);
@@ -73,6 +76,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     return Collections.singletonList(field + " collate " + collate.getName());
   }
 
+  @Override
   @Nullable
   public Object getDocumentValueToIndex(
       FrontendTransaction transaction, final EntityImpl entity) {
@@ -138,6 +142,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
         + '}';
   }
 
+  @Override
   public Object createValue(FrontendTransaction transaction, final List<?> params) {
     return keyType.convert(params.getFirst(), null, null, transaction.getDatabaseSession());
   }
@@ -145,19 +150,23 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
+  @Override
   public Object createValue(FrontendTransaction transaction, final Object... params) {
     return keyType.convert(refreshRid(transaction.getDatabaseSession(), params[0]), null, null,
         transaction.getDatabaseSession());
   }
 
+  @Override
   public int getParamCount() {
     return 1;
   }
 
+  @Override
   public PropertyTypeInternal[] getTypes() {
     return new PropertyTypeInternal[]{keyType};
   }
 
+  @Override
   public void fromMap(@Nonnull Map<String, ?> map) {
     serializeFromMap(map);
   }
@@ -193,6 +202,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     }
   }
 
+  @Override
   protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
     super.serializeToMap(map, session);
 
@@ -203,6 +213,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     map.put("nullValuesIgnored", isNullValuesIgnored());
   }
 
+  @Override
   protected void serializeFromMap(@Nonnull Map<String, ?> map) {
     super.serializeFromMap(map);
 
@@ -222,6 +233,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
    * @param indexName
    * @param indexType
    */
+  @Override
   public String toCreateIndexDDL(
       final String indexName, final String indexType, final String engine) {
     return createIndexDDLWithFieldType(indexName, indexType, engine).toString();

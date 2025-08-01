@@ -118,7 +118,7 @@ public class IndexSearchDescriptor {
 
   public boolean duplicateResultsForRecord() {
     if (index.getDefinition() instanceof CompositeIndexDefinition) {
-      return ((CompositeIndexDefinition) index.getDefinition()).getMultiValueDefinition() != null;
+      return ((CompositeIndexDefinition) index.getDefinition()).hasMultiValueProperties();
     }
     return false;
   }

@@ -20,11 +20,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.BulkSet;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 @Test
 public abstract class LinkBagTest extends BaseDBTest {
+
   public void testAdd() {
     session.begin();
     var bag = new LinkBag(session);
@@ -1806,6 +1808,138 @@ public abstract class LinkBagTest extends BaseDBTest {
         new HashSet<>(((List<?>) origContent.get("ridBag")))
     );
     session.commit();
+  }
+
+  @Test
+  public void testRollBackChangesOne() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    final var originalBulkSet = new BulkSet<RID>();
+    var entity1 = session.newEntity();
+    originalBulkSet.add(entity1.getIdentity());
+
+    var entity2 = session.newEntity();
+    originalBulkSet.add(entity2.getIdentity());
+
+    var entity3 = session.newEntity();
+    originalBulkSet.add(entity3.getIdentity());
+
+    var entity4 = session.newEntity();
+    originalBulkSet.add(entity4.getIdentity());
+
+    var entity5 = session.newEntity();
+    originalBulkSet.add(entity5.getIdentity());
+
+    final var linkBag = new LinkBag(session);
+    entity.setProperty("linkBag", linkBag);
+    linkBag.addAll(originalBulkSet);
+
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    var entity6 = session.newEntity();
+    linkBag.add(entity6.getIdentity());
+
+    var entity7 = session.newEntity();
+    linkBag.add(entity7.getIdentity());
+
+    var entity10 = session.newEntity();
+    linkBag.add(entity10.getIdentity());
+
+    var entity8 = session.newEntity();
+    linkBag.add(entity8.getIdentity());
+    linkBag.add(entity8.getIdentity());
+
+    linkBag.remove(entity3.getIdentity());
+    linkBag.remove(entity7.getIdentity());
+
+    var entity9 = session.newEntity();
+    linkBag.add(entity9.getIdentity());
+    linkBag.add(entity9.getIdentity());
+    linkBag.add(entity9.getIdentity());
+    linkBag.add(entity9.getIdentity());
+
+    linkBag.remove(entity9.getIdentity());
+    linkBag.remove(entity9.getIdentity());
+
+    var entity11 = session.newEntity();
+    linkBag.add(entity11.getIdentity());
+
+    linkBag.rollbackChanges(tx);
+
+    var linkBagBulkSet = new BulkSet<RID>();
+    for (var rid : linkBag) {
+      linkBagBulkSet.add(rid);
+    }
+
+    Assert.assertEquals(originalBulkSet, linkBagBulkSet);
+    session.rollback();
+  }
+
+  @Test
+  public void testRollBackChangesTwo() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    final var originalBulkSet = new BulkSet<RID>();
+
+    var entity1 = session.newEntity();
+    originalBulkSet.add(entity1.getIdentity());
+
+    var entity2 = session.newEntity();
+    originalBulkSet.add(entity2.getIdentity());
+
+    var entity3 = session.newEntity();
+    originalBulkSet.add(entity3.getIdentity());
+
+    var entity4 = session.newEntity();
+    originalBulkSet.add(entity4.getIdentity());
+
+    var entity5 = session.newEntity();
+    originalBulkSet.add(entity5.getIdentity());
+
+    final var linkBag = new LinkBag(session);
+    entity.setProperty("linkBag", linkBag);
+    linkBag.addAll(originalBulkSet);
+
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    var entity6 = session.newEntity();
+    linkBag.add(entity6.getIdentity());
+
+    var entity7 = session.newEntity();
+    linkBag.add(entity7.getIdentity());
+
+    var entity10 = session.newEntity();
+    linkBag.add(entity10.getIdentity());
+
+    var entity8 = session.newEntity();
+    linkBag.add(entity8.getIdentity());
+    linkBag.remove(entity3.getIdentity());
+
+    linkBag.remove(entity7.getIdentity());
+
+    var entity9 = session.newEntity();
+    linkBag.add(entity9.getIdentity());
+
+    var entity11 = session.newEntity();
+    linkBag.add(entity11.getIdentity());
+
+    var entity12 = session.newEntity();
+    linkBag.add(entity12.getIdentity());
+    linkBag.add(entity12.getIdentity());
+
+    linkBag.rollbackChanges(tx);
+
+    var linkBagBulkSet = new BulkSet<RID>();
+    for (var rid : linkBag) {
+      linkBagBulkSet.add(rid);
+    }
+
+    Assert.assertEquals(originalBulkSet, linkBagBulkSet);
+    session.rollback();
   }
 
   protected abstract void assertEmbedded(boolean isEmbedded);

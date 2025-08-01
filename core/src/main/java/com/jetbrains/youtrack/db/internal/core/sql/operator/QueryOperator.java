@@ -22,7 +22,6 @@ package com.jetbrains.youtrack.db.internal.core.sql.operator;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.index.Index;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
@@ -36,7 +35,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.operator.math.QueryOperatorMo
 import com.jetbrains.youtrack.db.internal.core.sql.operator.math.QueryOperatorMultiply;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.math.QueryOperatorPlus;
 import java.util.List;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -157,32 +155,6 @@ public abstract class QueryOperator {
       CommandContext context) {
 
     return null;
-  }
-
-  /**
-   * Performs index query and returns index stream which presents subset of index data which
-   * corresponds to result of execution of given operator.
-   *
-   * <p>Query that should be executed can be presented like: [[property0 = keyParam0] and
-   * [property1 = keyParam1] and] propertyN operator keyParamN.
-   *
-   * <p>It is supped that index which passed in as parameter is used to index properties listed
-   * above and responsibility of given method execute query using given parameters.
-   *
-   * <p>Multiple parameters are passed in to implement composite indexes support.
-   *
-   * @param iContext
-   * @param index        Instance of index that will be used to calculate result of operator
-   *                     execution.
-   * @param keyParams    Parameters of query is used to calculate query result.
-   * @param ascSortOrder Data returned by cursors should be sorted in ascending or descending
-   *                     order.
-   * @return Cursor instance if index can be used to evaluate result of execution of given operator
-   * and <code>null</code> otherwise.
-   */
-  public Stream<RawPair<Object, RID>> executeIndexQuery(
-      CommandContext iContext, Index index, final List<Object> keyParams, boolean ascSortOrder) {
-    return Stream.empty();
   }
 
   @Override

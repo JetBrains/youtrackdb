@@ -16,10 +16,7 @@ package com.jetbrains.youtrack.db.internal.spatial.operator;
 import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.EntitySerializer;
@@ -28,11 +25,9 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.IndexReuseType;
 import com.jetbrains.youtrack.db.internal.core.sql.operator.QueryTargetOperator;
 import com.jetbrains.youtrack.db.internal.lucene.operator.LuceneOperatorUtil;
-import com.jetbrains.youtrack.db.internal.spatial.collections.SpatialCompositeKey;
 import com.jetbrains.youtrack.db.internal.spatial.shape.ShapeFactory;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.locationtech.spatial4j.distance.DistanceUtils;
 import org.locationtech.spatial4j.shape.Point;
@@ -89,35 +84,6 @@ public class LuceneNearOperator extends QueryTargetOperator {
         DistanceUtils.degrees2Dist(docDistDEG, DistanceUtils.EARTH_EQUATORIAL_RADIUS_KM);
     iContext.setVariable("distance", docDistInKM);
     return shape.relate(circle) == SpatialRelation.WITHIN;
-  }
-
-  @Override
-  public Stream<RawPair<Object, RID>> executeIndexQuery(
-      CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-
-    double distance = 0;
-    var spatial = iContext.getVariable("spatial");
-    if (spatial != null) {
-      if (spatial instanceof Number) {
-        distance = PropertyTypeInternal.convert(iContext.getDatabaseSession(), spatial,
-            Double.class).doubleValue();
-      } else if (spatial instanceof Map) {
-        var params = (Map<String, Object>) spatial;
-
-        var dst = params.get("maxDistance");
-        if (dst != null && dst instanceof Number) {
-          distance = PropertyTypeInternal.convert(iContext.getDatabaseSession(), dst,
-              Double.class).doubleValue();
-        }
-      }
-    }
-
-    iContext.setVariable("$luceneIndex", true);
-
-    return index
-        .getRids(iContext.getDatabaseSession(),
-            new SpatialCompositeKey(keyParams).setMaxDistance(distance).setContext(iContext))
-        .map((rid) -> new RawPair<>(new SpatialCompositeKey(keyParams), rid));
   }
 
   @Override

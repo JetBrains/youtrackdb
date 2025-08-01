@@ -26,7 +26,7 @@ public class TrackedListTest extends DbTestBase {
             ChangeType.ADD, 0, "value1", null);
     trackedList.add("value1");
 
-    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().get(0));
+    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().getFirst());
     Assert.assertTrue(trackedList.isModified());
     Assert.assertTrue(doc.isDirty());
     session.rollback();
@@ -51,7 +51,7 @@ public class TrackedListTest extends DbTestBase {
             ChangeType.ADD, 2, "value3", null);
 
     trackedList.add("value3");
-    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().get(0));
+    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().getFirst());
     Assert.assertTrue(trackedList.isModified());
     Assert.assertTrue(doc.isDirty());
     session.rollback();
@@ -106,7 +106,7 @@ public class TrackedListTest extends DbTestBase {
     Assert.assertFalse(doc.isDirty());
 
     final var trackedList = new EntityEmbeddedListImpl<String>(doc);
-    final List<String> valuesToAdd = new ArrayList<String>();
+    final List<String> valuesToAdd = new ArrayList<>();
     valuesToAdd.add("value1");
     valuesToAdd.add("value3");
 
@@ -115,12 +115,12 @@ public class TrackedListTest extends DbTestBase {
     Assert.assertFalse(doc.isDirty());
 
     final List<MultiValueChangeEvent<Integer, String>> firedEvents =
-        new ArrayList<MultiValueChangeEvent<Integer, String>>();
+        new ArrayList<>();
     firedEvents.add(
-        new MultiValueChangeEvent<Integer, String>(
+        new MultiValueChangeEvent<>(
             ChangeType.ADD, 0, "value1"));
     firedEvents.add(
-        new MultiValueChangeEvent<Integer, String>(
+        new MultiValueChangeEvent<>(
             ChangeType.ADD, 1, "value3"));
     trackedList.enableTracking(doc);
     trackedList.addAll(valuesToAdd);
@@ -140,7 +140,7 @@ public class TrackedListTest extends DbTestBase {
 
     final var trackedList = new EntityEmbeddedListImpl<String>(doc);
     doc.setPropertyInternal("tracked", trackedList);
-    final List<String> valuesToAdd = new ArrayList<String>();
+    final List<String> valuesToAdd = new ArrayList<>();
     valuesToAdd.add("value1");
     valuesToAdd.add("value3");
 
@@ -159,7 +159,7 @@ public class TrackedListTest extends DbTestBase {
     Assert.assertFalse(doc.isDirty());
 
     final var trackedList = new EntityEmbeddedListImpl<String>(doc);
-    final List<String> valuesToAdd = new ArrayList<String>();
+    final List<String> valuesToAdd = new ArrayList<>();
     valuesToAdd.add("value1");
     valuesToAdd.add("value3");
 
@@ -197,10 +197,10 @@ public class TrackedListTest extends DbTestBase {
     trackedList.enableTracking(doc);
 
     var event =
-        new MultiValueChangeEvent<Integer, String>(ChangeType.ADD, 1, "value3", null);
+        new MultiValueChangeEvent<>(ChangeType.ADD, 1, "value3", null);
 
     trackedList.add(1, "value3");
-    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().get(0));
+    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().getFirst());
     Assert.assertTrue(trackedList.isModified());
     Assert.assertTrue(doc.isDirty());
     session.rollback();
@@ -248,7 +248,7 @@ public class TrackedListTest extends DbTestBase {
         new MultiValueChangeEvent<Object, Object>(
             ChangeType.UPDATE, 1, "value4", "value2");
     trackedList.set(1, "value4");
-    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().get(0));
+    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().getFirst());
     Assert.assertTrue(trackedList.isModified());
     Assert.assertTrue(doc.isDirty());
     session.rollback();
@@ -297,8 +297,8 @@ public class TrackedListTest extends DbTestBase {
     trackedList.enableTracking(doc);
     trackedList.remove("value2");
     var event =
-        new MultiValueChangeEvent<Integer, String>(ChangeType.REMOVE, 1, null, "value2");
-    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().get(0));
+        new MultiValueChangeEvent<>(ChangeType.REMOVE, 1, null, "value2");
+    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().getFirst());
     Assert.assertTrue(doc.isDirty());
     session.rollback();
   }
@@ -373,7 +373,7 @@ public class TrackedListTest extends DbTestBase {
         new MultiValueChangeEvent<Object, Object>(
             ChangeType.REMOVE, 1, null, "value2");
     Assert.assertTrue(trackedList.isModified());
-    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().get(0));
+    Assert.assertEquals(event, trackedList.getTimeLine().getMultiValueChangeEvents().getFirst());
     Assert.assertTrue(doc.isDirty());
     session.rollback();
   }
@@ -396,15 +396,15 @@ public class TrackedListTest extends DbTestBase {
     Assert.assertFalse(doc.isDirty());
 
     final List<MultiValueChangeEvent<Integer, String>> firedEvents =
-        new ArrayList<MultiValueChangeEvent<Integer, String>>();
+        new ArrayList<>();
     firedEvents.add(
-        new MultiValueChangeEvent<Integer, String>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, 2, null, "value3"));
     firedEvents.add(
-        new MultiValueChangeEvent<Integer, String>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, 1, null, "value2"));
     firedEvents.add(
-        new MultiValueChangeEvent<Integer, String>(
+        new MultiValueChangeEvent<>(
             ChangeType.REMOVE, 0, null, "value1"));
     trackedList.enableTracking(doc);
 
@@ -449,7 +449,7 @@ public class TrackedListTest extends DbTestBase {
     trackedList.add("value4");
     trackedList.add("value5");
 
-    final List<String> original = new ArrayList<String>(trackedList);
+    final List<String> original = new ArrayList<>(trackedList);
     trackedList.enableTracking(doc);
     trackedList.add("value6");
     trackedList.add("value7");
@@ -469,7 +469,7 @@ public class TrackedListTest extends DbTestBase {
     Assert.assertEquals(
         original,
         trackedList.returnOriginalState(session.getActiveTransaction(),
-            (List) trackedList.getTimeLine().getMultiValueChangeEvents()));
+            trackedList.getTimeLine().getMultiValueChangeEvents()));
     session.rollback();
   }
 
@@ -485,7 +485,7 @@ public class TrackedListTest extends DbTestBase {
     trackedList.add("value4");
     trackedList.add("value5");
 
-    final List<String> original = new ArrayList<String>(trackedList);
+    final List<String> original = new ArrayList<>(trackedList);
     trackedList.enableTracking(doc);
     trackedList.add("value6");
     trackedList.add("value7");
@@ -493,6 +493,7 @@ public class TrackedListTest extends DbTestBase {
     trackedList.add(1, "value8");
     trackedList.remove(3);
     trackedList.clear();
+    //noinspection RedundantOperationOnEmptyContainer
     trackedList.remove("value7");
     trackedList.add(0, "value9");
     trackedList.add("value11");
@@ -502,7 +503,79 @@ public class TrackedListTest extends DbTestBase {
     Assert.assertEquals(
         original,
         trackedList.returnOriginalState(session.getActiveTransaction(),
-            (List) trackedList.getTimeLine().getMultiValueChangeEvents()));
+            trackedList.getTimeLine().getMultiValueChangeEvents()));
+    session.rollback();
+  }
+
+  @Test
+  public void testRollBackChangesOne() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    final var originalList = new ArrayList<String>();
+    originalList.add("value1");
+    originalList.add("value2");
+    originalList.add("value3");
+    originalList.add("value4");
+    originalList.add("value5");
+
+    var trackedList = entity.newEmbeddedList("list", originalList);
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    trackedList.add("value6");
+    trackedList.add("value7");
+    trackedList.set(2, "value10");
+    trackedList.add(1, "value8");
+    trackedList.add(1, "value8");
+    trackedList.remove(3);
+    trackedList.remove("value7");
+    trackedList.addFirst("value9");
+    trackedList.addFirst("value9");
+    trackedList.addFirst("value9");
+    trackedList.addFirst("value9");
+    trackedList.remove("value9");
+    trackedList.remove("value9");
+    trackedList.add(4, "value11");
+
+    ((EntityEmbeddedListImpl<?>) trackedList).rollbackChanges(tx);
+
+    Assert.assertEquals(originalList, trackedList);
+    session.rollback();
+  }
+
+  @Test
+  public void testRollBackChangesTwo() {
+    session.begin();
+    final var entity = session.newEntity();
+
+    final var originalList = new ArrayList<String>();
+    originalList.add("value1");
+    originalList.add("value2");
+    originalList.add("value3");
+    originalList.add("value4");
+    originalList.add("value5");
+
+    var trackedList = entity.newEmbeddedList("list", originalList);
+    var tx = session.getActiveTransaction();
+    tx.preProcessRecordsAndExecuteCallCallbacks();
+
+    trackedList.add("value6");
+    trackedList.add("value7");
+    trackedList.set(2, "value10");
+    trackedList.add(1, "value8");
+    trackedList.remove(3);
+    trackedList.clear();
+    //noinspection RedundantOperationOnEmptyContainer
+    trackedList.remove("value7");
+    trackedList.addFirst("value9");
+    trackedList.add("value11");
+    trackedList.addFirst("value12");
+    trackedList.add("value12");
+
+    ((EntityEmbeddedListImpl<?>) trackedList).rollbackChanges(tx);
+
+    Assert.assertEquals(originalList, trackedList);
     session.rollback();
   }
 }

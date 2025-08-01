@@ -11,15 +11,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import org.checkerframework.checker.units.qual.A;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * @since 20.12.11
- */
 public class SchemaPropertyListIndexDefinitionTest extends DbTestBase {
 
   private PropertyListIndexDefinition propertyIndex;
@@ -104,7 +100,7 @@ public class SchemaPropertyListIndexDefinitionTest extends DbTestBase {
     Assert.assertTrue(collectionResult.contains(23));
   }
 
-  @Test
+  @Test(expected = IndexException.class)
   public void testCreateValueWrongParameterArrayParams() {
     Assert.assertNull(propertyIndex.createValue(session.getActiveTransaction(), "tt"));
   }

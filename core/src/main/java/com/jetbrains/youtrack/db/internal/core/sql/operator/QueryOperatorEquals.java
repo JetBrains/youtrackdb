@@ -25,12 +25,8 @@ import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.api.record.Identifiable;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.MultiValue;
-import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.command.CommandContext;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.CompositeIndexDefinition;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrack.db.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.binary.BinaryField;
@@ -40,8 +36,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemField;
 import com.jetbrains.youtrack.db.internal.core.sql.filter.SQLFilterItemParameter;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.List;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
 /**
@@ -167,69 +161,6 @@ public class QueryOperatorEquals extends QueryOperatorEqualityNotNulls {
     }
 
     return IndexReuseType.INDEX_METHOD;
-  }
-
-  @Nullable
-  @Override
-  public Stream<RawPair<Object, RID>> executeIndexQuery(
-      CommandContext iContext, Index index, List<Object> keyParams, boolean ascSortOrder) {
-    final var indexDefinition = index.getDefinition();
-
-    Stream<RawPair<Object, RID>> stream;
-    if (!index.canBeUsedInEqualityOperators()) {
-      return null;
-    }
-
-    var transaction = iContext.getDatabaseSession().getActiveTransaction();
-    if (indexDefinition.getParamCount() == 1) {
-      final Object key;
-      if (indexDefinition instanceof IndexDefinitionMultiValue) {
-        key =
-            ((IndexDefinitionMultiValue) indexDefinition)
-                .createSingleValue(transaction, keyParams.get(0));
-      } else {
-        key = indexDefinition.createValue(transaction, keyParams);
-      }
-
-      if (key == null) {
-        return null;
-      }
-
-      stream = index.getRids(iContext.getDatabaseSession(), key)
-          .map((rid) -> new RawPair<>(key, rid));
-    } else {
-      // in case of composite keys several items can be returned in case of we perform search
-      // using part of composite key stored in index.
-
-      final var compositeIndexDefinition =
-          (CompositeIndexDefinition) indexDefinition;
-
-      final Object keyOne =
-          compositeIndexDefinition.createSingleValue(transaction, keyParams);
-
-      if (keyOne == null) {
-        return null;
-      }
-
-      final Object keyTwo =
-          compositeIndexDefinition.createSingleValue(transaction, keyParams);
-
-      if (index.hasRangeQuerySupport()) {
-        stream = index
-            .streamEntriesBetween(iContext.getDatabaseSession(), keyOne, true, keyTwo, true,
-                ascSortOrder);
-      } else {
-        if (indexDefinition.getParamCount() == keyParams.size()) {
-          stream = index.getRids(iContext.getDatabaseSession(), keyOne)
-              .map((rid) -> new RawPair<>(keyOne, rid));
-        } else {
-          return null;
-        }
-      }
-    }
-
-    updateProfiler(iContext, index, keyParams);
-    return stream;
   }
 
   @Nullable
