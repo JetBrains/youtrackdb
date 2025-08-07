@@ -1885,7 +1885,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public void afterCommitOperations(boolean rootTx) {
+  public void afterCommitOperations(boolean rootTx, Map<RID, RID> updatedRids) {
     assert assertIfNotActive();
 
     for (var operation : currentTx.getRecordOperationsInternal()) {
@@ -1943,7 +1943,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     for (var listener : browseListeners()) {
       try {
-        listener.onAfterTxCommit(currentTx);
+        listener.onAfterTxCommit(currentTx, updatedRids);
       } catch (Exception e) {
         final var message =
             "Error after the transaction has been committed. The transaction remains valid. The"

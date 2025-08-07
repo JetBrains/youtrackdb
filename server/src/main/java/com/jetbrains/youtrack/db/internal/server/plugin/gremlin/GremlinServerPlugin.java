@@ -16,12 +16,13 @@ import org.apache.tinkerpop.gremlin.server.GremlinServer;
 
 public class GremlinServerPlugin extends ServerPluginAbstract implements DatabaseLifecycleListener {
 
+  public static final String RESULT_METADATA_COMMITTED_RIDS_KEY = "committedRIDs";
+
   public static final String DEFAULT_GREMLIN_SERVER_CONFIG_NAME = "gremlin-server.yaml";
   public static final String NAME = "gremlinserver";
 
   private GremlinServer gremlinServer;
   private YTDBGraphManager graphManager;
-  private YouTrackDBServer ytdbServer;
 
   @Override
   public String getName() {
@@ -70,7 +71,6 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
     augmentServerSettings(youTrackDBServer, ytdbSettings);
 
     gremlinServer = new GremlinServer(ytdbSettings);
-    ytdbServer = youTrackDBServer;
   }
 
   private static void augmentServerSettings(YouTrackDBServer youTrackDBServer,

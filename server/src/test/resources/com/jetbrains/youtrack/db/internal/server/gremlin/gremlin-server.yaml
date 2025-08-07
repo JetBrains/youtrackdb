@@ -34,8 +34,8 @@ scriptEngines: {
 serializers:
   - { className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3, config: { ioRegistries: [ com.jetbrains.youtrack.db.internal.core.gremlin.io.YTDBIoRegistry ] } }         # application/json
 processors:
-  - { className: org.apache.tinkerpop.gremlin.server.op.session.SessionOpProcessor, config: { sessionTimeout: 28800000 } }
-  - { className: org.apache.tinkerpop.gremlin.server.op.standard.StandardOpProcessor, config: { } }
+  - { className: com.jetbrains.youtrack.db.internal.server.plugin.gremlin.YTDBSessionOpProcessor, config: { sessionTimeout: 28800000 } }
+  - { className: com.jetbrains.youtrack.db.internal.server.plugin.gremlin.YTDBStandardOpProcessor, config: { } }
 metrics: {
   consoleReporter: { enabled: true, interval: 180000 },
   csvReporter: { enabled: true, interval: 180000, fileName: /tmp/gremlin-server-metrics.csv },

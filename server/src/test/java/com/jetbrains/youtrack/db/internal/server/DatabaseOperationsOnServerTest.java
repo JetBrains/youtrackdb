@@ -6,26 +6,17 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrack.db.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerConfiguration;
 import com.jetbrains.youtrack.db.internal.tools.config.ServerUserConfiguration;
 import java.io.File;
-import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
-import java.util.logging.Level;
-import javax.management.InstanceAlreadyExistsException;
-import javax.management.MBeanRegistrationException;
-import javax.management.MalformedObjectNameException;
-import javax.management.NotCompliantMBeanException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class ServerDatabaseOperationsTest {
-
+public class DatabaseOperationsOnServerTest {
   private static final String SERVER_DIRECTORY = "./target/db";
 
   private YouTrackDBServer server;
@@ -46,18 +37,18 @@ public class ServerDatabaseOperationsTest {
 
     server
         .getContext()
-        .execute("create database " + ServerDatabaseOperationsTest.class.getSimpleName() +
+        .execute("create database " + DatabaseOperationsOnServerTest.class.getSimpleName() +
             " memory users (admin identified by 'admin' role admin)").close();
 
-    assertTrue(server.existsDatabase(ServerDatabaseOperationsTest.class.getSimpleName()));
+    assertTrue(server.existsDatabase(DatabaseOperationsOnServerTest.class.getSimpleName()));
     try (var session = server.openSession(
-        ServerDatabaseOperationsTest.class.getSimpleName())) {
+        DatabaseOperationsOnServerTest.class.getSimpleName())) {
 
       var map = JSONSerializerJackson.INSTANCE.mapFromJson(IOUtils.readStreamAsString(
           this.getClass().getClassLoader().getResourceAsStream("security.json")));
       server.getSecurity().reload(session, map);
     } finally {
-      server.dropDatabase(ServerDatabaseOperationsTest.class.getSimpleName());
+      server.dropDatabase(DatabaseOperationsOnServerTest.class.getSimpleName());
     }
   }
 
@@ -79,13 +70,13 @@ public class ServerDatabaseOperationsTest {
   public void testCreateOpenDatabase() {
     server
         .getContext()
-        .execute("create database " + ServerDatabaseOperationsTest.class.getSimpleName()
+        .execute("create database " + DatabaseOperationsOnServerTest.class.getSimpleName()
             + " memory users (admin identified by 'admin' role admin)").close();
-    assertTrue(server.existsDatabase(ServerDatabaseOperationsTest.class.getSimpleName()));
+    assertTrue(server.existsDatabase(DatabaseOperationsOnServerTest.class.getSimpleName()));
     BasicDatabaseSession session = server.openSession(
-        ServerDatabaseOperationsTest.class.getSimpleName());
+        DatabaseOperationsOnServerTest.class.getSimpleName());
     assertNotNull(session);
     session.close();
-    server.dropDatabase(ServerDatabaseOperationsTest.class.getSimpleName());
+    server.dropDatabase(DatabaseOperationsOnServerTest.class.getSimpleName());
   }
 }

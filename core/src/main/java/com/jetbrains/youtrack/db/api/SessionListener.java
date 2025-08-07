@@ -20,8 +20,11 @@
 package com.jetbrains.youtrack.db.api;
 
 import com.jetbrains.youtrack.db.api.query.ResultSet;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.schema.SchemaClass;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
+import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  * Listener Interface for all the events of the session instances.
@@ -40,7 +43,7 @@ public interface SessionListener {
   default void onBeforeTxCommit(final Transaction transaction) {
   }
 
-  default void onAfterTxCommit(final Transaction transaction) {
+  default void onAfterTxCommit(final Transaction transaction, @Nullable Map<RID, RID> ridMapping) {
   }
 
   default void onClose(final DatabaseSession iDatabase) {

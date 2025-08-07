@@ -19,6 +19,7 @@ import com.jetbrains.youtrack.db.api.DatabaseSession;
 import com.jetbrains.youtrack.db.api.SessionListener;
 import com.jetbrains.youtrack.db.api.record.Entity;
 import com.jetbrains.youtrack.db.api.record.EntityHookAbstract;
+import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.api.transaction.Transaction;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -26,8 +27,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.testng.Assert;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 
 /**
@@ -69,7 +68,7 @@ public class DbListenerTest extends BaseDBTest {
   public class DbListener implements SessionListener {
 
     @Override
-    public void onAfterTxCommit(Transaction transaction) {
+    public void onAfterTxCommit(Transaction transaction, Map<RID, RID> ridMapping) {
       onAfterTxCommit++;
     }
 

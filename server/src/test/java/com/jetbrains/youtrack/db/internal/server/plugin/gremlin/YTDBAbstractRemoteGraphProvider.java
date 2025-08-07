@@ -232,7 +232,8 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     return new HashMap<>() {{
       put(Graph.GRAPH, RemoteGraph.class.getName());
       put(RemoteConnection.GREMLIN_REMOTE_CONNECTION_CLASS, DriverRemoteConnection.class.getName());
-      put(DriverRemoteConnection.GREMLIN_REMOTE_DRIVER_SOURCENAME, "g" + serverGraphName);
+      put(DriverRemoteConnection.GREMLIN_REMOTE_DRIVER_SOURCENAME,
+          YTDBGraphManager.TRAVERSAL_SOURCE_PREFIX + serverGraphName);
       put("clusterConfiguration.port", TestClientFactory.PORT);
       put("clusterConfiguration.hosts", "localhost");
       put(GREMLIN_REMOTE + "attachment", graphGetter);
