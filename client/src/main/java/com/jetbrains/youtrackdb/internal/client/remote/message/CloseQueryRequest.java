@@ -1,0 +1,84 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
+package com.jetbrains.youtrackdb.internal.client.remote.message;
+
+import com.jetbrains.youtrackdb.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryProtocolSession;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryRequest;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryResponse;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelBinaryProtocol;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataInput;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrackdb.internal.remote.RemoteDatabaseSessionInternal;
+import java.io.IOException;
+
+public final class CloseQueryRequest implements BinaryRequest<CloseQueryResponse> {
+
+  private String queryId;
+
+  public CloseQueryRequest(String queryId) {
+    this.queryId = queryId;
+  }
+
+  public CloseQueryRequest() {
+  }
+
+  @Override
+  public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
+      BinaryProtocolSession session) throws IOException {
+    network.writeString(queryId);
+  }
+
+  @Override
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
+      throws IOException {
+    this.queryId = channel.readString();
+  }
+
+  @Override
+  public byte getCommand() {
+    return ChannelBinaryProtocol.REQUEST_CLOSE_QUERY;
+  }
+
+  @Override
+  public String getDescription() {
+    return "Close remote query";
+  }
+
+  @Override
+  public CloseQueryResponse createResponse() {
+    return new CloseQueryResponse();
+  }
+
+  @Override
+  public BinaryResponse execute(BinaryRequestExecutor executor) {
+    return executor.closeQuery(this);
+  }
+
+  public String getQueryId() {
+    return queryId;
+  }
+
+  public void setQueryId(String queryId) {
+    this.queryId = queryId;
+  }
+}

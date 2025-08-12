@@ -1,0 +1,57 @@
+package com.jetbrains.youtrackdb.internal.server.http;
+
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+
+/**
+ * Test HTTP "query" command.
+ */
+public abstract class BaseHttpDatabaseTest extends BaseHttpTest {
+
+  @Before
+  public void createDatabase() throws Exception {
+    serverDirectory =
+        Paths.get(System.getProperty("buildDirectory", "target"))
+            .resolve(this.getClass().getSimpleName() + "Server")
+            .toFile()
+            .getCanonicalPath();
+
+    super.startServer();
+    var pass = new HashMap<String, Object>();
+    pass.put("adminPassword", "admin");
+    Assert.assertEquals(
+        200,
+        post("database/" + getDatabaseName() + "/memory")
+            .payload(JSONSerializerJackson.INSTANCE.mapToJson(pass), CONTENT.JSON)
+            .setUserName("root")
+            .setUserPassword("root")
+            .getResponse()
+            .getCode());
+
+    onAfterDatabaseCreated();
+  }
+
+  @After
+  public void dropDatabase() throws Exception {
+    Assert.assertEquals(
+        204,
+        delete("database/" + getDatabaseName())
+            .setUserName("root")
+            .setUserPassword("root")
+            .getResponse()
+            .getCode());
+    super.stopServer();
+
+    onAfterDatabaseDropped();
+  }
+
+  protected void onAfterDatabaseCreated() throws Exception {
+  }
+
+  protected void onAfterDatabaseDropped() throws Exception {
+  }
+}

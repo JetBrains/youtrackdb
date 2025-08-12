@@ -1,0 +1,77 @@
+package com.jetbrains.youtrackdb.internal.client.remote.message;
+
+import com.jetbrains.youtrackdb.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryProtocolSession;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryRequest;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryResponse;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelBinaryProtocol;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataInput;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrackdb.internal.remote.RemoteDatabaseSessionInternal;
+import java.io.IOException;
+import javax.annotation.Nullable;
+
+public class ShutdownRequest implements BinaryRequest<BinaryResponse> {
+
+  private String rootUser;
+  private String rootPassword;
+
+  public ShutdownRequest(String rootUser, String rootPassword) {
+    super();
+    this.rootUser = rootUser;
+    this.rootPassword = rootPassword;
+  }
+
+  public ShutdownRequest() {
+  }
+
+  @Override
+  public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
+      BinaryProtocolSession session) throws IOException {
+    network.writeString(rootUser);
+    network.writeString(rootPassword);
+  }
+
+  @Override
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
+      throws IOException {
+    rootUser = channel.readString();
+    rootPassword = channel.readString();
+  }
+
+  @Override
+  public byte getCommand() {
+    return ChannelBinaryProtocol.REQUEST_SHUTDOWN;
+  }
+
+  @Override
+  public String getDescription() {
+    return "Shutdown Server";
+  }
+
+  public String getRootPassword() {
+    return rootPassword;
+  }
+
+  public String getRootUser() {
+    return rootUser;
+  }
+
+  @Nullable
+  @Override
+  public BinaryResponse createResponse() {
+    return null;
+  }
+
+  @Override
+  public boolean requireDatabaseSession() {
+    return false;
+  }
+
+  @Override
+  public BinaryResponse execute(BinaryRequestExecutor executor) {
+    return executor.executeShutdown(this);
+  }
+}
