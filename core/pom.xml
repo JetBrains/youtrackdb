@@ -41,7 +41,7 @@
       -Ddb.makeFullCheckpointOnSchemaChange=false
       -Dyoutrackdb.security.userPasswordSaltIterations=10
       -Dyoutrackdb.memory.directMemory.trackMode=true
-      -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
+      -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
       -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
       -Dyoutrackdb.security.warningDefaultUsers=false
       <!-- new security feature -->
@@ -123,7 +123,7 @@
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
         </configuration>
@@ -145,7 +145,7 @@
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
         </configuration>

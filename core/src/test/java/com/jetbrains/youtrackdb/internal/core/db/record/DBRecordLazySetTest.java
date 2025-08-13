@@ -1,0 +1,89 @@
+package com.jetbrains.youtrackdb.internal.core.db.record;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import org.junit.Test;
+
+public class DBRecordLazySetTest extends DbTestBase {
+
+  private EntityImpl doc1;
+  private EntityImpl doc2;
+
+  public void beforeTest() throws Exception {
+    super.beforeTest();
+    session.begin();
+    doc1 =
+        ((EntityImpl) session.newEntity());
+    doc1.setProperty("doc1", "doc1");
+    doc2 =
+        ((EntityImpl) session.newEntity());
+    doc2.setProperty("doc2", "doc2");
+    EntityImpl entity = ((EntityImpl) session.newEntity());
+    entity.setProperty("doc3", "doc3");
+    session.commit();
+  }
+
+  @Test
+  public void testDocumentNotEmbedded() {
+    session.begin();
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
+    var doc = (EntityImpl) session.newEntity();
+    set.add(doc);
+    assertFalse(doc.isEmbedded());
+    session.rollback();
+  }
+
+  @Test()
+  public void testSetAddRemove() {
+    session.begin();
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
+    var doc = (EntityImpl) session.newEntity();
+    set.add(doc);
+    set.remove(doc);
+    assertTrue(set.isEmpty());
+    session.rollback();
+  }
+
+  @Test
+  public void testSetRemoveNotPersistent() {
+    session.begin();
+    var set = new EntityLinkSetImpl((EntityImpl) session.newEntity());
+    var activeTx1 = session.getActiveTransaction();
+    doc1 = activeTx1.load(doc1);
+    var activeTx = session.getActiveTransaction();
+    doc2 = activeTx.load(doc2);
+
+    set.add(doc1);
+    set.add(doc2);
+    set.add(new RecordId(5, 1000));
+    assertEquals(3, set.size());
+    set.remove(new RecordId(5, 1000));
+    assertEquals(2, set.size());
+    session.rollback();
+  }
+
+  @Test(expected = ValidationException.class)
+  public void testSetWithNotExistentRecordWithValidation() {
+    var test = session.getMetadata().getSchema().createClass("test");
+    var test1 = session.getMetadata().getSchema().createClass("test1");
+    test.createProperty("fi", PropertyType.LINKSET).setLinkedClass(test1);
+
+    session.begin();
+    var stubEntity = session.newEntity();
+    session.commit();
+
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(test);
+    var set = new EntityLinkSetImpl(doc);
+    set.add(stubEntity.getIdentity());
+    doc.setProperty("fi", set);
+    session.commit();
+  }
+}

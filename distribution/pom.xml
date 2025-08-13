@@ -105,7 +105,7 @@
                 <argument>-Dyoutrackdb.memory.directMemory.preallocate=false</argument>
                 <argument>-classpath</argument>
                 <classpath/>
-                <argument>com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp
+                <argument>com.jetbrains.youtrackdb.internal.tools.console.ConsoleDatabaseApp
                 </argument>
                 <argument>connect embedded:${basedir}/target/databases/ root root;</argument>
                 <argument>create database demodb disk users (admin identified by 'admin' role admin, reader identified by 'reader' role reader, writer identified by 'writer' role writer);</argument>

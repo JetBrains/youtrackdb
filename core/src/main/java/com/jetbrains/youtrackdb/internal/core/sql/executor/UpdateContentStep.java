@@ -1,0 +1,99 @@
+package com.jetbrains.youtrackdb.internal.core.sql.executor;
+
+import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.api.query.ExecutionStep;
+import com.jetbrains.youtrackdb.api.query.Result;
+import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInputParameter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLJson;
+import java.util.Map;
+
+public class UpdateContentStep extends AbstractExecutionStep {
+
+  private SQLJson json;
+  private SQLInputParameter inputParameter;
+
+  public UpdateContentStep(SQLJson json, CommandContext ctx, boolean profilingEnabled) {
+    super(ctx, profilingEnabled);
+    this.json = json;
+  }
+
+  public UpdateContentStep(
+      SQLInputParameter inputParameter, CommandContext ctx, boolean profilingEnabled) {
+    super(ctx, profilingEnabled);
+    this.inputParameter = inputParameter;
+  }
+
+  @Override
+  public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    assert prev != null;
+    var upstream = prev.start(ctx);
+    return upstream.map(this::mapResult);
+  }
+
+  private Result mapResult(Result result, CommandContext ctx) {
+    if (result instanceof ResultInternal) {
+      var entity = result.asEntityOrNull();
+      assert entity != null;
+      handleContent((EntityImpl) entity, ctx);
+    }
+
+    return result;
+  }
+
+  private void handleContent(EntityImpl record, CommandContext ctx) {
+    // REPLACE ALL THE CONTENT
+    var session = ctx.getDatabaseSession();
+    var cls = record.getImmutableSchemaClass(session);
+
+    for (var propertyNames : record.getPropertyNames()) {
+      record.removeProperty(propertyNames);
+    }
+
+    if (json != null) {
+      record.updateFromJSON(json.toString());
+    } else if (inputParameter != null) {
+      var val = inputParameter.getValue(ctx.getInputParameters());
+      if (val instanceof Map<?, ?> map) {
+        //noinspection unchecked
+        record.updateFromMap((Map<String, ?>) map);
+      } else {
+        throw new CommandExecutionException(session, "Invalid value for UPDATE CONTENT: " + val);
+      }
+    }
+
+    if (cls != null) {
+      record.convertPropertiesToClassAndInitDefaultValues(cls);
+    }
+  }
+
+  @Override
+  public String prettyPrint(int depth, int indent) {
+    var spaces = ExecutionStepInternal.getIndent(depth, indent);
+    var result = new StringBuilder();
+    result.append(spaces);
+    result.append("+ UPDATE CONTENT\n");
+    result.append(spaces);
+    result.append("  ");
+    if (json != null) {
+      result.append(json);
+    } else {
+      result.append(inputParameter);
+    }
+    return result.toString();
+  }
+
+  @Override
+  public ExecutionStep copy(CommandContext ctx) {
+    if (json != null) {
+      var jsonCopy = json.copy();
+      return new UpdateContentStep(jsonCopy, ctx, profilingEnabled);
+    }
+
+    var inputParameterCopy = inputParameter.copy();
+    return new UpdateContentStep(inputParameterCopy, ctx, profilingEnabled);
+  }
+}
