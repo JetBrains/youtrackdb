@@ -1512,7 +1512,7 @@ public abstract class SchemaClassImpl {
       builder.append(" and ").append(getEscapedName(propertyName, true)).append(".size() > 0");
     }
 
-    db.executeInTx(tx -> {
+    session.executeInTx(tx -> {
       try (final var res = tx.query(builder.toString())) {
         while (res.hasNext()) {
           var item = res.next();
@@ -1523,11 +1523,11 @@ public abstract class SchemaClassImpl {
             case LINKSET:
               Collection<?> emb = item.getProperty(propertyName);
               emb.stream()
-                  .filter(x -> !matchesType(db, x, linkedClass))
+                  .filter(x -> !matchesType(session, x, linkedClass))
                   .findFirst()
                   .ifPresent(
                       x -> {
-                        throw new SchemaException(db.getDatabaseName(),
+                        throw new SchemaException(session.getDatabaseName(),
                             "The database contains some schema-less data in the property '"
                                 + name
                                 + "."
@@ -1543,8 +1543,8 @@ public abstract class SchemaClassImpl {
             case EMBEDDED:
             case LINK:
               var elem = item.getProperty(propertyName);
-              if (!matchesType(db, elem, linkedClass)) {
-                throw new SchemaException(db.getDatabaseName(),
+              if (!matchesType(session, elem, linkedClass)) {
+                throw new SchemaException(session.getDatabaseName(),
                     "The database contains some schema-less data in the property '"
                         + name
                         + "."

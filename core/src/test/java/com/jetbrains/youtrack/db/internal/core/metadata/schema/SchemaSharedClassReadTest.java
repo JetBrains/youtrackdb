@@ -79,7 +79,8 @@ public class SchemaSharedClassReadTest extends DbTestBase {
             YouTrackDBConfig.builder()
                 .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1)
                 .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build()
+                .build(),
+            false
         ));
     if (!youTrackDb.exists("test")) {
       youTrackDb.execute(
