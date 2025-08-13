@@ -1,0 +1,76 @@
+package com.jetbrains.youtrackdb.internal.common.test;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import org.junit.Test;
+
+public abstract class SpeedTestAbstract implements SpeedTest {
+
+  protected final SpeedTestData data;
+
+  protected SpeedTestAbstract() {
+    data = new SpeedTestData();
+  }
+
+  protected SpeedTestAbstract(final long iCycles) {
+    data = new SpeedTestData(iCycles);
+  }
+
+  protected SpeedTestAbstract(final SpeedTestGroup iGroup) {
+    data = new SpeedTestData(iGroup);
+  }
+
+  @Override
+  @Override
+  @Test
+  public abstract void cycle() throws Exception;
+
+  @Override
+  public void init() throws Exception {
+  }
+
+  @Override
+  @Override
+  public void deinit() throws Exception {
+  }
+
+  @Override
+  @Override
+  public void beforeCycle() throws Exception {
+  }
+
+  @Override
+  @Override
+  public void afterCycle() throws Exception {
+  }
+
+  @Test
+  public void test() {
+    data.go(this);
+  }
+
+  public SpeedTestAbstract config(final Object... iArgs) {
+    data.configuration = iArgs;
+    return this;
+  }
+
+  public long executeCycle(final Method iMethod, final Object... iArgs)
+      throws IllegalArgumentException, IllegalAccessException, InvocationTargetException {
+    data.startTimer(getClass().getSimpleName());
+
+    var percent = 0;
+    for (data.cyclesDone = 0; data.cyclesDone < data.cycles; ++data.cyclesDone) {
+      iMethod.invoke(this, iArgs);
+
+      if (data.cycles > 10 && data.cyclesDone % (data.cycles / 10) == 0) {
+        System.out.print(++percent);
+      }
+    }
+
+    return data.takeTimer();
+  }
+
+  public SpeedTestData data() {
+    return data;
+  }
+}
