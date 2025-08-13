@@ -71,7 +71,6 @@ public class StorageStartupMetadata {
   private volatile boolean dirtyFlag;
   private volatile long lastTxId;
   private volatile String openedAtVersion;
-  private volatile byte[] txMetadata;
 
   private final Lock lock = new ReentrantLock();
 
@@ -257,12 +256,7 @@ public class StorageStartupMetadata {
           lastTxId = buffer.getLong();
 
           final var metadataLen = buffer.getInt();
-          if (metadataLen > 0) {
-            final var txMeta = new byte[metadataLen];
-            buffer.get(txMeta);
-
-            txMetadata = txMeta;
-          }
+          assert metadataLen < 0;
 
           if (version == VERSION) {
             final var openedAtVersionLen = buffer.getInt();
@@ -383,27 +377,12 @@ public class StorageStartupMetadata {
     }
   }
 
-  public void setTxMetadata(final byte[] txMetadata) throws IOException {
-    lock.lock();
-    try {
-      this.txMetadata = txMetadata;
-
-      update(serialize());
-    } finally {
-      lock.unlock();
-    }
-  }
-
   public boolean isDirty() {
     return dirtyFlag;
   }
 
   public long getLastTxId() {
     return lastTxId;
-  }
-
-  public byte[] getTxMetadata() {
-    return txMetadata;
   }
 
   public String getOpenedAtVersion() {
@@ -413,10 +392,6 @@ public class StorageStartupMetadata {
   private ByteBuffer serialize() {
     final ByteBuffer buffer;
     var bufferSize = 8 + 4 + 1 + 8 + 4 + 4;
-
-    if (txMetadata != null) {
-      bufferSize += txMetadata.length;
-    }
 
     final byte[] openedAtVersionRaw;
     if (openedAtVersion != null) {
@@ -437,12 +412,7 @@ public class StorageStartupMetadata {
     buffer.putLong(lastTxId);
 
     // tx metadata
-    if (txMetadata == null) {
-      buffer.putInt(-1);
-    } else {
-      buffer.putInt(txMetadata.length);
-      buffer.put(txMetadata);
-    }
+    buffer.putInt(-1);
 
     if (this.openedAtVersion == null) {
       buffer.putInt(-1);

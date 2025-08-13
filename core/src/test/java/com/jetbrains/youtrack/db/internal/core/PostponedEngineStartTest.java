@@ -22,7 +22,6 @@ import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
@@ -45,6 +44,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTr
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +52,7 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.Callable;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -513,10 +514,9 @@ public class PostponedEngineStartTest {
         public void setConflictStrategy(RecordConflictStrategy iResolver) {
         }
 
+        @Nullable
         @Override
-        public String incrementalBackup(DatabaseSessionInternal session, String backupDirectory,
-            CallableFunction<Void, Void> started) {
-          return null;
+        public void incrementalBackup(Path backupDirectory) {
         }
 
         @Override
@@ -528,13 +528,6 @@ public class PostponedEngineStartTest {
         public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
             String filePath) {
         }
-
-        @Override
-        public void restoreFullIncrementalBackup(DatabaseSessionInternal session,
-            final InputStream stream)
-            throws UnsupportedOperationException {
-        }
-
         @Override
         public void shutdown() {
         }

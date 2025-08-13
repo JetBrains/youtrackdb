@@ -51,7 +51,6 @@ import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSeri
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrack.db.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrack.db.internal.common.types.ModifiableBoolean;
-import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
@@ -99,7 +98,6 @@ import com.jetbrains.youtrack.db.internal.core.sql.executor.LiveQueryListenerImp
 import com.jetbrains.youtrack.db.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
-import com.jetbrains.youtrack.db.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrack.db.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.Storage;
 import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
@@ -116,13 +114,11 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atom
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartMetadataRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.HighLevelTransactionChangeRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.OperationUnitRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
@@ -146,6 +142,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -154,7 +151,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -174,9 +170,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipOutputStream;
@@ -261,7 +258,6 @@ public abstract class AbstractStorage
 
   private boolean wereDataRestoredAfterOpen;
   private UUID uuid;
-  private volatile byte[] lastMetadata = null;
 
   private final AtomicInteger sessionCount = new AtomicInteger(0);
   private volatile long lastCloseTime = System.currentTimeMillis();
@@ -283,11 +279,7 @@ public abstract class AbstractStorage
   protected YouTrackDBInternalEmbedded context;
   private volatile CountDownLatch migration = new CountDownLatch(1);
 
-  private volatile int backupRunning = 0;
-  private volatile int ddlRunning = 0;
-
-  protected final Lock backupLock = new ReentrantLock();
-  protected final Condition backupIsDone = backupLock.newCondition();
+  protected final ReentrantLock backupLock = new ReentrantLock();
 
   private final Stopwatch dropDuration;
   private final Stopwatch synchDuration;
@@ -549,7 +541,6 @@ public abstract class AbstractStorage
           recoverIfNeeded();
 
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 if (CollectionBasedStorageConfiguration.exists(writeCache)) {
                   configuration = new CollectionBasedStorageConfiguration(this);
@@ -563,7 +554,6 @@ public abstract class AbstractStorage
               });
 
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               (atomicOperation) -> {
                 var uuid = configuration.getUuid();
                 if (uuid == null) {
@@ -579,11 +569,10 @@ public abstract class AbstractStorage
 
           linkCollectionsBTreeManager.load();
 
-          atomicOperationsManager.executeInsideAtomicOperation(null, this::openCollections);
+          atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
           openIndexes();
 
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               (atomicOperation) -> {
                 final var cs = configuration.getConflictStrategy();
                 if (cs != null) {
@@ -592,9 +581,6 @@ public abstract class AbstractStorage
                       YouTrackDBEnginesManager.instance().getRecordConflictStrategy()
                           .getStrategy(cs),
                       atomicOperation);
-                }
-                if (lastMetadata == null) {
-                  lastMetadata = startupMetadata.txMetadata;
                 }
               });
 
@@ -635,7 +621,7 @@ public abstract class AbstractStorage
             return;
           }
 
-          atomicOperationsManager.executeInsideAtomicOperation(null, this::checkRidBagsPresence);
+          atomicOperationsManager.executeInsideAtomicOperation(this::checkRidBagsPresence);
           status = STATUS.OPEN;
           migration.countDown();
         } finally {
@@ -876,7 +862,6 @@ public abstract class AbstractStorage
     makeStorageDirty();
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         (atomicOperation) -> {
           configuration = new CollectionBasedStorageConfiguration(this);
           ((CollectionBasedStorageConfiguration) configuration)
@@ -1081,7 +1066,6 @@ public abstract class AbstractStorage
   public final int addCollection(DatabaseSessionInternal database, final String collectionName,
       final Object... parameters) {
     try {
-      checkBackupRunning();
       stateLock.writeLock().lock();
       try {
         if (collectionMap.containsKey(collectionName)) {
@@ -1093,8 +1077,7 @@ public abstract class AbstractStorage
 
         makeStorageDirty();
         return atomicOperationsManager.calculateInsideAtomicOperation(
-            null, (atomicOperation) -> doAddCollection(atomicOperation, collectionName));
-
+            (atomicOperation) -> doAddCollection(atomicOperation, collectionName));
       } catch (final IOException e) {
         throw BaseException.wrapException(
             new StorageException(name, "Error in creation of new collection '" + collectionName), e,
@@ -1115,10 +1098,8 @@ public abstract class AbstractStorage
   public final int addCollection(DatabaseSessionInternal database, final String collectionName,
       final int requestedId) {
     try {
-      checkBackupRunning();
       stateLock.writeLock().lock();
       try {
-
         checkOpennessAndMigration();
 
         if (requestedId < 0) {
@@ -1141,7 +1122,7 @@ public abstract class AbstractStorage
 
         makeStorageDirty();
         return atomicOperationsManager.calculateInsideAtomicOperation(
-            null, atomicOperation -> doAddCollection(atomicOperation, collectionName, requestedId));
+            atomicOperation -> doAddCollection(atomicOperation, collectionName, requestedId));
 
       } catch (final IOException e) {
         throw BaseException.wrapException(
@@ -1163,12 +1144,9 @@ public abstract class AbstractStorage
   @Override
   public final boolean dropCollection(DatabaseSessionInternal database, final int collectionId) {
     try {
-      checkBackupRunning();
       stateLock.writeLock().lock();
       try {
-
         checkOpennessAndMigration();
-
         if (collectionId < 0 || collectionId >= collections.size()) {
           throw new IllegalArgumentException(
               "Collection id '"
@@ -1183,7 +1161,6 @@ public abstract class AbstractStorage
         makeStorageDirty();
 
         return atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
             atomicOperation -> {
               if (dropCollectionInternal(atomicOperation, collectionId)) {
                 return false;
@@ -1512,52 +1489,6 @@ public abstract class AbstractStorage
     }
   }
 
-  public final void createRecord(
-      final RecordId rid,
-      final byte[] content,
-      final int recordVersion,
-      final byte recordType,
-      final RecordCallback<Long> callback) {
-    try {
-
-      final var collection = doGetAndCheckCollection(rid.getCollectionId());
-      if (transaction.get() != null) {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-        doCreateRecord(
-            atomicOperation, rid, content, recordVersion, recordType, callback,
-            collection, null);
-        return;
-      }
-
-      stateLock.readLock().lock();
-      try {
-        checkOpennessAndMigration();
-
-        makeStorageDirty();
-
-        atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
-            atomicOperation ->
-                doCreateRecord(
-                    atomicOperation,
-                    rid,
-                    content,
-                    recordVersion,
-                    recordType,
-                    callback,
-                    collection, null));
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
-    }
-  }
-
   @Nullable
   @Override
   public final RecordMetadata getRecordMetadata(DatabaseSessionInternal session,
@@ -1794,7 +1725,6 @@ public abstract class AbstractStorage
 
         makeStorageDirty();
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               lockCollections(collectionsToLock);
 
@@ -2204,7 +2134,6 @@ public abstract class AbstractStorage
         engine.load(engineData);
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               indexEngineNameMap.put(indexMetadata.getName(), engine);
               indexEngines.add(engine);
@@ -2250,15 +2179,12 @@ public abstract class AbstractStorage
 
       final var keySize = determineKeySize(indexDefinition);
 
-      checkBackupRunning();
       stateLock.writeLock().lock();
       try {
-
         checkOpennessAndMigration();
 
         makeStorageDirty();
         return atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
             atomicOperation -> {
               if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
                 // OLD INDEX FILE ARE PRESENT: THIS IS THE CASE OF PARTIAL/BROKEN INDEX
@@ -2399,18 +2325,14 @@ public abstract class AbstractStorage
     final var internalIndexId = extractInternalId(indexId);
 
     try {
-      checkBackupRunning();
       stateLock.writeLock().lock();
       try {
-
         checkOpennessAndMigration();
-
         checkIndexId(internalIndexId);
 
         makeStorageDirty();
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               final var engine =
                   deleteIndexEngineInternal(atomicOperation, internalIndexId);
@@ -2520,7 +2442,7 @@ public abstract class AbstractStorage
         makeStorageDirty();
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            null, atomicOperation -> doClearIndex(atomicOperation, internalIndexId));
+            atomicOperation -> doClearIndex(atomicOperation, internalIndexId));
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3695,7 +3617,7 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null, atomicOperation -> doSetConflictStrategy(conflictResolver, atomicOperation));
+          atomicOperation -> doSetConflictStrategy(conflictResolver, atomicOperation));
     } catch (final Exception e) {
       throw BaseException.wrapException(
           new StorageException(name,
@@ -3724,9 +3646,6 @@ public abstract class AbstractStorage
   @SuppressWarnings("unused")
   protected abstract LogSequenceNumber copyWALToIncrementalBackup(
       ZipOutputStream zipOutputStream, long startSegment) throws IOException;
-
-  @SuppressWarnings({"unused", "BooleanMethodIsAlwaysInverted"})
-  protected abstract boolean isWriteAllowedDuringIncrementalBackup();
 
   @Nullable
   @SuppressWarnings("unused")
@@ -3832,6 +3751,7 @@ public abstract class AbstractStorage
       if (minAtomicOperationSegment >= 0 && fuzzySegment > minAtomicOperationSegment) {
         fuzzySegment = minAtomicOperationSegment;
       }
+
       LogManager.instance()
           .debug(
               this,
@@ -3844,7 +3764,7 @@ public abstract class AbstractStorage
 
       if (fuzzySegment > beginLSN.getSegment() && beginLSN.getSegment() < endLSN.getSegment()) {
         LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
-        writeCache.syncDataFiles(fuzzySegment, lastMetadata);
+        writeCache.syncDataFiles(fuzzySegment);
 
         beginLSN = writeAheadLog.begin();
         endLSN = writeAheadLog.end();
@@ -3902,13 +3822,7 @@ public abstract class AbstractStorage
       // so we will be able to cut almost all the log
       writeAheadLog.appendNewSegment();
 
-      final LogSequenceNumber lastLSN;
-      if (lastMetadata != null) {
-        lastLSN = writeAheadLog.log(new MetaDataRecord(lastMetadata));
-      } else {
-        lastLSN = writeAheadLog.log(new EmptyWALRecord());
-      }
-
+      final var lastLSN = writeAheadLog.log(new EmptyWALRecord());
       writeCache.flush();
 
       atomicOperationsTable.compactTable();
@@ -3932,7 +3846,7 @@ public abstract class AbstractStorage
   }
 
   protected StartupMetadata checkIfStorageDirty() throws IOException {
-    return new StartupMetadata(-1, null);
+    return new StartupMetadata(-1);
   }
 
   protected void initConfiguration(
@@ -4065,33 +3979,13 @@ public abstract class AbstractStorage
     final var storageTx = transaction.get();
     assert storageTx == null || storageTx.getClientTx().getId() == clientTx.getId();
     assert atomicOperationsManager.getCurrentOperation() == null;
+
     transaction.set(new StorageTransaction(clientTx));
     try {
-      final var atomicOperation =
-          atomicOperationsManager.startAtomicOperation(clientTx.getMetadata());
-      if (clientTx.getMetadata() != null) {
-        this.lastMetadata = clientTx.getMetadata();
-      }
-      clientTx.storageBegun();
-      var ops = clientTx.getSerializedOperations();
-      while (ops.hasNext()) {
-        var next = ops.next();
-        writeAheadLog.log(
-            new HighLevelTransactionChangeRecord(atomicOperation.getOperationUnitId(), next));
-      }
+      atomicOperationsManager.startAtomicOperation();
     } catch (final RuntimeException e) {
       transaction.set(null);
       throw e;
-    }
-  }
-
-  public void metadataOnly(byte[] metadata) {
-    try {
-      atomicOperationsManager.executeInsideAtomicOperation(metadata, (op) -> {
-      });
-      this.lastMetadata = metadata;
-    } catch (IOException e) {
-      throw logAndPrepareForRethrow(e);
     }
   }
 
@@ -4139,7 +4033,6 @@ public abstract class AbstractStorage
       @Nonnull final byte[] content,
       int recordVersion,
       final byte recordType,
-      final RecordCallback<Long> callback,
       final StorageCollection collection,
       final PhysicalPosition allocated) {
     //noinspection ConstantValue
@@ -4163,10 +4056,6 @@ public abstract class AbstractStorage
       LogManager.instance().error(this, "Error on creating record in collection: " + collection, e);
       throw DatabaseException.wrapException(
           new StorageException(name, "Error during creation of record"), e, name);
-    }
-
-    if (callback != null) {
-      callback.call(rid, ppos.collectionPosition);
     }
 
     if (logger.isDebugEnabled()) {
@@ -4431,12 +4320,9 @@ public abstract class AbstractStorage
   @Override
   public void setCollectionAttribute(final int id, final ATTRIBUTES attribute,
       final Object value) {
-    checkBackupRunning();
     stateLock.writeLock().lock();
     try {
-
       checkOpennessAndMigration();
-
       if (id >= collections.size()) {
         return;
       }
@@ -4450,7 +4336,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.calculateInsideAtomicOperation(
-          null,
           atomicOperation -> doSetCollectionAttributed(atomicOperation, attribute, value,
               collection));
     } catch (final RuntimeException ee) {
@@ -4530,7 +4415,6 @@ public abstract class AbstractStorage
         preCloseSteps();
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               // we close all files inside cache system so we only clear index metadata and close
               // non core indexes
@@ -4574,7 +4458,6 @@ public abstract class AbstractStorage
 
       postCloseSteps(false, isInError(), idGen.getLastId());
       transaction = null;
-      lastMetadata = null;
       migration = new CountDownLatch(1);
       status = STATUS.CLOSED;
     });
@@ -4635,7 +4518,6 @@ public abstract class AbstractStorage
       }
       postCloseSteps(true, isInError(), idGen.getLastId());
       transaction = null;
-      lastMetadata = null;
       migration = new CountDownLatch(1);
       status = STATUS.CLOSED;
     } catch (final IOException e) {
@@ -4717,7 +4599,6 @@ public abstract class AbstractStorage
                   stream,
                   rec.getVersion(),
                   recordType,
-                  null,
                   collection, allocated);
 
           rec.setVersion(ppos.recordVersion);
@@ -4804,37 +4685,17 @@ public abstract class AbstractStorage
     }
   }
 
-  @SuppressWarnings("CanBeFinal")
   @Override
-  public String incrementalBackup(DatabaseSessionInternal session, final String backupDirectory,
-      final CallableFunction<Void, Void> started)
-      throws UnsupportedOperationException {
-    throw new UnsupportedOperationException(
-        "Incremental backup is supported only in enterprise version");
-  }
+  public abstract void incrementalBackup(final Path backupDirectory);
+
+  public abstract void incrementalBackup(final Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      final Consumer<String> ibuFileRemover);
 
   @Override
-  public void fullIncrementalBackup(final OutputStream stream)
-      throws UnsupportedOperationException {
-    throw new UnsupportedOperationException(
-        "Incremental backup is supported only in enterprise version");
-  }
-
-  @SuppressWarnings("CanBeFinal")
-  @Override
-  public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
-      final String filePath) {
-    throw new UnsupportedOperationException(
-        "Incremental backup is supported only in enterprise version");
-  }
-
-  @Override
-  public void restoreFullIncrementalBackup(DatabaseSessionInternal session,
-      final InputStream stream)
-      throws UnsupportedOperationException {
-    throw new UnsupportedOperationException(
-        "Incremental backup is supported only in enterprise version");
-  }
+  public abstract void restoreFromIncrementalBackup(final DatabaseSessionInternal session,
+      final String filePath);
 
   private void restoreFromBeginning() throws IOException {
     LogManager.instance().info(this, "Data restore procedure is started.");
@@ -4860,7 +4721,6 @@ public abstract class AbstractStorage
         GlobalConfiguration.WAL_REPORT_AFTER_OPERATIONS_DURING_RESTORE.getValueAsInteger();
     final var operationUnits =
         new Long2ObjectOpenHashMap<List<WALRecord>>(1024);
-    final Map<Long, byte[]> operationMetadata = new LinkedHashMap<>(1024);
 
     long lastReportTime = 0;
     LogSequenceNumber lastUpdatedLSN = null;
@@ -4885,18 +4745,8 @@ public abstract class AbstractStorage
                   lastUpdatedLSN = walRecord.getLsn();
                 }
               }
-              var metadata = operationMetadata.remove(atomicUnitEndRecord.getOperationUnitId());
-              if (metadata != null) {
-                this.lastMetadata = metadata;
-              }
             }
             case AtomicUnitStartRecord oAtomicUnitStartRecord -> {
-              if (walRecord instanceof AtomicUnitStartMetadataRecord) {
-                var metadata = ((AtomicUnitStartMetadataRecord) walRecord).getMetadata();
-                operationMetadata.put(
-                    ((AtomicUnitStartRecord) walRecord).getOperationUnitId(), metadata);
-              }
-
               final List<WALRecord> operationList = new ArrayList<>(1024);
 
               assert !operationUnits.containsKey(oAtomicUnitStartRecord.getOperationUnitId());
@@ -4919,10 +4769,6 @@ public abstract class AbstractStorage
                             + " rebuild.");
                 wereNonTxOperationsPerformedInPreviousOpen = true;
               }
-            }
-            case MetaDataRecord metaDataRecord -> {
-              this.lastMetadata = metaDataRecord.getMetadata();
-              lastUpdatedLSN = walRecord.getLsn();
             }
             case null, default -> LogManager.instance()
                 .warn(this, "Record %s will be skipped during data restore", walRecord);
@@ -5242,7 +5088,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               storageConfiguration.setSchemaRecordId(atomicOperation, schemaRecordId));
     } catch (final RuntimeException ee) {
@@ -5269,7 +5114,7 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null, atomicOperation -> storageConfiguration.setDateFormat(atomicOperation, dateFormat));
+          atomicOperation -> storageConfiguration.setDateFormat(atomicOperation, dateFormat));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5294,7 +5139,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> storageConfiguration.setTimeZone(atomicOperation, timeZoneValue));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -5320,7 +5164,7 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null, atomicOperation -> storageConfiguration.setLocaleLanguage(atomicOperation, locale));
+          atomicOperation -> storageConfiguration.setLocaleLanguage(atomicOperation, locale));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5345,7 +5189,7 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null, atomicOperation -> storageConfiguration.setCharset(atomicOperation, charset));
+          atomicOperation -> storageConfiguration.setCharset(atomicOperation, charset));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5370,7 +5214,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               storageConfiguration.setIndexMgrRecordId(atomicOperation, indexMgrRecordId));
     } catch (final RuntimeException ee) {
@@ -5397,7 +5240,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               storageConfiguration.setDateTimeFormat(atomicOperation, dateTimeFormat));
     } catch (final RuntimeException ee) {
@@ -5424,7 +5266,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> storageConfiguration.setLocaleCountry(atomicOperation, localeCountry));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -5450,7 +5291,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               storageConfiguration.setCollectionSelection(atomicOperation, collectionSelection));
     } catch (final RuntimeException ee) {
@@ -5501,7 +5341,7 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null, atomicOperation -> storageConfiguration.setValidation(atomicOperation, validation));
+          atomicOperation -> storageConfiguration.setValidation(atomicOperation, validation));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5526,7 +5366,7 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null, atomicOperation -> storageConfiguration.removeProperty(atomicOperation, property));
+          atomicOperation -> storageConfiguration.removeProperty(atomicOperation, property));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5551,7 +5391,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> storageConfiguration.setProperty(atomicOperation, property, value));
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -5577,7 +5416,6 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             storageConfiguration.setRecordSerializer(atomicOperation, recordSerializer);
             storageConfiguration.setRecordSerializerVersion(atomicOperation, version);
@@ -5606,7 +5444,7 @@ public abstract class AbstractStorage
       makeStorageDirty();
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null, storageConfiguration::clearProperties);
+          storageConfiguration::clearProperties);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5616,10 +5454,6 @@ public abstract class AbstractStorage
     } finally {
       stateLock.readLock().unlock();
     }
-  }
-
-  public Optional<byte[]> getLastMetadata() {
-    return Optional.ofNullable(lastMetadata);
   }
 
   void runWALVacuum() {
@@ -5665,7 +5499,7 @@ public abstract class AbstractStorage
         return;
       }
 
-      writeCache.syncDataFiles(minDirtySegment, lastMetadata);
+      writeCache.syncDataFiles(minDirtySegment);
     } catch (final Exception e) {
       LogManager.instance()
           .error(
@@ -5718,43 +5552,6 @@ public abstract class AbstractStorage
     }
   }
 
-  public void startDDL() {
-    backupLock.lock();
-    try {
-      waitBackup();
-      //noinspection NonAtomicOperationOnVolatileField
-      this.ddlRunning += 1;
-    } finally {
-      backupLock.unlock();
-    }
-  }
-
-  public void endDDL() {
-    backupLock.lock();
-    try {
-      assert this.ddlRunning > 0;
-      //noinspection NonAtomicOperationOnVolatileField
-      this.ddlRunning -= 1;
-
-      if (this.ddlRunning == 0) {
-        backupIsDone.signalAll();
-      }
-    } finally {
-      backupLock.unlock();
-    }
-  }
-
-  private void waitBackup() {
-    while (isIncrementalBackupRunning()) {
-      try {
-        backupIsDone.await();
-      } catch (java.lang.InterruptedException e) {
-        throw BaseException.wrapException(
-            new ThreadInterruptedException("Interrupted wait for backup to finish"), e, name);
-      }
-    }
-  }
-
   @Override
   public LiveQueryMonitor live(DatabasePoolInternal<DatabaseSession> sessionPool, String query,
       BasicLiveQueryResultListener<DatabaseSession, Result> listener, Map<String, ?> args) {
@@ -5770,10 +5567,6 @@ public abstract class AbstractStorage
     return new YTLiveQueryMonitorEmbedded(queryListener.getToken(), sessionPool);
   }
 
-  protected void checkBackupRunning() {
-    waitBackup();
-  }
-
   @Override
   public YouTrackDBInternalEmbedded getContext() {
     return this.context;
@@ -5781,48 +5574,5 @@ public abstract class AbstractStorage
 
   public boolean isMemory() {
     return false;
-  }
-
-  @SuppressWarnings("unused")
-  protected void endBackup() {
-    backupLock.lock();
-    try {
-      assert this.backupRunning > 0;
-      //noinspection NonAtomicOperationOnVolatileField
-      this.backupRunning -= 1;
-
-      if (this.backupRunning == 0) {
-        backupIsDone.signalAll();
-      }
-    } finally {
-      backupLock.unlock();
-    }
-  }
-
-  public boolean isIncrementalBackupRunning() {
-    return this.backupRunning > 0;
-  }
-
-  protected boolean isDDLRunning() {
-    return this.ddlRunning > 0;
-  }
-
-  @SuppressWarnings("unused")
-  protected void startBackup() {
-    backupLock.lock();
-    try {
-      while (isDDLRunning()) {
-        try {
-          backupIsDone.await();
-        } catch (java.lang.InterruptedException e) {
-          throw BaseException.wrapException(
-              new ThreadInterruptedException("Interrupted wait for backup to finish"), e, name);
-        }
-      }
-      //noinspection NonAtomicOperationOnVolatileField
-      this.backupRunning += 1;
-    } finally {
-      backupLock.unlock();
-    }
   }
 }

@@ -275,12 +275,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   int[] getCollectionsIds(@Nonnull Set<String> filterCollections);
 
-  default void startExclusiveMetadataChange() {
-  }
-
-  default void endExclusiveMetadataChange() {
-  }
-
   void truncateClass(String name);
 
   long truncateClass(String name, boolean polimorfic);

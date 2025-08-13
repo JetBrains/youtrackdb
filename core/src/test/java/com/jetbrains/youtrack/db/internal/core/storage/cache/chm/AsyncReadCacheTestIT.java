@@ -383,7 +383,7 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public void syncDataFiles(long segmentId, byte[] lastMetadata) {
+    public void syncDataFiles(long segmentId) {
     }
 
     @Override

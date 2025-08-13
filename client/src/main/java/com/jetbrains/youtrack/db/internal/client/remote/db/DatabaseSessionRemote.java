@@ -257,11 +257,11 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
 
   @Override
-  public String incrementalBackup(final Path path) throws UnsupportedOperationException {
+  public void incrementalBackup(final Path path) throws UnsupportedOperationException {
     checkOpenness();
     assert assertIfNotActive();
 
-    return commandsOrchestrator.incrementalBackup(this, path.toAbsolutePath().toString());
+    commandsOrchestrator.incrementalBackup(this, path.toAbsolutePath().toString());
   }
 
   @Nullable

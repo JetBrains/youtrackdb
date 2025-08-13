@@ -215,9 +215,8 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
    * otherwise only changes after last backup in the same folder will be copied.
    *
    * @param path Path to backup folder.
-   * @return File name of the backup
    */
-  String incrementalBackup(Path path);
+  void incrementalBackup(Path path);
 
   @Nullable
   TimeZone getDatabaseTimeZone();

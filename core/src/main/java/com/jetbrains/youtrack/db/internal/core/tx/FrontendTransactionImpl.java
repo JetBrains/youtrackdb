@@ -61,11 +61,9 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.Reco
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
@@ -109,11 +107,6 @@ public class FrontendTransactionImpl implements
 
   private boolean callbacksInProgress = false;
   private boolean beforeCallBacksInProgress = false;
-
-  @Nullable
-  private FrontendTransacationMetadataHolder metadata = null;
-  @Nullable
-  private List<byte[]> serializedOperations;
 
   protected int txStartCounter;
   protected boolean sentToServer = false;
@@ -456,7 +449,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
+  public void addRecordOperation(RecordAbstract record, byte status) {
     if (readOnly) {
       throw new DatabaseException(session, "Transaction is read-only");
     }
@@ -563,7 +556,6 @@ public class FrontendTransactionImpl implements
       throw e;
     }
 
-    return txEntry;
   }
 
   private Map<RID, RID> doCommit() {
@@ -620,7 +612,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
+  public void preProcessRecordsAndExecuteCallCallbacks() {
     if (beforeCallBacksInProgress) {
       throw new IllegalStateException(
           "Callback processing is in progress, if you trigger this operation"
@@ -628,7 +620,7 @@ public class FrontendTransactionImpl implements
     }
 
     if (operationsBetweenCallbacks.isEmpty()) {
-      return null;
+      return;
     }
 
     ArrayList<RecordId> newDeletedRecords = null;
@@ -696,7 +688,6 @@ public class FrontendTransactionImpl implements
     }
 
     assert operationsForCallbackIteration.isEmpty();
-    return newDeletedRecords;
   }
 
   @Override
@@ -951,11 +942,6 @@ public class FrontendTransactionImpl implements
   @Override
   public void setCustomData(String iName, Object iValue) {
     userData.put(iName, iValue);
-  }
-
-  @Override
-  public boolean isReadOnly() {
-    return readOnly;
   }
 
   @Override
@@ -1253,36 +1239,6 @@ public class FrontendTransactionImpl implements
     }
 
     return operation;
-  }
-
-  @Override
-  @Nullable
-  public byte[] getMetadata() {
-    if (metadata != null) {
-      return metadata.metadata();
-    }
-    return null;
-  }
-
-  @Override
-  public void storageBegun() {
-    if (metadata != null) {
-      metadata.notifyMetadataRead();
-    }
-  }
-
-  @Override
-  public void setMetadataHolder(FrontendTransacationMetadataHolder metadata) {
-    this.metadata = metadata;
-  }
-
-  @Override
-  public Iterator<byte[]> getSerializedOperations() {
-    if (serializedOperations != null) {
-      return serializedOperations.iterator();
-    } else {
-      return Collections.emptyIterator();
-    }
   }
 
   public int getTxStartCounter() {

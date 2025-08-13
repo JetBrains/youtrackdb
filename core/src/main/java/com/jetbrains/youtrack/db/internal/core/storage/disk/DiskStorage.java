@@ -26,37 +26,30 @@ import static com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginat
 import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.exception.BackupInProgressException;
 import com.jetbrains.youtrack.db.api.exception.BaseException;
-import com.jetbrains.youtrack.db.api.exception.ModificationOperationProhibitedException;
+import com.jetbrains.youtrack.db.api.exception.DatabaseException;
 import com.jetbrains.youtrack.db.api.exception.SecurityException;
 import com.jetbrains.youtrack.db.api.record.RID;
 import com.jetbrains.youtrack.db.internal.common.collection.closabledictionary.ClosableLinkedContainer;
-import com.jetbrains.youtrack.db.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrack.db.internal.common.directmemory.ByteBufferPool;
-import com.jetbrains.youtrack.db.internal.common.exception.ErrorCode;
 import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.io.IOUtils;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrack.db.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.LongSerializer;
-import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
-import com.jetbrains.youtrack.db.internal.common.util.Pair;
+import com.jetbrains.youtrack.db.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrack.db.internal.core.compression.impl.ZIPCompressionUtil;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternalEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrack.db.internal.core.engine.local.EngineLocalPaginated;
-import com.jetbrains.youtrack.db.internal.core.exception.InvalidInstanceIdException;
 import com.jetbrains.youtrack.db.internal.core.exception.InvalidStorageEncryptionKeyException;
 import com.jetbrains.youtrack.db.internal.core.exception.StorageException;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrack.db.internal.core.storage.ChecksumMode;
-import com.jetbrains.youtrack.db.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
@@ -68,23 +61,18 @@ import com.jetbrains.youtrack.db.internal.core.storage.config.CollectionBasedSto
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.StartupMetadata;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.EnterpriseStorageOperationListener;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
-import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -107,21 +95,22 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.Collections;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -130,14 +119,18 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import net.jpountz.xxhash.StreamingXXHash64;
+import net.jpountz.xxhash.XXHash64;
 import net.jpountz.xxhash.XXHashFactory;
+import org.apache.commons.io.output.ProxyOutputStream;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * @since 28.03.13
- */
 public class DiskStorage extends AbstractStorage {
+
+  public static final XXHash64 XX_HASH_64 = XXHashFactory.fastestInstance().hash64();
+  public static final long XX_HASH_SEED = 0xAEF5634;
 
   private static final Logger logger = LoggerFactory.getLogger(DiskStorage.class);
 
@@ -149,22 +142,54 @@ public class DiskStorage extends AbstractStorage {
   private static final ThreadLocal<Cipher> CIPHER =
       ThreadLocal.withInitial(DiskStorage::getCipherInstance);
 
-  private static final String IBU_EXTENSION_V3 = ".ibu3";
-  private static final int INCREMENTAL_BACKUP_VERSION = 423;
+  private static final String IBU_EXTENSION = ".ibu";
+  /// The metadata is located at the tail and has the following format:
+  ///
+  /// 1. Version of the backup metadata format is stored as a short value (currently, we have only
+  /// version 1).
+  /// 2. Database UUID (generated during database creation) is stored as two long values with 16
+  /// bytes.
+  /// 3. Number of the backup unit in sequence (stored as an int value).
+  /// 4. Start LSN - value of LSN (exclusive) from which delta changes in the backup are stored. It
+  /// is stored as long + int values, stored as (-1, -1) for the first (full) backup.
+  /// 5. End LSN - the value of the last change stored in the backup (inclusive).
+  /// 6. The hash code of the file's content. Stored as a long value. The XX_HASH algorithm is used
+  /// for hash code calculation.
+  private static final int IBU_METADATA_SIZE =
+      Short.BYTES + 2 * Long.BYTES + Integer.BYTES + 2 * (Long.BYTES + Integer.BYTES) + Long.BYTES;
+
+  private static final int IBU_METADATA_VERSION_OFFSET = 0;
+
+  private static final int IBU_METADATA_UUID_LOW_OFFSET = IBU_METADATA_VERSION_OFFSET + Short.BYTES;
+  private static final int IBU_METADATA_UUID_HIGH_OFFSET =
+      IBU_METADATA_UUID_LOW_OFFSET + Long.BYTES;
+
+  private static final int IBU_METADATA_SEQUENCE_OFFSET =
+      IBU_METADATA_UUID_HIGH_OFFSET + Long.BYTES;
+
+  private static final int IBU_METADATA_FIRST_LSN_SEGMENT_OFFSET =
+      IBU_METADATA_SEQUENCE_OFFSET + Integer.BYTES;
+  private static final int IBU_METADATA_START_LSN_POSITION_OFFSET =
+      IBU_METADATA_FIRST_LSN_SEGMENT_OFFSET + Long.BYTES;
+
+  private static final int IBU_METADATA_LAST_LSN_SEGMENT_OFFSET =
+      IBU_METADATA_START_LSN_POSITION_OFFSET + Integer.BYTES;
+  private static final int IBU_METADATA_LAST_LSN_POSITION_OFFSET =
+      IBU_METADATA_LAST_LSN_SEGMENT_OFFSET + Integer.BYTES;
+
+  private static final int IBU_METADATA_HASH_CODE_OFFSET =
+      IBU_METADATA_LAST_LSN_POSITION_OFFSET + Long.BYTES + Integer.BYTES;
+
+  private static final int CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION = 1;
   private static final String CONF_ENTRY_NAME = "database.ocf";
   private static final String INCREMENTAL_BACKUP_DATEFORMAT = "yyyy-MM-dd-HH-mm-ss";
   private static final String CONF_UTF_8_ENTRY_NAME = "database_utf8.ocf";
 
   private static final String ENCRYPTION_IV = "encryption.iv";
 
-  private final List<EnterpriseStorageOperationListener> listeners = new CopyOnWriteArrayList<>();
-
-  @SuppressWarnings("WeakerAccess")
   protected static final long IV_SEED = 234120934;
 
   private static final String IV_EXT = ".iv";
-
-  @SuppressWarnings("WeakerAccess")
   protected static final String IV_NAME = "data" + IV_EXT;
 
   private static final String[] ALL_FILE_EXTENSIONS = {
@@ -344,7 +369,6 @@ public class DiskStorage extends AbstractStorage {
           writeAheadLog.addCutTillLimit(freezeLSN);
         }
 
-        startupMetadata.setTxMetadata(getLastMetadata().orElse(null));
         try {
           final var bo = bufferSize > 0 ? new BufferedOutputStream(out, bufferSize) : out;
           try {
@@ -455,7 +479,7 @@ public class DiskStorage extends AbstractStorage {
       }
 
       open(new ContextConfiguration());
-      atomicOperationsManager.executeInsideAtomicOperation(null, this::generateDatabaseInstanceId);
+      atomicOperationsManager.executeInsideAtomicOperation(this::generateDatabaseInstanceId);
     } catch (final RuntimeException e) {
       throw logAndPrepareForRethrow(e);
     } catch (final Error e) {
@@ -604,7 +628,7 @@ public class DiskStorage extends AbstractStorage {
       startupMetadata.makeDirty(YouTrackDBConstants.getRawVersion());
     }
 
-    return new StartupMetadata(startupMetadata.getLastTxId(), startupMetadata.getTxMetadata());
+    return new StartupMetadata(startupMetadata.getLastTxId());
   }
 
   @Override
@@ -641,8 +665,6 @@ public class DiskStorage extends AbstractStorage {
     } else {
       if (!internalError) {
         startupMetadata.setLastTxId(lastTxId);
-        startupMetadata.setTxMetadata(getLastMetadata().orElse(null));
-
         startupMetadata.clearDirty();
       }
       startupMetadata.close();
@@ -743,10 +765,6 @@ public class DiskStorage extends AbstractStorage {
     return startupMetadata.getOpenedAtVersion();
   }
 
-  @Override
-  protected boolean isWriteAllowedDuringIncrementalBackup() {
-    return true;
-  }
 
   @Override
   protected void initIv() throws IOException {
@@ -933,497 +951,474 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public String incrementalBackup(DatabaseSessionInternal session, final String backupDirectory,
-      CallableFunction<Void, Void> started) {
-    return incrementalBackup(new java.io.File(backupDirectory), started);
+  public void incrementalBackup(final Path backupDirectory) {
+    checkBackupIsNotPerformedInStorageDir(backupDirectory);
+    try {
+      if (!Files.exists(backupDirectory)) {
+        Files.createDirectories(backupDirectory);
+      }
+    } catch (IOException e) {
+      throw BaseException.wrapException(new DatabaseException(name,
+          "Can not create directories are needed to perform database backup."), e, name);
+    }
+
+    var dbUUID = getUuid();
+    var dbUUIDString = dbUUID.toString();
+    final var fileLockPath = backupDirectory.resolve(dbUUIDString + "-" + INCREMENTAL_BACKUP_LOCK);
+    try (final var lockChannel = FileChannel.open(fileLockPath, StandardOpenOption.CREATE,
+        StandardOpenOption.WRITE)) {
+      try (var ignored = lockChannel.lock()) {
+        incrementalBackup(() -> {
+          try (var filesStream = Files.list(backupDirectory)) {
+            return filesStream.filter(path -> {
+              if (Files.isDirectory(path)) {
+                return false;
+              }
+
+              var fileName = path.getFileName();
+              return fileName.endsWith(IBU_EXTENSION) && fileName.startsWith(dbUUIDString);
+            }).map(path -> path.getFileName().toString()).toList().iterator();
+          } catch (IOException e) {
+            throw BaseException.wrapException(new DatabaseException(name,
+                "Can not list backup unit files in directory '" + backupDirectory + "'"), e, name);
+          }
+        }, ibuFileName -> {
+          var ibuPath = backupDirectory.resolve(ibuFileName);
+          try {
+            return new BufferedInputStream(
+                Files.newInputStream(backupDirectory.resolve(ibuFileName)));
+          } catch (IOException e) {
+            throw BaseException.wrapException(new DatabaseException(name,
+                "Can open backup unit file " + ibuPath + " to read it."), e, name);
+          }
+        }, ibuFileName -> {
+          var ibuPath = backupDirectory.resolve(ibuFileName);
+          try {
+            OutputStream os;
+            var fileChannel = FileChannel.open(ibuPath, StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE);
+            try {
+              os = Channels.newOutputStream(fileChannel);
+            } catch (Exception e) {
+              fileChannel.close();
+              throw e;
+            }
+            return new ProxyOutputStream(os) {
+              @Override
+              public void close() throws IOException {
+                fileChannel.force(true);
+                super.close();
+              }
+            };
+          } catch (IOException e) {
+            throw BaseException.wrapException(
+                new DatabaseException(name, "Can create new backup unit file " + ibuPath + " ."), e,
+                name);
+          }
+        }, ibuFileName -> {
+          try {
+            var ibuFilePath = backupDirectory.resolve(ibuFileName);
+            Files.deleteIfExists(ibuFilePath);
+          } catch (IOException e) {
+            throw BaseException.wrapException(new DatabaseException(name,
+                "Can not delete backup unit file " + ibuFileName + " ."), e, name);
+          }
+        });
+      } catch (OverlappingFileLockException ofle) {
+        LogManager.instance().error(this, "Can not lock file '%s'."
+                + " File likely already locked by another process that performs database backup.",
+            ofle, fileLockPath, ofle);
+        throw ofle;
+      }
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new DatabaseException(name, "Error during creation of database backup."), e,
+          name);
+    }
+  }
+
+
+  @Override
+  public void incrementalBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      Consumer<String> ibuFileRemover) {
+    checkOpennessAndMigration();
+
+    stateLock.readLock().lock();
+    try {
+      checkOpennessAndMigration();
+
+      if (backupLock.tryLock()) {
+        try {
+          var uuid = getUuid();
+          var uuidString = uuid.toString();
+
+          var existingFiles =
+              IteratorUtils.list(IteratorUtils.filter(ibuFilesSupplier.get(),
+                  fileName -> fileName.startsWith(uuidString)));
+
+          existingFiles.sort((firstIbuName, secondIbuName) -> {
+            var firstNameLastDashIndex = firstIbuName.lastIndexOf('-');
+            if (firstNameLastDashIndex == -1) {
+              throw new IllegalArgumentException("Invalid backup unit file name: " + firstIbuName);
+            }
+            var firstNameWithoutDbName = firstIbuName.substring(0, firstNameLastDashIndex);
+
+            var secondNameLastDashIndex = secondIbuName.lastIndexOf('-');
+            if (secondNameLastDashIndex == -1) {
+              throw new IllegalArgumentException("Invalid backup unit file name: " + secondIbuName);
+            }
+
+            var secondNameWithoutDbName = secondIbuName.substring(0, secondNameLastDashIndex);
+            return firstNameWithoutDbName.compareTo(secondNameWithoutDbName);
+          });
+
+          BackupMetadata backupMetadata = null;
+
+          while (!existingFiles.isEmpty()) {
+            var ibuLastFile = existingFiles.removeLast();
+            backupMetadata = validateFileAndFetchBackupMetadata(ibuLastFile, uuid,
+                ibuInputStreamSupplier);
+
+            if (backupMetadata == null) {
+              LogManager.instance()
+                  .error(this, "Backup unit file %s is broken and will be removed.", null,
+                      ibuLastFile);
+              ibuFileRemover.accept(ibuLastFile);
+            } else {
+              break;
+            }
+          }
+
+          String ibuNextFile;
+          int nextFileIndex;
+          LogSequenceNumber fromLsn = null;
+
+          if (backupMetadata == null) {
+            nextFileIndex = 0;
+          } else {
+            nextFileIndex = backupMetadata.sequenceNumber + 1;
+            fromLsn = backupMetadata.endLsn;
+          }
+
+          ibuNextFile = createIbuFileName(nextFileIndex, uuidString);
+          LogManager.instance()
+              .info(this, "Backup unit file %s will be created.", ibuNextFile);
+          try (var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile)) {
+            var xxHashStream = new XXHashOutputStream(fileStream);
+            var lastLsn = storeIncrementalBackupDataToStream(fileStream, fromLsn);
+
+            writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn);
+          }
+
+          LogManager.instance()
+              .info(this, "Backup of database '%s' is completed. Backup unit file %s was created.",
+                  name, ibuNextFile);
+        } finally {
+          backupLock.unlock();
+        }
+      } else {
+        throw new BackupInProgressException(name,
+            "You are trying to start incremental backup but it is in progress now, please wait till it will be finished");
+      }
+    } catch (final IOException ioe) {
+      throw BaseException.wrapException(
+          new DatabaseException(name, "Error during creation of database backup."), ioe, name);
+    } finally {
+      stateLock.readLock().unlock();
+    }
+  }
+
+  private static void writeBackupMetadata(XXHashOutputStream xxHashStream, UUID uuid,
+      int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn) throws IOException {
+    var dataOutputStream = new DataOutputStream(xxHashStream);
+    dataOutputStream.writeShort(CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION);
+
+    dataOutputStream.writeLong(uuid.getLeastSignificantBits());
+    dataOutputStream.writeLong(uuid.getMostSignificantBits());
+
+    dataOutputStream.writeInt(nextFileIndex);
+    if (fromLsn == null) {
+      dataOutputStream.writeLong(-1);
+      dataOutputStream.writeInt(-1);
+    } else {
+      dataOutputStream.writeLong(fromLsn.getSegment());
+      dataOutputStream.writeInt(fromLsn.getPosition());
+    }
+    dataOutputStream.writeLong(lastLsn.getSegment());
+    dataOutputStream.writeInt(lastLsn.getPosition());
+
+    dataOutputStream.flush();
+
+    var hashCode = xxHashStream.xxHash64.getValue();
+    dataOutputStream.writeLong(hashCode);
+    dataOutputStream.flush();
+  }
+
+  private String createIbuFileName(int backupNumber, String uuid) {
+    var date = new Date();
+    var strDate = new SimpleDateFormat(INCREMENTAL_BACKUP_DATEFORMAT, Locale.ROOT).format(date);
+    return uuid + "-" + strDate + "-" + backupNumber + "-" + name + IBU_EXTENSION;
+  }
+
+  @Nullable
+  private BackupMetadata validateFileAndFetchBackupMetadata(String ibuFileName, UUID dbUUID,
+      Function<String, InputStream> ibuInputStreamSupplier) throws IOException {
+    byte[] metaDataCandidate = null;
+
+    try (var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
+      try (var inputStream = ibuInputStreamSupplier.apply(ibuFileName)) {
+        var buffer = new byte[(64 << 10)];
+
+        while (true) {
+          var read = inputStream.read(buffer);
+
+          if (read == -1) {
+            break;
+          } else if (read == 0) {
+            continue;
+          }
+
+          if (metaDataCandidate == null) {
+            if (read < IBU_METADATA_SIZE) {
+              //read till we will not have to read metadata information
+              var bytesLeftToRead = IBU_METADATA_SIZE - read;
+              while (bytesLeftToRead > 0) {
+                var r = inputStream.read(buffer, read, buffer.length);
+                if (r == -1) {
+                  LogManager.instance().warn(this,
+                      "Size of the file %s is less than needed to store information about metadata. "
+                          + "Size should be at least %d but real size is %d.", ibuFileName,
+                      IBU_METADATA_SIZE, read);
+                  return null;
+                }
+
+                read += r;
+                bytesLeftToRead -= r;
+              }
+            }
+
+            metaDataCandidate = new byte[IBU_METADATA_SIZE];
+            System.arraycopy(buffer, read - IBU_METADATA_SIZE, metaDataCandidate, 0,
+                IBU_METADATA_SIZE);
+
+            xxHash64.update(buffer, 0, read - IBU_METADATA_SIZE);
+          } else {
+            if (read >= IBU_METADATA_SIZE) {
+              xxHash64.update(metaDataCandidate, 0, metaDataCandidate.length);
+              xxHash64.update(buffer, 0, read - IBU_METADATA_SIZE);
+              System.arraycopy(buffer, read - IBU_METADATA_SIZE,
+                  metaDataCandidate, 0, IBU_METADATA_SIZE);
+            } else {
+              xxHash64.update(metaDataCandidate, 0, read);
+              System.arraycopy(metaDataCandidate, read, metaDataCandidate, 0,
+                  IBU_METADATA_SIZE - read);
+              System.arraycopy(buffer, 0, metaDataCandidate, IBU_METADATA_SIZE - read, read);
+            }
+          }
+        }
+      }
+
+      if (metaDataCandidate == null) {
+        LogManager.instance().warn(this, "File %s does not contain backup metadata.", ibuFileName);
+        return null;
+      }
+
+      xxHash64.update(metaDataCandidate, 0, metaDataCandidate.length - Long.BYTES);
+
+      var metadataVersion = ShortSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_VERSION_OFFSET);
+      var metadataUUIDLowerBits = LongSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_UUID_LOW_OFFSET);
+      var metadataUUIDHigherBits = LongSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_UUID_HIGH_OFFSET);
+      var metadataSequenceNumber = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_SEQUENCE_OFFSET);
+      var metadataStartLsnSegment = LongSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_FIRST_LSN_SEGMENT_OFFSET);
+      var metadataStartLsnPosition = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_START_LSN_POSITION_OFFSET);
+      var metadataLastLsnSegment = LongSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_LAST_LSN_SEGMENT_OFFSET);
+      var metadataEndLsnPosition = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_LAST_LSN_POSITION_OFFSET);
+      var metadataHashCode = LongSerializer.deserializeLiteral(metaDataCandidate,
+          IBU_METADATA_HASH_CODE_OFFSET);
+
+      if (metadataHashCode != xxHash64.getValue()) {
+        LogManager.instance()
+            .warn(this,
+                "Hash code of the file %s is incorrect. Content of the file is invalid. File either broken or contains invalid data.",
+                ibuFileName);
+        return null;
+      }
+
+      if (dbUUID.getLeastSignificantBits() != metadataUUIDLowerBits
+          || dbUUID.getMostSignificantBits() != metadataUUIDHigherBits) {
+        var storedUUID = new UUID(metadataUUIDLowerBits, metadataUUIDHigherBits);
+        LogManager.instance()
+            .warn(this, "UUID of the file %s stored in metadata %s does not match DB UUID %s.",
+                ibuFileName, storedUUID, dbUUID);
+        return null;
+      }
+
+      var firstDashIndex = ibuFileName.indexOf('-');
+      if (firstDashIndex == -1) {
+        LogManager.instance().warn(this, "File name %s does not contain DB UUID.", ibuFileName);
+        return null;
+      }
+
+      if (metadataVersion != CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION) {
+        LogManager.instance()
+            .warn(this,
+                "Version of the file %s stored in metadata %d does not match supported version %d.",
+                ibuFileName, metadataVersion, CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION);
+        return null;
+      }
+
+      UUID fileNameUUID;
+      try {
+        fileNameUUID = UUID.fromString(ibuFileName.substring(firstDashIndex));
+      } catch (IllegalArgumentException e) {
+        LogManager.instance().warn(this, "UUID of the file %s is incorrect.", ibuFileName);
+        return null;
+      }
+
+      if (fileNameUUID.getLeastSignificantBits() != metadataUUIDLowerBits
+          || fileNameUUID.getMostSignificantBits() != metadataUUIDHigherBits) {
+        LogManager.instance()
+            .warn(this, "UUID of the file %s does not match DB UUID %s.", ibuFileName, dbUUID);
+      }
+
+      var secondDashIndex = ibuFileName.indexOf('-', firstDashIndex + 1);
+      if (secondDashIndex == -1) {
+        LogManager.instance()
+            .warn(this, "File %s does not contain backup sequence number.", ibuFileName);
+      }
+
+      var thirdDashIndex = ibuFileName.indexOf('-', secondDashIndex + 1);
+      if (thirdDashIndex == -1) {
+        LogManager.instance()
+            .warn(this, "File %s does not contain backup sequence number.", ibuFileName);
+      }
+
+      int sequenceNumber;
+      try {
+        sequenceNumber = Integer.parseInt(
+            ibuFileName.substring(secondDashIndex + 1, thirdDashIndex));
+      } catch (NumberFormatException e) {
+        LogManager.instance()
+            .warn(this, "Sequence number of the file %s is incorrect.", ibuFileName);
+        return null;
+      }
+
+      if (metadataSequenceNumber != sequenceNumber) {
+        LogManager.instance()
+            .warn(this, "Sequence number of the file %s stored in metadata %s does not match DB "
+                + "sequence number %s.", ibuFileName, sequenceNumber, metadataSequenceNumber);
+        return null;
+      }
+
+      LogSequenceNumber startLsn = null;
+      if (metadataStartLsnSegment != -1 && metadataStartLsnPosition != -1) {
+        startLsn = new LogSequenceNumber(metadataStartLsnSegment, metadataStartLsnPosition);
+      }
+      if (metadataLastLsnSegment == -1 || metadataEndLsnPosition == -1) {
+        LogManager.instance().warn(this, "Last LSN of the file %s stored in metadata is incorrect.",
+            ibuFileName);
+        return null;
+      }
+
+      var lastLsn = new LogSequenceNumber(metadataLastLsnSegment, metadataEndLsnPosition);
+
+      return new BackupMetadata(metadataVersion, fileNameUUID, sequenceNumber, startLsn, lastLsn);
+    }
+  }
+
+
+  private LogSequenceNumber storeIncrementalBackupDataToStream(OutputStream stream,
+      LogSequenceNumber fromLsn)
+      throws IOException {
+    final var zipOutputStream = new ZipOutputStream(stream,
+        Charset.forName(configuration.getCharset()));
+    try {
+      final long startSegment;
+      final LogSequenceNumber freezeLsn;
+      final var newSegmentFreezeId = atomicOperationsManager.freezeAtomicOperations(null);
+      try {
+        final var startLsn = writeAheadLog.end();
+        if (startLsn != null) {
+          freezeLsn = startLsn;
+        } else {
+          freezeLsn = new LogSequenceNumber(0, 0);
+        }
+
+        writeAheadLog.addCutTillLimit(freezeLsn);
+
+        writeAheadLog.appendNewSegment();
+        startSegment = writeAheadLog.activeSegment();
+      } finally {
+        atomicOperationsManager.releaseAtomicOperations(newSegmentFreezeId);
+      }
+
+      try {
+        backupIv(zipOutputStream);
+
+        final var encryptionIv = new byte[16];
+        final var secureRandom = new SecureRandom();
+        secureRandom.nextBytes(encryptionIv);
+
+        backupIBUEncryptionIv(zipOutputStream, encryptionIv);
+
+        final var aesKeyEncoded =
+            getConfiguration()
+                .getContextConfiguration()
+                .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
+        final var aesKey =
+            aesKeyEncoded == null ? null : Base64.getDecoder().decode(aesKeyEncoded);
+
+        if (aesKey != null
+            && aesKey.length != 16
+            && aesKey.length != 24
+            && aesKey.length != 32) {
+          throw new InvalidStorageEncryptionKeyException(name,
+              "Invalid length of the encryption key, provided size is " + aesKey.length);
+        }
+
+        var lastLsn = backupPagesWithChanges(fromLsn, zipOutputStream, encryptionIv, aesKey);
+        final var lastWALLsn =
+            copyWALToIncrementalBackup(zipOutputStream, startSegment);
+
+        if (lastWALLsn != null && (lastLsn == null || lastWALLsn.compareTo(lastLsn) > 0)) {
+          lastLsn = lastWALLsn;
+        }
+
+        return lastLsn;
+      } finally {
+        writeAheadLog.removeCutTillLimit(freezeLsn);
+      }
+    } finally {
+      try {
+        zipOutputStream.finish();
+        zipOutputStream.flush();
+      } catch (IOException e) {
+        LogManager.instance().warn(this, "Failed to flush data during incremental backup. ", e);
+      }
+    }
   }
 
   @Override
   public void fullIncrementalBackup(final OutputStream stream) {
-    try {
-      incrementalBackup(stream, null, false);
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(name, "Error during incremental backup"), e, name);
-    }
+    throw new UnsupportedOperationException("Full incremental backup is not supported yet.");
+    //TODO: implement it next
   }
 
-  @SuppressWarnings("unused")
-  public boolean isLastBackupCompatibleWithUUID(final java.io.File backupDirectory)
-      throws IOException {
-    if (!backupDirectory.exists()) {
-      return true;
-    }
-
-    final var fileLockPath = backupDirectory.toPath().resolve(INCREMENTAL_BACKUP_LOCK);
-    try (var lockChannel =
-        FileChannel.open(fileLockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-      try (final var ignored = lockChannel.lock()) {
-        final var files = fetchIBUFiles(backupDirectory);
-        if (files.length > 0) {
-          var backupUUID =
-              extractDbInstanceUUID(backupDirectory, files[0], configuration.getCharset());
-          try {
-            checkDatabaseInstanceId(backupUUID);
-          } catch (InvalidInstanceIdException ex) {
-            return false;
-          }
-        }
-      } catch (final OverlappingFileLockException e) {
-        LogManager.instance()
-            .error(
-                this,
-                "Another incremental backup process is in progress, please wait till it will be"
-                    + " finished",
-                null);
-      } catch (final IOException e) {
-        throw BaseException.wrapException(
-            new StorageException(name, "Error during incremental backup"),
-            e, name);
-      }
-
-      try {
-        Files.deleteIfExists(fileLockPath);
-      } catch (IOException e) {
-        throw BaseException.wrapException(
-            new StorageException(name, "Error during incremental backup"),
-            e, name);
-      }
-    }
-    return true;
-  }
-
-  private String incrementalBackup(
-      final java.io.File backupDirectory, final CallableFunction<Void, Void> started) {
-    var fileName = "";
-
-    if (!backupDirectory.exists()) {
-      if (!backupDirectory.mkdirs()) {
-        throw new StorageException(name,
-            "Backup directory "
-                + backupDirectory.getAbsolutePath()
-                + " does not exist and can not be created");
-      }
-    }
-    checkNoBackupInStorageDir(backupDirectory);
-
-    final var fileLockPath = backupDirectory.toPath().resolve(INCREMENTAL_BACKUP_LOCK);
-    try (final var lockChannel =
-        FileChannel.open(fileLockPath, StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-      try (@SuppressWarnings("unused") final var fileLock = lockChannel.lock()) {
-        RandomAccessFile rndIBUFile = null;
-        try {
-          final var files = fetchIBUFiles(backupDirectory);
-
-          final LogSequenceNumber lastLsn;
-          long nextIndex;
-          final UUID backupUUID;
-
-          if (files.length == 0) {
-            lastLsn = null;
-            nextIndex = 0;
-          } else {
-            lastLsn = extractIBULsn(backupDirectory, files[files.length - 1]);
-            nextIndex = extractIndexFromIBUFile(backupDirectory, files[files.length - 1]) + 1;
-            backupUUID =
-                extractDbInstanceUUID(backupDirectory, files[0], configuration.getCharset());
-            checkDatabaseInstanceId(backupUUID);
-          }
-
-          final var dateFormat = new SimpleDateFormat(INCREMENTAL_BACKUP_DATEFORMAT);
-          if (lastLsn != null) {
-            fileName =
-                getName()
-                    + "_"
-                    + dateFormat.format(new Date())
-                    + "_"
-                    + nextIndex
-                    + IBU_EXTENSION_V3;
-          } else {
-            fileName =
-                getName()
-                    + "_"
-                    + dateFormat.format(new Date())
-                    + "_"
-                    + nextIndex
-                    + "_full"
-                    + IBU_EXTENSION_V3;
-          }
-
-          final var ibuFile = new java.io.File(backupDirectory, fileName);
-
-          if (started != null) {
-            started.call(null);
-          }
-          rndIBUFile = new RandomAccessFile(ibuFile, "rw");
-          try {
-            final var ibuChannel = rndIBUFile.getChannel();
-
-            final var versionBuffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
-            versionBuffer.putInt(INCREMENTAL_BACKUP_VERSION);
-            versionBuffer.rewind();
-
-            IOUtils.writeByteBuffer(versionBuffer, ibuChannel, 0);
-
-            ibuChannel.position(
-                2 * IntegerSerializer.INT_SIZE
-                    + 2 * LongSerializer.LONG_SIZE
-                    + ByteSerializer.BYTE_SIZE);
-
-            LogSequenceNumber maxLsn;
-            try (var stream = Channels.newOutputStream(ibuChannel)) {
-              maxLsn = incrementalBackup(stream, lastLsn, true);
-              final var dataBuffer =
-                  ByteBuffer.allocate(
-                      IntegerSerializer.INT_SIZE
-                          + 2 * LongSerializer.LONG_SIZE
-                          + ByteSerializer.BYTE_SIZE);
-
-              dataBuffer.putLong(nextIndex);
-              dataBuffer.putLong(maxLsn.getSegment());
-              dataBuffer.putInt(maxLsn.getPosition());
-
-              if (lastLsn == null) {
-                dataBuffer.put((byte) 1);
-              } else {
-                dataBuffer.put((byte) 0);
-              }
-
-              dataBuffer.rewind();
-
-              ibuChannel.write(dataBuffer);
-              IOUtils.writeByteBuffer(dataBuffer, ibuChannel, IntegerSerializer.INT_SIZE);
-            }
-          } catch (RuntimeException e) {
-            rndIBUFile.close();
-
-            if (!ibuFile.delete()) {
-              LogManager.instance()
-                  .error(
-                      this, ibuFile.getAbsolutePath() + " is closed but can not be deleted", null);
-            }
-
-            throw e;
-          }
-        } catch (IOException e) {
-          throw BaseException.wrapException(
-              new StorageException(name, "Error during incremental backup"), e, name);
-        } finally {
-          try {
-            if (rndIBUFile != null) {
-              rndIBUFile.close();
-            }
-          } catch (IOException e) {
-            LogManager.instance().error(this, "Can not close %s file", e, fileName);
-          }
-        }
-      }
-    } catch (final OverlappingFileLockException e) {
-      LogManager.instance()
-          .error(
-              this,
-              "Another incremental backup process is in progress, please wait till it will be"
-                  + " finished",
-              null);
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(name, "Error during incremental backup"),
-          e, name);
-    }
-
-    try {
-      Files.deleteIfExists(fileLockPath);
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(name, "Error during incremental backup"),
-          e, name);
-    }
-
-    return fileName;
-  }
-
-  @Nullable
-  private UUID extractDbInstanceUUID(java.io.File backupDirectory, String file, String charset)
-      throws IOException {
-    final var ibuFile = new java.io.File(backupDirectory, file);
-    final RandomAccessFile rndIBUFile;
-    try {
-      rndIBUFile = new RandomAccessFile(ibuFile, "r");
-    } catch (FileNotFoundException e) {
-      throw BaseException.wrapException(new StorageException(name, "Backup file was not found"), e,
-          name);
-    }
-
-    try {
-      final var ibuChannel = rndIBUFile.getChannel();
-      ibuChannel.position(3 * LongSerializer.LONG_SIZE + 1);
-
-      final var inputStream = Channels.newInputStream(ibuChannel);
-      final var bufferedInputStream = new BufferedInputStream(inputStream);
-      final var zipInputStream =
-          new ZipInputStream(bufferedInputStream, Charset.forName(charset));
-
-      ZipEntry zipEntry;
-      while ((zipEntry = zipInputStream.getNextEntry()) != null) {
-        if (zipEntry.getName().equals("database_instance.uuid")) {
-          var dis = new DataInputStream(zipInputStream);
-          return UUID.fromString(dis.readUTF());
-        }
-      }
-    } finally {
-      rndIBUFile.close();
-    }
-    return null;
-  }
-
-  private void checkNoBackupInStorageDir(final java.io.File backupDirectory) {
-    if (storagePath == null || backupDirectory == null) {
-      return;
-    }
-
-    var invalid = false;
-    final var storageDir = storagePath.toFile();
-    if (backupDirectory.equals(storageDir)) {
-      invalid = true;
-    }
-
+  private void checkBackupIsNotPerformedInStorageDir(final Path backupDirectory) {
+    var invalid = backupDirectory.equals(storagePath);
     if (invalid) {
       throw new StorageException(name, "Backup cannot be performed in the storage path");
     }
-  }
-
-  @SuppressWarnings("unused")
-  public void registerStorageListener(EnterpriseStorageOperationListener listener) {
-    this.listeners.add(listener);
-  }
-
-  @SuppressWarnings("unused")
-  public void unRegisterStorageListener(EnterpriseStorageOperationListener listener) {
-    this.listeners.remove(listener);
-  }
-
-  private String[] fetchIBUFiles(final java.io.File backupDirectory) throws IOException {
-    final var files =
-        backupDirectory.list(
-            (dir, name) ->
-                new java.io.File(dir, name).length() > 0 && name.toLowerCase()
-                    .endsWith(IBU_EXTENSION_V3));
-
-    if (files == null) {
-      throw new StorageException(name,
-          "Can not read list of backup files from directory " + backupDirectory.getAbsolutePath());
-    }
-
-    final List<Pair<Long, String>> indexedFiles = new ArrayList<>(files.length);
-
-    for (var file : files) {
-      final var fileIndex = extractIndexFromIBUFile(backupDirectory, file);
-      indexedFiles.add(new Pair<>(fileIndex, file));
-    }
-
-    Collections.sort(indexedFiles);
-
-    final var sortedFiles = new String[files.length];
-
-    var index = 0;
-    for (var indexedFile : indexedFiles) {
-      sortedFiles[index] = indexedFile.getValue();
-      index++;
-    }
-
-    return sortedFiles;
-  }
-
-  private LogSequenceNumber extractIBULsn(java.io.File backupDirectory, String file) {
-    final var ibuFile = new java.io.File(backupDirectory, file);
-    final RandomAccessFile rndIBUFile;
-    try {
-      rndIBUFile = new RandomAccessFile(ibuFile, "r");
-    } catch (FileNotFoundException e) {
-      throw BaseException.wrapException(new StorageException(name, "Backup file was not found"), e,
-          name);
-    }
-
-    try {
-      try {
-        final var ibuChannel = rndIBUFile.getChannel();
-        ibuChannel.position(IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE);
-
-        var lsnData =
-            ByteBuffer.allocate(IntegerSerializer.INT_SIZE + LongSerializer.LONG_SIZE);
-        ibuChannel.read(lsnData);
-        lsnData.rewind();
-
-        final var segment = lsnData.getLong();
-        final var position = lsnData.getInt();
-
-        return new LogSequenceNumber(segment, position);
-      } finally {
-        rndIBUFile.close();
-      }
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(name, "Error during read of backup file"),
-          e, name);
-    } finally {
-      try {
-        rndIBUFile.close();
-      } catch (IOException e) {
-        LogManager.instance().error(this, "Error during read of backup file", e);
-      }
-    }
-  }
-
-  private static long extractIndexFromIBUFile(final java.io.File backupDirectory,
-      final String fileName)
-      throws IOException {
-    final var file = new java.io.File(backupDirectory, fileName);
-
-    try (final var rndFile = new RandomAccessFile(file, "r")) {
-      rndFile.seek(IntegerSerializer.INT_SIZE);
-      return validateLongIndex(rndFile.readLong());
-    }
-  }
-
-  private static long validateLongIndex(final long index) {
-    return index < 0 ? 0 : Math.abs(index);
-  }
-
-  private LogSequenceNumber incrementalBackup(
-      final OutputStream stream, final LogSequenceNumber fromLsn, final boolean singleThread)
-      throws IOException {
-    LogSequenceNumber lastLsn;
-
-    checkOpennessAndMigration();
-
-    if (singleThread && isIncrementalBackupRunning()) {
-      throw new BackupInProgressException(name,
-          "You are trying to start incremental backup but it is in progress now, please wait till"
-              + " it will be finished",
-          getName(), ErrorCode.BACKUP_IN_PROGRESS);
-    }
-    startBackup();
-    stateLock.readLock().lock();
-    try {
-
-      checkOpennessAndMigration();
-      final long freezeId;
-
-      if (!isWriteAllowedDuringIncrementalBackup()) {
-        freezeId =
-            atomicOperationsManager.freezeAtomicOperations(
-                () -> new ModificationOperationProhibitedException(
-                    name, "Incremental backup in progress")
-            );
-      } else {
-        freezeId = -1;
-      }
-
-      try {
-        final var zipOutputStream =
-            new ZipOutputStream(
-                new BufferedOutputStream(stream), Charset.forName(configuration.getCharset()));
-        try {
-          final long startSegment;
-          final LogSequenceNumber freezeLsn;
-
-          if (fromLsn == null) {
-            var databaseInstanceUUID = super.readDatabaseInstanceId();
-            if (databaseInstanceUUID == null) {
-              atomicOperationsManager.executeInsideAtomicOperation(
-                  null, this::generateDatabaseInstanceId);
-              databaseInstanceUUID = super.readDatabaseInstanceId();
-            }
-            final var zipEntry = new ZipEntry("database_instance.uuid");
-
-            zipOutputStream.putNextEntry(zipEntry);
-            var dos = new DataOutputStream(zipOutputStream);
-            dos.writeUTF(databaseInstanceUUID.toString());
-            dos.flush();
-          }
-
-          final var newSegmentFreezeId =
-              atomicOperationsManager.freezeAtomicOperations(null);
-          try {
-            final var startLsn = writeAheadLog.end();
-
-            if (startLsn != null) {
-              freezeLsn = startLsn;
-            } else {
-              freezeLsn = new LogSequenceNumber(0, 0);
-            }
-
-            writeAheadLog.addCutTillLimit(freezeLsn);
-
-            writeAheadLog.appendNewSegment();
-            startSegment = writeAheadLog.activeSegment();
-
-            getLastMetadata()
-                .ifPresent(
-                    metadata -> {
-                      try {
-                        writeAheadLog.log(new MetaDataRecord(metadata));
-                      } catch (final IOException e) {
-                        throw new IllegalStateException("Error during write of metadata", e);
-                      }
-                    });
-          } finally {
-            atomicOperationsManager.releaseAtomicOperations(newSegmentFreezeId);
-          }
-
-          try {
-            backupIv(zipOutputStream);
-
-            final var encryptionIv = new byte[16];
-            final var secureRandom = new SecureRandom();
-            secureRandom.nextBytes(encryptionIv);
-
-            backupEncryptedIv(zipOutputStream, encryptionIv);
-
-            final var aesKeyEncoded =
-                getConfiguration()
-                    .getContextConfiguration()
-                    .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
-            final var aesKey =
-                aesKeyEncoded == null ? null : Base64.getDecoder().decode(aesKeyEncoded);
-
-            if (aesKey != null
-                && aesKey.length != 16
-                && aesKey.length != 24
-                && aesKey.length != 32) {
-              throw new InvalidStorageEncryptionKeyException(name,
-                  "Invalid length of the encryption key, provided size is " + aesKey.length);
-            }
-
-            lastLsn = backupPagesWithChanges(fromLsn, zipOutputStream, encryptionIv, aesKey);
-            final var lastWALLsn =
-                copyWALToIncrementalBackup(zipOutputStream, startSegment);
-
-            if (lastWALLsn != null && (lastLsn == null || lastWALLsn.compareTo(lastLsn) > 0)) {
-              lastLsn = lastWALLsn;
-            }
-          } finally {
-            writeAheadLog.removeCutTillLimit(freezeLsn);
-          }
-        } finally {
-          try {
-            zipOutputStream.finish();
-            zipOutputStream.flush();
-          } catch (IOException e) {
-            LogManager.instance().warn(this, "Failed to flush resource " + zipOutputStream);
-          }
-        }
-      } finally {
-        if (!isWriteAllowedDuringIncrementalBackup()) {
-          atomicOperationsManager.releaseAtomicOperations(freezeId);
-        }
-      }
-    } finally {
-      stateLock.readLock().unlock();
-      endBackup();
-    }
-
-    return lastLsn;
   }
 
   private void doEncryptionDecryption(
@@ -1451,7 +1446,8 @@ public class DiskStorage extends AbstractStorage {
 
       final var data =
           cipher.doFinal(
-              backUpPage, LongSerializer.LONG_SIZE, backUpPage.length - LongSerializer.LONG_SIZE);
+              backUpPage, LongSerializer.LONG_SIZE,
+              backUpPage.length - LongSerializer.LONG_SIZE);
       System.arraycopy(
           data,
           0,
@@ -1469,7 +1465,7 @@ public class DiskStorage extends AbstractStorage {
     }
   }
 
-  private static void backupEncryptedIv(final ZipOutputStream zipOutputStream,
+  private static void backupIBUEncryptionIv(final ZipOutputStream zipOutputStream,
       final byte[] encryptionIv)
       throws IOException {
     final var zipEntry = new ZipEntry(ENCRYPTION_IV);
@@ -1538,7 +1534,8 @@ public class DiskStorage extends AbstractStorage {
 
             final var data = new byte[pageSize + LongSerializer.LONG_SIZE];
             LongSerializer.INSTANCE.serializeNative(pageIndex, data, 0);
-            DurablePage.getPageData(cachePointerBuffer, data, LongSerializer.LONG_SIZE, pageSize);
+            DurablePage.getPageData(cachePointerBuffer, data, LongSerializer.LONG_SIZE,
+                pageSize);
 
             if (aesKey != null) {
               doEncryptionDecryption(
@@ -1566,45 +1563,46 @@ public class DiskStorage extends AbstractStorage {
   @Override
   public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
       final String filePath) {
-    restoreFromIncrementalBackup(new java.io.File(filePath));
+    restoreFromIncrementalBackup(Path.of(filePath));
   }
 
-  @Override
-  public void restoreFullIncrementalBackup(DatabaseSessionInternal session,
-      final InputStream stream)
-      throws UnsupportedOperationException {
-    stateLock.writeLock().lock();
-    try {
-      final var aesKeyEncoded =
-          getConfiguration()
-              .getContextConfiguration()
-              .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
-      final var aesKey =
-          aesKeyEncoded == null ? null : Base64.getDecoder().decode(aesKeyEncoded);
-
-      if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
-        throw new InvalidStorageEncryptionKeyException(name,
-            "Invalid length of the encryption key, provided size is " + aesKey.length);
-      }
-
-      var result = preprocessingIncrementalRestore();
-      restoreFromIncrementalBackup(
-          result.charset,
-          result.serverLocale,
-          result.locale,
-          result.contextConfiguration,
-          aesKey,
-          stream,
-          true);
-
-      postProcessIncrementalRestore(result.contextConfiguration);
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(name, "Error during restore from incremental backup"), e, name);
-    } finally {
-      stateLock.writeLock().unlock();
-    }
-  }
+//  TODO: implement it next
+//  @Override
+//  public void restoreFullIncrementalBackup(DatabaseSessionInternal session,
+//      final InputStream stream)
+//      throws UnsupportedOperationException {
+//    stateLock.writeLock().lock();
+//    try {
+//      final var aesKeyEncoded =
+//          getConfiguration()
+//              .getContextConfiguration()
+//              .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
+//      final var aesKey =
+//          aesKeyEncoded == null ? null : Base64.getDecoder().decode(aesKeyEncoded);
+//
+//      if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
+//        throw new InvalidStorageEncryptionKeyException(name,
+//            "Invalid length of the encryption key, provided size is " + aesKey.length);
+//      }
+//
+//      var result = preprocessingIncrementalRestore();
+//      restoreFromIncrementalBackup(
+//          result.charset,
+//          result.serverLocale,
+//          result.locale,
+//          result.contextConfiguration,
+//          aesKey,
+//          stream,
+//          true);
+//
+//      postProcessIncrementalRestore(result.contextConfiguration);
+//    } catch (IOException e) {
+//      throw BaseException.wrapException(
+//          new StorageException(name, "Error during restore from incremental backup"), e, name);
+//    } finally {
+//      stateLock.writeLock().unlock();
+//    }
+//  }
 
   private IncrementalRestorePreprocessingResult preprocessingIncrementalRestore()
       throws IOException {
@@ -1614,7 +1612,6 @@ public class DiskStorage extends AbstractStorage {
     final var locale = configuration.getLocaleInstance();
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation -> {
           closeCollections();
           closeIndexes(atomicOperation);
@@ -1627,109 +1624,102 @@ public class DiskStorage extends AbstractStorage {
         serverLocale, contextConfiguration, charset, locale);
   }
 
-  private void restoreFromIncrementalBackup(final java.io.File backupDirectory) {
-    if (!backupDirectory.exists()) {
-      throw new StorageException(name,
-          "Directory which should contain incremental backup files (files with extension '"
-              + IBU_EXTENSION_V3
-              + "') is absent. It should be located at '"
-              + backupDirectory.getAbsolutePath()
-              + "'");
-    }
-
-    try {
-      final var files = fetchIBUFiles(backupDirectory);
-      if (files.length == 0) {
-        throw new StorageException(name,
-            "Cannot find incremental backup files (files with extension '"
-                + IBU_EXTENSION_V3
-                + "') in directory '"
-                + backupDirectory.getAbsolutePath()
-                + "'");
-      }
-
-      stateLock.writeLock().lock();
-      try {
-
-        final var aesKeyEncoded =
-            getConfiguration()
-                .getContextConfiguration()
-                .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
-        final var aesKey =
-            aesKeyEncoded == null ? null : Base64.getDecoder().decode(aesKeyEncoded);
-
-        if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
-          throw new InvalidStorageEncryptionKeyException(name,
-              "Invalid length of the encryption key, provided size is " + aesKey.length);
-        }
-
-        var result = preprocessingIncrementalRestore();
-        var restoreUUID = extractDbInstanceUUID(backupDirectory, files[0], result.charset);
-
-        for (var file : files) {
-          var fileUUID = extractDbInstanceUUID(backupDirectory, files[0], result.charset);
-          if ((restoreUUID == null && fileUUID == null)
-              || (restoreUUID != null && restoreUUID.equals(fileUUID))) {
-            final var ibuFile = new java.io.File(backupDirectory, file);
-
-            var rndIBUFile = new RandomAccessFile(ibuFile, "rw");
-            try {
-              final var ibuChannel = rndIBUFile.getChannel();
-              final var versionBuffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
-              IOUtils.readByteBuffer(versionBuffer, ibuChannel);
-              versionBuffer.rewind();
-
-              final var backupVersion = versionBuffer.getInt();
-              if (backupVersion != INCREMENTAL_BACKUP_VERSION) {
-                throw new StorageException(name,
-                    "Invalid version of incremental backup version was provided. Expected "
-                        + INCREMENTAL_BACKUP_VERSION
-                        + " , provided "
-                        + backupVersion);
-              }
-
-              ibuChannel.position(2 * IntegerSerializer.INT_SIZE + 2 * LongSerializer.LONG_SIZE);
-              final var buffer = ByteBuffer.allocate(1);
-              ibuChannel.read(buffer);
-              buffer.rewind();
-
-              final var fullBackup = buffer.get() == 1;
-
-              try (final var inputStream = Channels.newInputStream(ibuChannel)) {
-                restoreFromIncrementalBackup(
-                    result.charset,
-                    result.serverLocale,
-                    result.locale,
-                    result.contextConfiguration,
-                    aesKey,
-                    inputStream,
-                    fullBackup);
-              }
-            } finally {
-              try {
-                rndIBUFile.close();
-              } catch (IOException e) {
-                LogManager.instance().warn(this, "Failed to close resource " + rndIBUFile);
-              }
-            }
-          } else {
-            LogManager.instance()
-                .warn(
-                    this,
-                    "Skipped file '"
-                        + file
-                        + "' is not a backup of the same database of previous backups");
-          }
-
-          postProcessIncrementalRestore(result.contextConfiguration);
-        }
-      } finally {
-        stateLock.writeLock().unlock();
-      }
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(name, "Error during restore from incremental backup"), e, name);
-    }
+  private void restoreFromIncrementalBackup(final Path backupDirectory) {
+    //TODO: implement it next
+//    if (!Files.exists(backupDirectory)) {
+//      throw new StorageException(name,
+//          "Directory which should contain incremental backup files (files with extension '"
+//              + IBU_EXTENSION_V3
+//              + "') is absent. It should be located at '"
+//              + backupDirectory.toAbsolutePath()
+//              + "'");
+//    }
+//
+//    try {
+//      final var files = fetchIBUFiles(backupDirectory);
+//      if (files.isEmpty()) {
+//        throw new StorageException(name,
+//            "Cannot find incremental backup files (files with extension '"
+//                + IBU_EXTENSION_V3
+//                + "') in directory '"
+//                + backupDirectory.toAbsolutePath()
+//                + "'");
+//      }
+//
+//      stateLock.writeLock().lock();
+//      try {
+//
+//        final var aesKeyEncoded =
+//            getConfiguration()
+//                .getContextConfiguration()
+//                .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
+//        final var aesKey =
+//            aesKeyEncoded == null ? null : Base64.getDecoder().decode(aesKeyEncoded);
+//
+//        if (aesKey != null && aesKey.length != 16 && aesKey.length != 24
+//            && aesKey.length != 32) {
+//          throw new InvalidStorageEncryptionKeyException(name,
+//              "Invalid length of the encryption key, provided size is " + aesKey.length);
+//        }
+//
+//        var result = preprocessingIncrementalRestore();
+//        var restoreUUID = extractDbInstanceUUID(files.getFirst(), result.charset);
+//
+//        for (var file : files) {
+//          var fileUUID = extractDbInstanceUUID(files.getFirst(), result.charset);
+//          if ((restoreUUID == null && fileUUID == null)
+//              || (restoreUUID != null && restoreUUID.equals(fileUUID))) {
+//            final var ibuFile = backupDirectory.resolve(file);
+//            try (final var ibuChannel = FileChannel.open(ibuFile, StandardOpenOption.READ)) {
+//              final var versionBuffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
+//              IOUtils.readByteBuffer(versionBuffer, ibuChannel);
+//              versionBuffer.rewind();
+//
+//              final var backupVersion = versionBuffer.getInt();
+//              if (backupVersion != CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION) {
+//                throw new StorageException(name,
+//                    "Invalid version of incremental backup version was provided. Expected "
+//                        + CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION
+//                        + " , provided "
+//                        + backupVersion);
+//              }
+//
+//              final var buffer = ByteBuffer.allocate(1);
+//              IOUtils.readByteBuffer(buffer, ibuChannel,
+//                  2 * IntegerSerializer.INT_SIZE + 2 * LongSerializer.LONG_SIZE,
+//                  true);
+//              buffer.rewind();
+//
+//              final var fullBackup = buffer.get() == 1;
+//              try (final var inputStream = Channels.newInputStream(ibuChannel)) {
+//                restoreFromIncrementalBackup(
+//                    result.charset,
+//                    result.serverLocale,
+//                    result.locale,
+//                    result.contextConfiguration,
+//                    aesKey,
+//                    inputStream,
+//                    fullBackup);
+//              }
+//            }
+//          } else {
+//            LogManager.instance()
+//                .warn(
+//                    this,
+//                    "Skipped file '"
+//                        + file
+//                        + "' is not a backup of the same database of previous backups");
+//          }
+//
+//          postProcessIncrementalRestore(result.contextConfiguration);
+//        }
+//      } finally {
+//        stateLock.writeLock().unlock();
+//      }
+//    } catch (IOException e) {
+//      throw BaseException.wrapException(
+//          new StorageException(name, "Error during restore from incremental backup"), e, name);
+//    }
   }
 
   private void postProcessIncrementalRestore(ContextConfiguration contextConfiguration)
@@ -1737,27 +1727,26 @@ public class DiskStorage extends AbstractStorage {
     if (CollectionBasedStorageConfiguration.exists(writeCache)) {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               ((CollectionBasedStorageConfiguration) configuration)
                   .load(contextConfiguration, atomicOperation));
     } else {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               ((CollectionBasedStorageConfiguration) configuration)
                   .load(contextConfiguration, atomicOperation));
     }
 
-    atomicOperationsManager.executeInsideAtomicOperation(null, this::openCollections);
+    atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
     linkCollectionsBTreeManager.close();
     linkCollectionsBTreeManager.load();
-    openIndexes();
 
+    openIndexes();
     flushAllData();
 
-    atomicOperationsManager.executeInsideAtomicOperation(null, this::generateDatabaseInstanceId);
+    atomicOperationsManager.executeInsideAtomicOperation(
+        this::generateDatabaseInstanceId);
   }
 
   private void restoreFromIncrementalBackup(
@@ -1831,7 +1820,8 @@ public class DiskStorage extends AbstractStorage {
         final var walName = zipEntry.getName();
         final var segmentIndex =
             walName.lastIndexOf(
-                '.', walName.length() - CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION.length() - 1);
+                '.',
+                walName.length() - CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION.length() - 1);
         final var storageName = getName();
 
         if (segmentIndex < 0) {
@@ -1923,7 +1913,8 @@ public class DiskStorage extends AbstractStorage {
           final var backedUpPageLsn =
               DurablePage.getLogSequenceNumber(LongSerializer.LONG_SIZE, data);
           if (isFull) {
-            buffer.put(0, data, LongSerializer.LONG_SIZE, data.length - LongSerializer.LONG_SIZE);
+            buffer.put(0, data, LongSerializer.LONG_SIZE,
+                data.length - LongSerializer.LONG_SIZE);
 
             if (maxLsn == null || maxLsn.compareTo(backedUpPageLsn) < 0) {
               maxLsn = backedUpPageLsn;
@@ -1989,18 +1980,6 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public @Nonnull ReadRecordResult readRecord(
-      DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
-      boolean fetchNextRid) {
-
-    try {
-      return super.readRecord(session, iRid, fetchPreviousRid, fetchNextRid);
-    } finally {
-      listeners.forEach(EnterpriseStorageOperationListener::onRead);
-    }
-  }
-
-  @Override
   public int getAbsoluteLinkBagCounter(RID ownerId, String fieldName, RID key) {
     throw new UnsupportedOperationException();
   }
@@ -2009,14 +1988,6 @@ public class DiskStorage extends AbstractStorage {
   public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
       String fieldName, RID rid) {
     throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public List<RecordOperation> commit(FrontendTransactionImpl frontendTransaction,
-      boolean allocated) {
-    var operations = super.commit(frontendTransaction, allocated);
-    listeners.forEach((l) -> l.onCommit(operations));
-    return operations;
   }
 
   private static void replaceConfiguration(ZipInputStream zipInputStream) throws IOException {
@@ -2052,32 +2023,53 @@ public class DiskStorage extends AbstractStorage {
     }
   }
 
-  private void waitBackup() {
-    backupLock.lock();
-    try {
-      while (isIncrementalBackupRunning()) {
-        try {
-          backupIsDone.await();
-        } catch (java.lang.InterruptedException e) {
-          throw BaseException.wrapException(
-              new ThreadInterruptedException("Interrupted wait for backup to finish"), e, name);
-        }
-      }
-    } finally {
-      backupLock.unlock();
-    }
-  }
-
-  @Override
-  protected void checkBackupRunning() {
-    waitBackup();
-  }
-
   private record IncrementalRestorePreprocessingResult(
       Locale serverLocale,
       ContextConfiguration contextConfiguration,
       String charset,
       Locale locale) {
 
+  }
+
+  private record BackupMetadata(int backupFormatVersion,
+                                UUID databaseId,
+                                int sequenceNumber,
+                                LogSequenceNumber startLsn,
+                                LogSequenceNumber endLsn) {
+
+  }
+
+  private static final class XXHashOutputStream extends ProxyOutputStream {
+
+    private final StreamingXXHash64 xxHash64 =
+        XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED);
+
+    XXHashOutputStream(OutputStream out) {
+      super(out);
+    }
+
+    @Override
+    public void write(byte[] bts) throws IOException {
+      xxHash64.update(bts, 0, bts.length);
+      super.write(bts);
+    }
+
+    @Override
+    public void write(byte[] bts, int st, int end) throws IOException {
+      xxHash64.update(bts, st, end - st);
+      super.write(bts, st, end);
+    }
+
+    @Override
+    public void write(int b) throws IOException {
+      xxHash64.update(new byte[]{(byte) b}, 0, 1);
+      super.write(b);
+    }
+
+    @Override
+    public void close() throws IOException {
+      xxHash64.close();
+      super.close();
+    }
   }
 }

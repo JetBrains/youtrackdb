@@ -10,7 +10,6 @@ import com.jetbrains.youtrack.db.internal.common.io.FileUtils;
 import com.jetbrains.youtrack.db.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrack.db.internal.common.util.RawPair;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -59,7 +58,6 @@ public class BTreeTestIT {
     singleValueTree = new BTree<>("singleBTree", ".sbt", ".nbt", storage);
     atomicOperationsManager = storage.getAtomicOperationsManager();
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation ->
             singleValueTree.create(atomicOperation, UTF8Serializer.INSTANCE, null, 1
             ));
@@ -83,7 +81,6 @@ public class BTreeTestIT {
         final var rollbackCounter = n;
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
                   final var key = Integer.toString(iterationCounter * rollbackInterval + j);
@@ -144,7 +141,6 @@ public class BTreeTestIT {
         final var rollbackCounter = n;
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var i = 0; i < rollbackRange; i++) {
                   var val = random.nextInt(Integer.MAX_VALUE);
@@ -188,7 +184,6 @@ public class BTreeTestIT {
         final var rollbackCounter = n;
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var i = 0; i < rollbackRange; i++) {
                   int val;
@@ -229,7 +224,6 @@ public class BTreeTestIT {
       var key = Integer.toString(i);
       final var k = i;
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               singleValueTree.put(atomicOperation, key, new RecordId(k % 32000, k)));
       keys.add(key);
@@ -241,13 +235,12 @@ public class BTreeTestIT {
       var key = keysIterator.next();
       if (Integer.parseInt(key) % 3 == 0) {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null, atomicOperation -> singleValueTree.remove(atomicOperation, key));
+            atomicOperation -> singleValueTree.remove(atomicOperation, key));
         keysIterator.remove();
       }
 
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               var rollbackCounter = 0;
               final var keysDeletionIterator = keys.tailSet(key, false).iterator();
@@ -289,7 +282,6 @@ public class BTreeTestIT {
       }
       var key = Integer.toString(val);
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               singleValueTree.put(atomicOperation, key, new RecordId(val % 32000, val)));
       keys.add(key);
@@ -304,12 +296,11 @@ public class BTreeTestIT {
 
       if (Integer.parseInt(key) % 3 == 0) {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null, atomicOperation -> singleValueTree.remove(atomicOperation, key));
+            atomicOperation -> singleValueTree.remove(atomicOperation, key));
         keysIterator.remove();
       }
       try {
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               var rollbackCounter = 0;
               final var keysDeletionIterator = keys.tailSet(key, false).iterator();
@@ -343,7 +334,6 @@ public class BTreeTestIT {
     for (var i = 0; i < keysCount; i++) {
       final var k = i;
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               singleValueTree.put(
                   atomicOperation, Integer.toString(k), new RecordId(k % 32000, k)));
@@ -357,7 +347,6 @@ public class BTreeTestIT {
 
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
                   final var key = iterationsCounter * rollbackInterval + j;
@@ -391,7 +380,6 @@ public class BTreeTestIT {
     for (var i = 0; i < keysCount; i++) {
       final var key = i;
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               singleValueTree.put(
                   atomicOperation, Integer.toString(key), new RecordId(key % 32000, key)));
@@ -407,7 +395,6 @@ public class BTreeTestIT {
 
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
                   final var key = iterationsCounter * rollbackInterval + j;
@@ -459,7 +446,6 @@ public class BTreeTestIT {
       for (var i = 0; i < keysCount; i++) {
         final var key = i;
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 singleValueTree.put(
                     atomicOperation, Integer.toString(key), new RecordId(key % 32000, key)));
@@ -470,7 +456,6 @@ public class BTreeTestIT {
       for (var i = 0; i < keysCount; i++) {
         final var key = i;
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation -> {
               Assert.assertEquals(
                   singleValueTree.remove(atomicOperation, Integer.toString(key)),
@@ -504,7 +489,6 @@ public class BTreeTestIT {
     for (var i = 0; i < keysCount / 2; i++) {
       final var key = i;
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation ->
               singleValueTree.put(
                   atomicOperation, Integer.toString(key), new RecordId(key % 32000, key)));
@@ -518,7 +502,6 @@ public class BTreeTestIT {
       for (var i = 0; i < keysCount / 2; i++) {
         final var key = i + (iterations + 1) * keysCount / 2;
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 singleValueTree.put(
                     atomicOperation, Integer.toString(key), new RecordId(key % 32000, key)));
@@ -532,7 +515,6 @@ public class BTreeTestIT {
       for (var i = 0; i < keysCount / 2; i++) {
         final var key = i + offset;
         atomicOperationsManager.executeInsideAtomicOperation(
-            null,
             atomicOperation ->
                 Assert.assertEquals(
                     singleValueTree.remove(atomicOperation, Integer.toString(key)),
@@ -571,7 +553,6 @@ public class BTreeTestIT {
         final var rollbackCounter = n;
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
                   var val = random.nextInt(Integer.MAX_VALUE);
@@ -627,7 +608,6 @@ public class BTreeTestIT {
 
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
                   var val = random.nextInt(Integer.MAX_VALUE);
@@ -680,7 +660,6 @@ public class BTreeTestIT {
         final var rollbackCounter = n;
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
                   var val = random.nextInt(Integer.MAX_VALUE);
@@ -729,7 +708,6 @@ public class BTreeTestIT {
         final var rollbackCounter = n;
         try {
           atomicOperationsManager.executeInsideAtomicOperation(
-              null,
               atomicOperation -> {
                 for (var j = 0; j < rollbackInterval; j++) {
                   var val = random.nextInt(Integer.MAX_VALUE);
@@ -775,7 +753,6 @@ public class BTreeTestIT {
     final var random = new Random();
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           atomicOperation -> {
             for (var j = 0; j < keysCount; j++) {
               final var key = "name" + j;

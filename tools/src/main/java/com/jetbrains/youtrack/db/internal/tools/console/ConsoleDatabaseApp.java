@@ -1513,12 +1513,12 @@ public class ConsoleDatabaseApp extends ConsoleApplication
               + "' to: "
               + iText
               + "...");
-      fName = currentDatabaseSession.incrementalBackup(Path.of(fileName));
+      currentDatabaseSession.incrementalBackup(Path.of(fileName));
 
       message(
           String.format(
-              "\nIncremental Backup executed in %.2f seconds stored in file %s",
-              ((float) (System.currentTimeMillis() - startTime) / 1000), fName));
+              "\nIncremental Backup executed in %.2f seconds.",
+              ((float) (System.currentTimeMillis() - startTime) / 1000)));
     } catch (DatabaseExportException e) {
       printError(e);
     }

@@ -216,12 +216,12 @@ public class RemoteDatabaseSessionWrapper implements RemoteDatabaseSession {
   }
 
   @Override
-  public String incrementalBackup(Path path) {
+  public void incrementalBackup(Path path) {
     checkClosed();
 
     session.startRemoteCall();
     try {
-      return session.incrementalBackup(path);
+      session.incrementalBackup(path);
     } finally {
       session.endRemoteCall();
     }

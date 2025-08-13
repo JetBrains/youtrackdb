@@ -48,6 +48,7 @@ import javax.annotation.Nullable;
  * @since 12/3/13
  */
 public class AtomicOperationsManager {
+
   private final ThreadLocal<AtomicOperation> currentOperation = new ThreadLocal<>();
 
   private final AbstractStorage storage;
@@ -78,7 +79,7 @@ public class AtomicOperationsManager {
     this.atomicOperationsTable = atomicOperationsTable;
   }
 
-  public AtomicOperation startAtomicOperation(final byte[] metadata) throws IOException {
+  public AtomicOperation startAtomicOperation() throws IOException {
     var operation = currentOperation.get();
     if (operation != null) {
       throw new StorageException(storage.getName(), "Atomic operation already started");
@@ -97,11 +98,7 @@ public class AtomicOperationsManager {
     }
 
     atomicOperationsTable.startOperation(unitId, activeSegment);
-    if (metadata != null) {
-      writeAheadLog.logAtomicOperationStartRecord(true, unitId, metadata);
-    } else {
-      writeAheadLog.logAtomicOperationStartRecord(true, unitId);
-    }
+    writeAheadLog.logAtomicOperationStartRecord(true, unitId);
 
     operation = new AtomicOperationBinaryTracking(unitId, readCache, writeCache, storage.getId());
 
@@ -110,10 +107,10 @@ public class AtomicOperationsManager {
     return operation;
   }
 
-  public <T> T calculateInsideAtomicOperation(final byte[] metadata, final TxFunction<T> function)
+  public <T> T calculateInsideAtomicOperation(final TxFunction<T> function)
       throws IOException {
     Throwable error = null;
-    final var atomicOperation = startAtomicOperation(metadata);
+    final var atomicOperation = startAtomicOperation();
     try {
       return function.accept(atomicOperation);
     } catch (Exception e) {
@@ -128,10 +125,10 @@ public class AtomicOperationsManager {
     }
   }
 
-  public void executeInsideAtomicOperation(final byte[] metadata, final TxConsumer consumer)
+  public void executeInsideAtomicOperation(final TxConsumer consumer)
       throws IOException {
     Throwable error = null;
-    final var atomicOperation = startAtomicOperation(metadata);
+    final var atomicOperation = startAtomicOperation();
     try {
       consumer.accept(atomicOperation);
     } catch (Exception e) {

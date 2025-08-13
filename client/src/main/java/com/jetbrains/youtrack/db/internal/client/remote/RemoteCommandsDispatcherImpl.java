@@ -599,12 +599,10 @@ public class RemoteCommandsDispatcherImpl implements RemotePushHandler,
     return users.decrementAndGet();
   }
 
-  public String incrementalBackup(DatabaseSessionRemote session, final String backupDirectory) {
+  public void incrementalBackup(DatabaseSessionRemote session, final String backupDirectory) {
     var request = new IncrementalBackupRequest(backupDirectory);
-    var response =
-        networkOperationNoRetry(session, request,
-            "Error on incremental backup");
-    return response.getFileName();
+    networkOperationNoRetry(session, request,
+        "Error on incremental backup");
   }
 
   public void stickToSession(DatabaseSessionRemote database) {

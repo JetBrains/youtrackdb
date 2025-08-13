@@ -52,6 +52,7 @@ import com.jetbrains.youtrack.db.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrack.db.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
+import com.jetbrains.youtrack.db.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.File;
 import com.jetbrains.youtrack.db.internal.core.storage.fs.IOResult;
@@ -59,7 +60,6 @@ import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorag
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
 import com.jetbrains.youtrack.db.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -120,8 +120,6 @@ import javax.crypto.SecretKey;
 import javax.crypto.ShortBufferException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import net.jpountz.xxhash.XXHash64;
-import net.jpountz.xxhash.XXHashFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -158,9 +156,6 @@ public final class WOWCache extends AbstractWriteCache
 
   private static final Logger logger = LoggerFactory.getLogger(WOWCache.class);
 
-  private static final XXHashFactory XX_HASH_FACTORY = XXHashFactory.fastestInstance();
-  private static final XXHash64 XX_HASH_64 = XX_HASH_FACTORY.hash64();
-  private static final long XX_HASH_SEED = 0xAEF5634;
 
   private static final String ALGORITHM_NAME = "AES";
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
@@ -940,17 +935,13 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public void syncDataFiles(final long segmentId, final byte[] lastMetadata) throws IOException {
+  public void syncDataFiles(final long segmentId) throws IOException {
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
       doubleWriteLog.startCheckpoint();
       try {
-        if (lastMetadata != null) {
-          writeAheadLog.log(new MetaDataRecord(lastMetadata));
-        }
-
         for (final var intId : nameIdMap.values()) {
           if (intId < 0) {
             continue;
@@ -2029,7 +2020,7 @@ public final class WOWCache extends AbstractWriteCache
         if (files.get(externalId) == null) {
           final var path =
               storagePath.resolve(idFileNameMap.get((nameIdEntry.getValue().intValue())));
-          final AsyncFile file =
+          final var file =
               new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
 
           if (file.exists()) {
@@ -2098,7 +2089,7 @@ public final class WOWCache extends AbstractWriteCache
         if (files.get(externalId) == null) {
           final var path =
               storagePath.resolve(idFileNameMap.get((nameIdEntry.getValue().intValue())));
-          final AsyncFile file =
+          final var file =
               new AsyncFile(path, pageSize, logFileDeletion, this.executor, storageName);
 
           if (file.exists()) {
@@ -2235,7 +2226,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Nullable
-  private NameFileIdEntry readNextNameIdEntryV1(FileChannel nameIdMapHolder) throws IOException {
+  private static NameFileIdEntry readNextNameIdEntryV1(FileChannel nameIdMapHolder) throws IOException {
     try {
       var buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
       IOUtils.readByteBuffer(buffer, nameIdMapHolder);
@@ -2257,7 +2248,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Nullable
-  private NameFileIdEntry readNextNameIdEntryV2(FileChannel nameIdMapHolder) throws IOException {
+  private static NameFileIdEntry readNextNameIdEntryV2(FileChannel nameIdMapHolder) throws IOException {
     try {
       var buffer = ByteBuffer.allocate(2 * IntegerSerializer.INT_SIZE);
       IOUtils.readByteBuffer(buffer, nameIdMapHolder);
@@ -2322,7 +2313,8 @@ public final class WOWCache extends AbstractWriteCache
       IOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
-      final var xxHash = XX_HASH_64.hash(buffer, 0, recordLen, XX_HASH_SEED);
+      final var xxHash = DiskStorage.XX_HASH_64.hash(buffer, 0, recordLen,
+          DiskStorage.XX_HASH_SEED);
       if (xxHash != storedXxHash) {
         LogManager.instance()
             .error(
@@ -2388,7 +2380,8 @@ public final class WOWCache extends AbstractWriteCache
     serializedRecord.putInt(xxHashSize, recordLen);
 
     final var xxHash =
-        XX_HASH_64.hash(serializedRecord, xxHashSize + recordLenSize, recordLen, XX_HASH_SEED);
+        DiskStorage.XX_HASH_64.hash(serializedRecord, xxHashSize + recordLenSize, recordLen,
+            DiskStorage.XX_HASH_SEED);
     serializedRecord.putLong(0, xxHash);
 
     serializedRecord.position(0);
@@ -2610,7 +2603,7 @@ public final class WOWCache extends AbstractWriteCache
     assert buffer.order() == ByteOrder.nativeOrder();
 
     buffer.position(MAGIC_NUMBER_OFFSET);
-    final long magicNumber = buffer.getLong();
+    final var magicNumber = buffer.getLong();
 
     if ((aesKey == null && magicNumber != MAGIC_NUMBER_WITH_CHECKSUM)
         || (magicNumber != MAGIC_NUMBER_WITH_CHECKSUM
@@ -2635,7 +2628,7 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     buffer.position(CHECKSUM_OFFSET);
-    final int storedChecksum = buffer.getInt();
+    final var storedChecksum = buffer.getInt();
 
     buffer.position(PAGE_OFFSET_TO_CHECKSUM_FROM);
     final var crc32 = new CRC32();

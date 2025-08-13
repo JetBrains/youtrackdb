@@ -1,12 +1,9 @@
 package com.jetbrains.youtrack.db.internal.core.storage.impl.local;
 
 public final class StartupMetadata {
-
   final long lastTxId;
-  final byte[] txMetadata;
 
-  public StartupMetadata(long lastTxId, byte[] txMetadata) {
+  public StartupMetadata(long lastTxId) {
     this.lastTxId = lastTxId;
-    this.txMetadata = txMetadata;
   }
 }

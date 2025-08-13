@@ -356,17 +356,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public void setMetadataHolder(FrontendTransacationMetadataHolder metadata) {
-    throw new UnsupportedOperationException("SetMetadataHolder is not supported in no tx mode");
-  }
-
-  @Override
-  public Iterator<byte[]> getSerializedOperations() {
-    throw new UnsupportedOperationException(
-        "getSerializedOperations is not supported in no tx mode");
-  }
-
-  @Override
   public void clearRecordEntries() {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
@@ -384,11 +373,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public void setCustomData(String iName, Object iValue) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
-  }
-
-  @Override
-  public boolean isReadOnly() {
-    return true;
   }
 
   @Override
@@ -447,7 +431,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
+  public void addRecordOperation(RecordAbstract record, byte status) {
     throw new UnsupportedOperationException("Can not modify record outside transaction");
   }
 

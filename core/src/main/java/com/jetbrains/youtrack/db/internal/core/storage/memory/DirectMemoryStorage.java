@@ -38,10 +38,15 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.AbsoluteChange;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Path;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.zip.ZipOutputStream;
 import javax.annotation.Nullable;
 
@@ -81,6 +86,30 @@ public class DirectMemoryStorage extends AbstractStorage {
   @Override
   protected void postCloseSteps(
       final boolean onDelete, final boolean internalError, final long lastTxId) {
+  }
+
+  @Override
+  public void incrementalBackup(Path backupDirectory) {
+   throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
+  }
+
+  @Override
+  public void fullIncrementalBackup(OutputStream stream) {
+    throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
+  }
+
+  @Override
+  public void incrementalBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      Consumer<String> ibuFileRemover) {
+    throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
+  }
+
+  @Override
+  public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
+      String filePath) {
+    throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
   }
 
   @Override
@@ -177,11 +206,6 @@ public class DirectMemoryStorage extends AbstractStorage {
     return null;
   }
 
-  @Override
-  protected boolean isWriteAllowedDuringIncrementalBackup() {
-    return false;
-  }
-
   @Nullable
   @Override
   protected File createWalTempDirectory() {
@@ -209,10 +233,6 @@ public class DirectMemoryStorage extends AbstractStorage {
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
     }
-  }
-
-  @Override
-  protected void checkBackupRunning() {
   }
 
   @Override

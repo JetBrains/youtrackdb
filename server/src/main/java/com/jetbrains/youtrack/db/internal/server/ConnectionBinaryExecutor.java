@@ -226,9 +226,9 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
 
   @Override
   public BinaryResponse executeIncrementalBackup(IncrementalBackupRequest request) {
-    var fileName = connection.getDatabaseSession()
+    connection.getDatabaseSession()
         .incrementalBackup(Path.of(request.getBackupDirectory()));
-    return new IncrementalBackupResponse(fileName);
+    return new IncrementalBackupResponse();
   }
 
   @Override

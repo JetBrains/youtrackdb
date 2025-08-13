@@ -65,7 +65,6 @@ public class FreeSpaceMapTestIT {
     freeSpaceMap = new FreeSpaceMap(storage, "freeSpaceMap", ".fsm", "freeSpaceMap");
 
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         atomicOperation -> {
           freeSpaceMap.create(atomicOperation);
         });
@@ -74,7 +73,6 @@ public class FreeSpaceMapTestIT {
   @Test
   public void findSinglePage() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 3, 512);
           Assert.assertEquals(3, freeSpaceMap.findFreePage(259));
@@ -84,7 +82,6 @@ public class FreeSpaceMapTestIT {
   @Test
   public void findSinglePageHighIndex() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 128956, 512);
           Assert.assertEquals(128956, freeSpaceMap.findFreePage(259));
@@ -94,7 +91,6 @@ public class FreeSpaceMapTestIT {
   @Test
   public void findSinglePageLowerSpaceOne() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 3, 1024);
           freeSpaceMap.updatePageFreeSpace(operation, 4, 2029);
@@ -107,7 +103,6 @@ public class FreeSpaceMapTestIT {
   @Test
   public void findSinglePageLowerSpaceTwo() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
-        null,
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 3, 1024);
           freeSpaceMap.updatePageFreeSpace(operation, 4, 2029);
@@ -132,7 +127,6 @@ public class FreeSpaceMapTestIT {
       final var pageIndex = i;
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
             final var freeSpaceIndex =
@@ -176,7 +170,6 @@ public class FreeSpaceMapTestIT {
       final var pageIndex = i;
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
             pageSpaceMap.put(pageIndex, freeSpace);
@@ -198,7 +191,6 @@ public class FreeSpaceMapTestIT {
       final var pageIndex = i;
 
       atomicOperationsManager.executeInsideAtomicOperation(
-          null,
           operation -> {
             final var freeSpace = random.nextInt(DurablePage.MAX_PAGE_SIZE_BYTES);
             final int oldFreeSpace = pageSpaceMap.get(pageIndex);

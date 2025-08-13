@@ -538,7 +538,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void syncDataFiles(final long segmentId, byte[] lastMetadata) {
+  public void syncDataFiles(final long segmentId) {
   }
 
   @Override

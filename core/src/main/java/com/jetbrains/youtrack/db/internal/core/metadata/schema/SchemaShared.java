@@ -411,7 +411,6 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   public void acquireSchemaWriteLock(DatabaseSessionInternal session) {
-    session.startExclusiveMetadataChange();
     lock.writeLock().lock();
     modificationCounter.increment();
   }
@@ -444,7 +443,6 @@ public abstract class SchemaShared implements CloseableInStorage {
       modificationCounter.decrement();
       count = modificationCounter.intValue();
       lock.writeLock().unlock();
-      session.endExclusiveMetadataChange();
     }
 
     assert count >= 0;

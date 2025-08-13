@@ -291,9 +291,6 @@ public final class WALRecordsFactory {
       case ATOMIC_UNIT_START_RECORD:
         walRecord = new AtomicUnitStartRecord();
         break;
-      case ATOMIC_UNIT_START_METADATA_RECORD:
-        walRecord = new AtomicUnitStartMetadataRecord();
-        break;
       case ATOMIC_UNIT_END_RECORD:
         walRecord = new AtomicUnitEndRecord();
         break;

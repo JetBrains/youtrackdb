@@ -184,8 +184,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   protected void acquireExclusiveLock(FrontendTransaction transaction) {
-    transaction.getDatabaseSession().startExclusiveMetadataChange();
-
     lock.writeLock().lock();
     writeLockNesting.incrementAndGet();
   }
@@ -223,7 +221,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
     } finally {
       lock.writeLock().unlock();
-      session.endExclusiveMetadataChange();
     }
   }
 

@@ -28,30 +28,18 @@ import com.jetbrains.youtrack.db.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 
 public class IncrementalBackupResponse implements BinaryResponse {
-
-  private String fileName;
-
   public IncrementalBackupResponse() {
   }
 
-  public IncrementalBackupResponse(String fileName) {
-    this.fileName = fileName;
-  }
 
   @Override
   public void read(RemoteDatabaseSessionInternal db, ChannelDataInput network,
       BinaryProtocolSession session) throws IOException {
-    fileName = network.readString();
   }
 
   @Override
   public void write(DatabaseSessionEmbedded session, ChannelDataOutput channel,
       int protocolVersion)
       throws IOException {
-    channel.writeString(fileName);
-  }
-
-  public String getFileName() {
-    return fileName;
   }
 }

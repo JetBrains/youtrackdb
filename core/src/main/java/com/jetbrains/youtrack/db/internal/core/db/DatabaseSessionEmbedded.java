@@ -2469,7 +2469,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public String incrementalBackup(final Path path) throws UnsupportedOperationException {
+  public void incrementalBackup(final Path path) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -2477,7 +2477,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
-    return storage.incrementalBackup(this, path.toAbsolutePath().toString(), null);
+    storage.incrementalBackup(path.toAbsolutePath());
   }
 
   @Nullable
@@ -2668,18 +2668,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenedAsRemoteSession();
 
     return storage.getCollectionsIds(filterCollections);
-  }
-
-  @Override
-  public void startExclusiveMetadataChange() {
-    assert assertIfNotActive();
-    ((AbstractStorage) storage).startDDL();
-  }
-
-  @Override
-  public void endExclusiveMetadataChange() {
-    assert assertIfNotActive();
-    ((AbstractStorage) storage).endDDL();
   }
 
   @Override

@@ -68,7 +68,7 @@ public class ShortSerializer implements BinarySerializer<Short> {
     return deserializeLiteral(stream, startPosition);
   }
 
-  public short deserializeLiteral(final byte[] stream, final int startPosition) {
+  public static short deserializeLiteral(final byte[] stream, final int startPosition) {
     return (short) ((stream[startPosition] << 8) | (stream[startPosition + 1] & 0xff));
   }
 

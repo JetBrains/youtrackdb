@@ -24,7 +24,6 @@ import com.jetbrains.youtrack.db.api.common.query.BasicLiveQueryResultListener;
 import com.jetbrains.youtrack.db.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrack.db.api.query.Result;
 import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.internal.common.util.CallableFunction;
 import com.jetbrains.youtrack.db.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrack.db.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrack.db.internal.core.conflict.RecordConflictStrategy;
@@ -40,8 +39,8 @@ import com.jetbrains.youtrack.db.internal.core.storage.ridbag.LinkCollectionsBTr
 import com.jetbrains.youtrack.db.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrack.db.internal.core.util.Backupable;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
@@ -217,18 +216,14 @@ public interface Storage extends Backupable, StorageInfo {
   void setConflictStrategy(RecordConflictStrategy iResolver);
 
   /**
-   * @return Backup file name
+   *
    */
-  String incrementalBackup(DatabaseSessionInternal session, String backupDirectory,
-      CallableFunction<Void, Void> started)
-      throws UnsupportedOperationException;
+  @Nullable
+  void incrementalBackup(Path backupDirectory);
 
-  void fullIncrementalBackup(OutputStream stream) throws UnsupportedOperationException;
+  void fullIncrementalBackup(OutputStream stream);
 
   void restoreFromIncrementalBackup(DatabaseSessionInternal session, String filePath);
-
-  void restoreFullIncrementalBackup(DatabaseSessionInternal session, InputStream stream)
-      throws UnsupportedOperationException;
 
   /**
    * This method is called in {@link YouTrackDBEnginesManager#shutdown()} method. For most of the
@@ -268,10 +263,6 @@ public interface Storage extends Backupable, StorageInfo {
   void clearProperties();
 
   int[] getCollectionsIds(Set<String> filterCollections);
-
-  default boolean isIncrementalBackupRunning() {
-    return false;
-  }
 
   YouTrackDBInternalEmbedded getContext();
 
