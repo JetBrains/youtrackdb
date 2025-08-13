@@ -2477,7 +2477,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
-    storage.incrementalBackup(path.toAbsolutePath());
+    storage.backup(path.toAbsolutePath());
   }
 
   @Nullable

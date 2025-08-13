@@ -806,7 +806,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
             "Cannot create new storage '" + name + "' because it already exists");
       }
     }
-    storage.restoreFromIncrementalBackup(null, path);
+    storage.restoreFromBackup(null, path, );
     embedded.callOnCreateListeners();
     embedded.getSharedContext().reInit(storage, embedded);
   }

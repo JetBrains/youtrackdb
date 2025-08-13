@@ -3644,7 +3644,7 @@ public abstract class AbstractStorage
   }
 
   @SuppressWarnings("unused")
-  protected abstract LogSequenceNumber copyWALToIncrementalBackup(
+  protected abstract LogSequenceNumber copyWALToBackup(
       ZipOutputStream zipOutputStream, long startSegment) throws IOException;
 
   @Nullable
@@ -4685,17 +4685,21 @@ public abstract class AbstractStorage
     }
   }
 
-  @Override
-  public abstract void incrementalBackup(final Path backupDirectory);
+  public abstract void backup(final Path backupDirectory);
 
-  public abstract void incrementalBackup(final Supplier<Iterator<String>> ibuFilesSupplier,
+  public abstract void backup(final Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       final Consumer<String> ibuFileRemover);
 
-  @Override
-  public abstract void restoreFromIncrementalBackup(final DatabaseSessionInternal session,
-      final String filePath);
+  public void restoreFromBackup(final Path backupDirectory) {
+    restoreFromBackup(backupDirectory, null);
+  }
+
+  public abstract void restoreFromBackup(final Path backupDirectory, String expectedUUID);
+
+  public abstract void restoreFromBackup(final Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID);
 
   private void restoreFromBeginning() throws IOException {
     LogManager.instance().info(this, "Data restore procedure is started.");

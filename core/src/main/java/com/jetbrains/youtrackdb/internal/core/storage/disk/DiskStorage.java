@@ -20,9 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
-import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.MASTER_RECORD_EXTENSION;
-import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.WAL_SEGMENT_EXTENSION;
-
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.BackupInProgressException;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
@@ -39,8 +36,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
-import com.jetbrains.youtrackdb.internal.core.compression.impl.ZIPCompressionUtil;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -69,6 +64,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
+import it.unimi.dsi.fastutil.objects.ObjectBooleanImmutablePair;
+import it.unimi.dsi.fastutil.objects.ObjectBooleanPair;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
@@ -94,6 +91,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
@@ -101,7 +99,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -121,6 +118,7 @@ import javax.crypto.spec.SecretKeySpec;
 import net.jpountz.xxhash.StreamingXXHash64;
 import net.jpountz.xxhash.XXHash64;
 import net.jpountz.xxhash.XXHashFactory;
+import org.apache.commons.io.file.PathUtils;
 import org.apache.commons.io.output.ProxyOutputStream;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.slf4j.Logger;
@@ -133,7 +131,7 @@ public class DiskStorage extends AbstractStorage {
 
   private static final Logger logger = LoggerFactory.getLogger(DiskStorage.class);
 
-  private static final String INCREMENTAL_BACKUP_LOCK = "backup.ibl";
+  private static final String BACKUP_LOCK = "backup.ibl";
 
   private static final String ALGORITHM_NAME = "AES";
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
@@ -179,9 +177,9 @@ public class DiskStorage extends AbstractStorage {
   private static final int IBU_METADATA_HASH_CODE_OFFSET =
       IBU_METADATA_LAST_LSN_POSITION_OFFSET + Long.BYTES + Integer.BYTES;
 
-  private static final int CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION = 1;
+  private static final int CURRENT_BACKUP_FORMAT_VERSION = 1;
   private static final String CONF_ENTRY_NAME = "database.ocf";
-  private static final String INCREMENTAL_BACKUP_DATEFORMAT = "yyyy-MM-dd-HH-mm-ss";
+  private static final String BACKUP_DATEFORMAT = "yyyy-MM-dd-HH-mm-ss";
   private static final String CONF_UTF_8_ENTRY_NAME = "database_utf8.ocf";
 
   private static final String ENCRYPTION_IV = "encryption.iv";
@@ -340,156 +338,7 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public final List<String> backup(
-      DatabaseSessionInternal db, final OutputStream out,
-      final Map<String, Object> options,
-      final Callable<Object> callable,
-      final CommandOutputListener iOutput,
-      final int compressionLevel,
-      final int bufferSize) {
-    stateLock.readLock().lock();
-    try {
-      if (out == null) {
-        throw new IllegalArgumentException("Backup output is null");
-      }
-
-      freeze(db, false);
-      try {
-        if (callable != null) {
-          try {
-            callable.call();
-          } catch (final Exception e) {
-            LogManager.instance().error(this, "Error on callback invocation during backup", e);
-          }
-        }
-        LogSequenceNumber freezeLSN = null;
-        if (writeAheadLog != null) {
-          freezeLSN = writeAheadLog.begin();
-          writeAheadLog.addCutTillLimit(freezeLSN);
-        }
-
-        try {
-          final var bo = bufferSize > 0 ? new BufferedOutputStream(out, bufferSize) : out;
-          try {
-            try (final var zos = new ZipOutputStream(bo)) {
-              zos.setComment("YouTrackDB Backup executed on " + new Date());
-              zos.setLevel(compressionLevel);
-
-              final var names =
-                  ZIPCompressionUtil.compressDirectory(
-                      storagePath.toString(),
-                      zos,
-                      new String[]{".fl", ".lock", DoubleWriteLogGL.EXTENSION},
-                      iOutput);
-              startupMetadata.addFileToArchive(zos, "dirty.fl");
-              names.add("dirty.fl");
-              return names;
-            }
-          } finally {
-            if (bufferSize > 0) {
-              bo.flush();
-              bo.close();
-            }
-          }
-        } finally {
-          if (freezeLSN != null) {
-            writeAheadLog.removeCutTillLimit(freezeLSN);
-          }
-        }
-
-      } finally {
-        release(db);
-      }
-    } catch (final RuntimeException e) {
-      throw logAndPrepareForRethrow(e);
-    } catch (final Error e) {
-      throw logAndPrepareForRethrow(e, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    } finally {
-      stateLock.readLock().unlock();
-    }
-  }
-
-  @Override
-  public final void restore(
-      final InputStream in,
-      final Map<String, Object> options,
-      final Callable<Object> callable,
-      final CommandOutputListener iListener) {
-    try {
-      stateLock.writeLock().lock();
-      try {
-        if (!isClosedInternal()) {
-          doShutdown();
-        }
-
-        final var dbDir =
-            new java.io.File(
-                IOUtils.getPathFromDatabaseName(
-                    SystemVariableResolver.resolveSystemVariables(url)));
-        final var storageFiles = dbDir.listFiles();
-        if (storageFiles != null) {
-          // TRY TO DELETE ALL THE FILES
-          for (final var f : storageFiles) {
-            // DELETE ONLY THE SUPPORTED FILES
-            for (final var ext : ALL_FILE_EXTENSIONS) {
-              if (f.getPath().endsWith(ext)) {
-                //noinspection ResultOfMethodCallIgnored
-                f.delete();
-                break;
-              }
-            }
-          }
-        }
-        Files.createDirectories(Paths.get(storagePath.toString()));
-        ZIPCompressionUtil.uncompressDirectory(in, storagePath.toString(), iListener);
-
-        final var newStorageFiles = dbDir.listFiles();
-        if (newStorageFiles != null) {
-          // TRY TO DELETE ALL THE FILES
-          for (final var f : newStorageFiles) {
-            if (f.getPath().endsWith(MASTER_RECORD_EXTENSION)) {
-              final var renamed =
-                  f.renameTo(new java.io.File(f.getParent(), getName() + MASTER_RECORD_EXTENSION));
-              assert renamed;
-            }
-            if (f.getPath().endsWith(WAL_SEGMENT_EXTENSION)) {
-              var walName = f.getName();
-              final var segmentIndex =
-                  walName.lastIndexOf('.', walName.length() - WAL_SEGMENT_EXTENSION.length() - 1);
-              var ending = walName.substring(segmentIndex);
-              final var renamed = f.renameTo(
-                  new java.io.File(f.getParent(), getName() + ending));
-              assert renamed;
-            }
-          }
-        }
-
-        if (callable != null) {
-          try {
-            callable.call();
-          } catch (final Exception e) {
-            LogManager.instance().error(this, "Error on calling callback on database restore", e);
-          }
-        }
-      } finally {
-        stateLock.writeLock().unlock();
-      }
-
-      open(new ContextConfiguration());
-      atomicOperationsManager.executeInsideAtomicOperation(this::generateDatabaseInstanceId);
-    } catch (final RuntimeException e) {
-      throw logAndPrepareForRethrow(e);
-    } catch (final Error e) {
-      throw logAndPrepareForRethrow(e);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
-    }
-  }
-
-  @Override
-  protected LogSequenceNumber copyWALToIncrementalBackup(
+  protected LogSequenceNumber copyWALToBackup(
       final ZipOutputStream zipOutputStream, final long startSegment) throws IOException {
 
     java.io.File[] nonActiveSegments;
@@ -950,7 +799,7 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public void incrementalBackup(final Path backupDirectory) {
+  public void backup(final Path backupDirectory) {
     checkBackupIsNotPerformedInStorageDir(backupDirectory);
     try {
       if (!Files.exists(backupDirectory)) {
@@ -963,11 +812,11 @@ public class DiskStorage extends AbstractStorage {
 
     var dbUUID = getUuid();
     var dbUUIDString = dbUUID.toString();
-    final var fileLockPath = backupDirectory.resolve(dbUUIDString + "-" + INCREMENTAL_BACKUP_LOCK);
+    final var fileLockPath = backupDirectory.resolve(dbUUIDString + "-" + BACKUP_LOCK);
     try (final var lockChannel = FileChannel.open(fileLockPath, StandardOpenOption.CREATE,
         StandardOpenOption.WRITE)) {
       try (var ignored = lockChannel.lock()) {
-        incrementalBackup(() -> {
+        backup(() -> {
           try (var filesStream = Files.list(backupDirectory)) {
             return filesStream.filter(path -> {
               if (Files.isDirectory(path)) {
@@ -1038,7 +887,7 @@ public class DiskStorage extends AbstractStorage {
 
 
   @Override
-  public void incrementalBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+  public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       Consumer<String> ibuFileRemover) {
@@ -1057,28 +906,14 @@ public class DiskStorage extends AbstractStorage {
               IteratorUtils.list(IteratorUtils.filter(ibuFilesSupplier.get(),
                   fileName -> fileName.startsWith(uuidString)));
 
-          existingFiles.sort((firstIbuName, secondIbuName) -> {
-            var firstNameLastDashIndex = firstIbuName.lastIndexOf('-');
-            if (firstNameLastDashIndex == -1) {
-              throw new IllegalArgumentException("Invalid backup unit file name: " + firstIbuName);
-            }
-            var firstNameWithoutDbName = firstIbuName.substring(0, firstNameLastDashIndex);
-
-            var secondNameLastDashIndex = secondIbuName.lastIndexOf('-');
-            if (secondNameLastDashIndex == -1) {
-              throw new IllegalArgumentException("Invalid backup unit file name: " + secondIbuName);
-            }
-
-            var secondNameWithoutDbName = secondIbuName.substring(0, secondNameLastDashIndex);
-            return firstNameWithoutDbName.compareTo(secondNameWithoutDbName);
-          });
+          existingFiles.sort(new IBUFileNamesComparator());
 
           BackupMetadata backupMetadata = null;
 
           while (!existingFiles.isEmpty()) {
             var ibuLastFile = existingFiles.removeLast();
             backupMetadata = validateFileAndFetchBackupMetadata(ibuLastFile, uuid,
-                ibuInputStreamSupplier);
+                ibuInputStreamSupplier, null);
 
             if (backupMetadata == null) {
               LogManager.instance()
@@ -1106,7 +941,7 @@ public class DiskStorage extends AbstractStorage {
               .info(this, "Backup unit file %s will be created.", ibuNextFile);
           try (var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile)) {
             var xxHashStream = new XXHashOutputStream(fileStream);
-            var lastLsn = storeIncrementalBackupDataToStream(fileStream, fromLsn);
+            var lastLsn = storeBackupDataToStream(fileStream, fromLsn);
 
             writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn);
           }
@@ -1132,7 +967,7 @@ public class DiskStorage extends AbstractStorage {
   private static void writeBackupMetadata(XXHashOutputStream xxHashStream, UUID uuid,
       int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn) throws IOException {
     var dataOutputStream = new DataOutputStream(xxHashStream);
-    dataOutputStream.writeShort(CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION);
+    dataOutputStream.writeShort(CURRENT_BACKUP_FORMAT_VERSION);
 
     dataOutputStream.writeLong(uuid.getLeastSignificantBits());
     dataOutputStream.writeLong(uuid.getMostSignificantBits());
@@ -1157,21 +992,24 @@ public class DiskStorage extends AbstractStorage {
 
   private String createIbuFileName(int backupNumber, String uuid) {
     var date = new Date();
-    var strDate = new SimpleDateFormat(INCREMENTAL_BACKUP_DATEFORMAT, Locale.ROOT).format(date);
+    var strDate = new SimpleDateFormat(BACKUP_DATEFORMAT, Locale.ROOT).format(date);
     return uuid + "-" + strDate + "-" + backupNumber + "-" + name + IBU_EXTENSION;
   }
 
   @Nullable
-  private BackupMetadata validateFileAndFetchBackupMetadata(String ibuFileName, UUID dbUUID,
-      Function<String, InputStream> ibuInputStreamSupplier) throws IOException {
+  private BackupMetadata validateFileAndFetchBackupMetadata(String ibuFileName,
+      @Nullable UUID dbUUID,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable OutputStream copyStream)
+      throws IOException {
     byte[] metaDataCandidate = null;
 
     try (var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
       try (var inputStream = ibuInputStreamSupplier.apply(ibuFileName)) {
         var buffer = new byte[(64 << 10)];
+        var read = 0;
 
         while (true) {
-          var read = inputStream.read(buffer);
+          read = inputStream.read(buffer);
 
           if (read == -1) {
             break;
@@ -1202,20 +1040,32 @@ public class DiskStorage extends AbstractStorage {
             System.arraycopy(buffer, read - IBU_METADATA_SIZE, metaDataCandidate, 0,
                 IBU_METADATA_SIZE);
 
+            //calculate hash code everything except metadata
+            //hash code from metadata will be calculated at the end
             xxHash64.update(buffer, 0, read - IBU_METADATA_SIZE);
           } else {
             if (read >= IBU_METADATA_SIZE) {
+              //tail of data, not metadata for sure
               xxHash64.update(metaDataCandidate, 0, metaDataCandidate.length);
+              //hash code from metadata will be calculated at the end
               xxHash64.update(buffer, 0, read - IBU_METADATA_SIZE);
+              //potential metadata content
               System.arraycopy(buffer, read - IBU_METADATA_SIZE,
                   metaDataCandidate, 0, IBU_METADATA_SIZE);
             } else {
+              //part of metadata that will be replaced
               xxHash64.update(metaDataCandidate, 0, read);
+              //shift metadata to the left
               System.arraycopy(metaDataCandidate, read, metaDataCandidate, 0,
                   IBU_METADATA_SIZE - read);
+              //add new bytes that can be treated as metadata if they are the last ones
               System.arraycopy(buffer, 0, metaDataCandidate, IBU_METADATA_SIZE - read, read);
             }
           }
+        }
+
+        if (copyStream != null) {
+          copyStream.write(buffer, 0, read);
         }
       }
 
@@ -1253,13 +1103,15 @@ public class DiskStorage extends AbstractStorage {
         return null;
       }
 
-      if (dbUUID.getLeastSignificantBits() != metadataUUIDLowerBits
-          || dbUUID.getMostSignificantBits() != metadataUUIDHigherBits) {
-        var storedUUID = new UUID(metadataUUIDLowerBits, metadataUUIDHigherBits);
-        LogManager.instance()
-            .warn(this, "UUID of the file %s stored in metadata %s does not match DB UUID %s.",
-                ibuFileName, storedUUID, dbUUID);
-        return null;
+      if (dbUUID != null) {
+        if (dbUUID.getLeastSignificantBits() != metadataUUIDLowerBits
+            || dbUUID.getMostSignificantBits() != metadataUUIDHigherBits) {
+          var storedUUID = new UUID(metadataUUIDLowerBits, metadataUUIDHigherBits);
+          LogManager.instance()
+              .warn(this, "UUID of the file %s stored in metadata %s does not match DB UUID %s.",
+                  ibuFileName, storedUUID, dbUUID);
+          return null;
+        }
       }
 
       var firstDashIndex = ibuFileName.indexOf('-');
@@ -1268,11 +1120,11 @@ public class DiskStorage extends AbstractStorage {
         return null;
       }
 
-      if (metadataVersion != CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION) {
+      if (metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
         LogManager.instance()
             .warn(this,
                 "Version of the file %s stored in metadata %d does not match supported version %d.",
-                ibuFileName, metadataVersion, CURRENT_INCREMENTAL_BACKUP_FORMAT_VERSION);
+                ibuFileName, metadataVersion, CURRENT_BACKUP_FORMAT_VERSION);
         return null;
       }
 
@@ -1336,7 +1188,7 @@ public class DiskStorage extends AbstractStorage {
   }
 
 
-  private LogSequenceNumber storeIncrementalBackupDataToStream(OutputStream stream,
+  private LogSequenceNumber storeBackupDataToStream(OutputStream stream,
       LogSequenceNumber fromLsn)
       throws IOException {
     final var zipOutputStream = new ZipOutputStream(stream,
@@ -1387,7 +1239,7 @@ public class DiskStorage extends AbstractStorage {
 
         var lastLsn = backupPagesWithChanges(fromLsn, zipOutputStream, encryptionIv, aesKey);
         final var lastWALLsn =
-            copyWALToIncrementalBackup(zipOutputStream, startSegment);
+            copyWALToBackup(zipOutputStream, startSegment);
 
         if (lastWALLsn != null && (lastLsn == null || lastWALLsn.compareTo(lastLsn) > 0)) {
           lastLsn = lastWALLsn;
@@ -1407,8 +1259,7 @@ public class DiskStorage extends AbstractStorage {
     }
   }
 
-  @Override
-  public void fullIncrementalBackup(final OutputStream stream) {
+  public void fullBackup(final OutputStream stream) {
     throw new UnsupportedOperationException("Full incremental backup is not supported yet.");
     //TODO: implement it next
   }
@@ -1560,12 +1411,159 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
-      final String filePath) {
-    restoreFromIncrementalBackup(Path.of(filePath));
+  public void restoreFromBackup(Path backupDirectory, String expectedUUID) {
+    restoreFromBackup(() -> {
+      try (var filesStream = Files.list(backupDirectory)) {
+        return filesStream.filter(path -> {
+          if (Files.isDirectory(path)) {
+            return false;
+          }
+
+          var fileName = path.getFileName();
+          return fileName.endsWith(IBU_EXTENSION) && (expectedUUID == null || fileName.startsWith(
+              expectedUUID));
+        }).map(path -> path.getFileName().toString()).toList().iterator();
+      } catch (IOException e) {
+        throw BaseException.wrapException(new DatabaseException(name,
+            "Can not list backup unit files in directory '" + backupDirectory + "'"), e, name);
+      }
+    }, ibuFileName -> {
+      var ibuPath = backupDirectory.resolve(ibuFileName);
+      try {
+        return new BufferedInputStream(
+            Files.newInputStream(backupDirectory.resolve(ibuFileName)));
+      } catch (IOException e) {
+        throw BaseException.wrapException(new DatabaseException(name,
+            "Can open backup unit file " + ibuPath + " to read it."), e, name);
+      }
+    }, expectedUUID);
   }
 
-//  TODO: implement it next
+  @Override
+  public void restoreFromBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID) {
+    stateLock.writeLock().lock();
+    try {
+      UUID uuidExpectedInBackup = null;
+      if (expectedUUID != null) {
+        expectedUUID = expectedUUID.trim();
+
+        if (!expectedUUID.isEmpty()) {
+          try {
+            uuidExpectedInBackup = UUID.fromString(expectedUUID);
+          } catch (IllegalArgumentException e) {
+            LogManager.instance()
+                .error(this, "Expected UUID of the backup %s is incorrect.", e, expectedUUID);
+            throw e;
+          }
+        }
+      }
+
+      final var aesKeyEncoded =
+          getConfiguration()
+              .getContextConfiguration()
+              .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
+      final var aesKey =
+          aesKeyEncoded == null ? null : Base64.getDecoder().decode(aesKeyEncoded);
+
+      if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
+        throw new InvalidStorageEncryptionKeyException(name,
+            "Invalid length of the encryption key, provided size is " + aesKey.length);
+      }
+
+      List<String> ibuFiles;
+
+      if (expectedUUID != null) {
+        var expectedUUIDString = expectedUUID;
+        ibuFiles = IteratorUtils.list(IteratorUtils.filter(ibuFilesSupplier.get(),
+            fileName -> fileName.startsWith(expectedUUIDString)));
+      } else {
+        ibuFiles = IteratorUtils.list(ibuFilesSupplier.get());
+      }
+
+      ibuFiles.sort(new IBUFileNamesComparator());
+      var tempIBUFiles = new ArrayList<ObjectBooleanPair<Path>>(ibuFiles.size());
+      var tmpDirectory = Files.createTempDirectory(name + "-ytdb-backup");
+      LogManager.instance()
+          .info(this, "Temporary directory for backup restore created in %s.",
+              tmpDirectory.toAbsolutePath());
+
+      UUID metadataUUID = null;
+      try {
+        for (var ibuFile : ibuFiles) {
+          var tmpIBUFile = tmpDirectory.resolve(ibuFile);
+
+          var isFullBackup = false;
+          try (var copyStream = Files.newOutputStream(tmpIBUFile)) {
+            try (var bufferedCopyStream = new BufferedOutputStream(copyStream)) {
+              var backupMetadata = validateFileAndFetchBackupMetadata(ibuFile,
+                  uuidExpectedInBackup, ibuInputStreamSupplier, bufferedCopyStream);
+              if (backupMetadata == null) {
+                throw new DatabaseException(name, "Backup unit file " + ibuFile
+                    + " contains invalid content, restore from this backup is impossible.");
+              }
+              if (metadataUUID == null) {
+                metadataUUID = backupMetadata.databaseId;
+              } else if (!metadataUUID.equals(backupMetadata.databaseId)) {
+                throw new DatabaseException(name, "Backup unit files from different databases "
+                    + "cannot be restored in the same database.");
+              }
+              if (isFullBackup && backupMetadata.startLsn == null) {
+                throw new DatabaseException(name,
+                    "There are two full backups in the backup, restore is impossible. ");
+              }
+
+              isFullBackup = backupMetadata.startLsn == null;
+            }
+          }
+
+          tempIBUFiles.add(new ObjectBooleanImmutablePair<>(tmpIBUFile, isFullBackup));
+        }
+
+        if (tempIBUFiles.isEmpty()) {
+          throw new DatabaseException(name, "No backup unit files found in the backup.");
+        }
+        var firstBackupUnit = tempIBUFiles.getFirst();
+        if (!firstBackupUnit.rightBoolean()) {
+          throw new DatabaseException(name, "Full backup file is absent in the backup, restore is "
+              + "impossible.");
+        }
+
+        var result = preprocessingIncrementalRestore();
+        for (var ibuFilePair : tempIBUFiles) {
+          var ibuPath = ibuFilePair.left();
+
+          try (var inputStream = Files.newInputStream(ibuPath)) {
+            try (var bufferedInputStream = new BufferedInputStream(inputStream)) {
+              var isFullBackup = ibuFilePair.rightBoolean();
+              restoreFromIncrementalBackup(
+                  result.charset,
+                  result.locale,
+                  result.contextConfiguration,
+                  aesKey,
+                  bufferedInputStream,
+                  isFullBackup);
+            }
+          }
+        }
+
+        postProcessIncrementalRestore(result.contextConfiguration);
+      } finally {
+        PathUtils.deleteDirectory(tmpDirectory);
+        LogManager.instance().info(this, "Temporary directory for backup restore %s deleted.",
+            tmpDirectory.toAbsolutePath());
+      }
+
+
+    } catch (IOException e) {
+      throw BaseException.wrapException(
+          new StorageException(name, "Error during restore from backup"), e, name);
+    } finally {
+      stateLock.writeLock().unlock();
+    }
+  }
+
+  //  TODO: implement it next
 //  @Override
 //  public void restoreFullIncrementalBackup(DatabaseSessionInternal session,
 //      final InputStream stream)
@@ -1605,7 +1603,6 @@ public class DiskStorage extends AbstractStorage {
 
   private IncrementalRestorePreprocessingResult preprocessingIncrementalRestore()
       throws IOException {
-    final var serverLocale = configuration.getLocaleInstance();
     final var contextConfiguration = configuration.getContextConfiguration();
     final var charset = configuration.getCharset();
     final var locale = configuration.getLocaleInstance();
@@ -1619,8 +1616,7 @@ public class DiskStorage extends AbstractStorage {
 
     configuration = null;
 
-    return new IncrementalRestorePreprocessingResult(
-        serverLocale, contextConfiguration, charset, locale);
+    return new IncrementalRestorePreprocessingResult(contextConfiguration, charset, locale);
   }
 
   private void restoreFromIncrementalBackup(final Path backupDirectory) {
@@ -1750,7 +1746,6 @@ public class DiskStorage extends AbstractStorage {
 
   private void restoreFromIncrementalBackup(
       final String charset,
-      final Locale serverLocale,
       final Locale locale,
       final ContextConfiguration contextConfiguration,
       final byte[] aesKey,
@@ -1758,7 +1753,6 @@ public class DiskStorage extends AbstractStorage {
       final boolean isFull)
       throws IOException {
     final List<String> currentFiles = new ArrayList<>(writeCache.files().keySet());
-
     final var bufferedInputStream = new BufferedInputStream(inputStream);
     final var zipInputStream =
         new ZipInputStream(bufferedInputStream, Charset.forName(charset));
@@ -1768,7 +1762,6 @@ public class DiskStorage extends AbstractStorage {
     LogSequenceNumber maxLsn = null;
 
     List<String> processedFiles = new ArrayList<>();
-
     if (isFull) {
       final var files = writeCache.files();
       for (var entry : files.entrySet()) {
@@ -1814,15 +1807,13 @@ public class DiskStorage extends AbstractStorage {
 
       if (zipEntry
           .getName()
-          .toLowerCase(serverLocale)
+          .toLowerCase(locale)
           .endsWith(CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION)) {
         final var walName = zipEntry.getName();
         final var segmentIndex =
             walName.lastIndexOf(
                 '.',
                 walName.length() - CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION.length() - 1);
-        final var storageName = getName();
-
         if (segmentIndex < 0) {
           throw new IllegalStateException("Can not find index of WAL segment");
         }
@@ -2023,7 +2014,6 @@ public class DiskStorage extends AbstractStorage {
   }
 
   private record IncrementalRestorePreprocessingResult(
-      Locale serverLocale,
       ContextConfiguration contextConfiguration,
       String charset,
       Locale locale) {
@@ -2069,6 +2059,26 @@ public class DiskStorage extends AbstractStorage {
     public void close() throws IOException {
       xxHash64.close();
       super.close();
+    }
+  }
+
+  private static final class IBUFileNamesComparator implements Comparator<String> {
+
+    @Override
+    public int compare(String firstIbuName, String secondIbuName) {
+      var firstNameLastDashIndex = firstIbuName.lastIndexOf('-');
+      if (firstNameLastDashIndex == -1) {
+        throw new IllegalArgumentException("Invalid backup unit file name: " + firstIbuName);
+      }
+      var firstNameWithoutDbName = firstIbuName.substring(0, firstNameLastDashIndex);
+
+      var secondNameLastDashIndex = secondIbuName.lastIndexOf('-');
+      if (secondNameLastDashIndex == -1) {
+        throw new IllegalArgumentException("Invalid backup unit file name: " + secondIbuName);
+      }
+
+      var secondNameWithoutDbName = secondIbuName.substring(0, secondNameLastDashIndex);
+      return firstNameWithoutDbName.compareTo(secondNameWithoutDbName);
     }
   }
 }

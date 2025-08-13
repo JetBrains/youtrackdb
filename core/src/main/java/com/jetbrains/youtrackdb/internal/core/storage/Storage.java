@@ -37,10 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
-import com.jetbrains.youtrackdb.internal.core.util.Backupable;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
@@ -54,7 +51,7 @@ import javax.annotation.Nullable;
  *
  * @see DirectMemoryStorage
  */
-public interface Storage extends Backupable, StorageInfo {
+public interface Storage extends StorageInfo {
 
   enum STATUS {
     CLOSED,
@@ -96,6 +93,7 @@ public interface Storage extends Backupable, StorageInfo {
   // TX OPERATIONS
   void commit(FrontendTransactionImpl iTx);
 
+  @Override
   Set<String> getCollectionNames();
 
   Collection<? extends StorageCollection> getCollectionInstances();
@@ -164,10 +162,13 @@ public interface Storage extends Backupable, StorageInfo {
    */
   long countRecords(DatabaseSessionInternal session);
 
+  @Override
   int getCollectionIdByName(String iCollectionName);
 
+  @Override
   String getPhysicalCollectionNameById(int iCollectionId);
 
+  @Override
   String getName();
 
   long getVersion();
@@ -205,25 +206,17 @@ public interface Storage extends Backupable, StorageInfo {
 
   boolean isRemote();
 
+  @Override
   boolean isAssigningCollectionIds();
 
   LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager();
 
   CurrentStorageComponentsFactory getComponentsFactory();
 
+  @Override
   RecordConflictStrategy getRecordConflictStrategy();
 
   void setConflictStrategy(RecordConflictStrategy iResolver);
-
-  /**
-   *
-   */
-  @Nullable
-  void incrementalBackup(Path backupDirectory);
-
-  void fullIncrementalBackup(OutputStream stream);
-
-  void restoreFromIncrementalBackup(DatabaseSessionInternal session, String filePath);
 
   /**
    * This method is called in {@link YouTrackDBEnginesManager#shutdown()} method. For most of the

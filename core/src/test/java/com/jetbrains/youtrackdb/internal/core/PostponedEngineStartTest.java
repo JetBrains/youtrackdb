@@ -516,16 +516,16 @@ public class PostponedEngineStartTest {
 
         @Nullable
         @Override
-        public void incrementalBackup(Path backupDirectory) {
+        public void backup(Path backupDirectory) {
         }
 
         @Override
-        public void fullIncrementalBackup(final OutputStream stream)
+        public void fullBackup(final OutputStream stream)
             throws UnsupportedOperationException {
         }
 
         @Override
-        public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
+        public void restoreFromBackup(DatabaseSessionInternal session,
             String filePath) {
         }
         @Override

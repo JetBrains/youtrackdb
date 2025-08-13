@@ -87,17 +87,17 @@ public class DirectMemoryStorage extends AbstractStorage {
   }
 
   @Override
-  public void incrementalBackup(Path backupDirectory) {
+  public void backup(Path backupDirectory) {
    throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
   }
 
   @Override
-  public void fullIncrementalBackup(OutputStream stream) {
+  public void fullBackup(OutputStream stream) {
     throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
   }
 
   @Override
-  public void incrementalBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+  public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       Consumer<String> ibuFileRemover) {
@@ -105,7 +105,7 @@ public class DirectMemoryStorage extends AbstractStorage {
   }
 
   @Override
-  public void restoreFromIncrementalBackup(DatabaseSessionInternal session,
+  public void restoreFromBackup(DatabaseSessionInternal session,
       String filePath) {
     throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
   }
@@ -199,7 +199,7 @@ public class DirectMemoryStorage extends AbstractStorage {
 
   @Nullable
   @Override
-  protected LogSequenceNumber copyWALToIncrementalBackup(
+  protected LogSequenceNumber copyWALToBackup(
       final ZipOutputStream zipOutputStream, final long startSegment) {
     return null;
   }
