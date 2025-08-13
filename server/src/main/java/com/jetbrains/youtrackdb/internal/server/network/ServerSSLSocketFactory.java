@@ -171,7 +171,6 @@ public class ServerSSLSocketFactory extends ServerSocketFactory {
   }
 
   @Override
-  @Override
   public boolean isEncrypted() {
     return true;
   }

@@ -20,8 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.FILE_DELETE_DELAY;
-import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.FILE_DELETE_RETRY;
 import static com.jetbrains.youtrackdb.api.config.GlobalConfiguration.WARNING_DEFAULT_USERS;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
@@ -32,12 +30,10 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.thread.SourceTraceExecutorService;
 import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
 import com.jetbrains.youtrackdb.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
@@ -53,7 +49,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -483,47 +478,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     }
   }
 
-  public void networkRestore(String name, InputStream in, Callable<Object> callable) {
-    checkDatabaseName(name);
-    AbstractStorage storage = null;
-    try {
-      SharedContext context;
-      synchronized (this) {
-        context = sharedContexts.get(name);
-        if (context != null) {
-          context.close();
-        }
-        storage = getOrInitStorage(name);
-        storages.put(name, storage);
-      }
-      storage.restore(in, null, callable, null);
-    } catch (ModificationOperationProhibitedException e) {
-      throw e;
-    } catch (Exception e) {
-      try {
-        if (storage != null) {
-          storage.delete();
-        }
-      } catch (Exception e1) {
-        LogManager.instance()
-            .warn(this, "Error doing cleanups, should be safe do progress anyway", e1);
-      }
-      synchronized (this) {
-        sharedContexts.remove(name);
-        storages.remove(name);
-      }
-
-      var configs = configuration.getConfiguration();
-      DiskStorage.deleteFilesFromDisc(
-          name,
-          configs.getValueAsInteger(FILE_DELETE_RETRY),
-          configs.getValueAsInteger(FILE_DELETE_DELAY),
-          buildName(name));
-      throw BaseException.wrapException(
-          new DatabaseException(basePath, "Cannot create database '" + name + "'"), e, basePath);
-    }
-  }
-
   @Override
   public DatabaseSessionEmbedded open(
       String name, String user, String password, YouTrackDBConfig config) {
@@ -806,43 +760,9 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
             "Cannot create new storage '" + name + "' because it already exists");
       }
     }
-    storage.restoreFromBackup(null, path, );
+    storage.restoreFromBackup(Path.of(path));
     embedded.callOnCreateListeners();
     embedded.getSharedContext().reInit(storage, embedded);
-  }
-
-  @Override
-  public void restore(
-      String name,
-      InputStream in,
-      Map<String, Object> options,
-      Callable<Object> callable,
-      CommandOutputListener iListener) {
-    checkDatabaseName(name);
-    try {
-      AbstractStorage storage;
-      synchronized (this) {
-        var context = sharedContexts.remove(name);
-        if (context != null) {
-          context.close();
-        }
-        storage = getOrInitStorage(name);
-        storages.put(name, storage);
-      }
-      storage.restore(in, options, callable, iListener);
-    } catch (Exception e) {
-      synchronized (this) {
-        storages.remove(name);
-      }
-      var configs = configuration.getConfiguration();
-      DiskStorage.deleteFilesFromDisc(
-          name,
-          configs.getValueAsInteger(FILE_DELETE_RETRY),
-          configs.getValueAsInteger(FILE_DELETE_DELAY),
-          buildName(name));
-      throw BaseException.wrapException(
-          new DatabaseException(basePath, "Cannot create database '" + name + "'"), e, basePath);
-    }
   }
 
   private DatabaseSessionEmbedded internalCreate(

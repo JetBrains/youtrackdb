@@ -46,7 +46,6 @@ import com.jetbrains.youtrackdb.internal.client.remote.message.SetGlobalConfigur
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutors;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.CachedDatabasePoolFactory;
 import com.jetbrains.youtrackdb.internal.core.db.CachedDatabasePoolFactoryImpl;
@@ -65,7 +64,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.st
 import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.TokenSecurityException;
 import com.jetbrains.youtrackdb.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -74,7 +72,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -466,16 +463,6 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
     if (remote != null) {
       closeStorage(remote);
     }
-  }
-
-  @Override
-  public void restore(
-      String name,
-      InputStream in,
-      Map<String, Object> options,
-      Callable<Object> callable,
-      CommandOutputListener iListener) {
-    throw new UnsupportedOperationException("raw restore is not supported in remote");
   }
 
   @Override

@@ -405,7 +405,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
             dbURL,
             iPath);
 
-    db.incrementalBackup(Path.of(iPath));
+    db.backup(Path.of(iPath));
   }
 
   protected void exportDatabase(

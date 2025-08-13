@@ -91,7 +91,7 @@ public class StorageBackupTestWithLuceneIndex {
       Assert.assertTrue(backupDir.mkdirs());
     }
 
-    db.incrementalBackup(backupDir.toPath());
+    db.backup(backupDir.toPath());
     final var storage = db.getStorage();
     db.close();
 
@@ -144,7 +144,7 @@ public class StorageBackupTestWithLuceneIndex {
 
     db.commit();
 
-    db.incrementalBackup(backupDir.toPath());
+    db.backup(backupDir.toPath());
 
     db.begin();
     document = ((EntityImpl) db.newEntity("BackupClass"));
@@ -153,7 +153,7 @@ public class StorageBackupTestWithLuceneIndex {
 
     db.commit();
 
-    db.incrementalBackup(backupDir.toPath());
+    db.backup(backupDir.toPath());
 
     final var storage = db.getStorage();
     db.close();

@@ -37,7 +37,6 @@ public class DefaultCommandExecutorSQLFactory implements CommandExecutorSQLFacto
    * {@inheritDoc}
    */
   @Override
-  @Override
   public Set<String> getCommandNames() {
     return COMMANDS.keySet();
   }
@@ -45,7 +44,6 @@ public class DefaultCommandExecutorSQLFactory implements CommandExecutorSQLFacto
   /**
    * {@inheritDoc}
    */
-  @Override
   @Override
   public CommandExecutor createCommand(final String name) throws CommandExecutionException {
     final var clazz = COMMANDS.get(name);

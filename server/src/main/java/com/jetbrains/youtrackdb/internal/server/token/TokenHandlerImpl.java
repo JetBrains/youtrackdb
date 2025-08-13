@@ -180,7 +180,6 @@ public class TokenHandlerImpl implements TokenHandler {
   }
 
   @Override
-  @Override
   public byte[] getSignedWebToken(final DatabaseSessionInternal session, final SecurityUser user) {
     final var tokenByteOS = new ByteArrayOutputStream(1024);
     final var header = new YouTrackDBJwtHeader();
@@ -210,7 +209,6 @@ public class TokenHandlerImpl implements TokenHandler {
     return tokenByteOS.toByteArray();
   }
 
-  @Override
   @Override
   public byte[] getSignedWebTokenServerUser(final SecurityUser user) {
     final var tokenByteOS = new ByteArrayOutputStream(1024);
@@ -256,7 +254,6 @@ public class TokenHandlerImpl implements TokenHandler {
     return valid;
   }
 
-  @Override
   @Override
   public byte[] getSignedBinaryToken(
       final DatabaseSessionInternal session,
@@ -310,7 +307,6 @@ public class TokenHandlerImpl implements TokenHandler {
   }
 
   @Override
-  @Override
   @Nullable
   public NetworkProtocolData getProtocolDataFromToken(
       ClientConnection connection, final Token token) {
@@ -355,7 +351,6 @@ public class TokenHandlerImpl implements TokenHandler {
   }
 
   @Override
-  @Override
   public Token parseBinaryToken(final byte[] binaryToken) {
     var parsedToken = parseOnlyBinary(binaryToken);
     var token = parsedToken.getToken();
@@ -392,7 +387,6 @@ public class TokenHandlerImpl implements TokenHandler {
     return sessionInMills;
   }
 
-  @Override
   @Override
   public boolean isEnabled() {
     return true;

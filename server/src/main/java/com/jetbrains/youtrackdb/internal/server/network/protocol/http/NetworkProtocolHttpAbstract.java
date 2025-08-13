@@ -79,7 +79,6 @@ import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.po
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post.ServerCommandPostDatabase;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post.ServerCommandPostDocument;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post.ServerCommandPostImportRecords;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post.ServerCommandPostInstallDatabase;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post.ServerCommandPostKillDbConnection;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post.ServerCommandPostProperty;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post.ServerCommandPostServer;
@@ -982,7 +981,6 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     cmdManager.registerCommand(new ServerCommandPostClass());
     cmdManager.registerCommand(new ServerCommandPostCommandGraph());
     cmdManager.registerCommand(new ServerCommandPostDatabase());
-    cmdManager.registerCommand(new ServerCommandPostInstallDatabase());
     cmdManager.registerCommand(new ServerCommandPostDocument());
     cmdManager.registerCommand(new ServerCommandPostImportRecords());
     cmdManager.registerCommand(new ServerCommandPostProperty());

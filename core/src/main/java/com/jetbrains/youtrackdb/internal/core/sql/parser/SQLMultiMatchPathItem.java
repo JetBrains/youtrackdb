@@ -26,7 +26,6 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
   }
 
   @Override
-  @Override
   public boolean isBidirectional() {
     return false;
   }
@@ -55,7 +54,6 @@ public class SQLMultiMatchPathItem extends SQLMatchPathItem {
     }
   }
 
-  @Override
   @Override
   protected Iterable<Identifiable> traversePatternEdge(
       SQLMatchStatement.MatchContext matchContext,

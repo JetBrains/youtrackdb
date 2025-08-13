@@ -257,7 +257,7 @@ public class DatabaseSessionRemote implements RemoteDatabaseSessionInternal {
 
 
   @Override
-  public void incrementalBackup(final Path path) throws UnsupportedOperationException {
+  public void backup(final Path path) throws UnsupportedOperationException {
     checkOpenness();
     assert assertIfNotActive();
 

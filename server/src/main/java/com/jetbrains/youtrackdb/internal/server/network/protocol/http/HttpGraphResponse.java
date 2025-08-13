@@ -66,7 +66,6 @@ public class HttpGraphResponse extends HttpResponseAbstract {
   }
 
   @Override
-  @Override
   public void writeRecords(
       final Object iRecords,
       final String iFetchPlan,

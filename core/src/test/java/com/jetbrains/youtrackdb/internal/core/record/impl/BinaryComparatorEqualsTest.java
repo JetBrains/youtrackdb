@@ -379,7 +379,6 @@ public class BinaryComparatorEqualsTest extends AbstractComparatorTest {
   }
 
   @Override
-  @Override
   protected void testEquals(DatabaseSessionInternal db, PropertyTypeInternal sourceType,
       PropertyTypeInternal destType) {
     try {

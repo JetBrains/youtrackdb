@@ -31,16 +31,13 @@ public abstract class SpeedTestThread extends Thread implements SpeedTest {
   }
 
   @Override
-  @Override
   public void deinit() throws Exception {
   }
 
   @Override
-  @Override
   public void afterCycle() throws Exception {
   }
 
-  @Override
   @Override
   public void beforeCycle() throws Exception {
   }

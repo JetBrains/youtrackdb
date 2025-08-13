@@ -248,7 +248,7 @@ public interface BasicYouTrackDB<R extends BasicResult, S extends BasicDatabaseS
 
   /**
    * Creates database by restoring it from incremental backup. The backup should be created with
-   * {@link BasicDatabaseSession#incrementalBackup(Path)}.
+   * {@link BasicDatabaseSession#backup(Path)}.
    * <p/>
    * At the moment only disk based databases are supported, you can not restore memory databases.
    *

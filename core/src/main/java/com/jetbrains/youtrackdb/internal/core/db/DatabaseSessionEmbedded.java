@@ -183,7 +183,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private final boolean serverMode;
 
   private YouTrackDBConfigImpl config;
-  private final Storage storage;
+  private final AbstractStorage storage;
 
   private final Stopwatch freezeDurationMetric;
   private final Stopwatch releaseDurationMetric;
@@ -234,7 +234,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private boolean openedAsRemoteSession;
   private int remoteCallsCount;
 
-  public DatabaseSessionEmbedded(final Storage storage, boolean serverMode) {
+  public DatabaseSessionEmbedded(final AbstractStorage storage, boolean serverMode) {
     super(false);
     this.serverMode = serverMode;
     // in server mode we don't enable result set auto-closing
@@ -572,7 +572,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var storage = (Storage) getSharedContext().getStorage();
+    var storage = getSharedContext().getStorage();
     storage.open(this, null, null, getConfiguration());
     String user;
     if (getCurrentUser() != null) {
@@ -815,12 +815,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                 .getCommandManager()
                 .getScriptExecutor(language);
 
-        ((AbstractStorage) this.storage).pauseConfigurationUpdateNotifications();
+        this.storage.pauseConfigurationUpdateNotifications();
         ResultSet original;
         try {
           original = executor.execute(this, script, args);
         } finally {
-          ((AbstractStorage) this.storage).fireConfigurationUpdateNotifications();
+          this.storage.fireConfigurationUpdateNotifications();
         }
         var result = new LocalResultSetLifecycleDecorator(original);
         queryStarted(result);
@@ -871,11 +871,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                 .getScriptExecutor(language);
         ResultSet original;
 
-        ((AbstractStorage) this.storage).pauseConfigurationUpdateNotifications();
+        this.storage.pauseConfigurationUpdateNotifications();
         try {
           original = executor.execute(this, script, args);
         } finally {
-          ((AbstractStorage) this.storage).fireConfigurationUpdateNotifications();
+          this.storage.fireConfigurationUpdateNotifications();
         }
 
         var result = new LocalResultSetLifecycleDecorator(original);
@@ -2469,7 +2469,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public void incrementalBackup(final Path path) {
+  public void backup(final Path path) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -2477,7 +2477,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
-    storage.backup(path.toAbsolutePath());
+    storage.backup(path);
   }
 
   @Nullable
@@ -2571,7 +2571,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private FreezableStorageComponent getFreezableStorage() {
     var s = storage;
     if (s instanceof FreezableStorageComponent) {
-      return (FreezableStorageComponent) s;
+      return s;
     } else {
       LogManager.instance()
           .error(

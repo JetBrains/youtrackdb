@@ -69,7 +69,6 @@ public class NetworkProtocolHttpDb extends NetworkProtocolHttpAbstract {
   }
 
   @Override
-  @Override
   public String getType() {
     return "http";
   }

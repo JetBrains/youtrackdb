@@ -96,7 +96,7 @@ public class StorageBackupMTTest {
       }
 
       System.out.println("do inc backup last time");
-      db.incrementalBackup(backupDir.toPath());
+      db.backup(backupDir.toPath());
 
       youTrackDB.close();
 
@@ -206,7 +206,7 @@ public class StorageBackupMTTest {
       }
 
       System.out.println("do inc backup last time");
-      db.incrementalBackup(backupDir.toPath());
+      db.backup(backupDir.toPath());
 
       youTrackDB.close();
 
@@ -337,7 +337,7 @@ public class StorageBackupMTTest {
           latch.await();
 
           System.out.println(Thread.currentThread() + " do inc backup");
-          db.incrementalBackup(Path.of(backupPath));
+          db.backup(Path.of(backupPath));
           System.out.println(Thread.currentThread() + " done inc backup");
         }
       } catch (Exception | Error e) {

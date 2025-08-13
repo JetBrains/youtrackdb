@@ -158,7 +158,7 @@ public class StorageBackupMTStateTest {
 
       try (var databaseDocumentTx = youTrackDb.open(StorageBackupMTStateTest.class.getSimpleName(),
           "admin", "admin")) {
-        databaseDocumentTx.incrementalBackup(backupDir.toPath());
+        databaseDocumentTx.backup(backupDir.toPath());
       }
 
       System.out.println("Create backup database");
@@ -374,7 +374,7 @@ public class StorageBackupMTStateTest {
         flowLock.acquireReadLock();
         try {
           System.out.println("Start backup");
-          db.incrementalBackup(backupDir.toPath());
+          db.backup(backupDir.toPath());
           System.out.println("End backup");
         } finally {
           flowLock.releaseReadLock();

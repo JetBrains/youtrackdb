@@ -46,7 +46,6 @@ public class SQLPositionalParameter extends SQLInputParameter {
   }
 
   @Override
-  @Override
   public Object getValue(Map<Object, Object> params) {
     Object result = null;
     if (params != null) {
@@ -56,12 +55,10 @@ public class SQLPositionalParameter extends SQLInputParameter {
   }
 
   @Override
-  @Override
   public Object bindFromInputParams(Map<Object, Object> params) {
     if (params != null) {
       var value = params.get(paramNumber);
-      var result = toParsedTree(value);
-      return result;
+      return toParsedTree(value);
     }
     return this;
   }

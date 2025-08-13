@@ -799,6 +799,35 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
+  public void fullBackup(Path backupDirectory) {
+    fullBackup(new IBULocalFileNamesSupplier(backupDirectory, name, uuid.toString()),
+        new IBULocalFileOutputStreamSupplier(backupDirectory, name),
+        new IBULocalFileRemover(backupDirectory, name));
+  }
+
+  @Override
+  public void fullBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier, Consumer<String> ibuFileRemover) {
+    var dbUuidString = uuid.toString();
+    var ibuFilesIterator = IteratorUtils.filter(ibuFilesSupplier.get(), fileName ->
+        fileName.startsWith(dbUuidString) && fileName.endsWith(IBU_EXTENSION));
+    var ibuFiles = IteratorUtils.list(ibuFilesIterator);
+
+    for (var ibuFile : ibuFiles) {
+      ibuFileRemover.accept(ibuFile);
+    }
+
+    backup(org.apache.commons.collections4.IteratorUtils::emptyIterator,
+        ibuFileName -> {
+          throw new UnsupportedOperationException("File " + ibuFileName + " does not exist.");
+        }, ibuOutputStreamSupplier,
+        ibuFileName -> {
+          throw new UnsupportedOperationException("File " + ibuFileName + " does not exist.");
+        }
+    );
+  }
+
+  @Override
   public void backup(final Path backupDirectory) {
     checkBackupIsNotPerformedInStorageDir(backupDirectory);
     try {
@@ -810,68 +839,16 @@ public class DiskStorage extends AbstractStorage {
           "Can not create directories are needed to perform database backup."), e, name);
     }
 
-    var dbUUID = getUuid();
-    var dbUUIDString = dbUUID.toString();
+    var dbUUIDString = uuid.toString();
     final var fileLockPath = backupDirectory.resolve(dbUUIDString + "-" + BACKUP_LOCK);
     try (final var lockChannel = FileChannel.open(fileLockPath, StandardOpenOption.CREATE,
         StandardOpenOption.WRITE)) {
       try (var ignored = lockChannel.lock()) {
-        backup(() -> {
-          try (var filesStream = Files.list(backupDirectory)) {
-            return filesStream.filter(path -> {
-              if (Files.isDirectory(path)) {
-                return false;
-              }
-
-              var fileName = path.getFileName();
-              return fileName.endsWith(IBU_EXTENSION) && fileName.startsWith(dbUUIDString);
-            }).map(path -> path.getFileName().toString()).toList().iterator();
-          } catch (IOException e) {
-            throw BaseException.wrapException(new DatabaseException(name,
-                "Can not list backup unit files in directory '" + backupDirectory + "'"), e, name);
-          }
-        }, ibuFileName -> {
-          var ibuPath = backupDirectory.resolve(ibuFileName);
-          try {
-            return new BufferedInputStream(
-                Files.newInputStream(backupDirectory.resolve(ibuFileName)));
-          } catch (IOException e) {
-            throw BaseException.wrapException(new DatabaseException(name,
-                "Can open backup unit file " + ibuPath + " to read it."), e, name);
-          }
-        }, ibuFileName -> {
-          var ibuPath = backupDirectory.resolve(ibuFileName);
-          try {
-            OutputStream os;
-            var fileChannel = FileChannel.open(ibuPath, StandardOpenOption.CREATE_NEW,
-                StandardOpenOption.WRITE);
-            try {
-              os = Channels.newOutputStream(fileChannel);
-            } catch (Exception e) {
-              fileChannel.close();
-              throw e;
-            }
-            return new ProxyOutputStream(os) {
-              @Override
-              public void close() throws IOException {
-                fileChannel.force(true);
-                super.close();
-              }
-            };
-          } catch (IOException e) {
-            throw BaseException.wrapException(
-                new DatabaseException(name, "Can create new backup unit file " + ibuPath + " ."), e,
-                name);
-          }
-        }, ibuFileName -> {
-          try {
-            var ibuFilePath = backupDirectory.resolve(ibuFileName);
-            Files.deleteIfExists(ibuFilePath);
-          } catch (IOException e) {
-            throw BaseException.wrapException(new DatabaseException(name,
-                "Can not delete backup unit file " + ibuFileName + " ."), e, name);
-          }
-        });
+        backup(
+            new IBULocalFileNamesSupplier(backupDirectory, name, dbUUIDString),
+            new IBULocalFileInputStreamSupplier(backupDirectory, name),
+            new IBULocalFileOutputStreamSupplier(backupDirectory, name),
+            new IBULocalFileRemover(backupDirectory, name));
       } catch (OverlappingFileLockException ofle) {
         LogManager.instance().error(this, "Can not lock file '%s'."
                 + " File likely already locked by another process that performs database backup.",
@@ -884,7 +861,6 @@ public class DiskStorage extends AbstractStorage {
           name);
     }
   }
-
 
   @Override
   public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
@@ -947,7 +923,8 @@ public class DiskStorage extends AbstractStorage {
           }
 
           LogManager.instance()
-              .info(this, "Backup of database '%s' is completed. Backup unit file %s was created.",
+              .info(this,
+                  "Backup of database '%s' is completed. Backup unit file %s was created.",
                   name, ibuNextFile);
         } finally {
           backupLock.unlock();
@@ -1070,7 +1047,8 @@ public class DiskStorage extends AbstractStorage {
       }
 
       if (metaDataCandidate == null) {
-        LogManager.instance().warn(this, "File %s does not contain backup metadata.", ibuFileName);
+        LogManager.instance()
+            .warn(this, "File %s does not contain backup metadata.", ibuFileName);
         return null;
       }
 
@@ -1176,8 +1154,9 @@ public class DiskStorage extends AbstractStorage {
         startLsn = new LogSequenceNumber(metadataStartLsnSegment, metadataStartLsnPosition);
       }
       if (metadataLastLsnSegment == -1 || metadataEndLsnPosition == -1) {
-        LogManager.instance().warn(this, "Last LSN of the file %s stored in metadata is incorrect.",
-            ibuFileName);
+        LogManager.instance()
+            .warn(this, "Last LSN of the file %s stored in metadata is incorrect.",
+                ibuFileName);
         return null;
       }
 
@@ -1186,7 +1165,6 @@ public class DiskStorage extends AbstractStorage {
       return new BackupMetadata(metadataVersion, fileNameUUID, sequenceNumber, startLsn, lastLsn);
     }
   }
-
 
   private LogSequenceNumber storeBackupDataToStream(OutputStream stream,
       LogSequenceNumber fromLsn)
@@ -1257,11 +1235,6 @@ public class DiskStorage extends AbstractStorage {
         LogManager.instance().warn(this, "Failed to flush data during incremental backup. ", e);
       }
     }
-  }
-
-  public void fullBackup(final OutputStream stream) {
-    throw new UnsupportedOperationException("Full incremental backup is not supported yet.");
-    //TODO: implement it next
   }
 
   private void checkBackupIsNotPerformedInStorageDir(final Path backupDirectory) {
@@ -1525,8 +1498,9 @@ public class DiskStorage extends AbstractStorage {
         }
         var firstBackupUnit = tempIBUFiles.getFirst();
         if (!firstBackupUnit.rightBoolean()) {
-          throw new DatabaseException(name, "Full backup file is absent in the backup, restore is "
-              + "impossible.");
+          throw new DatabaseException(name,
+              "Full backup file is absent in the backup, restore is "
+                  + "impossible.");
         }
 
         var result = preprocessingIncrementalRestore();
@@ -2062,6 +2036,7 @@ public class DiskStorage extends AbstractStorage {
     }
   }
 
+
   private static final class IBUFileNamesComparator implements Comparator<String> {
 
     @Override
@@ -2081,4 +2056,92 @@ public class DiskStorage extends AbstractStorage {
       return firstNameWithoutDbName.compareTo(secondNameWithoutDbName);
     }
   }
+
+  private record IBULocalFileNamesSupplier(Path backupDirectory, String databaseName,
+                                           String dbUUID) implements Supplier<Iterator<String>> {
+
+    @Override
+      public Iterator<String> get() {
+        try (var filesStream = Files.list(backupDirectory)) {
+          return filesStream.filter(path -> {
+            if (Files.isDirectory(path)) {
+              return false;
+            }
+
+            var fileName = path.getFileName();
+            return fileName.endsWith(IBU_EXTENSION) && fileName.startsWith(dbUUID);
+          }).map(path -> path.getFileName().toString()).toList().iterator();
+        } catch (IOException e) {
+          throw BaseException.wrapException(new DatabaseException(databaseName,
+                  "Can not list backup unit files in directory '" + backupDirectory + "'"), e,
+              databaseName);
+        }
+      }
+    }
+
+  private record IBULocalFileInputStreamSupplier(Path backupDirectory,
+                                                 String databaseName) implements
+        Function<String, InputStream> {
+
+    @Override
+      public InputStream apply(String ibuFileName) {
+        var ibuPath = backupDirectory.resolve(ibuFileName);
+        try {
+          return new BufferedInputStream(
+              Files.newInputStream(backupDirectory.resolve(ibuFileName)));
+        } catch (IOException e) {
+          throw BaseException.wrapException(new DatabaseException(databaseName,
+              "Can open backup unit file " + ibuPath + " to read it."), e, databaseName);
+        }
+      }
+    }
+
+  private record IBULocalFileOutputStreamSupplier(Path backupDirectory,
+                                                  String databaseName) implements
+        Function<String, OutputStream> {
+
+    @Override
+      public OutputStream apply(String ibuFileName) {
+        var ibuPath = backupDirectory.resolve(ibuFileName);
+        try {
+          OutputStream os;
+          var fileChannel = FileChannel.open(ibuPath, StandardOpenOption.CREATE_NEW,
+              StandardOpenOption.WRITE);
+          try {
+            os = Channels.newOutputStream(fileChannel);
+          } catch (Exception e) {
+            fileChannel.close();
+            throw e;
+          }
+          return new ProxyOutputStream(os) {
+            @Override
+            public void close() throws IOException {
+              fileChannel.force(true);
+              super.close();
+            }
+          };
+        } catch (IOException e) {
+          throw BaseException.wrapException(
+              new DatabaseException(databaseName,
+                  "Can create new backup unit file " + ibuPath + " ."),
+              e, databaseName);
+        }
+      }
+    }
+
+  private record IBULocalFileRemover(Path backupDirectory, String databaseName) implements
+      Consumer<String> {
+
+    @Override
+      public void accept(String ibuFileName) {
+        try {
+          var ibuFilePath = backupDirectory.resolve(ibuFileName);
+          Files.deleteIfExists(ibuFilePath);
+          LogManager.instance().info(this, "Deleted backup unit file " + ibuFilePath);
+        } catch (IOException e) {
+          throw BaseException.wrapException(new DatabaseException(databaseName,
+              "Can not delete backup unit file " + ibuFileName + " ."), e, databaseName);
+        }
+      }
+    }
 }

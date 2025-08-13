@@ -11,8 +11,6 @@ import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.junit.Test;
 
 public class HttpDisabledTokenTest extends BaseHttpDatabaseTest {
-
-  @Override
   @Override
   protected String getServerCfg() {
     return "/com/jetbrains/youtrackdb/internal/server/network/youtrackdb-server-config-httponly-notoken.xml";

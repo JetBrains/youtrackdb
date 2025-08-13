@@ -216,7 +216,7 @@ public interface BasicDatabaseSession<R extends BasicResult, RS extends BasicRes
    *
    * @param path Path to backup folder.
    */
-  void incrementalBackup(Path path);
+  void backup(Path path);
 
   @Nullable
   TimeZone getDatabaseTimeZone();

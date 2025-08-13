@@ -22,7 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -38,10 +37,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -87,28 +83,41 @@ public class DirectMemoryStorage extends AbstractStorage {
   }
 
   @Override
-  public void backup(Path backupDirectory) {
-   throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
+  public void fullBackup(Path backupDirectory) {
+    throw new UnsupportedOperationException("Backup is not supported for memory storage");
   }
 
   @Override
-  public void fullBackup(OutputStream stream) {
-    throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
+  public void fullBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier, Consumer<String> ibuFileRemover) {
+    throw new UnsupportedOperationException("Backup is not supported for memory storage");
   }
+
+  @Override
+  public void backup(Path backupDirectory) {
+    throw new UnsupportedOperationException("Backup is not supported for memory storage");
+  }
+
 
   @Override
   public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       Consumer<String> ibuFileRemover) {
-    throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
+    throw new UnsupportedOperationException("Backup is not supported for memory storage");
   }
 
   @Override
-  public void restoreFromBackup(DatabaseSessionInternal session,
-      String filePath) {
-    throw new UnsupportedOperationException("Incremental backup is not supported for memory storage");
+  public void restoreFromBackup(Path backupDirectory, String expectedUUID) {
+    throw new UnsupportedOperationException("Backup is not supported for memory storage");
   }
+
+  @Override
+  public void restoreFromBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID) {
+    throw new UnsupportedOperationException("Backup is not supported for memory storage");
+  }
+
 
   @Override
   public boolean exists() {
@@ -159,42 +168,6 @@ public class DirectMemoryStorage extends AbstractStorage {
 
   @Override
   protected void initIv() {
-  }
-
-  @Override
-  public List<String> backup(
-      DatabaseSessionInternal db, final OutputStream out,
-      final Map<String, Object> options,
-      final Callable<Object> callable,
-      final CommandOutputListener iListener,
-      final int compressionLevel,
-      final int bufferSize) {
-    try {
-      throw new UnsupportedOperationException();
-    } catch (final RuntimeException e) {
-      throw logAndPrepareForRethrow(e);
-    } catch (final Error e) {
-      throw logAndPrepareForRethrow(e);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
-    }
-  }
-
-  @Override
-  public void restore(
-      final InputStream in,
-      final Map<String, Object> options,
-      final Callable<Object> callable,
-      final CommandOutputListener iListener) {
-    try {
-      throw new UnsupportedOperationException();
-    } catch (final RuntimeException e) {
-      throw logAndPrepareForRethrow(e);
-    } catch (final Error e) {
-      throw logAndPrepareForRethrow(e);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
-    }
   }
 
   @Nullable

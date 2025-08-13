@@ -23,7 +23,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
   }
 
   @Override
-  @Override
   public ConcurrentLegacyResultSet<T> setCompleted() {
     // completed = true;
     synchronized (waitForNextItem) {
@@ -45,7 +44,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
     }
   }
 
-  @Override
   @Override
   public T set(int index, T element) {
     throw new UnsupportedOperationException();
@@ -107,7 +105,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
   }
 
   @Override
-  @Override
   public boolean add(final T t) {
     queue.offer(t);
     return true;
@@ -124,7 +121,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
   }
 
   @Override
-  @Override
   public boolean addAll(final Collection<? extends T> c) {
     for (var t : c) {
       add(t);
@@ -132,7 +128,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
     return true;
   }
 
-  @Override
   @Override
   public boolean addAll(final int index, final Collection<? extends T> c) {
     for (var t : c) {
@@ -161,7 +156,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
     throw new UnsupportedOperationException();
   }
 
-  @Override
   @Override
   public void add(final int index, T element) {
     add(element);
@@ -198,12 +192,10 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
   }
 
   @Override
-  @Override
   public int getLimit() {
     return wrapped.getLimit();
   }
 
-  @Override
   @Override
   @Nullable
   public LegacyResultSet<T> setLimit(final int limit) {
@@ -222,7 +214,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
   }
 
   @Override
-  @Override
   protected void waitForCompletion() {
     synchronized (waitForCompletion) {
       if (!completed) {
@@ -236,7 +227,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
   }
 
   @Override
-  @Override
   protected void waitForNewItemOrCompleted() {
     synchronized (waitForNextItem) {
       try {
@@ -247,7 +237,6 @@ public class LiveLegacyResultSet<T> extends ConcurrentLegacyResultSet<T> {
     }
   }
 
-  @Override
   @Override
   protected void notifyNewItem() {
     synchronized (waitForNextItem) {

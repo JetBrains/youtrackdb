@@ -31,15 +31,12 @@ import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.StatementCache;
-import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
 
 /**
  *
@@ -267,12 +264,6 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
       String path,
       YouTrackDBConfig config);
 
-  void restore(
-      String name,
-      InputStream in,
-      Map<String, Object> options,
-      Callable<Object> callable,
-      CommandOutputListener iListener);
 
   /**
    * Close the factory with all related databases and pools.

@@ -49,7 +49,6 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
   }
 
   @Override
-  @Override
   public BasicLegacyResultSet<T> setCompleted() {
     return this;
   }
@@ -220,12 +219,10 @@ public class BasicLegacyResultSet<T> implements LegacyResultSet<T> {
   }
 
   @Override
-  @Override
   public int getLimit() {
     return limit;
   }
 
-  @Override
   @Override
   public LegacyResultSet<T> setLimit(final int limit) {
     this.limit = limit;

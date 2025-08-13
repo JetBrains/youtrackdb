@@ -77,7 +77,6 @@ public abstract class ServerCommandAbstract implements ServerCommand {
   }
 
   @Override
-  @Override
   public void configure(final YouTrackDBServer server) {
     this.server = server;
   }

@@ -49,7 +49,6 @@ public class SpatialQueryBuilder extends SpatialQueryBuilderAbstract {
   }
 
   @Override
-  @Override
   public SpatialQueryContext build(DatabaseSessionEmbedded db, Map<String, Object> query)
       throws Exception {
 

@@ -12,7 +12,6 @@ import org.junit.Test;
 public class HttpXRequestedWithXMLHttpRequestTest extends BaseHttpDatabaseTest {
 
   @Override
-  @Override
   protected void onAfterDatabaseCreated() throws Exception {
     setUserPassword("123456");
   }

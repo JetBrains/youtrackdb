@@ -22,7 +22,6 @@ import com.jetbrains.youtrackdb.api.common.query.BasicLiveQueryResultListener;
 import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
@@ -42,17 +41,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStor
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Path;
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.concurrent.Callable;
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -212,24 +205,6 @@ public class PostponedEngineStartTest {
         YouTrackDBInternalEmbedded context) {
       return new Storage() {
 
-        @Override
-        public List<String> backup(
-            DatabaseSessionInternal db, OutputStream out,
-            Map<String, Object> options,
-            Callable<Object> callable,
-            CommandOutputListener iListener,
-            int compressionLevel,
-            int bufferSize) {
-          return null;
-        }
-
-        @Override
-        public void restore(
-            InputStream in,
-            Map<String, Object> options,
-            Callable<Object> callable,
-            CommandOutputListener iListener) {
-        }
 
         @Override
         public String getCollectionName(DatabaseSessionInternal database, int collectionId) {
@@ -514,20 +489,7 @@ public class PostponedEngineStartTest {
         public void setConflictStrategy(RecordConflictStrategy iResolver) {
         }
 
-        @Nullable
-        @Override
-        public void backup(Path backupDirectory) {
-        }
 
-        @Override
-        public void fullBackup(final OutputStream stream)
-            throws UnsupportedOperationException {
-        }
-
-        @Override
-        public void restoreFromBackup(DatabaseSessionInternal session,
-            String filePath) {
-        }
         @Override
         public void shutdown() {
         }

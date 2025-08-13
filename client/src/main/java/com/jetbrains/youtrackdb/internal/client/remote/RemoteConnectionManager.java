@@ -236,7 +236,7 @@ public class RemoteConnectionManager {
 
   protected void closePool(RemoteConnectionPool pool) {
     final List<SocketChannelBinaryAsynchClient> conns =
-        new ArrayList<SocketChannelBinaryAsynchClient>(pool.pool().getAllResources());
+        new ArrayList<>(pool.pool().getAllResources());
     for (var c : conns) {
       try {
         // Unregister the listener that make the connection return to the closing pool.

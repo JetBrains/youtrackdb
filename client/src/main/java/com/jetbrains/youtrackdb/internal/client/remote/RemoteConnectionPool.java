@@ -11,9 +11,7 @@ import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelBinary
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- *
- */
+
 public record RemoteConnectionPool(ResourcePool<String, SocketChannelBinaryAsynchClient> pool)
     implements ResourcePoolListener<String, SocketChannelBinaryAsynchClient> {
 
@@ -23,7 +21,7 @@ public record RemoteConnectionPool(ResourcePool<String, SocketChannelBinaryAsync
     this.pool = new ResourcePool<>(pool, this);
   }
 
-  private SocketChannelBinaryAsynchClient createNetworkConnection(
+  protected SocketChannelBinaryAsynchClient createNetworkConnection(
       String serverURL, final ContextConfiguration clientConfiguration) throws YTIOException {
     if (serverURL == null) {
       throw new IllegalArgumentException("server url is null");

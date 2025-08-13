@@ -47,7 +47,6 @@ public abstract class LuceneTxChangesAbstract implements LuceneTxChanges {
   }
 
   @Override
-  @Override
   public IndexSearcher searcher() {
     // TODO optimize
     try {

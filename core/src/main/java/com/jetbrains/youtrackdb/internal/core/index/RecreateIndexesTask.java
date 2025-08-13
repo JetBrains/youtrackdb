@@ -29,7 +29,7 @@ public class RecreateIndexesTask implements Runnable {
   public void run() {
     try {
       final var newDb =
-          new DatabaseSessionEmbedded((Storage) ctx.getStorage(), false);
+          new DatabaseSessionEmbedded(ctx.getStorage(), false);
       try (newDb) {
         newDb.activateOnCurrentThread();
         newDb.init(null, ctx);
@@ -99,7 +99,7 @@ public class RecreateIndexesTask implements Runnable {
                   this,
                   "Index '%s' is a non-durable automatic index and must be rebuilt",
                   indexMetadata.getName());
-          rebuildNonDurableAutomaticIndex(session, indexMap, index, indexMetadata, indexDefinition);
+          rebuildNonDurableAutomaticIndex(session, index, indexMetadata, indexDefinition);
         }
       } else {
         if (durable) {
@@ -124,7 +124,7 @@ public class RecreateIndexesTask implements Runnable {
   }
 
   private void rebuildNonDurableAutomaticIndex(
-      DatabaseSessionEmbedded session, Map<String, ?> indexMap,
+      DatabaseSessionEmbedded session,
       Index index,
       IndexMetadata indexMetadata,
       IndexDefinition indexDefinition) {

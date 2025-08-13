@@ -68,7 +68,7 @@ public class StorageBackupTest {
       Assert.assertTrue(backupDir.mkdirs());
     }
 
-    db.incrementalBackup(backupDir.toPath());
+    db.backup(backupDir.toPath());
     youTrackDB.close();
 
     final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
@@ -147,7 +147,7 @@ public class StorageBackupTest {
       Assert.assertTrue(backupDir.mkdirs());
     }
 
-    db.incrementalBackup(backupDir.toPath());
+    db.backup(backupDir.toPath());
 
     for (var n = 0; n < 3; n++) {
       for (var i = 0; i < 1000; i++) {
@@ -164,10 +164,10 @@ public class StorageBackupTest {
         db.commit();
       }
 
-      db.incrementalBackup(backupDir.toPath());
+      db.backup(backupDir.toPath());
     }
 
-    db.incrementalBackup(backupDir.toPath());
+    db.backup(backupDir.toPath());
     db.close();
 
     youTrackDB.close();
@@ -248,7 +248,7 @@ public class StorageBackupTest {
       Assert.assertTrue(backupDir.mkdirs());
     }
 
-    db.incrementalBackup(backupDir.toPath());
+    db.backup(backupDir.toPath());
 
     for (var n = 0; n < 3; n++) {
       for (var i = 0; i < 1000; i++) {
@@ -265,10 +265,10 @@ public class StorageBackupTest {
         db.commit();
       }
 
-      db.incrementalBackup(backupDir.toPath());
+      db.backup(backupDir.toPath());
     }
 
-    db.incrementalBackup(backupDir.toPath());
+    db.backup(backupDir.toPath());
     db.close();
 
     youTrackDB.close();

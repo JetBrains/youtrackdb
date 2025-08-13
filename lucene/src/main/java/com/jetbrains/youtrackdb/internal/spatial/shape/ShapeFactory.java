@@ -227,7 +227,6 @@ public class ShapeFactory extends ComplexShapeBuilder {
   }
 
   @Override
-  @Override
   public Geometry toGeometry(Shape shape) {
     if (shape instanceof ShapeCollection) {
       var shapes = (ShapeCollection<Shape>) shape;

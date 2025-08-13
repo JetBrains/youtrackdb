@@ -257,7 +257,7 @@ public abstract class AbstractStorage
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
   private boolean wereDataRestoredAfterOpen;
-  private UUID uuid;
+  protected UUID uuid;
 
   private final AtomicInteger sessionCount = new AtomicInteger(0);
   private volatile long lastCloseTime = System.currentTimeMillis();
@@ -4684,6 +4684,12 @@ public abstract class AbstractStorage
       writeAheadLog.removeCutTillLimit(begin);
     }
   }
+
+  public abstract void fullBackup(final Path backupDirectory);
+
+  public abstract void fullBackup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      Consumer<String> ibuFileRemover);
 
   public abstract void backup(final Path backupDirectory);
 

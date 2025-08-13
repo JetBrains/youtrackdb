@@ -30,13 +30,11 @@ public class HttpListDatabasesTest extends BaseHttpTest {
   }
 
   @Override
-  @Override
   @Before
   public void startServer() throws Exception {
     super.startServer();
   }
 
-  @Override
   @Override
   @After
   public void stopServer() throws Exception {

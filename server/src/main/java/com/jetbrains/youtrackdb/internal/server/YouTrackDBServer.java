@@ -33,7 +33,6 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
@@ -1215,18 +1214,6 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void restore(String name, InputStream in, Map<String, Object> options,
-        Callable<Object> callable, CommandOutputListener iListener) {
-      dbCreationLock.lock();
-      try {
-        internal.restore(name, in, options, callable, iListener);
-        dbNamesCache.add(name);
-      } finally {
-        dbCreationLock.unlock();
-      }
-    }
-
-    @Override
     public void close() {
       internal.close();
     }
@@ -1362,10 +1349,6 @@ public class YouTrackDBServer {
 
     public Collection<Storage> getStorages() {
       return internal.getStorages();
-    }
-
-    public void networkRestore(String name, InputStream in, Callable<Object> callable) {
-      internal.networkRestore(name, in, callable);
     }
 
     @Override

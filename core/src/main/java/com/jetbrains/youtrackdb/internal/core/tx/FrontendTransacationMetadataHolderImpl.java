@@ -62,7 +62,6 @@ public class FrontendTransacationMetadataHolderImpl implements FrontendTransacat
   }
 
   @Override
-  @Override
   public FrontendTransactionId getId() {
     return id;
   }

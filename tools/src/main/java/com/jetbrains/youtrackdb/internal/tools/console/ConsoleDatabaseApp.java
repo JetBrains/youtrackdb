@@ -1513,7 +1513,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
               + "' to: "
               + iText
               + "...");
-      currentDatabaseSession.incrementalBackup(Path.of(fileName));
+      currentDatabaseSession.backup(Path.of(fileName));
 
       message(
           String.format(

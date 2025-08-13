@@ -21,7 +21,6 @@ public abstract class SpeedTestAbstract implements SpeedTest {
   }
 
   @Override
-  @Override
   @Test
   public abstract void cycle() throws Exception;
 
@@ -30,16 +29,13 @@ public abstract class SpeedTestAbstract implements SpeedTest {
   }
 
   @Override
-  @Override
   public void deinit() throws Exception {
   }
 
   @Override
-  @Override
   public void beforeCycle() throws Exception {
   }
 
-  @Override
   @Override
   public void afterCycle() throws Exception {
   }

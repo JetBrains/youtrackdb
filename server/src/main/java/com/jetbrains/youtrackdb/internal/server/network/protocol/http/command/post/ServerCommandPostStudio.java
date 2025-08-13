@@ -486,7 +486,6 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
   }
 
   @Override
-  @Override
   public String[] getNames() {
     return NAMES;
   }
