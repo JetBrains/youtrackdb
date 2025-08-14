@@ -178,6 +178,10 @@ public class DatabasePoolImpl<S extends BasicDatabaseSession<?, ?>> implements
     }
   }
 
+  public int getAvailableResources() {
+    return pool.getAvailableResources();
+  }
+
   @Override
   public long getLastCloseTime() {
     return lastCloseTime;

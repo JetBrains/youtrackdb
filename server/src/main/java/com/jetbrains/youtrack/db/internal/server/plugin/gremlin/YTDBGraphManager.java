@@ -7,10 +7,8 @@ import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YTDBGraphImplAbstract;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,7 +28,6 @@ import org.apache.tinkerpop.gremlin.structure.Transaction.Status;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 
 public class YTDBGraphManager implements GraphManager {
-
   public static final String TRAVERSAL_SOURCE_PREFIX = "ytdb";
 
   @Nonnull
@@ -38,6 +35,7 @@ public class YTDBGraphManager implements GraphManager {
   private final ConcurrentHashMap<String, YTDBServerGraphImpl> registeredGraphs = new ConcurrentHashMap<>();
   private final YTDBTransactionListener transactionListener = new YTDBTransactionListener();
   private final ThreadLocal<QuerySession> currentQuerySession = new ThreadLocal<>();
+  private final ConcurrentHashMap<UUID, Map<RID, RID>> fetchedCommitedRids = new ConcurrentHashMap<>();
 
   public YTDBGraphManager(Settings settings) {
     var ytdbSettings = (YTDBSettings) settings;
@@ -173,17 +171,8 @@ public class YTDBGraphManager implements GraphManager {
   }
 
   @Nullable
-  public Map<RID, RID> commitedRIDs(RequestMessage msg) {
-    var currentQuerySession = this.currentQuerySession.get();
-
-    if (currentQuerySession == null) {
-      throw new IllegalStateException("There is no active query session");
-    }
-    if (Objects.equals(msg.getRequestId(), currentQuerySession.requestId)) {
-      return currentQuerySession.commitedRIDs;
-    }
-
-    return null;
+  public Map<RID, RID> getCommitedRids(RequestMessage msg) {
+    return fetchedCommitedRids.get(msg.getRequestId());
   }
 
   @Override
@@ -194,13 +183,12 @@ public class YTDBGraphManager implements GraphManager {
 
   @Override
   public void beforeQueryStart(RequestMessage msg, AuthenticatedUser authenticatedUser) {
-    currentQuerySession.set(
-        new QuerySession(authenticatedUser, new HashMap<>(), msg.getRequestId()));
+    currentQuerySession.set(new QuerySession(authenticatedUser, msg));
   }
 
-  @Override
   public void afterQueryEnd(RequestMessage msg) {
     currentQuerySession.remove();
+    fetchedCommitedRids.remove(msg.getRequestId());
   }
 
   public YTDBServerGraphImpl newGraphProxyInstance(String databaseName, Configuration config) {
@@ -292,7 +280,7 @@ public class YTDBGraphManager implements GraphManager {
     }
   }
 
-  private record QuerySession(AuthenticatedUser user, Map<RID, RID> commitedRIDs, UUID requestId) {
+  private record QuerySession(AuthenticatedUser user, RequestMessage requestMessage) {
 
   }
 
@@ -302,8 +290,9 @@ public class YTDBGraphManager implements GraphManager {
     public void onAfterTxCommit(Transaction transaction, @Nullable Map<RID, RID> ridMapping) {
       var currentQuerySession = YTDBGraphManager.this.currentQuerySession.get();
 
-      if (currentQuerySession != null && ridMapping != null) {
-        currentQuerySession.commitedRIDs.putAll(ridMapping);
+      if (currentQuerySession != null && ridMapping != null && !ridMapping.isEmpty()) {
+        var requestId = currentQuerySession.requestMessage.getRequestId();
+        fetchedCommitedRids.put(requestId, ridMapping);
       }
     }
   }

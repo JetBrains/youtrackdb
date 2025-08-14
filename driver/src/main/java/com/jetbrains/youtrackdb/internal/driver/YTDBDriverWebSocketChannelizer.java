@@ -1,9 +1,10 @@
-package com.jetbrains.youtrack.db.internal.driver;
+package com.jetbrains.youtrackdb.internal.driver;
+
 
 import io.netty.channel.socket.SocketChannel;
-import org.apache.tinkerpop.gremlin.driver.Channelizer.HttpChannelizer;
+import org.apache.tinkerpop.gremlin.driver.Channelizer;
 
-public class YTDBHttpChannelizer extends HttpChannelizer {
+public final class YTDBDriverWebSocketChannelizer extends Channelizer.WebSocketChannelizer {
 
   @Override
   protected void initChannel(SocketChannel socketChannel) throws Exception {
@@ -18,3 +19,4 @@ public class YTDBHttpChannelizer extends HttpChannelizer {
     }
   }
 }
+

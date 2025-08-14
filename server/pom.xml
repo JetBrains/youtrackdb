@@ -276,6 +276,33 @@ nse, Version 2.0 (the "License");
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <configuration>
+          <filters>
+            <filter>
+              <artifact>junit:junit</artifact>
+              <includes>
+                <include>junit/framework/**</include>
+                <include>org/junit/**</include>
+              </includes>
+              <excludes>
+                <exclude>org/junit/experimental/**</exclude>
+                <exclude>org/junit/runners/**</exclude>
+              </excludes>
+            </filter>
+          </filters>
+        </configuration>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 

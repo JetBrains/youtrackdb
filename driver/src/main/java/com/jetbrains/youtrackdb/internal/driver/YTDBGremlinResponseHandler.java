@@ -1,8 +1,10 @@
-package com.jetbrains.youtrack.db.internal.driver;
+package com.jetbrains.youtrackdb.internal.driver;
 
+import com.jetbrains.youtrack.db.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrack.db.internal.core.id.RecordId;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +15,8 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.tinkerpop.gremlin.driver.Result;
 import org.apache.tinkerpop.gremlin.driver.ResultQueue;
 import org.apache.tinkerpop.gremlin.driver.exception.ResponseException;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
+import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedElement;
 import org.apache.tinkerpop.gremlin.util.Tokens;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
@@ -56,6 +60,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
         || statusCode == ResponseStatusCode.PARTIAL_CONTENT) {
       final var data = response.getResult().getData();
 
+      rememberChangeableRid(response, data);
       // this is a "result" from the server which is either the result of a script or a
       // serialized traversal
       if (data instanceof List) {
@@ -63,13 +68,10 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
         final var listToUnroll = (List<Object>) data;
         listToUnroll.forEach(item -> {
           queue.add(new Result(item));
-
-          rememberChangeableRid(response, item);
         });
       } else {
         // since this is not a list it can just be added to the queue
         queue.add(new Result(data));
-        rememberChangeableRid(response, data);
       }
     } else {
       // this is a "success" but represents no results otherwise it is an error
@@ -90,7 +92,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
       var attributes = response.getStatus().getAttributes();
 
       var changeableRIDs = this.changeableRIDs.remove(response.getRequestId());
-      var committedRIDs = (Map<RecordId, RecordId>) attributes.get(
+      var committedRIDs = (Map<RecordId, RecordId>) response.getResult().getMeta().get(
           RESULT_METADATA_COMMITTED_RIDS_KEY);
       if (changeableRIDs != null && committedRIDs != null) {
         for (var committedRidEntry : committedRIDs.entrySet()) {
@@ -108,17 +110,49 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
     }
   }
 
-  private void rememberChangeableRid(ResponseMessage response, Object item) {
-    if (item instanceof DetachedElement<?> detachedElement) {
-      var rid = (RecordId) detachedElement.id();
-      if (rid.isNew()) {
-        changeableRIDs.compute(response.getRequestId(), (uuid, rids) -> {
-          if (rids == null) {
-            rids = new ConcurrentHashMap<>();
-          }
-          rids.put(rid.copy(), rid);
-          return rids;
-        });
+  private void rememberChangeableRid(ResponseMessage response, Object data) {
+
+    switch (data) {
+      case Traverser<?> traverser -> {
+        var underlying = traverser.get();
+        rememberChangeableRid(response, underlying);
+      }
+      case Collection<?> collection -> {
+        for (var item : collection) {
+          rememberChangeableRid(response, item);
+        }
+      }
+      case Map<?, ?> map -> {
+        for (var entry : map.entrySet()) {
+          rememberChangeableRid(response, entry.getKey());
+          rememberChangeableRid(response, entry.getValue());
+        }
+      }
+      case Iterable<?> iterable -> {
+        for (var item : iterable) {
+          rememberChangeableRid(response, item);
+        }
+      }
+      case DetachedElement<?> detachedElement -> {
+        RecordId rid;
+        if (detachedElement instanceof VertexProperty<?> vertexProperty) {
+          var vertexPropertyId = (YTDBVertexPropertyId) vertexProperty.id();
+          rid = (RecordId) vertexPropertyId.rid();
+        } else {
+          rid = (RecordId) detachedElement.id();
+        }
+
+        if (rid.isNew()) {
+          changeableRIDs.compute(response.getRequestId(), (uuid, rids) -> {
+            if (rids == null) {
+              rids = new ConcurrentHashMap<>();
+            }
+            rids.put(rid.copy(), rid);
+            return rids;
+          });
+        }
+      }
+      case null, default -> {
       }
     }
   }

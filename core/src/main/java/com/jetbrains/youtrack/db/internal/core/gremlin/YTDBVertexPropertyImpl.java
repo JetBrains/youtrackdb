@@ -38,6 +38,8 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
       throw VertexProperty.Exceptions.userSuppliedIdsNotSupported();
     }
 
+    var graph = (YTDBGraphInternal) graph();
+    graph.tx().readWrite();
     var metadata = getMetadataEntity();
 
     metadata.setProperty(key, value);
@@ -46,6 +48,8 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
 
   @Override
   public <U> Iterator<Property<U>> properties(String... propertyKeys) {
+    var graph = (YTDBGraphInternal) graph();
+    graph.tx().readWrite();
     if (!hasMetadataDocument()) {
       return Collections.emptyIterator();
     }
