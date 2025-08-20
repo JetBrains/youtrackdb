@@ -18,6 +18,10 @@ public class YTDBSessionOpProcessor extends SessionOpProcessor {
   @Override
   protected void beforeResponseGeneration(Context context, RequestMessage requestMessage,
       Iterator itty, Graph graph) {
+    if (itty.hasNext()) {
+      return;
+    }
+
     final var managedTransactionsForRequest =
         manageTransactions || (Boolean) context.getRequestMessage().getArgs()
             .getOrDefault(Tokens.ARGS_MANAGE_TRANSACTION, false);

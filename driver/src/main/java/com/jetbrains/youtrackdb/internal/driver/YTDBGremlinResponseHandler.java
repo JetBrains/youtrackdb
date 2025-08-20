@@ -142,6 +142,9 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
           rid = (RecordId) detachedElement.id();
         }
 
+        rememberChangeableRid(response, rid);
+      }
+      case RecordId rid -> {
         if (rid.isNew()) {
           changeableRIDs.compute(response.getRequestId(), (uuid, rids) -> {
             if (rids == null) {

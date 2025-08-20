@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.DatabaseType;
 import com.jetbrains.youtrack.db.api.common.SessionPool;
 import com.jetbrains.youtrack.db.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrack.db.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrack.db.internal.server.plugin.gremlin.process.YTDBTemporaryRidConversionTest;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -149,8 +150,42 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
           YTDBGraphManager.TRAVERSAL_SOURCE_PREFIX + serverGraphName);
       put("clusterConfiguration.port", TestClientFactory.PORT);
       put("clusterConfiguration.hosts", "localhost");
-      put(GREMLIN_REMOTE + "attachment", graphGetter);
+
+      if (!YTDBTemporaryRidConversionTest.class.isAssignableFrom(test)) {
+        put(GREMLIN_REMOTE + "attachment", graphGetter);
+      }
     }};
+  }
+
+  @Override
+  public boolean areConfigsTheSame(Configuration config1, Configuration config2) {
+    if (config1.size() != config2.size()) {
+      return false;
+    }
+
+    var config1Keys = config1.getKeys();
+    while (config1Keys.hasNext()) {
+      var config1Key = config1Keys.next();
+
+      var config1Value = config1.getProperty(config1Key);
+      var config2Value = config2.getProperty(config1Key);
+      if (config1Key.equals(GREMLIN_REMOTE + "attachment")) {
+        if (config1Value == null && config2Value == null) {
+          return true;
+        }
+        if (config1Value == null) {
+          return false;
+        }
+
+        return config2Value != null;
+      }
+
+      if (!config1Value.equals(config2Value)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   @Override
@@ -174,5 +209,4 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     return TestClientFactory.build().maxContentLength(1000000).serializer(serializer).channelizer(
         YTDBDriverWebSocketChannelizer.class);
   }
-
 }

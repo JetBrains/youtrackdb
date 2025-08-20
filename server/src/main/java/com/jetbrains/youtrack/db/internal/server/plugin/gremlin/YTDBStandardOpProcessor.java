@@ -17,6 +17,10 @@ public class YTDBStandardOpProcessor extends StandardOpProcessor {
   @Override
   protected void beforeResponseGeneration(Context context, RequestMessage requestMessage,
       Iterator itty, Graph graph) {
+    if (itty.hasNext()) {
+      return;
+    }
+
     final var settings = context.getSettings();
     var managedTransactionsForRequest =
         this.manageTransactions || (Boolean) requestMessage.getArgs()

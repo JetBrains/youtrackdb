@@ -17,6 +17,10 @@ public class YTDBTraversalOpProcessor extends TraversalOpProcessor {
   @Override
   protected void beforeResponseGeneration(Context context, RequestMessage requestMessage,
       Iterator itty, Graph graph) {
+    if (itty.hasNext()) {
+      return;
+    }
+
     if (graph.features().graph().supportsTransactions() && graph.tx().isOpen()) {
       graph.tx().commit();
     }
