@@ -237,7 +237,7 @@
             <properties>
               <property>
                 <name>listener</name>
-                <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+                <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
               </property>
             </properties>
             <useModulePath>false</useModulePath>
@@ -604,7 +604,7 @@
                 <properties>
                   <property>
                     <name>listener</name>
-                    <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+                    <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
                   </property>
                 </properties>
               </configuration>

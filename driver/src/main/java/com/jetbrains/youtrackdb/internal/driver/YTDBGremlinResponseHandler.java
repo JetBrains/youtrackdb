@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.driver;
 
-import com.jetbrains.youtrack.db.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.util.Collection;

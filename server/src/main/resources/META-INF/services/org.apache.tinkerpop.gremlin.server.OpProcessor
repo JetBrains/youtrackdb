@@ -1,3 +1,3 @@
-com.jetbrains.youtrack.db.internal.server.plugin.gremlin.YTDBStandardOpProcessor
-com.jetbrains.youtrack.db.internal.server.plugin.gremlin.YTDBSessionOpProcessor
-com.jetbrains.youtrack.db.internal.server.plugin.gremlin.YTDBTraversalOpProcessor
+com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBStandardOpProcessor
+com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSessionOpProcessor
+com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBTraversalOpProcessor
