@@ -41,6 +41,7 @@
     <module>distribution</module>
     <module>console-distribution</module>
     <module>gremlin-annotations</module>
+    <module>driver</module>
   </modules>
 
   <scm>
@@ -97,7 +98,7 @@
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.7.3</gremlin.version>
+    <gremlin.version>3.7.4</gremlin.version>
   </properties>
 
 
@@ -161,12 +162,24 @@
       <dependency>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>gremlin-driver</artifactId>
-        <version>${gremlin.version}</version>
+        <version>3.7.4-YTDB-20250807.132339-3</version>
+        <exclusions>
+          <exclusion>
+            <groupId>org.apache.tinkerpop</groupId>
+            <artifactId>*</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>gremlin-server</artifactId>
-        <version>${gremlin.version}</version>
+        <version>3.7.4-YTDB-20250814.140341-17</version>
+        <exclusions>
+          <exclusion>
+            <groupId>org.apache.tinkerpop</groupId>
+            <artifactId>*</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
       <dependency>
         <groupId>org.apache.tinkerpop</groupId>
@@ -595,7 +608,7 @@
                 <properties>
                   <property>
                     <name>listener</name>
-                    <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+                    <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
                   </property>
                 </properties>
               </configuration>
