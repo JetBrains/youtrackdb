@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 
 public interface BinaryPushRequest<T extends BinaryPushResponse> {
+
   void write(DatabaseSessionEmbedded session, ChannelDataOutput channel) throws IOException;
 
   void readMonitorIdAndStatus(ChannelDataInput network) throws IOException;
@@ -17,6 +18,8 @@ public interface BinaryPushRequest<T extends BinaryPushResponse> {
       throws IOException;
 
   T execute(RemotePushHandler remote, SocketChannelBinary network);
+
   BinaryPushResponse createResponse();
+
   byte getPushCommand();
 }

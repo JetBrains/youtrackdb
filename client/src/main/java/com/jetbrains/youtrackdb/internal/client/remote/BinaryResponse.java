@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
 
 public interface BinaryResponse {
+
   void write(DatabaseSessionEmbedded session, ChannelDataOutput channel, int protocolVersion)
       throws IOException;
 

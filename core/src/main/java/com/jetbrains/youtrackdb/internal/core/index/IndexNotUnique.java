@@ -43,6 +43,7 @@ public class IndexNotUnique extends IndexMultiValues {
     super(storage);
   }
 
+  @Override
   public boolean canBeUsedInEqualityOperators() {
     return true;
   }

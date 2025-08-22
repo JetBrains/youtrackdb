@@ -623,6 +623,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return entrySize + ByteSerializer.BYTE_SIZE + LongSerializer.LONG_SIZE;
   }
 
+  @Override
   @Nonnull
   public RawBuffer readRecord(final long collectionPosition) throws IOException {
     atomicOperationsManager.acquireReadLock(this);

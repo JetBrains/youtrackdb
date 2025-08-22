@@ -89,6 +89,7 @@ public class LuceneSpatialIndexEngineDelegator
     delegate.flush();
   }
 
+  @Override
   public void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException {
   }
 

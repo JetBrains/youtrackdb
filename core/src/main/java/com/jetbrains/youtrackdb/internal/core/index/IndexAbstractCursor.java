@@ -108,6 +108,7 @@ public abstract class IndexAbstractCursor implements IndexCursor {
     return prefetchSize;
   }
 
+  @Override
   public void setPrefetchSize(final int prefetchSize) {
     this.prefetchSize = prefetchSize;
   }

@@ -1117,7 +1117,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       buffer = collection.readRecord(entry.second().getCollectionPosition());
                       return new RawPair<>(
                           entry.first().substring(PROPERTY_PREFIX_PROPERTY.length()),
-                          deserializeStringValue(buffer.buffer, 0));
+                          deserializeStringValue(buffer.buffer(), 0));
                     } catch (IOException e) {
                       throw BaseException.wrapException(
                           new StorageException(storage.getName(),
@@ -1274,7 +1274,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                   final var buffer =
                       collection.readRecord(entry.second().getCollectionPosition());
                   return deserializeIndexEngineProperty(
-                      name, buffer.buffer, Integer.MIN_VALUE, entry.second().getCollectionId());
+                      name, buffer.buffer(), Integer.MIN_VALUE, entry.second().getCollectionId());
                 } catch (IOException e) {
                   throw BaseException.wrapException(
                       new StorageException(storage.getName(),
@@ -1368,10 +1368,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       collections.add(null);
                     }
 
-                    collections.add(deserializeStorageCollectionConfig(id, buffer.buffer));
+                    collections.add(deserializeStorageCollectionConfig(id, buffer.buffer()));
                     assert id == collections.size() - 1;
                   } else {
-                    collections.set(id, deserializeStorageCollectionConfig(id, buffer.buffer));
+                    collections.set(id, deserializeStorageCollectionConfig(id, buffer.buffer()));
                   }
                 } catch (final IOException e) {
                   throw BaseException.wrapException(
@@ -1788,7 +1788,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       }
 
       final var buffer = collection.readRecord(rid.getCollectionPosition());
-      return new RawPairObjectInteger<>(buffer.buffer, rid.getCollectionId());
+      return new RawPairObjectInteger<>(buffer.buffer(), rid.getCollectionId());
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),

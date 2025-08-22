@@ -18,15 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 /**
  * @since 12.06.13
  */
-public class StorageTransaction {
+public record StorageTransaction(FrontendTransaction clientTx) {
 
-  private final FrontendTransaction clientTx;
-
-  public StorageTransaction(FrontendTransaction clientTx) {
-    this.clientTx = clientTx;
-  }
-
-  public FrontendTransaction getClientTx() {
-    return clientTx;
-  }
 }

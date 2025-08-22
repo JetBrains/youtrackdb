@@ -97,6 +97,7 @@ public interface Storage extends Backupable, StorageInfo {
   // TX OPERATIONS
   void commit(FrontendTransactionImpl iTx);
 
+  @Override
   Set<String> getCollectionNames();
 
   Collection<? extends StorageCollection> getCollectionInstances();
@@ -165,10 +166,13 @@ public interface Storage extends Backupable, StorageInfo {
    */
   long countRecords(DatabaseSessionInternal session);
 
+  @Override
   int getCollectionIdByName(String iCollectionName);
 
+  @Override
   String getPhysicalCollectionNameById(int iCollectionId);
 
+  @Override
   String getName();
 
   long getVersion();
@@ -206,12 +210,14 @@ public interface Storage extends Backupable, StorageInfo {
 
   boolean isRemote();
 
+  @Override
   boolean isAssigningCollectionIds();
 
   LinkCollectionsBTreeManager getLinkCollectionsBtreeCollectionManager();
 
   CurrentStorageComponentsFactory getComponentsFactory();
 
+  @Override
   RecordConflictStrategy getRecordConflictStrategy();
 
   void setConflictStrategy(RecordConflictStrategy iResolver);

@@ -7,6 +7,7 @@ import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 @GraphFactoryClass(YTDBGraphFactory.class)
 @Graph.OptIn(Graph.OptIn.SUITE_STRUCTURE_STANDARD)
 @Graph.OptIn(Graph.OptIn.SUITE_PROCESS_STANDARD)
+@Graph.OptIn("com.jetbrains.youtrackdb.internal.server.plugin.gremlin.process.YTDBProcessTestSuite")
 public interface YTDBGraph extends Graph {
 
   @Override

@@ -1,10 +1,16 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
+import com.jetbrains.youtrackdb.api.SessionListener;
+import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplAbstract;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -22,13 +28,14 @@ import org.apache.tinkerpop.gremlin.structure.Transaction.Status;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 
 public class YTDBGraphManager implements GraphManager {
-
-  private static final String TRAVERSAL_SOURCE_PREFIX = "g";
+  public static final String TRAVERSAL_SOURCE_PREFIX = "ytdb";
 
   @Nonnull
   private final YouTrackDBServer youTrackDBServer;
   private final ConcurrentHashMap<String, YTDBServerGraphImpl> registeredGraphs = new ConcurrentHashMap<>();
-  private final ThreadLocal<AuthenticatedUser> currentUser = new ThreadLocal<>();
+  private final YTDBTransactionListener transactionListener = new YTDBTransactionListener();
+  private final ThreadLocal<QuerySession> currentQuerySession = new ThreadLocal<>();
+  private final ConcurrentHashMap<UUID, Map<RID, RID>> fetchedCommitedRids = new ConcurrentHashMap<>();
 
   public YTDBGraphManager(Settings settings) {
     var ytdbSettings = (YTDBSettings) settings;
@@ -163,6 +170,11 @@ public class YTDBGraphManager implements GraphManager {
     });
   }
 
+  @Nullable
+  public Map<RID, RID> getCommitedRids(RequestMessage msg) {
+    return fetchedCommitedRids.get(msg.getRequestId());
+  }
+
   @Override
   @Nullable
   public Graph removeGraph(String graphName) {
@@ -171,12 +183,12 @@ public class YTDBGraphManager implements GraphManager {
 
   @Override
   public void beforeQueryStart(RequestMessage msg, AuthenticatedUser authenticatedUser) {
-    currentUser.set(authenticatedUser);
+    currentQuerySession.set(new QuerySession(authenticatedUser, msg));
   }
 
-  @Override
   public void afterQueryEnd(RequestMessage msg) {
-    currentUser.remove();
+    currentQuerySession.remove();
+    fetchedCommitedRids.remove(msg.getRequestId());
   }
 
   public YTDBServerGraphImpl newGraphProxyInstance(String databaseName, Configuration config) {
@@ -215,14 +227,20 @@ public class YTDBGraphManager implements GraphManager {
         return currentSession;
       }
 
-      var currentUser = YTDBGraphManager.this.currentUser.get();
-      if (currentUser == null) {
+      var currentQuerySession = YTDBGraphManager.this.currentQuerySession.get();
+      if (currentQuerySession == null) {
         throw new IllegalStateException("User is not authenticated");
       }
 
+      var currentUser = currentQuerySession.user;
       var databases = youTrackDBServer.getDatabases();
+      var parentConfiguration = databases.getConfiguration();
+      var configuration = new YouTrackDBConfigImpl();
+      configuration.setParent(parentConfiguration);
+      configuration.getListeners().add(YTDBGraphManager.this.transactionListener);
+
       var sessionPool = databases.cachedPoolNoAuthentication(databaseName, currentUser.getName(),
-          databases.getConfiguration());
+          configuration);
       currentSession = (DatabaseSessionEmbedded) sessionPool.acquire();
 
       tx().addTransactionListener(this);
@@ -259,6 +277,23 @@ public class YTDBGraphManager implements GraphManager {
     @Override
     public boolean isSingleThreaded() {
       return false;
+    }
+  }
+
+  private record QuerySession(AuthenticatedUser user, RequestMessage requestMessage) {
+
+  }
+
+  private final class YTDBTransactionListener implements SessionListener {
+
+    @Override
+    public void onAfterTxCommit(Transaction transaction, @Nullable Map<RID, RID> ridMapping) {
+      var currentQuerySession = YTDBGraphManager.this.currentQuerySession.get();
+
+      if (currentQuerySession != null && ridMapping != null && !ridMapping.isEmpty()) {
+        var requestId = currentQuerySession.requestMessage.getRequestId();
+        fetchedCommitedRids.put(requestId, ridMapping);
+      }
     }
   }
 }

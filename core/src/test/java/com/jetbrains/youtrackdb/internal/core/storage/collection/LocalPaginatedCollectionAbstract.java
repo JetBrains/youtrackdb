@@ -158,9 +158,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     var rawBuffer = paginatedCollection.readRecord(physicalPosition[0].collectionPosition);
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(smallRecord);
-    Assert.assertEquals(1, rawBuffer.recordType);
+    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(smallRecord);
+    Assert.assertEquals(1, rawBuffer.recordType());
   }
 
   @Test
@@ -203,9 +203,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     var rawBuffer = paginatedCollection.readRecord(physicalPosition[0].collectionPosition);
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(bigRecord);
-    Assert.assertEquals(1, rawBuffer.recordType);
+    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(bigRecord);
+    Assert.assertEquals(1, rawBuffer.recordType());
   }
 
   @Test
@@ -284,10 +284,10 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assert.assertEquals(recordVersion, rawBuffer.version);
+      Assert.assertEquals(recordVersion, rawBuffer.version());
 
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-      Assert.assertEquals(2, rawBuffer.recordType);
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+      Assert.assertEquals(2, rawBuffer.recordType());
     }
   }
 
@@ -377,9 +377,9 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assert.assertEquals(recordVersion, rawBuffer.version);
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-      Assert.assertEquals(2, rawBuffer.recordType);
+      Assert.assertEquals(recordVersion, rawBuffer.version());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+      Assert.assertEquals(2, rawBuffer.recordType());
     }
   }
 
@@ -461,9 +461,9 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assert.assertEquals(recordVersion, rawBuffer.version);
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-      Assert.assertEquals(2, rawBuffer.recordType);
+      Assert.assertEquals(recordVersion, rawBuffer.version());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+      Assert.assertEquals(2, rawBuffer.recordType());
     }
   }
 
@@ -621,9 +621,9 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey());
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version);
-        Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-        Assert.assertEquals(2, rawBuffer.recordType);
+        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+        Assert.assertEquals(2, rawBuffer.recordType());
       }
     }
 
@@ -666,9 +666,9 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assert.assertEquals(recordVersion, rawBuffer.version);
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-      Assert.assertEquals(2, rawBuffer.recordType);
+      Assert.assertEquals(recordVersion, rawBuffer.version());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+      Assert.assertEquals(2, rawBuffer.recordType());
     }
   }
 
@@ -730,9 +730,9 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey());
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version);
-        Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-        Assert.assertEquals(2, rawBuffer.recordType);
+        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+        Assert.assertEquals(2, rawBuffer.recordType());
       }
     }
 
@@ -775,9 +775,9 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assert.assertEquals(recordVersion, rawBuffer.version);
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-      Assert.assertEquals(2, rawBuffer.recordType);
+      Assert.assertEquals(recordVersion, rawBuffer.version());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+      Assert.assertEquals(2, rawBuffer.recordType());
     }
   }
 
@@ -834,9 +834,9 @@ public abstract class LocalPaginatedCollectionAbstract {
         var rawBuffer = paginatedCollection.readRecord(entry.getKey());
         Assert.assertNotNull(rawBuffer);
 
-        Assert.assertEquals(recordVersion, rawBuffer.version);
-        Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-        Assert.assertEquals(2, rawBuffer.recordType);
+        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+        Assert.assertEquals(2, rawBuffer.recordType());
       }
     }
 
@@ -878,9 +878,9 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assert.assertEquals(recordVersion, rawBuffer.version);
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-      Assert.assertEquals(2, rawBuffer.recordType);
+      Assert.assertEquals(recordVersion, rawBuffer.version());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+      Assert.assertEquals(2, rawBuffer.recordType());
     }
   }
 
@@ -955,9 +955,9 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assert.assertEquals(recordVersion, rawBuffer.version);
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
-      Assert.assertEquals(2, rawBuffer.recordType);
+      Assert.assertEquals(recordVersion, rawBuffer.version());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
+      Assert.assertEquals(2, rawBuffer.recordType());
     }
   }
 
@@ -994,9 +994,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     var rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
-    Assert.assertEquals(1, rawBuffer.recordType);
+    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
+    Assert.assertEquals(1, rawBuffer.recordType());
 
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
@@ -1010,9 +1010,9 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
 
-    Assert.assertEquals(updatedRecordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(updatedRecord);
-    Assert.assertEquals(2, rawBuffer.recordType);
+    Assert.assertEquals(updatedRecordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(updatedRecord);
+    Assert.assertEquals(2, rawBuffer.recordType());
   }
 
   @Test
@@ -1048,9 +1048,9 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     var rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
     Assert.assertNotNull(rawBuffer);
-    Assert.assertEquals(recordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
-    Assert.assertEquals(1, rawBuffer.recordType);
+    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
+    Assert.assertEquals(1, rawBuffer.recordType());
 
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
@@ -1063,10 +1063,10 @@ public abstract class LocalPaginatedCollectionAbstract {
                 atomicOperation));
     rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
 
-    Assert.assertEquals(updateRecordVersion, rawBuffer.version);
+    Assert.assertEquals(updateRecordVersion, rawBuffer.version());
 
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(updatedRecord);
-    Assert.assertEquals(2, rawBuffer.recordType);
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(updatedRecord);
+    Assert.assertEquals(2, rawBuffer.recordType());
   }
 
   @Test
@@ -1104,9 +1104,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     var rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
-    Assert.assertEquals(1, rawBuffer.recordType);
+    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 0});
+    Assert.assertEquals(1, rawBuffer.recordType());
 
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
@@ -1120,9 +1120,9 @@ public abstract class LocalPaginatedCollectionAbstract {
 
     rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
 
-    Assert.assertEquals(updateRecordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(smallRecord);
-    Assert.assertEquals(2, rawBuffer.recordType);
+    Assert.assertEquals(updateRecordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(smallRecord);
+    Assert.assertEquals(2, rawBuffer.recordType());
   }
 
   @Test
@@ -1146,9 +1146,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     var rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(bigRecord);
-    Assert.assertEquals(1, rawBuffer.recordType);
+    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(bigRecord);
+    Assert.assertEquals(1, rawBuffer.recordType());
 
     final var updatedRecordVersion = 3;
     final var updatedBigRecord = new byte[(2 << 16) + 20];
@@ -1172,9 +1172,9 @@ public abstract class LocalPaginatedCollectionAbstract {
     rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
     Assert.assertNotNull(rawBuffer);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(bigRecord);
-    Assert.assertEquals(1, rawBuffer.recordType);
+    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(bigRecord);
+    Assert.assertEquals(1, rawBuffer.recordType());
 
     atomicOperationsManager.executeInsideAtomicOperation(
         null,
@@ -1187,9 +1187,9 @@ public abstract class LocalPaginatedCollectionAbstract {
                 atomicOperation));
     rawBuffer = paginatedCollection.readRecord(physicalPosition.collectionPosition);
 
-    Assert.assertEquals(recordVersion, rawBuffer.version);
-    Assertions.assertThat(rawBuffer.buffer).isEqualTo(updatedBigRecord);
-    Assert.assertEquals(2, rawBuffer.recordType);
+    Assert.assertEquals(recordVersion, rawBuffer.version());
+    Assertions.assertThat(rawBuffer.buffer()).isEqualTo(updatedBigRecord);
+    Assert.assertEquals(2, rawBuffer.recordType());
   }
 
   @Test
@@ -1270,14 +1270,14 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
 
       if (updatedPositions.contains(entry.getKey())) {
-        Assert.assertEquals(newRecordVersion, rawBuffer.version);
-        Assert.assertEquals(3, rawBuffer.recordType);
+        Assert.assertEquals(newRecordVersion, rawBuffer.version());
+        Assert.assertEquals(3, rawBuffer.recordType());
       } else {
-        Assert.assertEquals(recordVersion, rawBuffer.version);
-        Assert.assertEquals(2, rawBuffer.recordType);
+        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertEquals(2, rawBuffer.recordType());
       }
     }
   }
@@ -1361,15 +1361,15 @@ public abstract class LocalPaginatedCollectionAbstract {
     for (var entry : positionRecordMap.entrySet()) {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
 
       if (updatedPositions.contains(entry.getKey())) {
-        Assert.assertEquals(newRecordVersion, rawBuffer.version);
+        Assert.assertEquals(newRecordVersion, rawBuffer.version());
 
-        Assert.assertEquals(3, rawBuffer.recordType);
+        Assert.assertEquals(3, rawBuffer.recordType());
       } else {
-        Assert.assertEquals(recordVersion, rawBuffer.version);
-        Assert.assertEquals(2, rawBuffer.recordType);
+        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertEquals(2, rawBuffer.recordType());
       }
     }
   }
@@ -1447,13 +1447,13 @@ public abstract class LocalPaginatedCollectionAbstract {
       var rawBuffer = paginatedCollection.readRecord(entry.getKey());
       Assert.assertNotNull(rawBuffer);
 
-      Assertions.assertThat(rawBuffer.buffer).isEqualTo(entry.getValue());
+      Assertions.assertThat(rawBuffer.buffer()).isEqualTo(entry.getValue());
       if (updatedPositions.contains(entry.getKey())) {
-        Assert.assertEquals(newRecordVersion, rawBuffer.version);
-        Assert.assertEquals(3, rawBuffer.recordType);
+        Assert.assertEquals(newRecordVersion, rawBuffer.version());
+        Assert.assertEquals(3, rawBuffer.recordType());
       } else {
-        Assert.assertEquals(recordVersion, rawBuffer.version);
-        Assert.assertEquals(2, rawBuffer.recordType);
+        Assert.assertEquals(recordVersion, rawBuffer.version());
+        Assert.assertEquals(2, rawBuffer.recordType());
       }
     }
   }

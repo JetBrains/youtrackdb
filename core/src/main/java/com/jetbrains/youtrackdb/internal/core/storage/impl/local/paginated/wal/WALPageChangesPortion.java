@@ -53,6 +53,7 @@ public final class WALPageChangesPortion implements WALChanges {
     updateData(pointer, offset, data);
   }
 
+  @Override
   public void setShortValue(ByteBuffer pointer, short value, int offset) {
     var data = new byte[ShortSerializer.SHORT_SIZE];
     ShortSerializer.INSTANCE.serializeNative(value, data, 0);

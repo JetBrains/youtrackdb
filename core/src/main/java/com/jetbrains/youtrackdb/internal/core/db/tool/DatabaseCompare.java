@@ -705,58 +705,58 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
             final var buffer2 = sessionTwo.getStorage()
                 .readRecord(sessionTwo, rid2, false, false).buffer();
 
-            if (buffer1.recordType != buffer2.recordType) {
+            if (buffer1.recordType() != buffer2.recordType()) {
               listener.onMessage(
                   "\n- ERR: RID="
                       + collectionId1
                       + ":"
                       + position
                       + " recordType is different: "
-                      + (char) buffer1.recordType
+                      + (char) buffer1.recordType()
                       + " <-> "
-                      + (char) buffer2.recordType);
+                      + (char) buffer2.recordType());
               ++differences;
             }
 
             //noinspection StatementWithEmptyBody
-            if (buffer1.buffer == null && buffer2.buffer == null) {
+            if (buffer1.buffer() == null && buffer2.buffer() == null) {
               // Both null so both equals
             } else {
-              if (buffer1.buffer == null) {
+              if (buffer1.buffer() == null) {
                 listener.onMessage(
                     "\n- ERR: RID="
                         + collectionId1
                         + ":"
                         + position
                         + " content is different: null <-> "
-                        + buffer2.buffer.length);
+                        + buffer2.buffer().length);
                 ++differences;
 
               } else {
-                if (buffer2.buffer == null) {
+                if (buffer2.buffer() == null) {
                   listener.onMessage(
                       "\n- ERR: RID="
                           + collectionId1
                           + ":"
                           + position
                           + " content is different: "
-                          + buffer1.buffer.length
+                          + buffer1.buffer().length
                           + " <-> null");
                   ++differences;
 
                 } else {
-                  if (EntityHelper.isEntity(buffer1.recordType)) {
+                  if (EntityHelper.isEntity(buffer1.recordType())) {
                     // ENTITY: TRY TO INSTANTIATE AND COMPARE
 
                     final var rec1 = (RecordAbstract) entity1;
                     rec1.unsetDirty();
                     final var rec3 = (RecordAbstract) entity1;
-                    rec3.fromStream(buffer1.buffer);
+                    rec3.fromStream(buffer1.buffer());
 
                     final var rec = (RecordAbstract) entity2;
                     rec.unsetDirty();
                     final var rec2 = (RecordAbstract) entity2;
-                    rec2.fromStream(buffer2.buffer);
+                    rec2.fromStream(buffer2.buffer());
 
                     if (rid1.toString().equals(configuration1.getSchemaRecordId())
                         && rid1.toString().equals(configuration2.getSchemaRecordId())) {
@@ -772,18 +772,18 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                               + ":"
                               + position
                               + " entity content is different");
-                      listener.onMessage("\n--- REC1: " + new String(buffer1.buffer));
-                      listener.onMessage("\n--- REC2: " + new String(buffer2.buffer));
+                      listener.onMessage("\n--- REC1: " + new String(buffer1.buffer()));
+                      listener.onMessage("\n--- REC2: " + new String(buffer2.buffer()));
                       listener.onMessage("\n");
                       ++differences;
                     }
                   } else {
-                    if (buffer1.buffer.length != buffer2.buffer.length) {
+                    if (buffer1.buffer().length != buffer2.buffer().length) {
                       // CHECK IF THE TRIMMED SIZE IS THE SAME
                       @SuppressWarnings("ObjectAllocationInLoop") final var rec1 = new String(
-                          buffer1.buffer).trim();
+                          buffer1.buffer()).trim();
                       @SuppressWarnings("ObjectAllocationInLoop") final var rec2 = new String(
-                          buffer2.buffer).trim();
+                          buffer2.buffer()).trim();
 
                       if (rec1.length() != rec2.length()) {
                         listener.onMessage(
@@ -792,11 +792,11 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                                 + ":"
                                 + position
                                 + " content length is different: "
-                                + buffer1.buffer.length
+                                + buffer1.buffer().length
                                 + " <-> "
-                                + buffer2.buffer.length);
+                                + buffer2.buffer().length);
 
-                        if (EntityHelper.isEntity(buffer2.recordType)) {
+                        if (EntityHelper.isEntity(buffer2.recordType())) {
                           listener.onMessage("\n--- REC2: " + rec2);
                         }
 
@@ -806,8 +806,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                       }
                     } else {
                       // CHECK BYTE PER BYTE
-                      for (var b = 0; b < buffer1.buffer.length; ++b) {
-                        if (buffer1.buffer[b] != buffer2.buffer[b]) {
+                      for (var b = 0; b < buffer1.buffer().length; ++b) {
+                        if (buffer1.buffer()[b] != buffer2.buffer()[b]) {
                           listener.onMessage(
                               "\n- ERR: RID="
                                   + collectionId1
@@ -816,11 +816,11 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                                   + " content is different at byte #"
                                   + b
                                   + ": "
-                                  + buffer1.buffer[b]
+                                  + buffer1.buffer()[b]
                                   + " <-> "
-                                  + buffer2.buffer[b]);
-                          listener.onMessage("\n--- REC1: " + new String(buffer1.buffer));
-                          listener.onMessage("\n--- REC2: " + new String(buffer2.buffer));
+                                  + buffer2.buffer()[b]);
+                          listener.onMessage("\n--- REC1: " + new String(buffer1.buffer()));
+                          listener.onMessage("\n--- REC2: " + new String(buffer2.buffer()));
                           listener.onMessage("\n");
                           ++differences;
                           break;

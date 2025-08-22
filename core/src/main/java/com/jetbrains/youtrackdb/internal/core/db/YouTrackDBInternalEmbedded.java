@@ -63,6 +63,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.Timer;
@@ -732,6 +733,17 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     synchronized (this) {
       if (!exists(name, user, password)) {
         try {
+          var lowerCaseName = name.toLowerCase(Locale.ROOT);
+          if (lowerCaseName.startsWith("ytdb")) {
+            throw new IllegalArgumentException("Usage of database names started with 'ytdb'"
+                + " is prohibited as it is used as prefix of the names of GraphTraversal instances, provided name : "
+                + name);
+          }
+          if (lowerCaseName.startsWith("server")) {
+            throw new IllegalArgumentException(
+                "Database name can not start with 'server' prefix, provided name is : " + name);
+          }
+
           config = solveConfig((YouTrackDBConfigImpl) config);
           AbstractStorage storage;
           if (type == DatabaseType.MEMORY) {

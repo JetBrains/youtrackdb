@@ -1379,24 +1379,24 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       record =
           YouTrackDBEnginesManager.instance()
               .getRecordFactoryManager()
-              .newInstance(recordBuffer.recordType, rid, this);
+              .newInstance(recordBuffer.recordType(), rid, this);
       final var rec = record;
       rec.unsetDirty();
 
-      if (record.getRecordType() != recordBuffer.recordType) {
+      if (record.getRecordType() != recordBuffer.recordType()) {
         throw new DatabaseException(getDatabaseName(),
             "Record type is different from the one in the database");
       }
 
       record.recordSerializer = serializer;
-      record.fill(rid, recordBuffer.version, recordBuffer.buffer, false);
+      record.fill(rid, recordBuffer.version(), recordBuffer.buffer(), false);
 
       if (record instanceof EntityImpl entity) {
         entity.checkClass(this);
       }
 
       localCache.updateRecord(record, this);
-      record.fromStream(recordBuffer.buffer);
+      record.fromStream(recordBuffer.buffer());
 
       if (beforeReadOperations(record)) {
         return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
@@ -1885,7 +1885,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public void afterCommitOperations(boolean rootTx) {
+  public void afterCommitOperations(boolean rootTx, Map<RID, RID> updatedRids) {
     assert assertIfNotActive();
 
     for (var operation : currentTx.getRecordOperationsInternal()) {
@@ -1943,7 +1943,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     for (var listener : browseListeners()) {
       try {
-        listener.onAfterTxCommit(currentTx);
+        listener.onAfterTxCommit(currentTx, updatedRids);
       } catch (Exception e) {
         final var message =
             "Error after the transaction has been committed. The transaction remains valid. The"

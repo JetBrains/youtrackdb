@@ -22,17 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 import java.util.Arrays;
 import java.util.Objects;
 
-public final class RawBuffer {
-
-  public final int version;
-  public final byte recordType;
-  public final byte[] buffer;
-
-  public RawBuffer(final byte[] buffer, final int version, final byte recordType) {
-    this.buffer = buffer;
-    this.version = version;
-    this.recordType = recordType;
-  }
+public record RawBuffer(byte[] buffer, int version, byte recordType) {
 
   @Override
   public boolean equals(Object o) {

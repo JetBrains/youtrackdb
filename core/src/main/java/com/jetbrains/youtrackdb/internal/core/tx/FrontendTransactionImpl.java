@@ -112,11 +112,9 @@ public class FrontendTransactionImpl implements
 
   @Nullable
   private FrontendTransacationMetadataHolder metadata = null;
-  @Nullable
-  private List<byte[]> serializedOperations;
+
 
   protected int txStartCounter;
-  protected boolean sentToServer = false;
   private final boolean readOnly;
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
@@ -576,15 +574,17 @@ public class FrontendTransactionImpl implements
           "Given transaction was rolled back, and thus cannot be committed.");
     }
 
+    var result = new HashMap<RID, RID>(originalChangedRecordIdMap.size());
     try {
       status = TXSTATUS.COMMITTING;
-      if (sentToServer || isWriteTransaction()) {
+      if (isWriteTransaction()) {
         session.internalCommit(this);
         session.transactionMeters()
             .writeTransactions()
             .record();
         try {
-          session.afterCommitOperations(true);
+          result.putAll(originalChangedRecordIdMap);
+          session.afterCommitOperations(true, result);
         } catch (Exception e) {
           LogManager.instance().error(this,
               "Error during after commit callback invocation", e);
@@ -596,7 +596,6 @@ public class FrontendTransactionImpl implements
       throw e;
     }
 
-    var result = new HashMap<RID, RID>(originalChangedRecordIdMap);
     close();
     status = TXSTATUS.COMPLETED;
 
@@ -1193,19 +1192,6 @@ public class FrontendTransactionImpl implements
     No
   }
 
-  private static class KeyChangesUpdateRecord {
-
-    final FrontendTransactionIndexChangesPerKey keyChanges;
-    final FrontendTransactionIndexChanges indexChanges;
-
-    KeyChangesUpdateRecord(
-        FrontendTransactionIndexChangesPerKey keyChanges,
-        FrontendTransactionIndexChanges indexChanges) {
-      this.keyChanges = keyChanges;
-      this.indexChanges = indexChanges;
-    }
-  }
-
   protected void checkTransactionValid() {
     if (status == TXSTATUS.INVALID) {
       throw new TransactionException(session,
@@ -1278,11 +1264,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public Iterator<byte[]> getSerializedOperations() {
-    if (serializedOperations != null) {
-      return serializedOperations.iterator();
-    } else {
-      return Collections.emptyIterator();
-    }
+    return Collections.emptyIterator();
   }
 
   public int getTxStartCounter() {

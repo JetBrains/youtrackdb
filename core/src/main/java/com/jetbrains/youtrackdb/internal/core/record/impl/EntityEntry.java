@@ -69,6 +69,7 @@ public class EntityEntry {
     return created;
   }
 
+  @Override
   @SuppressWarnings({"CloneDoesntDeclareCloneNotSupportedException", "MethodDoesntCallSuperMethod"})
   protected EntityEntry clone() {
     final var entry = new EntityEntry();

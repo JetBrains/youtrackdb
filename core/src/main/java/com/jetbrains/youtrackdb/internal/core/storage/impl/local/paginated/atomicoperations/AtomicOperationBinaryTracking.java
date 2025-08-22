@@ -455,6 +455,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     fileChanges.truncate = true;
   }
 
+  @Override
   public LogSequenceNumber commitChanges(final WriteAheadLog writeAheadLog) throws IOException {
     LogSequenceNumber txEndLsn = null;
 
@@ -578,22 +579,27 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return txEndLsn;
   }
 
+  @Override
   public void rollbackInProgress() {
     rollback = true;
   }
 
+  @Override
   public boolean isRollbackInProgress() {
     return rollback;
   }
 
+  @Override
   public void addLockedObject(final String lockedObject) {
     lockedObjects.add(lockedObject);
   }
 
+  @Override
   public boolean containsInLockedObjects(final String objectToLock) {
     return lockedObjects.contains(objectToLock);
   }
 
+  @Override
   public Iterable<String> lockedObjects() {
     return lockedObjects;
   }

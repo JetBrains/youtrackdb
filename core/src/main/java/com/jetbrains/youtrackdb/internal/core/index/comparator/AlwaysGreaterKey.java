@@ -26,6 +26,7 @@ package com.jetbrains.youtrackdb.internal.core.index.comparator;
  */
 public final class AlwaysGreaterKey implements Comparable<Comparable<?>> {
 
+  @Override
   public int compareTo(Comparable<?> o) {
     return 1;
   }

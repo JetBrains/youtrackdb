@@ -259,16 +259,8 @@ public class AtomicOperationsTable {
     }
   }
 
-  private static final class OperationInformation {
+  private record OperationInformation(AtomicOperationStatus status, long segment,
+                                      long operationId) {
 
-    private final AtomicOperationStatus status;
-    private final long segment;
-    private final long operationId;
-
-    private OperationInformation(AtomicOperationStatus status, long segment, long operationId) {
-      this.status = status;
-      this.segment = segment;
-      this.operationId = operationId;
-    }
   }
 }

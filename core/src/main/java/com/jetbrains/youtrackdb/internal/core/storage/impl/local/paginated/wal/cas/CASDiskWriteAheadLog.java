@@ -509,7 +509,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       }
 
       // ensure that next record is written on disk
-      var writtenLSN = this.writtenUpTo.get().getLsn();
+      var writtenLSN = this.writtenUpTo.get().lsn();
       while (writtenLSN == null || writtenLSN.compareTo(lsn) < 0) {
         try {
           flushLatch.get().await();
@@ -517,7 +517,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
           LogManager.instance().error(this, "WAL write was interrupted", e);
         }
 
-        writtenLSN = this.writtenUpTo.get().getLsn();
+        writtenLSN = this.writtenUpTo.get().lsn();
         assert writtenLSN != null;
 
         if (writtenLSN.compareTo(lsn) < 0) {
@@ -525,7 +525,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
           waitTillWriteWillBeFinished();
         }
 
-        writtenLSN = this.writtenUpTo.get().getLsn();
+        writtenLSN = this.writtenUpTo.get().lsn();
       }
 
       return readFromDisk(lsn, limit);
@@ -597,8 +597,8 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
             var chSize = Files.size(segmentPath);
             final var written = this.writtenUpTo.get();
 
-            if (segment == written.getLsn().getSegment()) {
-              chSize = Math.min(chSize, written.getPosition());
+            if (segment == written.lsn().getSegment()) {
+              chSize = Math.min(chSize, written.position());
             }
 
             var filePosition = file.position();
@@ -695,7 +695,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
             // we can jump to a new segment and skip and of the current file because of thread
             // racing
             // so we stop here to start to read from next batch
-            if (segment == written.getLsn().getSegment()) {
+            if (segment == written.lsn().getSegment()) {
               break;
             }
           }
@@ -790,7 +790,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       }
 
       // ensure that next record is written on disk
-      var writtenLSN = this.writtenUpTo.get().getLsn();
+      var writtenLSN = this.writtenUpTo.get().lsn();
       while (writtenLSN == null || writtenLSN.compareTo(lsn) <= 0) {
         try {
           flushLatch.get().await();
@@ -798,7 +798,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
           LogManager.instance().error(this, "WAL write was interrupted", e);
         }
 
-        writtenLSN = this.writtenUpTo.get().getLsn();
+        writtenLSN = this.writtenUpTo.get().lsn();
         assert writtenLSN != null;
 
         if (writtenLSN.compareTo(lsn) <= 0) {
@@ -806,7 +806,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
           waitTillWriteWillBeFinished();
         }
-        writtenLSN = this.writtenUpTo.get().getLsn();
+        writtenLSN = this.writtenUpTo.get().lsn();
       }
 
       final List<WriteableWALRecord> result;
@@ -1094,7 +1094,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
           }
         }
 
-        final var written = writtenUpTo.get().getLsn();
+        final var written = writtenUpTo.get().lsn();
         if (segmentId > written.getSegment()) {
           segmentId = written.getSegment();
         }
@@ -1213,7 +1213,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
   @Override
   public long[] nonActiveSegments() {
-    final var writtenUpTo = this.writtenUpTo.get().getLsn();
+    final var writtenUpTo = this.writtenUpTo.get().lsn();
 
     var maxSegment = currentSegment;
 
@@ -2003,7 +2003,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
         walFile.force(true);
       }
 
-      flushedLSN = writtenUpTo.get().getLsn();
+      flushedLSN = writtenUpTo.get().lsn();
 
       fireEventsFor(flushedLSN);
 
@@ -2139,13 +2139,13 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       if (lastLSN != null) {
         final var written = writtenUpTo.get();
 
-        assert written == null || written.getLsn().compareTo(lastLSN) < 0;
+        assert written == null || written.lsn().compareTo(lastLSN) < 0;
 
         if (written == null) {
           writtenUpTo.lazySet(new WrittenUpTo(lastLSN, buffer.limit()));
         } else {
-          if (written.getLsn().getSegment() == lastLSN.getSegment()) {
-            writtenUpTo.lazySet(new WrittenUpTo(lastLSN, written.getPosition() + buffer.limit()));
+          if (written.lsn().getSegment() == lastLSN.getSegment()) {
+            writtenUpTo.lazySet(new WrittenUpTo(lastLSN, written.position() + buffer.limit()));
           } else {
             writtenUpTo.lazySet(new WrittenUpTo(lastLSN, buffer.limit()));
           }

@@ -60,8 +60,8 @@ public class BrowseCollectionTest {
       var page = browser.next();
       for (var entry : page) {
         count++;
-        assertNotNull(entry.getBuffer());
-        assertNotNull(entry.getCollectionPosition());
+        assertNotNull(entry.buffer());
+        assertNotNull(entry.collectionPosition());
       }
     }
     assertEquals(numberOfEntries, count);

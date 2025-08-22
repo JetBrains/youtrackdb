@@ -69,6 +69,7 @@ public final class FrequencySketch implements Admittor {
    *
    * @param maximumSize the maximum size of the cache
    */
+  @Override
   public void ensureCapacity(final long maximumSize) {
     final var maximum = (int) Math.min(maximumSize, Integer.MAX_VALUE >>> 1);
     if ((table != null) && (table.length >= maximum)) {

@@ -57,6 +57,7 @@ public class MemoryWriteAheadLog extends AbstractWriteAheadLog {
     return log(new AtomicUnitStartRecord(isRollbackSupported, unitId));
   }
 
+  @Override
   public LogSequenceNumber logAtomicOperationStartRecord(
       final boolean isRollbackSupported, final long unitId, byte[] metadata) {
     final var record =

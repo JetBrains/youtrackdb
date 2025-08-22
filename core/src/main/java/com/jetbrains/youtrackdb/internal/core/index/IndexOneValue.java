@@ -363,6 +363,7 @@ public abstract class IndexOneValue extends IndexAbstract {
         this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascOrder), session);
   }
 
+  @Override
   public long size(DatabaseSessionEmbedded session) {
     acquireSharedLock();
     try {
