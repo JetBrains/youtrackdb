@@ -65,6 +65,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 @SupportedAnnotationTypes("com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl")
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
 public class GremlinDslProcessor extends AbstractProcessor {
+
   private static final Pattern EXTENDS_PATTERN = Pattern.compile(" extends ");
 
   private Messager messager;
@@ -395,12 +396,13 @@ public class GremlinDslProcessor extends AbstractProcessor {
           .addParameter(ArrayTypeName.of(TypeVariableName.get("S")), "starts")
           .varargs(true)
           .addTypeVariable(TypeVariableName.get("S"))
+          .addStatement("final S[] s = null == starts ? (S[]) new Object[] { null } : starts;")
           .addStatement("$N clone = this.clone()", ctx.traversalSourceClazz)
-          .addStatement("clone.getBytecode().addStep($T.inject, starts)",
+          .addStatement("clone.getBytecode().addStep($T.inject, s)",
               GraphTraversal.Symbols.class)
           .addStatement("$N traversal = new $N(clone)", ctx.defaultTraversalClazz,
               ctx.defaultTraversalClazz)
-          .addStatement("return ($T) traversal.asAdmin().addStep(new $T(traversal, starts))",
+          .addStatement("return ($T) traversal.asAdmin().addStep(new $T(traversal, s))",
               ctx.traversalClassName, InjectStep.class)
           .returns(ParameterizedTypeName.get(ctx.traversalClassName, TypeVariableName.get("S"),
               TypeVariableName.get("S")))
