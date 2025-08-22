@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.internal.annotations.gremlin.dsl;
 
 
+import com.jetbrains.youtrack.db.internal.annotations.gremlin.dsl.GremlinDsl.SkipAsAnonymousMethod;
 import com.palantir.javapoet.ArrayTypeName;
 import com.palantir.javapoet.ClassName;
 import com.palantir.javapoet.JavaFile;
@@ -64,7 +65,6 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 @SupportedAnnotationTypes("com.jetbrains.youtrack.db.internal.annotations.gremlin.dsl.GremlinDsl")
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
 public class GremlinDslProcessor extends AbstractProcessor {
-
   private static final Pattern EXTENDS_PATTERN = Pattern.compile(" extends ");
 
   private Messager messager;
@@ -131,6 +131,10 @@ public class GremlinDslProcessor extends AbstractProcessor {
 
     // process the methods of the GremlinDsl annotated class
     for (var templateMethod : findMethodsOfElement(ctx.annotatedDslType, null)) {
+      if (templateMethod.getAnnotation(SkipAsAnonymousMethod.class) != null) {
+        continue;
+      }
+
       final var methodAnnotation = Optional.ofNullable(
           templateMethod.getAnnotation(GremlinDsl.AnonymousMethod.class));
 

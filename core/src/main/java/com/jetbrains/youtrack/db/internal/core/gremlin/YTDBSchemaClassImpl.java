@@ -47,16 +47,6 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
   }
 
   @Override
-  public void abstractClass(boolean abstractClass) {
-    checkIfDeleted();
-
-    graph.executeSchemaCode(session -> {
-      checkSchemaUpdatePermissions(session);
-      schemaClass.setAbstract(session, abstractClass);
-    });
-  }
-
-  @Override
   public boolean strictMode() {
     checkIfDeleted();
 

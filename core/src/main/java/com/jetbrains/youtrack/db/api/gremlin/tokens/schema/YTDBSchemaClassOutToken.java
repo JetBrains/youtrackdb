@@ -6,14 +6,14 @@ import java.util.Iterator;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 public enum YTDBSchemaClassOutToken implements YTDBDomainObjectObjectOutToken<YTDBSchemaClass> {
-  superClasses {
+  superClass {
     @Override
     public Iterator<Vertex> apply(YTDBSchemaClass ytdbSchemaClass) {
       //noinspection unchecked,rawtypes
       return (Iterator) ytdbSchemaClass.superClasses();
     }
   },
-  declaredProperties {
+  declaredProperty {
     @Override
     public Iterator<Vertex> apply(YTDBSchemaClass ytdbSchemaClass) {
       //noinspection unchecked,rawtypes

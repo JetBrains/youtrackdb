@@ -11,19 +11,8 @@ public enum YTDBSchemaClassPToken implements YTDBDomainObjectPToken<YTDBSchemaCl
     }
 
     @Override
-    public void update(YTDBSchemaClass domainObject, Object value) {
-      validateValue(value);
-      domainObject.abstractClass(Boolean.TRUE.equals(value));
-    }
-
-    @Override
     public Class<?> expectedValueType() {
       return Boolean.class;
-    }
-
-    @Override
-    public boolean isMutableInGraphTraversal() {
-      return true;
     }
   },
 

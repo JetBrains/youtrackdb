@@ -39,8 +39,4 @@ public class YTDBGraphImplSessionPool extends YTDBGraphImplAbstract {
     return (DatabaseSessionEmbedded) sessionPool.acquire();
   }
 
-  @Override
-  public boolean isSingleThreaded() {
-    return false;
-  }
 }

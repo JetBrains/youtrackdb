@@ -65,8 +65,6 @@ public interface YTDBSchemaClass extends YTDBDomainObject {
 
   boolean abstractClass();
 
-  void abstractClass(boolean abstractClass);
-
   boolean strictMode();
 
   void strictMode(boolean mode);

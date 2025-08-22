@@ -21,7 +21,7 @@ import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 
 public class YTDBGraphManager implements GraphManager {
 
-  private static final String TRAVERSAL_SOURCE_PREFIX = "g";
+  private static final String TRAVERSAL_SOURCE_PREFIX = "ytdb";
 
   @Nonnull
   private final YouTrackDBServer youTrackDBServer;
@@ -217,9 +217,5 @@ public class YTDBGraphManager implements GraphManager {
       return (DatabaseSessionEmbedded) sessionPool.acquire();
     }
 
-    @Override
-    public boolean isSingleThreaded() {
-      return false;
-    }
   }
 }

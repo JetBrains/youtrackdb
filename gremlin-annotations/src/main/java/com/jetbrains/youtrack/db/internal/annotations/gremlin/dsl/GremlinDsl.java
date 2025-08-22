@@ -4,7 +4,6 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
-
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
@@ -82,6 +81,12 @@ public @interface GremlinDsl {
      * The type parameters to apply to the method in the order that they are specified.
      */
     String[] methodTypeParameters() default {};
+  }
+
+  @Target(ElementType.METHOD)
+  @Retention(RetentionPolicy.CLASS)
+  @interface SkipAsAnonymousMethod {
+
   }
 }
 

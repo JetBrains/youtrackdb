@@ -6,7 +6,7 @@ import java.util.Iterator;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 public enum YTDBSchemaClassInToken implements YTDBDomainObjectInToken<YTDBSchemaClass> {
-  superClasses {
+  superClass {
     @Override
     public Iterator<Vertex> apply(YTDBSchemaClass ytdbSchemaClass) {
       //noinspection unchecked,rawtypes
@@ -14,7 +14,7 @@ public enum YTDBSchemaClassInToken implements YTDBDomainObjectInToken<YTDBSchema
     }
   },
 
-  declaredProperties {
+  declaredProperty {
     @Override
     public Iterator<Vertex> apply(YTDBSchemaClass ytdbSchemaClass) {
       throw Exceptions.trackingOfIncomingEdgesNotSupported(
