@@ -5,8 +5,11 @@ runs:
         user: "admin"
         password: "admin"
     versions:
-      - name: "1.0.0-SNAPSHOT"
-        jars:
-          - "file:/Users/logart/dev/youtrackdb/core/target/youtrackdb-core-1.0.0-SNAPSHOT.jar"
-          - "file:/Users/logart/dev/youtrackdb/client/target/youtrackdb-client-1.0.0-SNAPSHOT.jar"
-      - name: "current"
+      - name: io.youtrackdb:youtrackdb-core:1.0.0-SNAPSHOT
+        location:
+          source: https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily
+          type: MAVEN
+      - name: "develop"
+        location:
+          source: https://github.com/youtrackdb/youtrackdb
+          type: GIT
