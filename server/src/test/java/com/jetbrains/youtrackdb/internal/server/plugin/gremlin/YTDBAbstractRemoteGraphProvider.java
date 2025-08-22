@@ -78,7 +78,16 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     var graphsToLoad = LoadGraphWith.GraphData.values();
     var dbType = calculateDbType();
 
+    graphLoadingLoop:
     for (var graphToLoad : graphsToLoad) {
+      var featuresRequired = graphToLoad.featuresRequired();
+      for (var feature : featuresRequired) {
+        if (!YTDBFeatures.INSTANCE.supports(feature.featureClass(), feature.feature())) {
+          //features are not supported for the given graph
+          continue graphLoadingLoop;
+        }
+      }
+
       var location = graphToLoad.location();
       var graphName = getServerGraphName(graphToLoad);
 
@@ -94,22 +103,12 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
         serverContext.drop(graphName);
       }
 
-      var featuresRequired = graphToLoad.featuresRequired();
-      for (var feature : featuresRequired) {
-        if (!YTDBFeatures.INSTANCE.supports(feature.featureClass(), feature.feature())) {
-          //features are not supported for the given graph
-          continue;
-        }
-      }
-
       serverContext.create(graphName, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
-      try (var session = serverContext.open(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)) {
-        var graph = session.asGraph();
-        readIntoGraph(graph, location);
-      }
 
-      graphGetterSessionPools.put(graphName,
-          serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD));
+      var cachedPool = serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD);
+      readIntoGraph(cachedPool.asGraph(), location);
+
+      graphGetterSessionPools.put(graphName, cachedPool);
     }
 
     if (serverContext.exists(DEFAULT_DB_NAME)) {

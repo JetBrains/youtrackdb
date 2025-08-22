@@ -228,14 +228,14 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   @Override
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
       final List<SchemaClassImpl> classes, boolean validateIndexes) {
-    if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType(session)) {
+    if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType()) {
       if (!classes.contains(owner.getClass(SchemaClass.EDGE_CLASS_NAME))) {
         throw new IllegalArgumentException(
             "Edge class must have super class " + SchemaClass.EDGE_CLASS_NAME
                 + ", its removal is not allowed.");
       }
     }
-    if (!name.equals(SchemaClass.VERTEX_CLASS_NAME) && isVertexType(session)) {
+    if (!name.equals(SchemaClass.VERTEX_CLASS_NAME) && isVertexType()) {
       if (!classes.contains(owner.getClass(SchemaClass.VERTEX_CLASS_NAME))) {
         throw new IllegalArgumentException(
             "Vertex class must have super class " + SchemaClass.VERTEX_CLASS_NAME

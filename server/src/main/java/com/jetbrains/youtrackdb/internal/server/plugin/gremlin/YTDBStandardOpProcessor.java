@@ -13,6 +13,7 @@ import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
 
 public class YTDBStandardOpProcessor extends StandardOpProcessor {
+
   @Override
   protected void beforeResponseGeneration(Context context, RequestMessage requestMessage,
       Iterator itty, Graph graph) {

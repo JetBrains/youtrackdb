@@ -35,7 +35,8 @@ public class YTDBGraphUtils {
     return URLDecoder.decode(iClassName, StandardCharsets.UTF_8);
   }
 
-  public static com.jetbrains.youtrackdb.api.record.Direction mapDirection(Direction direction) {
+  public static com.jetbrains.youtrackdb.api.record.Direction mapDirection(
+      Direction direction) {
     return switch (direction) {
       case Direction.OUT -> com.jetbrains.youtrackdb.api.record.Direction.OUT;
       case Direction.IN -> com.jetbrains.youtrackdb.api.record.Direction.IN;

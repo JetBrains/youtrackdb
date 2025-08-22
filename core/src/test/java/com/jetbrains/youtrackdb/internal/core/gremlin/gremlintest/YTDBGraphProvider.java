@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplSession;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBPropertyImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
@@ -62,7 +61,6 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
     return Sets.newHashSet(
         YTDBElementImpl.class,
         YTDBStatefulEdgeImpl.class,
-        YTDBGraphImplSession.class,
         YTDBGraphImplSessionPool.class,
         YTDBPropertyImpl.class,
         YTDBVertexImpl.class,

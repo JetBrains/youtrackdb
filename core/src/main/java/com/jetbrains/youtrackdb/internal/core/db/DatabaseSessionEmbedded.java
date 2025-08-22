@@ -43,7 +43,6 @@ import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
@@ -93,8 +92,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.remotewrapper.RemoteDatabaseSessionWrapper;
 import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionBlockedException;
-import com.jetbrains.youtrackdb.internal.core.gremlin.GremlinUtils;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplSession;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
@@ -215,8 +212,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   private final Map<String, ResultSet> activeQueries;
   private final int resultSetReportThreshold;
-
-  private YTDBGraph graphWrapper;
 
   // database stats!
   private long loadedRecordsCount;
@@ -3183,16 +3178,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenedAsRemoteSession();
 
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
-  }
-
-  @Override
-  public YTDBGraph asGraph() {
-    if (graphWrapper == null) {
-      var config = GremlinUtils.createBaseConfiguration(this);
-      graphWrapper = new YTDBGraphImplSession(this, config);
-    }
-
-    return graphWrapper;
   }
 
   @Override

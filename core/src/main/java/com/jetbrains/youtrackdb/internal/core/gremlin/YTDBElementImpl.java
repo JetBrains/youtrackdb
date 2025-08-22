@@ -2,9 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBElement;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.record.Entity;
+import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.LinkBagStub;
@@ -14,6 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -22,17 +24,24 @@ import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
 public abstract class YTDBElementImpl implements YTDBElement {
   private final ThreadLocal<Entity> threadLocalEntity = new ThreadLocal<>();
+
+  @Nullable
   private final Entity fastPathEntity;
 
   protected YTDBGraphInternal graph;
   protected final RID rid;
 
-  public YTDBElementImpl(final YTDBGraphInternal graph, final Entity rawEntity) {
+  public YTDBElementImpl(final YTDBGraphInternal graph, final Identifiable identifiable) {
     this.graph = checkNotNull(graph);
-    var entity = checkNotNull(rawEntity);
+    var id = checkNotNull(identifiable);
 
-    this.rid = entity.getIdentity();
-    this.fastPathEntity = entity;
+    this.rid = id.getIdentity();
+
+    if (identifiable instanceof Entity entity) {
+      this.fastPathEntity = entity;
+    } else {
+      this.fastPathEntity = null;
+    }
   }
 
   @Override
@@ -70,7 +79,7 @@ public abstract class YTDBElementImpl implements YTDBElement {
     }
 
     if (value instanceof LinkBagStub linkBagStub) {
-      var linkBag = new LinkBag(graphTx.getSession(), linkBagStub);
+      var linkBag = new LinkBag(graphTx.getDatabaseSession(), linkBagStub);
       entity.setProperty(key, linkBag);
       //noinspection unchecked
       return new YTDBPropertyImpl<>(key, (V) linkBag, this);
@@ -80,7 +89,7 @@ public abstract class YTDBElementImpl implements YTDBElement {
       if (type == null) {
         throw new IllegalArgumentException("Unsupported type: " + value.getClass().getName());
       }
-      var convertedValue = type.convert(value, graphTx.getSession());
+      var convertedValue = type.convert(value, graphTx.getDatabaseSession());
       entity.setProperty(key, convertedValue);
 
       return new YTDBPropertyImpl<>(key, value, this);
@@ -168,14 +177,10 @@ public abstract class YTDBElementImpl implements YTDBElement {
   }
 
   public Entity getRawEntity() {
-    if (graph.isSingleThreaded()) {
-      return fastPathEntity;
-    }
-
     var graphTx = graph.tx();
-    var session = graphTx.getSession();
+    var session = graphTx.getDatabaseSession();
 
-    if (fastPathEntity.isNotBound(session)) {
+    if (fastPathEntity == null || fastPathEntity.isNotBound(session)) {
       var tx = session.getActiveTransaction();
 
       var entity = threadLocalEntity.get();

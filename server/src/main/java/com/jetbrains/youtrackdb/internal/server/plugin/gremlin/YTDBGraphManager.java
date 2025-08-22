@@ -12,7 +12,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -24,10 +23,10 @@ import org.apache.tinkerpop.gremlin.server.GraphManager;
 import org.apache.tinkerpop.gremlin.server.Settings;
 import org.apache.tinkerpop.gremlin.server.auth.AuthenticatedUser;
 import org.apache.tinkerpop.gremlin.structure.Graph;
-import org.apache.tinkerpop.gremlin.structure.Transaction.Status;
 import org.apache.tinkerpop.gremlin.util.message.RequestMessage;
 
 public class YTDBGraphManager implements GraphManager {
+
   public static final String TRAVERSAL_SOURCE_PREFIX = "ytdb";
 
   @Nonnull
@@ -195,14 +194,11 @@ public class YTDBGraphManager implements GraphManager {
     return new YTDBServerGraphImpl(databaseName, config);
   }
 
-  public final class YTDBServerGraphImpl extends YTDBGraphImplAbstract implements
-      Consumer<Status> {
-
+  public final class YTDBServerGraphImpl extends YTDBGraphImplAbstract {
     static {
       registerOptimizationStrategies(YTDBServerGraphImpl.class);
     }
 
-    private final ThreadLocal<DatabaseSessionEmbedded> currentDatabaseSession = new ThreadLocal<>();
     private final String databaseName;
 
     public YTDBServerGraphImpl(String databaseName, Configuration config) {
@@ -216,17 +212,12 @@ public class YTDBGraphManager implements GraphManager {
     }
 
     @Override
-    public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {
-      var currentSession = currentDatabaseSession.get();
+    public boolean isOpen() {
+      return true;
+    }
 
-      if (currentSession != null) {
-        if (!currentSession.isTxActive()) {
-          throw new IllegalStateException("Transaction is not active");
-        }
-
-        return currentSession;
-      }
-
+    @Override
+    public DatabaseSessionEmbedded acquireSession() {
       var currentQuerySession = YTDBGraphManager.this.currentQuerySession.get();
       if (currentQuerySession == null) {
         throw new IllegalStateException("User is not authenticated");
@@ -234,6 +225,7 @@ public class YTDBGraphManager implements GraphManager {
 
       var currentUser = currentQuerySession.user;
       var databases = youTrackDBServer.getDatabases();
+
       var parentConfiguration = databases.getConfiguration();
       var configuration = new YouTrackDBConfigImpl();
       configuration.setParent(parentConfiguration);
@@ -241,42 +233,8 @@ public class YTDBGraphManager implements GraphManager {
 
       var sessionPool = databases.cachedPoolNoAuthentication(databaseName, currentUser.getName(),
           configuration);
-      currentSession = (DatabaseSessionEmbedded) sessionPool.acquire();
 
-      tx().addTransactionListener(this);
-      currentDatabaseSession.set(currentSession);
-
-      return currentSession;
-    }
-
-    @Override
-    public DatabaseSessionEmbedded peekUnderlyingDatabaseSession() {
-      return currentDatabaseSession.get();
-    }
-
-    @Override
-    public boolean isOpen() {
-      return true;
-    }
-
-    @Override
-    public void accept(Status status) {
-      var currentSession = currentDatabaseSession.get();
-      if (currentSession == null) {
-        return;
-      }
-
-      if (currentSession.isTxActive()) {
-        throw new IllegalStateException("Transaction is still active");
-      }
-
-      currentSession.close();
-      currentDatabaseSession.remove();
-    }
-
-    @Override
-    public boolean isSingleThreaded() {
-      return false;
+      return (DatabaseSessionEmbedded) sessionPool.acquire();
     }
   }
 

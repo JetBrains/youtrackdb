@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import java.util.Arrays;
 import java.util.Collections;
@@ -92,7 +92,7 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     if (metadata == null) {
       var graph = element.getGraph();
       var graphTx = graph.tx();
-      var session = graphTx.getSession();
+      var session = graphTx.getDatabaseSession();
       var tx = session.getActiveTransaction();
 
       metadata = tx.newEmbeddedEntity();

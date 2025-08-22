@@ -52,12 +52,9 @@ public interface TrackedMultiValue<K, V> extends RecordElement {
   /// reverted but only diff between callbacks. This method is mostly used to keep consistency
   /// between the state of the entity and related property indexes.
   ///
-  /// @see DatabaseSessionEmbedded#beforeCreateOperations(RecordAbstract,
-  ///  String)
-  /// @see DatabaseSessionEmbedded#beforeUpdateOperations(RecordAbstract,
-  ///  String)
-  /// @see DatabaseSessionEmbedded#beforeDeleteOperations(RecordAbstract,
-  ///  String)
+  /// @see DatabaseSessionEmbedded#beforeCreateOperations(RecordAbstract, String)
+  /// @see DatabaseSessionEmbedded#beforeUpdateOperations(RecordAbstract, String)
+  /// @see DatabaseSessionEmbedded#beforeDeleteOperations(RecordAbstract, String)
   /// @see DatabaseSessionEmbedded#afterCreateOperations(RecordAbstract)
   /// @see DatabaseSessionEmbedded#afterUpdateOperations(RecordAbstract)
   /// @see DatabaseSessionEmbedded#afterDeleteOperations(RecordAbstract)

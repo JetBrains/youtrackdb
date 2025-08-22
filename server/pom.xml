@@ -240,6 +240,12 @@ nse, Version 2.0 (the "License");
           <excludes>
             <exclude>${exclude.test.1}</exclude>
           </excludes>
+          <properties>
+            <property>
+              <name>listener</name>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
+            </property>
+          </properties>
         </configuration>
       </plugin>
       <plugin>

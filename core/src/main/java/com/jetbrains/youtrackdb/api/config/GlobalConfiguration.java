@@ -789,6 +789,9 @@ public enum GlobalConfiguration {
       Long.class,
       1000),
 
+  QUERY_ONLY_GREMLIN_DDL("youtrackdb.query.onlyGremlinDDL",
+      "Only Gremlin can be used for DDL queries (true by default)", Boolean.class, true),
+
   QUERY_LIMIT_THRESHOLD_TIP(
       "youtrackdb.query.limitThresholdTip",
       "If the total number of returned records exceeds this value, then a warning is given. (Use 0"

@@ -45,7 +45,7 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
     var graph = (YTDBGraphInternal) this.traversal.getGraph().orElseThrow();
     var graphTx = graph.tx();
     graphTx.readWrite();
-    return graphTx.getSession();
+    return graphTx.getDatabaseSession();
   }
 
   private boolean filterClass(String klass) {

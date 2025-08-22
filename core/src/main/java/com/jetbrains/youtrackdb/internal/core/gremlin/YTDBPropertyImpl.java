@@ -1,13 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBElement;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
-import java.util.Collection;
-import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.Set;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
@@ -31,11 +28,22 @@ public class YTDBPropertyImpl<V> implements
     Object result = value;
     var graph = element.getGraph();
     var graphTx = graph.tx();
+
     if (result instanceof RID rid) {
-      var session = graphTx.getSession();
-      var tx = session.getActiveTransaction();
-      result = tx.loadEntity(rid);
+      var session = graphTx.getDatabaseSession();
+
+      var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+      var cls = immutableSchema.getClassByCollectionId(rid.getCollectionId());
+
+      if (cls.isVertexType()) {
+        return new YTDBVertexImpl(graph, rid);
+      } else if (cls.isEdgeType()) {
+        return new YTDBStatefulEdgeImpl(graph, rid);
+      }
+
+      throw new IllegalStateException("Unsupported schema class " + cls.getName());
     }
+
     if (result instanceof Entity entity) {
       if (entity.isVertex()) {
         result =
@@ -44,25 +52,8 @@ public class YTDBPropertyImpl<V> implements
         result = new YTDBStatefulEdgeImpl(graph, entity.asStatefulEdge());
       }
     }
-    if (result instanceof Collection<?> collection && containsGraphElements(collection)) {
-      if (result instanceof List<?> list) {
-        result = new VertexEdgeListWrapper(list, element);
-      } else if (result instanceof Set<?> set) {
-        result = new VertexEdgeSetWrapper(set, element);
-      }
-    }
-    return result;
-  }
 
-  private static boolean containsGraphElements(Collection<?> result) {
-    for (var o : result) {
-      if (o instanceof Entity entity) {
-        if (entity.isVertex() || entity.isStatefulEdge()) {
-          return true;
-        }
-      }
-    }
-    return false;
+    return result;
   }
 
   @Override
