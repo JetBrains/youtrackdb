@@ -7,9 +7,6 @@ import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import org.junit.Test;
 
-/**
- *
- */
 public class DBSequenceRemoteTest extends AbstractRemoteTest {
 
   RemoteDatabaseSession session;

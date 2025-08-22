@@ -5,9 +5,12 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -32,7 +35,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
 
   private static final Logger logger = LoggerFactory.getLogger(YTDBGremlinResponseHandler.class);
   private final ConcurrentMap<UUID, ResultQueue> pending;
-  private final ConcurrentMap<UUID, ConcurrentHashMap<RecordId, RecordId>> changeableRIDs = new ConcurrentHashMap<>();
+  private final ConcurrentMap<UUID, ConcurrentHashMap<RecordId, Set<RecordId>>> changeableRIDs = new ConcurrentHashMap<>();
 
   public YTDBGremlinResponseHandler(final ConcurrentMap<UUID, ResultQueue> pending) {
     this.pending = pending;
@@ -53,7 +56,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
 
   @Override
   protected void channelRead0(final ChannelHandlerContext channelHandlerContext,
-      final ResponseMessage response) throws Exception {
+      final ResponseMessage response) {
     final var statusCode = response.getStatus().getCode();
     final var queue = pending.get(response.getRequestId());
     if (statusCode == ResponseStatusCode.SUCCESS
@@ -65,10 +68,8 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
       // serialized traversal
       if (data instanceof List) {
         // unrolls the collection into individual results to be handled by the queue.
-        final var listToUnroll = (List<Object>) data;
-        listToUnroll.forEach(item -> {
-          queue.add(new Result(item));
-        });
+        @SuppressWarnings("unchecked") final var listToUnroll = (List<Object>) data;
+        listToUnroll.forEach(item -> queue.add(new Result(item)));
       } else {
         // since this is not a list it can just be added to the queue
         queue.add(new Result(data));
@@ -79,8 +80,9 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
         final var attributes = response.getStatus().getAttributes();
         final var stackTrace = attributes.containsKey(Tokens.STATUS_ATTRIBUTE_STACK_TRACE) ?
             (String) attributes.get(Tokens.STATUS_ATTRIBUTE_STACK_TRACE) : null;
-        final var exceptions = attributes.containsKey(Tokens.STATUS_ATTRIBUTE_EXCEPTIONS) ?
-            (List<String>) attributes.get(Tokens.STATUS_ATTRIBUTE_EXCEPTIONS) : null;
+        @SuppressWarnings("unchecked") final var exceptions =
+            attributes.containsKey(Tokens.STATUS_ATTRIBUTE_EXCEPTIONS) ?
+                (List<String>) attributes.get(Tokens.STATUS_ATTRIBUTE_EXCEPTIONS) : null;
         queue.markError(
             new ResponseException(response.getStatus().getCode(), response.getStatus().getMessage(),
                 exceptions, stackTrace, cleanStatusAttributes(attributes)));
@@ -92,16 +94,20 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
       var attributes = response.getStatus().getAttributes();
 
       var changeableRIDs = this.changeableRIDs.remove(response.getRequestId());
-      var committedRIDs = (Map<RecordId, RecordId>) response.getResult().getMeta().get(
-          RESULT_METADATA_COMMITTED_RIDS_KEY);
+      @SuppressWarnings("unchecked") var committedRIDs = (Map<RecordId, RecordId>) response.getResult()
+          .getMeta().get(
+              RESULT_METADATA_COMMITTED_RIDS_KEY);
       if (changeableRIDs != null && committedRIDs != null) {
         for (var committedRidEntry : committedRIDs.entrySet()) {
-          var elementRid = changeableRIDs.remove(committedRidEntry.getKey());
+          var elementRids = changeableRIDs.remove(committedRidEntry.getKey());
 
-          if (elementRid != null) {
+          if (elementRids != null) {
             var newRidValue = committedRidEntry.getValue();
-            elementRid.setCollectionAndPosition(newRidValue.getCollectionId(),
-                newRidValue.getCollectionPosition());
+
+            for (var rid : elementRids) {
+              rid.setCollectionAndPosition(newRidValue.getCollectionId(),
+                  newRidValue.getCollectionPosition());
+            }
           }
         }
       }
@@ -150,7 +156,16 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
             if (rids == null) {
               rids = new ConcurrentHashMap<>();
             }
-            rids.put(rid.copy(), rid);
+
+            rids.compute(rid.copy(), (ridCopy, ridSet) -> {
+              if (ridSet == null) {
+                ridSet = Collections.newSetFromMap(new IdentityHashMap<>());
+              }
+
+              ridSet.add(rid);
+              return ridSet;
+            });
+
             return rids;
           });
         }
@@ -161,8 +176,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
   }
 
   @Override
-  public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause)
-      throws Exception {
+  public void exceptionCaught(final ChannelHandlerContext ctx, final Throwable cause) {
     // if this happens enough times (like the client is unable to deserialize a response) the pending
     // messages queue will not clear.  wonder if there is some way to cope with that.  of course, if
     // there are that many failures someone would take notice and hopefully stop the client.
