@@ -6,14 +6,13 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -113,10 +112,10 @@ public class EntityImplTest extends DbTestBase {
   @Test
   public void testKeepSchemafullFieldTypeSerialization() throws Exception {
     DatabaseSessionEmbedded session = null;
-    YouTrackDB ytdb = null;
+    YouTrackDBImpl ytdb = null;
     try {
       ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName, DbTestBase.embeddedDBUrl(
-              EntityImplTest.class),
+              EntityImplTest.class) + "temp",
           CreateDatabaseUtil.TYPE_MEMORY);
       session = (DatabaseSessionEmbedded) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
@@ -179,12 +178,12 @@ public class EntityImplTest extends DbTestBase {
   @Test
   public void testRemovingReadonlyField() {
     DatabaseSessionInternal db = null;
-    YouTrackDB odb = null;
+    YouTrackDBImpl ytdb = null;
     try {
-      odb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName,
+      ytdb = (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(dbName,
           embeddedDBUrl(DbTestBase.class),
           CreateDatabaseUtil.TYPE_MEMORY);
-      db = (DatabaseSessionInternal) odb.open(dbName, defaultDbAdminCredentials,
+      db = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       Schema schema = db.getMetadata().getSchema();
@@ -212,9 +211,9 @@ public class EntityImplTest extends DbTestBase {
       if (db != null) {
         db.close();
       }
-      if (odb != null) {
-        odb.drop(dbName);
-        odb.close();
+      if (ytdb != null) {
+        ytdb.drop(dbName);
+        ytdb.close();
       }
     }
   }
@@ -222,11 +221,11 @@ public class EntityImplTest extends DbTestBase {
   @Test
   public void testUndo() {
     DatabaseSessionInternal session = null;
-    BasicYouTrackDB odb = null;
+    YouTrackDBAbstract<?, ?> ytdb = null;
     try {
-      odb = CreateDatabaseUtil.createDatabase(dbName,
-          DbTestBase.embeddedDBUrl(EntityImplTest.class), CreateDatabaseUtil.TYPE_MEMORY);
-      session = (DatabaseSessionInternal) odb.open(dbName, defaultDbAdminCredentials,
+      ytdb = CreateDatabaseUtil.createDatabase(dbName,
+          DbTestBase.embeddedDBUrl(EntityImplTest.class) + "temp", CreateDatabaseUtil.TYPE_MEMORY);
+      session = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       Schema schema = session.getMetadata().getSchema();
@@ -283,9 +282,9 @@ public class EntityImplTest extends DbTestBase {
       if (session != null) {
         session.close();
       }
-      if (odb != null) {
-        odb.drop(dbName);
-        odb.close();
+      if (ytdb != null) {
+        ytdb.drop(dbName);
+        ytdb.close();
       }
     }
   }

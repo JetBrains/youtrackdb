@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
@@ -61,7 +60,12 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   static YouTrackDBInternal<?> fromUrl(String url, YouTrackDBConfig configuration) {
     var what = url.substring(0, url.indexOf(':'));
     if ("embedded".equals(what)) {
-      return embedded(url.substring(url.indexOf(':') + 1), configuration, false);
+      var path = url.substring(url.indexOf(':') + 1);
+      if (path.isEmpty()) {
+        throw new DatabaseException(url, "missing database path");
+      }
+
+      return embedded(path, configuration, false);
     } else if ("remote".equals(what)) {
       return remote(url.substring(url.indexOf(':') + 1).split(";"),
           (YouTrackDBConfigImpl) configuration);
@@ -121,7 +125,7 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
    * @param serverMode
    * @return a new embedded databases factory
    */
-  static YouTrackDBInternal<DatabaseSession> embedded(
+  static YouTrackDBInternalEmbedded embedded(
       String directoryPath,
       YouTrackDBConfig config,
       boolean serverMode) {

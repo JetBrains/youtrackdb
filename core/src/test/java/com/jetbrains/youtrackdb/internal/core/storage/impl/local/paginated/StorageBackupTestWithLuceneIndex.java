@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
@@ -9,6 +8,7 @@ import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
@@ -21,7 +21,7 @@ public class StorageBackupTestWithLuceneIndex {
 
   private String buildDirectory;
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded db;
   private String dbDirectory;
   private String backedUpDbDirectory;
@@ -32,9 +32,7 @@ public class StorageBackupTestWithLuceneIndex {
     dbDirectory =
         buildDirectory + File.separator + StorageBackupTestWithLuceneIndex.class.getSimpleName();
     FileUtils.deleteRecursively(new File(dbDirectory));
-    youTrackDB = YourTracks.embedded(dbDirectory, YouTrackDBConfig.defaultConfig());
-
-    youTrackDB = YourTracks.embedded(dbDirectory);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(dbDirectory);
     if (youTrackDB.exists(StorageBackupTestWithLuceneIndex.class.getSimpleName())) {
       youTrackDB.drop(StorageBackupTestWithLuceneIndex.class.getSimpleName());
     }
@@ -100,7 +98,8 @@ public class StorageBackupTestWithLuceneIndex {
     FileUtils.deleteRecursively(new File(backedUpDbDirectory));
 
     youTrackDB.restore(StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup",
-        "admin", "admin", backedUpDbDirectory, YouTrackDBConfig.defaultConfig());
+        "admin", "admin", backedUpDbDirectory,
+        YouTrackDBConfig.defaultConfig().toApacheConfiguration());
     final var backedUpDb = (DatabaseSessionEmbedded) youTrackDB.open(
         StorageBackupTestWithLuceneIndex.class.getSimpleName() + "Backup", "admin", "admin");
 

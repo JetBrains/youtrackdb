@@ -6,16 +6,16 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import java.io.File;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -30,7 +30,7 @@ public class YouTrackDBRemoteTest {
   private static final String SERVER_DIRECTORY = "./target/dbfactory";
   private YouTrackDBServer server;
 
-  private RemoteYouTrackDB factory;
+  private YouTrackDBRemoteImpl factory;
 
   @Before
   public void before() throws Exception {
@@ -43,14 +43,12 @@ public class YouTrackDBRemoteTest {
                 "com/jetbrains/youtrackdb/internal/server/network/youtrackdb-server-config.xml"));
     server.activate();
 
-    var config =
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.DB_CACHED_POOL_CAPACITY, 2)
-            .addGlobalConfigurationParameter(GlobalConfiguration.DB_CACHED_POOL_CLEAN_UP_TIMEOUT,
-                300_000)
-            .build();
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.DB_CACHED_POOL_CAPACITY.getKey(), 2);
+    config.setProperty(GlobalConfiguration.DB_CACHED_POOL_CLEAN_UP_TIMEOUT.getKey(), 300_000);
 
-    factory = YourTracks.remote("remote:localhost", "root", "root", config);
+    factory = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root", "root",
+        config);
   }
 
   @Test

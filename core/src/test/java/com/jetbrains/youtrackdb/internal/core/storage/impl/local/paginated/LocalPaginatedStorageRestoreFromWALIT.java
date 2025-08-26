@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
@@ -11,6 +10,7 @@ import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -41,7 +41,8 @@ import org.junit.Test;
  * @since 29.05.13
  */
 public class LocalPaginatedStorageRestoreFromWALIT {
-  private static YouTrackDB youTrackDB;
+
+  private static YouTrackDBImpl youTrackDB;
   private static File buildDir;
   private DatabaseSessionEmbedded testDocumentTx;
   private DatabaseSessionEmbedded baseDocumentTx;
@@ -79,7 +80,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
     buildDir.mkdir();
 
-    youTrackDB = YourTracks.embedded(buildDir.getAbsolutePath());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDir.getAbsolutePath());
   }
 
   @AfterClass

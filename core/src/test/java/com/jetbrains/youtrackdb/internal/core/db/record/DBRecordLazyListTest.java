@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.db.record;
 
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -18,14 +17,14 @@ import org.junit.Test;
 
 public class DBRecordLazyListTest {
 
-  private YouTrackDB youTrackDb;
+  private YouTrackDBImpl youTrackDb;
   private DatabaseSessionEmbedded db;
 
   @Before
   public void init() throws Exception {
     youTrackDb =
         (YouTrackDBImpl) CreateDatabaseUtil.createDatabase(
-            DBRecordLazyListTest.class.getSimpleName(), "embedded:",
+            DBRecordLazyListTest.class.getSimpleName(), "embedded:.",
             CreateDatabaseUtil.TYPE_MEMORY);
     db =
         (DatabaseSessionEmbedded) youTrackDb.open(

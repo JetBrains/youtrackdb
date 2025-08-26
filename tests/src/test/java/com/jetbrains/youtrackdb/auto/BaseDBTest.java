@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.auto;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
@@ -12,6 +11,7 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import java.util.Arrays;
@@ -30,7 +30,6 @@ import org.testng.annotations.Test;
  */
 @Test
 public abstract class BaseDBTest extends BaseTest {
-
   protected static final int TOT_COMPANY_RECORDS = 10;
   protected static final int TOT_RECORDS_ACCOUNT = 100;
 
@@ -52,7 +51,7 @@ public abstract class BaseDBTest extends BaseTest {
 
   @Override
   protected DatabaseSessionEmbedded createSessionInstance(
-      YouTrackDB youTrackDB, String dbName, String user, String password) {
+      YouTrackDBImpl youTrackDB, String dbName, String user, String password) {
     return (DatabaseSessionEmbedded) youTrackDB.open(dbName, user, password);
   }
 

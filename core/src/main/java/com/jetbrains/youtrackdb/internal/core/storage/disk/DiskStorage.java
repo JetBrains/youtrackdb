@@ -233,7 +233,7 @@ public class DiskStorage extends AbstractStorage {
         SystemVariableResolver.resolveSystemVariables(
             FileUtils.getPath(new java.io.File(url).getPath()));
 
-    storagePath = Paths.get(IOUtils.getPathFromDatabaseName(sp)).normalize().toAbsolutePath();
+    storagePath = Paths.get(sp).normalize().toAbsolutePath();
 
     deleteMaxRetries = GlobalConfiguration.FILE_DELETE_RETRY.getValueAsInteger();
     deleteWaitTime = GlobalConfiguration.FILE_DELETE_DELAY.getValueAsInteger();
@@ -403,8 +403,7 @@ public class DiskStorage extends AbstractStorage {
 
         final var dbDir =
             new java.io.File(
-                IOUtils.getPathFromDatabaseName(
-                    SystemVariableResolver.resolveSystemVariables(url)));
+                SystemVariableResolver.resolveSystemVariables(url));
         final var storageFiles = dbDir.listFiles();
         if (storageFiles != null) {
           // TRY TO DELETE ALL THE FILES
@@ -652,7 +651,7 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void postDeleteSteps() {
     var databasePath =
-        IOUtils.getPathFromDatabaseName(SystemVariableResolver.resolveSystemVariables(url));
+        SystemVariableResolver.resolveSystemVariables(url);
     deleteFilesFromDisc(name, deleteMaxRetries, deleteWaitTime, databasePath);
   }
 
@@ -1832,8 +1831,6 @@ public class DiskStorage extends AbstractStorage {
         final var segmentIndex =
             walName.lastIndexOf(
                 '.', walName.length() - CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION.length() - 1);
-        final var storageName = getName();
-
         if (segmentIndex < 0) {
           throw new IllegalStateException("Can not find index of WAL segment");
         }

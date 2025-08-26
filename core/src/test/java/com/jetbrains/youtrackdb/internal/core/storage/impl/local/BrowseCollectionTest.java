@@ -4,13 +4,13 @@ import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -18,17 +18,16 @@ import org.junit.Test;
 public class BrowseCollectionTest {
 
   private DatabaseSession db;
-  private YouTrackDB youTrackDb;
+  private YouTrackDBImpl youTrackDb;
 
   @Before
   public void before() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+
     youTrackDb =
-        YourTracks.embedded(
-            DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDb.execute(
         "create database "
             + "test"

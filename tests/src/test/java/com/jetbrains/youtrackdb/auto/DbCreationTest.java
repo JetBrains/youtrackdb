@@ -17,12 +17,10 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
-import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import java.io.File;
 import java.util.Locale;
 import org.testng.Assert;
@@ -35,12 +33,12 @@ public class DbCreationTest {
 
   private static final String DB_NAME = "DbCreationTest";
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
 
 
   @BeforeClass
   public void beforeClass() {
-    initODB();
+    initYTDB();
   }
 
   @AfterClass
@@ -48,11 +46,9 @@ public class DbCreationTest {
     youTrackDB.close();
   }
 
-  private void initODB() {
-    var configBuilder = YouTrackDBConfig.builder();
-
+  private void initYTDB() {
     final var buildDirectory = System.getProperty("buildDirectory", ".");
-    youTrackDB = YourTracks.embedded(buildDirectory + "/test-db", configBuilder.build());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory + "/test-db");
   }
 
   @Test
@@ -80,14 +76,13 @@ public class DbCreationTest {
   public void testDbOpenWithLastAsSlash() {
     youTrackDB.close();
 
-    var configBuilder = YouTrackDBConfig.builder();
     final var buildDirectory = System.getProperty("buildDirectory", ".");
-    try (var ytdb = YourTracks.embedded(buildDirectory + "/test-db/", configBuilder.build())) {
+    try (var ytdb = (YouTrackDBImpl) YourTracks.instance(buildDirectory + "/test-db/")) {
       var database = ytdb.open(DB_NAME, "admin", "admin");
       database.close();
     }
 
-    initODB();
+    initYTDB();
   }
 
   private static String calculateDirectory() {
@@ -127,7 +122,7 @@ public class DbCreationTest {
   public void testSubFolderDbCreate() {
     var directory = calculateDirectory();
 
-    var ytdb = YourTracks.embedded(directory);
+    var ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     if (ytdb.exists("sub")) {
       ytdb.drop("sub");
     }
@@ -143,7 +138,7 @@ public class DbCreationTest {
   public void testSubFolderDbCreateConnPool() {
     var directory = calculateDirectory();
 
-    var ytdb = YourTracks.embedded(directory);
+    var ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     if (ytdb.exists("sub")) {
       ytdb.drop("sub");
     }
@@ -166,11 +161,8 @@ public class DbCreationTest {
   public void testSubFolderMultipleDbCreateSameName() {
     for (var i = 0; i < 3; ++i) {
       var dbName = "a" + i + "$db";
-      try {
+      if (youTrackDB.exists(dbName)) {
         youTrackDB.drop(dbName);
-        Assert.fail();
-      } catch (StorageException e) {
-        // ignore
       }
 
       youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");

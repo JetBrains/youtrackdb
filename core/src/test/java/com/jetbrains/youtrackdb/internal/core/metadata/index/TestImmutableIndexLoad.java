@@ -4,7 +4,6 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
@@ -13,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Test;
 
 public class TestImmutableIndexLoad {
@@ -35,12 +35,10 @@ public class TestImmutableIndexLoad {
     db.close();
     youTrackDB.close();
 
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     youTrackDB =
-        (YouTrackDBImpl) YourTracks.embedded(
-            DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()), config);
     db =
         (DatabaseSessionEmbedded) youTrackDB.open(
             TestImmutableIndexLoad.class.getSimpleName(),

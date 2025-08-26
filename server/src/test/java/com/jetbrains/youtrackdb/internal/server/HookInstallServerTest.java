@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.server;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.EntityHookAbstract;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import com.jetbrains.youtrackdb.internal.tools.config.ServerConfigurationManager;
 import com.jetbrains.youtrackdb.internal.tools.config.ServerHookConfiguration;
 import java.io.File;
@@ -53,14 +53,14 @@ public class HookInstallServerTest {
     server.startup(ret.getConfiguration());
     server.activate();
 
-    try (var youTrackDB = YourTracks.remote("remote:localhost", "root", "root")) {
+    try (var youTrackDB = YouTrackDBRemoteImpl.remote("remote:localhost", "root", "root")) {
       youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
     }
   }
 
   @After
   public void after() throws IOException {
-    try (var youTrackDB = YourTracks.remote("remote:localhost", "root", "root")) {
+    try (var youTrackDB = YouTrackDBRemoteImpl.remote("remote:localhost", "root", "root")) {
       youTrackDB.drop("test");
     }
     server.shutdown();
@@ -75,7 +75,7 @@ public class HookInstallServerTest {
     final var initValue = count;
 
     try (var pool =
-        YourTracks.remote("remote:localhost", "root", "root")) {
+        (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root", "root")) {
       for (var i = 0; i < 10; i++) {
         var poolInstance = pool.cachedPool("test", "admin", "admin");
         try (var db = poolInstance.acquire()) {

@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -19,7 +18,7 @@ import org.junit.Test;
 
 public class CreateLightWeightEdgesSQLTest {
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
 
   @Before
   public void before() {

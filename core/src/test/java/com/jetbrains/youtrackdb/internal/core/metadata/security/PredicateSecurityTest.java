@@ -1,15 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -20,17 +20,16 @@ import org.junit.Test;
 public class PredicateSecurityTest {
 
   private static final String DB_NAME = PredicateSecurityTest.class.getSimpleName();
-  private static YouTrackDB youTrackDB;
+  private static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
 
   @BeforeClass
   public static void beforeClass() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     youTrackDB =
-        YourTracks.embedded(
-            DbTestBase.getBaseDirectoryPath(PredicateSecurityTest.class),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+        (YouTrackDBImpl) YourTracks.instance(
+            DbTestBase.getBaseDirectoryPath(PredicateSecurityTest.class), config);
   }
 
   @AfterClass

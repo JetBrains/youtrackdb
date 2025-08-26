@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
@@ -26,7 +25,7 @@ public class IndexChangesQueryTest {
   public static final String CLASS_NAME = "idxTxAwareMultiValueGetEntriesTest";
   private static final String FIELD_NAME = "value";
   private static final String INDEX_NAME = "idxTxAwareMultiValueGetEntriesTestIndex";
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded db;
 
   @Before

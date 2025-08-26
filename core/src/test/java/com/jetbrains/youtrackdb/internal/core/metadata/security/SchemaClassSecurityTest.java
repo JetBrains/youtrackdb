@@ -1,12 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -17,17 +17,17 @@ import org.junit.Test;
 public class SchemaClassSecurityTest {
 
   private static final String DB_NAME = SchemaClassSecurityTest.class.getSimpleName();
-  private static YouTrackDB youTrackDB;
+  private static YouTrackDBImpl youTrackDB;
   private DatabaseSessionInternal session;
 
   @BeforeClass
   public static void beforeClass() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     youTrackDB =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(SecurityEngineTest.class),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
   }
 
   @AfterClass

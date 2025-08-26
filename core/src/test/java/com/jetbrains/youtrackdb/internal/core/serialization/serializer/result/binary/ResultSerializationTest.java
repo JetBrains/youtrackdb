@@ -6,9 +6,9 @@ import static org.junit.Assert.assertNotNull;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -41,9 +41,8 @@ public class ResultSerializationTest extends DbTestBase {
 
   @Test
   public void testSimpleSerialization() {
-    try (var youTrackDB = YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(ResultSerializationTest.class),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(ResultSerializationTest.class) + "temp")) {
       youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
       try (var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin", "admin")) {
         var document = new ResultInternal(db);

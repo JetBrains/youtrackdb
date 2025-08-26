@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -29,7 +30,7 @@ public class LiveIndexRebuildTest {
   @Test
   @Ignore
   public void testLiveIndexRebuild() throws Exception {
-    try (var youTrackDb = YourTracks.embedded(
+    try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(LiveIndexRebuildTest.class))) {
       if (youTrackDb.exists(LiveIndexRebuildTest.class.getSimpleName())) {
         youTrackDb.drop(LiveIndexRebuildTest.class.getSimpleName());

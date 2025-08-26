@@ -19,13 +19,13 @@ package com.jetbrains.youtrackdb.internal.spatial;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
@@ -54,7 +54,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
   private static final String DBNAME = "OLuceneAutomaticBackupRestoreTest";
 
   public File tempFolder;
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
   private String URL = null;
   private String BACKUPDIR = null;
   private String BACKUFILE = null;

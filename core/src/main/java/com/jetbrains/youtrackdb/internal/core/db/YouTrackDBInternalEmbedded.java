@@ -41,7 +41,9 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptManager;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
 import com.jetbrains.youtrackdb.internal.core.engine.MemoryAndLocalPaginatedEnginesInitializer;
+import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.DefaultSecuritySystem;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
@@ -74,6 +76,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.apache.commons.lang.NullArgumentException;
@@ -113,12 +116,13 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   private final DefaultSecuritySystem securitySystem;
   private final CommandTimeoutChecker timeoutChecker;
 
-  private final long maxWALSegmentSize;
-  private final long doubleWriteLogMaxSegSize;
+  private final AtomicLong maxWALSegmentSize = new AtomicLong(-1);
+  private final AtomicLong doubleWriteLogMaxSegSize = new AtomicLong(-1);
 
   public YouTrackDBInternalEmbedded(String directoryPath, YouTrackDBConfig configuration,
       YouTrackDBEnginesManager youTrack, boolean serverMode) {
     super();
+
     this.youTrack = youTrack;
     this.serverMode = serverMode;
     youTrack.onEmbeddedFactoryInit(this);
@@ -145,28 +149,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
         (YouTrackDBConfigImpl) (configuration != null ? configuration
             : YouTrackDBConfig.defaultConfig());
 
-    if (basePath == null) {
-      maxWALSegmentSize = -1;
-      doubleWriteLogMaxSegSize = -1;
-    } else {
-      try {
-        doubleWriteLogMaxSegSize = calculateDoubleWriteLogMaxSegSize(Paths.get(basePath));
-        maxWALSegmentSize = calculateInitialMaxWALSegSize();
-
-        if (maxWALSegmentSize <= 0) {
-          throw new DatabaseException(directoryPath,
-              "Invalid configuration settings. Can not set maximum size of WAL segment");
-        }
-
-        LogManager.instance()
-            .info(
-                this, "WAL maximum segment size is set to %,d MB", maxWALSegmentSize / 1024 / 1024);
-      } catch (IOException e) {
-        throw BaseException.wrapException(
-            new DatabaseException(directoryPath, "Cannot initialize YouTrackDB engine"), e,
-            directoryPath);
-      }
-    }
 
     MemoryAndLocalPaginatedEnginesInitializer.INSTANCE.initialize();
 
@@ -423,7 +405,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
 
   @Override
   public YouTrackDBImpl newYouTrackDb() {
-    return new YouTrackDBImpl(this);
+    return YTDBGraphFactory.ytdbInstance(() -> this);
   }
 
   @Override
@@ -676,8 +658,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
             (AbstractStorage)
                 disk.createStorage(
                     buildName(name),
-                    maxWALSegmentSize,
-                    doubleWriteLogMaxSegSize,
+                    getMaxWalSegSize(),
+                    getDoubleWriteLogMaxSegSize(),
                     generateStorageId(),
                     this);
         if (storage.exists()) {
@@ -707,6 +689,52 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
           "YouTrackDB instanced created without physical path, only memory databases are allowed");
     }
     return basePath + "/" + name;
+  }
+
+  private long getDoubleWriteLogMaxSegSize() {
+    try {
+      var currentSize = doubleWriteLogMaxSegSize.get();
+      if (currentSize > 0) {
+        return currentSize;
+      }
+
+      var newSize = calculateDoubleWriteLogMaxSegSize(Path.of(basePath));
+      doubleWriteLogMaxSegSize.compareAndSet(currentSize, newSize);
+
+      return doubleWriteLogMaxSegSize.get();
+    } catch (IOException e) {
+      throw CoreException.wrapException(
+          new DatabaseException(basePath,
+              "Error during calculation of maximum of size of double write log segment."), e,
+          basePath);
+    }
+  }
+
+  private long getMaxWalSegSize() {
+    try {
+      var currentSize = maxWALSegmentSize.get();
+      if (currentSize > 0) {
+        return currentSize;
+      }
+
+      var newSize = calculateInitialMaxWALSegSize();
+      if (newSize <= 0) {
+        throw new DatabaseException(basePath,
+            "Invalid configuration settings. Can not set maximum size of WAL segment");
+      }
+      if (maxWALSegmentSize.compareAndSet(currentSize, newSize)) {
+        LogManager.instance()
+            .info(
+                this, "WAL maximum segment size is set to %,d MB", newSize / 1024 / 1024);
+      }
+
+      return maxWALSegmentSize.get();
+    } catch (IOException e) {
+      throw CoreException.wrapException(
+          new DatabaseException(basePath,
+              "Error during calculation of maximum of size of WAL segment."), e,
+          basePath);
+    }
   }
 
   @Override
@@ -751,8 +779,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
                 (AbstractStorage)
                     memory.createStorage(
                         name,
-                        maxWALSegmentSize,
-                        doubleWriteLogMaxSegSize,
+                        getMaxWalSegSize(),
+                        getDoubleWriteLogMaxSegSize(),
                         generateStorageId(),
                         this);
           } else {
@@ -760,8 +788,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
                 (AbstractStorage)
                     disk.createStorage(
                         buildName(name),
-                        maxWALSegmentSize,
-                        doubleWriteLogMaxSegSize,
+                        getMaxWalSegSize(),
+                        getDoubleWriteLogMaxSegSize(),
                         generateStorageId(),
                         this);
           }
@@ -802,8 +830,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
               (AbstractStorage)
                   disk.createStorage(
                       buildName(name),
-                      maxWALSegmentSize,
-                      doubleWriteLogMaxSegSize,
+                      getMaxWalSegSize(),
+                      getDoubleWriteLogMaxSegSize(),
                       generateStorageId(),
                       this);
           embedded = internalCreate((YouTrackDBConfigImpl) config, storage);
@@ -1050,7 +1078,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     removeShutdownHook();
   }
 
-
   @Override
   public synchronized void internalClose() {
     if (!open) {
@@ -1127,7 +1154,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
       var storage =
           (AbstractStorage)
               disk.createStorage(
-                  path, maxWALSegmentSize, doubleWriteLogMaxSegSize, generateStorageId(), this);
+                  path, getMaxWalSegSize(), getDoubleWriteLogMaxSegSize(), generateStorageId(),
+                  this);
       // TODO: Add Creation settings and parameters
       if (!exists) {
         embedded = internalCreate(configuration, storage);
@@ -1262,6 +1290,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
   @Override
   public BasicResultSet<BasicResult> executeServerStatementPositionalParams(
       String script, String username, String pw, Object... args) {
+    checkOpen();
     var statement = SQLEngine.parseServerStatement(script, this);
     var original = statement.execute(this, args, true);
     LocalResultSetLifecycleDecorator result;

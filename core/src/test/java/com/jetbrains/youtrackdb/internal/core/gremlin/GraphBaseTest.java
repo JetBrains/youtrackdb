@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
+import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -24,17 +25,15 @@ public abstract class GraphBaseTest extends DbTestBase {
   }
 
   protected Graph openGraph() {
-    YTDBGraphFactory.registerYTDBInstance(dbPath, youTrackDB);
-
     var config = getBaseConfiguration();
 
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH, dbPath);
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME, databaseName);
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER, adminUser);
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_ROLE, "admin");
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_PWD, adminPassword);
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_TYPE, dbType);
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_CREATE_IF_NOT_EXISTS, true);
+    config.setProperty(ConfigurationParameters.CONFIG_DB_PATH, dbPath);
+    config.setProperty(ConfigurationParameters.CONFIG_DB_NAME, databaseName);
+    config.setProperty(ConfigurationParameters.CONFIG_USER_NAME, adminUser);
+    config.setProperty(ConfigurationParameters.CONFIG_USER_ROLE, "admin");
+    config.setProperty(ConfigurationParameters.CONFIG_USER_PWD, adminPassword);
+    config.setProperty(ConfigurationParameters.CONFIG_DB_TYPE, dbType);
+    config.setProperty(ConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
 
     return GraphFactory.open(config);
   }
@@ -44,10 +43,10 @@ public abstract class GraphBaseTest extends DbTestBase {
     var config = new BaseConfiguration();
     config.setProperty(Graph.GRAPH, YTDBGraph.class.getName());
 
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME, databaseName);
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER, adminUser);
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_PWD, adminPassword);
-    config.setProperty(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH, dbPath);
+    config.setProperty(ConfigurationParameters.CONFIG_DB_NAME, databaseName);
+    config.setProperty(ConfigurationParameters.CONFIG_USER_NAME, adminUser);
+    config.setProperty(ConfigurationParameters.CONFIG_USER_PWD, adminPassword);
+    config.setProperty(ConfigurationParameters.CONFIG_DB_PATH, dbPath);
 
     return config;
   }

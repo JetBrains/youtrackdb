@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -19,7 +19,7 @@ public class DatabaseImportTest {
   public void exportImportOnlySchemaTest() throws IOException {
     var databaseName = "export";
     final var exportDbPath = "target/export_" + DatabaseImportTest.class.getSimpleName();
-    var youTrackDB = YourTracks.embedded(exportDbPath, YouTrackDBConfig.defaultConfig());
+    var youTrackDB = (YouTrackDBImpl) YourTracks.instance(exportDbPath);
     youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");
 
     final var output = new ByteArrayOutputStream();
@@ -38,7 +38,7 @@ public class DatabaseImportTest {
     youTrackDB.close();
 
     final var importDbPath = "target/import_" + DatabaseImportTest.class.getSimpleName();
-    youTrackDB = YourTracks.embedded(importDbPath, YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(importDbPath);
     databaseName = "import";
 
     youTrackDB.createIfNotExists(databaseName, DatabaseType.DISK, "admin", "admin", "admin");

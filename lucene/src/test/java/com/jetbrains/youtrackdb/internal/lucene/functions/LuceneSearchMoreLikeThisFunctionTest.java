@@ -3,9 +3,9 @@ package com.jetbrains.youtrackdb.internal.lucene.functions;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.lucene.test.BaseLuceneTest;
+import org.apache.commons.configuration2.Configuration;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -19,10 +19,11 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
   }
 
   @Override
-  protected YouTrackDBConfig createConfig() {
-    var builder = YouTrackDBConfig.builder();
-    builder.addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1);
-    return builder.build();
+  protected Configuration createConfig() {
+    var config = super.createConfig();
+    config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
+
+    return config;
   }
 
   @Test

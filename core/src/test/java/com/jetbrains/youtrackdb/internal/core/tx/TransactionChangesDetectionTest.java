@@ -5,7 +5,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
@@ -17,7 +16,7 @@ import org.junit.Test;
 
 public class TransactionChangesDetectionTest {
 
-  private YouTrackDB factory;
+  private YouTrackDBImpl factory;
   private DatabaseSessionInternal db;
 
   @Before

@@ -4,20 +4,21 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 public class TransactionMetadataTest {
 
-  private BasicYouTrackDB youTrackDB;
+  private YouTrackDBAbstract<?, ?> youTrackDB;
   private DatabaseSessionInternal db;
   private static final String DB_NAME = TransactionMetadataTest.class.getSimpleName();
 
@@ -44,12 +45,12 @@ public class TransactionMetadataTest {
     db.close();
     youTrackDB.close();
 
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+
     youTrackDB =
-        YourTracks.embedded(
-            DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+        (YouTrackDBImpl) YourTracks.instance(
+            DbTestBase.getBaseDirectoryPath(getClass()), config);
     db =
         (DatabaseSessionInternal)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);

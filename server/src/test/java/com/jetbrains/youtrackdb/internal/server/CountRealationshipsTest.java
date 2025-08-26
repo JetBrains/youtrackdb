@@ -2,14 +2,12 @@ package com.jetbrains.youtrackdb.internal.server;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
-import com.jetbrains.youtrackdb.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import java.io.File;
 import java.util.List;
 import org.junit.After;
@@ -20,7 +18,7 @@ public class CountRealationshipsTest {
 
   private static final String SERVER_DIRECTORY = "./target/collection";
   private YouTrackDBServer server;
-  private RemoteYouTrackDB youTrackDB;
+  private YouTrackDBRemoteImpl youTrackDB;
 
   @Before
   public void before() throws Exception {
@@ -29,8 +27,8 @@ public class CountRealationshipsTest {
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config-tree-ridbag.xml"));
     server.activate();
 
-    youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
-        YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root",
+        "root");
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
         CountRealationshipsTest.class.getSimpleName());

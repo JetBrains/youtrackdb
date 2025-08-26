@@ -21,12 +21,11 @@ package com.jetbrains.youtrackdb.internal.core.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,12 +35,11 @@ import org.junit.Test;
  */
 public class ResourceDerivedTest {
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
 
   @Before
   public void before() {
-    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin)");
     var db = youTrackDB.open("test", "admin", "admin");

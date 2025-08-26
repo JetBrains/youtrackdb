@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import static junit.framework.TestCase.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentCreateException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
@@ -30,7 +29,7 @@ import org.junit.Test;
  */
 public class TransactionRidAllocationTest {
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded db;
 
   @Before

@@ -7,13 +7,14 @@ import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import org.apache.commons.configuration2.BaseConfiguration;
+import org.apache.commons.configuration2.Configuration;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -68,19 +69,18 @@ public class DbTestBase {
     var config = createConfig();
     youTrackDB.create(this.databaseName, dbType, config,
         adminUser, adminPassword, "admin", readerUser, readerPassword, "reader");
-    pool = youTrackDB.cachedPool(this.databaseName, adminUser, adminPassword, config);
+    var builder = YouTrackDBConfig.builder().fromApacheConfiguration(config);
+    pool = youTrackDB.cachedPool(this.databaseName, adminUser, adminPassword, builder.build());
 
     session = openDatabase(config);
   }
 
-  private DatabaseSessionEmbedded openDatabase(YouTrackDBConfig config) {
+  private DatabaseSessionEmbedded openDatabase(Configuration config) {
+    var build = YouTrackDBConfig.builder().fromApacheConfiguration(config);
     return (DatabaseSessionEmbedded)
-        youTrackDB.open(this.databaseName, "admin", "adminpwd", config);
+        youTrackDB.open(this.databaseName, "admin", "adminpwd", build.build());
   }
 
-  protected YouTrackDBConfig createConfig() {
-    return YouTrackDBConfig.builder().build();
-  }
 
   public static String embeddedDBUrl(Class<?> testClass) {
     return "embedded:" + getBaseDirectoryPath(testClass);
@@ -101,10 +101,8 @@ public class DbTestBase {
   protected YouTrackDBImpl createContext() {
     dbPath = getBaseDirectoryPath(getClass());
 
-    var builder = YouTrackDBConfig.builder();
-    var config = createConfig((YouTrackDBConfigBuilderImpl) builder);
-
-    return (YouTrackDBImpl) YourTracks.embedded(dbPath, config);
+    var config = createConfig();
+    return (YouTrackDBImpl) YourTracks.instance(dbPath, config);
   }
 
   protected DatabaseType calculateDbType() {
@@ -140,8 +138,8 @@ public class DbTestBase {
     return (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
   }
 
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    return builder.build();
+  protected Configuration createConfig() {
+    return new BaseConfiguration();
   }
 
   @After

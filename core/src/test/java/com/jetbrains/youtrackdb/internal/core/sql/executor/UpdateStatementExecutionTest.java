@@ -3,12 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,7 +33,7 @@ public class UpdateStatementExecutionTest {
   private DatabaseSessionInternal session;
 
   private String className;
-  private BasicYouTrackDB youTrackDB;
+  private YouTrackDBAbstract<?, ?> youTrackDB;
 
   @Before
   public void before() {

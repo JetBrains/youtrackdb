@@ -2,11 +2,11 @@ package com.jetbrains.youtrackdb.internal.spatial;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.lucene.tests.LuceneBaseTest;
 import java.io.File;
@@ -19,7 +19,7 @@ public class LuceneSpatialDropTest {
 
   private int insertcount;
   private String dbName;
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
 
   @Before
   public void setUp() throws Exception {
@@ -33,7 +33,7 @@ public class LuceneSpatialDropTest {
 
     // clean up the data from the previous runs
     FileUtils.deleteRecursively(new File(dbPath));
-    youTrackDB = YourTracks.embedded(dbPath);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(dbPath);
     youTrackDB.createIfNotExists(dbName, DatabaseType.DISK,
         "admin", "adminpwd", "admin");
 
@@ -42,8 +42,10 @@ public class LuceneSpatialDropTest {
       test.createProperty("name", PropertyType.STRING);
       test.createProperty("latitude", PropertyType.DOUBLE).setMandatory(false);
       test.createProperty("longitude", PropertyType.DOUBLE).setMandatory(false);
-      db.computeScript("sql", "create index test.name on test (name) FULLTEXT ENGINE LUCENE").close();
-      db.computeScript("sql", "create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE")
+      db.computeScript("sql", "create index test.name on test (name) FULLTEXT ENGINE LUCENE")
+          .close();
+      db.computeScript("sql",
+              "create index test.ll on test (latitude,longitude) SPATIAL ENGINE LUCENE")
           .close();
     }
   }

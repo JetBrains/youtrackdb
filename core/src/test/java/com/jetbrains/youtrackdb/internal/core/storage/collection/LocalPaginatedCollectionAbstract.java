@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -28,7 +28,7 @@ public abstract class LocalPaginatedCollectionAbstract {
   protected static String buildDirectory;
   protected static PaginatedCollection paginatedCollection;
   protected static DatabaseSessionInternal databaseDocumentTx;
-  protected static BasicYouTrackDB youTrackDB;
+  protected static YouTrackDBImpl youTrackDB;
   protected static String dbName;
   protected static AbstractStorage storage;
   private static AtomicOperationsManager atomicOperationsManager;
