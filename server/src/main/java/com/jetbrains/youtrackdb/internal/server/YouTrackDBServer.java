@@ -1098,7 +1098,7 @@ public class YouTrackDBServer {
 
     @Override
     public YouTrackDBImpl newYouTrackDb() {
-      return YTDBGraphFactory.ytdbInstance(() -> this);
+      return YTDBGraphFactory.ytdbInstance(internal.getBasePath(), () -> this);
     }
 
     @Override

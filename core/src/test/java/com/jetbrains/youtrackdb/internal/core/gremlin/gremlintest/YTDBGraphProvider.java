@@ -29,6 +29,7 @@ import org.junit.AssumptionViolatedException;
 
 
 public class YTDBGraphProvider extends AbstractGraphProvider {
+
   @Override
   public Map<String, Object> getBaseConfiguration(
       String graphName,
@@ -67,6 +68,7 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
         YTDBVertexImpl.class,
         YTDBVertexPropertyImpl.class);
   }
+
   @Override
   public Optional<Features> getStaticFeatures() {
     return Optional.of(YTDBFeatures.INSTANCE);

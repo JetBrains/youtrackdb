@@ -53,7 +53,6 @@ public class YTDBGraphFactory {
             "YouTrackDB path is not specified : " + ConfigurationParameters.CONFIG_DB_PATH);
       }
 
-      var path = Path.of(dbPath).toAbsolutePath();
       var createIfNotExists = configuration.getBoolean(
           ConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS,
           false);
@@ -84,15 +83,13 @@ public class YTDBGraphFactory {
   }
 
   public static YouTrackDBImpl ytdbInstance(String dbPath, Configuration configuration) {
-    return ytdbInstance(() -> YouTrackDBInternal.embedded(dbPath,
+    return ytdbInstance(dbPath, () -> YouTrackDBInternal.embedded(dbPath,
         YouTrackDBConfig.builder().fromApacheConfiguration(configuration).build(), false));
   }
 
   public static YouTrackDBImpl ytdbInstance(
-      Supplier<YouTrackDBInternal<DatabaseSession>> internalSupplier) {
-    var dbPath = internalSupplier.get().getBasePath();
-    var path = Path.of(dbPath).toAbsolutePath();
-
+      String dbPath, Supplier<YouTrackDBInternal<DatabaseSession>> internalSupplier) {
+    var path = Path.of(dbPath).toAbsolutePath().normalize();
     return storagePathYTDBMap.compute(path, (p, youTrackDB) -> {
       if (youTrackDB != null) {
         return youTrackDB;
@@ -104,14 +101,14 @@ public class YTDBGraphFactory {
 
   @Nullable
   public static YouTrackDB getYTDBInstance(String dbPath) {
-    var path = Path.of(dbPath).toAbsolutePath();
+    var path = Path.of(dbPath).toAbsolutePath().normalize();
     return storagePathYTDBMap.get(path);
   }
 
   public static void unregisterYTDBInstance(@Nonnull YouTrackDBImpl youTrackDB,
       @Nullable Runnable onCloseCallback) {
     var ytdbInternal = youTrackDB.internal;
-    var path = Path.of(ytdbInternal.getBasePath()).toAbsolutePath();
+    var path = Path.of(ytdbInternal.getBasePath()).toAbsolutePath().normalize();
 
     storagePathYTDBMap.compute(path, (p, ytdb) -> {
       if (ytdb == youTrackDB) {
