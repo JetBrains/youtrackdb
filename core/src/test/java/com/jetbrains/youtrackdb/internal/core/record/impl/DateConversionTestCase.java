@@ -25,10 +25,10 @@ import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import java.text.ParseException;
@@ -77,8 +77,8 @@ public class DateConversionTestCase extends DbTestBase {
 
   @Test
   public void testDateFormantWithMethod() throws ParseException {
-    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "temporal")) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var session = (DatabaseSessionInternal) ctx.open("test", "admin", "adminpwd")) {
 

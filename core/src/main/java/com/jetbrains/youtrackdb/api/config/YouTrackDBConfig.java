@@ -8,9 +8,9 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import org.apache.commons.configuration2.Configuration;
 
 public interface YouTrackDBConfig {
-
   @Nonnull
   static YouTrackDBConfig defaultConfig() {
     return new YouTrackDBConfigImpl();
@@ -29,4 +29,7 @@ public interface YouTrackDBConfig {
 
   @Nonnull
   ContextConfiguration getConfiguration();
+
+  @Nonnull
+  Configuration toApacheConfiguration();
 }

@@ -20,6 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.SessionListener;
+import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
@@ -34,6 +35,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import org.apache.commons.configuration2.BaseConfiguration;
+import org.apache.commons.configuration2.Configuration;
 
 public class YouTrackDBConfigImpl implements YouTrackDBConfig {
 
@@ -83,6 +86,44 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
   public ContextConfiguration getConfiguration() {
     return configuration;
   }
+
+  @Override
+  public @Nonnull Configuration toApacheConfiguration() {
+    var conf = new BaseConfiguration();
+    var keys = configuration.getContextKeys();
+
+    for (var key : keys) {
+      var value = configuration.getValue(key, null);
+      conf.setProperty(key, value);
+    }
+
+    for (var entry : attributes.entrySet()) {
+      var value = entry.getValue();
+      switch (entry.getKey()) {
+        case LOCALE_COUNTRY -> {
+          conf.setProperty(ConfigurationParameters.CONFIG_DB_LOCALE_COUNTRY, value);
+        }
+        case LOCALE_LANGUAGE -> {
+          conf.setProperty(ConfigurationParameters.CONFIG_DB_LOCALE_LANGUAGE, value);
+        }
+        case TIMEZONE -> {
+          conf.setProperty(ConfigurationParameters.CONFIG_DB_TIME_ZONE, value);
+        }
+        case CHARSET -> {
+          conf.setProperty(ConfigurationParameters.CONFIG_DB_CHARSET, value);
+        }
+        case DATE_TIME_FORMAT -> {
+          conf.setProperty(ConfigurationParameters.CONFIG_DB_DATE_TIME_FORMAT, value);
+        }
+        case DATEFORMAT -> {
+          conf.setProperty(ConfigurationParameters.CONFIG_DB_DATE_FORMAT, value);
+        }
+      }
+    }
+
+    return conf;
+  }
+
 
   @Override
   public @Nonnull Map<ATTRIBUTES, Object> getAttributes() {

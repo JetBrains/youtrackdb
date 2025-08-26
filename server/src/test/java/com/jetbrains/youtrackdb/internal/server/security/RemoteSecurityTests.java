@@ -1,11 +1,9 @@
 package com.jetbrains.youtrackdb.internal.server.security;
 
-import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
-import com.jetbrains.youtrackdb.api.remote.RemoteYouTrackDB;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.io.IOException;
 import org.junit.After;
@@ -16,7 +14,7 @@ import org.junit.Test;
 public class RemoteSecurityTests {
 
   private static final String DB_NAME = RemoteSecurityTests.class.getSimpleName();
-  private RemoteYouTrackDB youTrackDB;
+  private YouTrackDBRemoteImpl youTrackDB;
   private YouTrackDBServer server;
   private RemoteDatabaseSession session;
 
@@ -24,8 +22,8 @@ public class RemoteSecurityTests {
   public void before()
       throws ClassNotFoundException, InstantiationException, IllegalAccessException, IOException {
     server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
-    youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
-        YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root",
+        "root");
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin, writer identified"
             + " by 'writer' role writer, reader identified by 'reader' role reader)",

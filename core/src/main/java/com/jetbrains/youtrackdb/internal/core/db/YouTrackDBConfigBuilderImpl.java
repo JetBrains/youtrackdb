@@ -21,6 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.SessionListener;
+import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession.ATTRIBUTES;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfigBuilder;
@@ -35,13 +36,54 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import org.apache.commons.configuration2.Configuration;
 
 public class YouTrackDBConfigBuilderImpl implements YouTrackDBConfigBuilder {
+
   private ContextConfiguration configurations = new ContextConfiguration();
   private final Map<ATTRIBUTES, Object> attributes = new EnumMap<>(ATTRIBUTES.class);
   private final Set<SessionListener> listeners = new HashSet<>();
   private SecurityConfig securityConfig;
-  private final List<GlobalUser> users = new ArrayList<GlobalUser>();
+  private final List<GlobalUser> users = new ArrayList<>();
+
+  @Nonnull
+  @Override
+  public YouTrackDBConfigBuilder fromApacheConfiguration(@Nonnull Configuration configuration) {
+    var keysIter = configuration.getKeys();
+
+    while (keysIter.hasNext()) {
+      var key = keysIter.next();
+      var value = configuration.getProperty(key);
+      switch (key) {
+        case ConfigurationParameters.CONFIG_DB_LOCALE_COUNTRY -> {
+          attributes.put(ATTRIBUTES.LOCALE_COUNTRY, value);
+        }
+        case ConfigurationParameters.CONFIG_DB_LOCALE_LANGUAGE -> {
+          attributes.put(ATTRIBUTES.LOCALE_LANGUAGE, value);
+        }
+        case ConfigurationParameters.CONFIG_DB_TIME_ZONE -> {
+          attributes.put(ATTRIBUTES.TIMEZONE, value);
+        }
+        case ConfigurationParameters.CONFIG_DB_CHARSET -> {
+          attributes.put(ATTRIBUTES.CHARSET, value);
+        }
+        case ConfigurationParameters.CONFIG_DB_DATE_TIME_FORMAT -> {
+          attributes.put(ATTRIBUTES.DATE_TIME_FORMAT, value);
+        }
+        case ConfigurationParameters.CONFIG_DB_DATE_FORMAT -> {
+          attributes.put(ATTRIBUTES.DATEFORMAT, value);
+        }
+        case ConfigurationParameters.CONFIG_USER_PWD -> {
+          //skip password
+        }
+        default -> {
+          configurations.setValue(key, value);
+        }
+      }
+    }
+
+    return this;
+  }
 
   @Nonnull
   @Override

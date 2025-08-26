@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import static java.util.Arrays.asList;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
@@ -18,7 +17,7 @@ import org.junit.Test;
 
 public class SQLFunctionShortestPathTest {
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
 
   private Map<Integer, Vertex> vertices = new HashMap<Integer, Vertex>();

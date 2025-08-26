@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.storage;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
@@ -8,7 +7,7 @@ import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -19,6 +18,7 @@ import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -26,7 +26,7 @@ import org.junit.Test;
 
 public class StorageTestIT {
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
 
   private static Path buildPath;
 
@@ -41,15 +41,13 @@ public class StorageTestIT {
   @Test
   public void testCheckSumFailureReadOnly() throws Exception {
 
-    var config =
-        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(
-                GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndSwitchReadOnlyMode.name())
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
-            .build();
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
+        ChecksumMode.StoreAndSwitchReadOnlyMode.name());
+    config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+        config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -57,7 +55,7 @@ public class StorageTestIT {
 
     var session =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
-            "admin", config);
+            "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     Metadata metadata = session.getMetadata();
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
@@ -101,22 +99,21 @@ public class StorageTestIT {
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
-      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+          config);
       youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
   }
 
   @Test
   public void testCheckMagicNumberReadOnly() throws Exception {
-    var config =
-        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(
-                GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndSwitchReadOnlyMode.name())
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
-            .build();
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
+        ChecksumMode.StoreAndSwitchReadOnlyMode.name());
+    config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+        config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -124,7 +121,7 @@ public class StorageTestIT {
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
-            "admin", config);
+            "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     Metadata metadata = db.getMetadata();
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
@@ -165,7 +162,8 @@ public class StorageTestIT {
       Assert.fail();
     } catch (StorageException e) {
       youTrackDB.close();
-      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+          config);
       youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin", "admin");
     }
   }
@@ -173,14 +171,12 @@ public class StorageTestIT {
   @Test
   public void testCheckMagicNumberVerify() throws Exception {
 
-    var config =
-        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndVerify.name())
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
-            .build();
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
+        ChecksumMode.StoreAndVerify.name());
 
-    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+        config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -188,7 +184,7 @@ public class StorageTestIT {
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
-            "admin", config);
+            "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     Metadata metadata = db.getMetadata();
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
@@ -242,14 +238,13 @@ public class StorageTestIT {
   @Test
   public void testCheckSumFailureVerifyAndLog() throws Exception {
 
-    var config =
-        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CHECKSUM_MODE,
-                ChecksumMode.StoreAndVerify.name())
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
-            .build();
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.STORAGE_CHECKSUM_MODE.getKey(),
+        ChecksumMode.StoreAndVerify);
+    config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
 
-    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()),
+        config);
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()
@@ -257,7 +252,7 @@ public class StorageTestIT {
 
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
-            "admin", config);
+            "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
     Metadata metadata = db.getMetadata();
     Schema schema = metadata.getSchema();
     schema.createClass("PageBreak");
@@ -314,8 +309,7 @@ public class StorageTestIT {
   @Test
   public void testCreatedVersionIsStored() {
     youTrackDB =
-        YourTracks.embedded(
-            DbTestBase.getBaseDirectoryPath(getClass()), YouTrackDBConfig.defaultConfig());
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDB.execute(
         "create database "
             + StorageTestIT.class.getSimpleName()

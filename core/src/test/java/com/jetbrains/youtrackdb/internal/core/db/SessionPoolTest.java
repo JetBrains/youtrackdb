@@ -7,22 +7,20 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Test;
 
 public class SessionPoolTest {
 
   @Test
   public void testPool() {
-    var config =
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-            .build();
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+
     final var youTrackDb =
-        YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
+        YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()), config);
     youTrackDb.createIfNotExists("test", DatabaseType.MEMORY, "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD, "admin");
     @SuppressWarnings("unchecked") final SessionPool<DatabaseSession> pool =
@@ -38,13 +36,14 @@ public class SessionPoolTest {
 
   @Test
   public void testPoolCloseTx() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
+
     final var youTrackDb =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1)
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
 
     if (!youTrackDb.exists("test")) {
       youTrackDb.execute(
@@ -57,9 +56,9 @@ public class SessionPoolTest {
               + "' role admin)");
     }
 
-    @SuppressWarnings("unchecked") final var pool =
+    final var pool =
         new SessionPoolImpl<>(
-            (YouTrackDBAbstract<Result, DatabaseSession>) youTrackDb, "test", "admin",
+            youTrackDb, "test", "admin",
 
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var db = (DatabaseSessionEmbedded) pool.acquire();
@@ -68,7 +67,7 @@ public class SessionPoolTest {
     db.newEntity("Test");
     db.close();
     db = (DatabaseSessionEmbedded) pool.acquire();
-    assertEquals(db.countClass("Test"), 0);
+    assertEquals(0, db.countClass("Test"));
     db.close();
     pool.close();
     youTrackDb.close();
@@ -76,13 +75,13 @@ public class SessionPoolTest {
 
   @Test
   public void testPoolDoubleClose() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
     final var youTrackDb =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1)
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
 
     if (!youTrackDb.exists("test")) {
       youTrackDb.execute(
@@ -95,8 +94,8 @@ public class SessionPoolTest {
               + "' role admin)");
     }
 
-    @SuppressWarnings("unchecked") final SessionPool<DatabaseSession> pool =
-        new SessionPoolImpl<>((YouTrackDBAbstract<?, DatabaseSession>) youTrackDb, "test", "admin",
+    final SessionPool<DatabaseSession> pool =
+        new SessionPoolImpl<>(youTrackDb, "test", "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var db = pool.acquire();
     db.close();

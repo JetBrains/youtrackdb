@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Vertex;
@@ -43,7 +42,7 @@ import org.junit.Test;
  */
 public class SQLFunctionAstarTest {
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
 
   private Vertex v0;

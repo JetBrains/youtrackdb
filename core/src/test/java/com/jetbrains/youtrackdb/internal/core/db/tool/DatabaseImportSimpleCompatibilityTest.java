@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -17,7 +16,7 @@ import org.junit.Test;
 
 public class DatabaseImportSimpleCompatibilityTest {
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
 
   private DatabaseSessionEmbedded importDatabase;
   private DatabaseImport importer;

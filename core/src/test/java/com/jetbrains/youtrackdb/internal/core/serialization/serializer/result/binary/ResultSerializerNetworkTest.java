@@ -2,9 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.result.b
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -22,8 +22,8 @@ public class ResultSerializerNetworkTest {
 
   @Test
   public void test() {
-    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(
-        ResultSerializerNetworkTest.class), YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(ResultSerializerNetworkTest.class))) {
       youTrackDB.createIfNotExists("test", DatabaseType.MEMORY, "admin", "admin", "admin");
       try (var db = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin", "admin")) {
 

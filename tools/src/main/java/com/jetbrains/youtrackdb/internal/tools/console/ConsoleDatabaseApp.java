@@ -26,7 +26,6 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
@@ -35,7 +34,6 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
-import com.jetbrains.youtrackdb.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrackdb.api.remote.query.RemoteResult;
 import com.jetbrains.youtrackdb.internal.client.remote.DatabaseImportRemote;
 import com.jetbrains.youtrackdb.internal.client.remote.YouTrackDBInternalRemote;
@@ -55,7 +53,9 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
@@ -97,7 +97,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
   protected List<RawPair<RID, Object>> currentResultSet;
   protected DatabaseURLConnection urlConnection;
 
-  protected BasicYouTrackDB<?, ?> basicYouTrackDB;
+  protected YouTrackDBAbstract<?, ?> basicYouTrackDB;
 
   private int lastPercentStep;
   private String currentDatabaseUserName;
@@ -215,9 +215,11 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     var urlConnection = URLHelper.parseNew(iURL);
     if (urlConnection.getType().equalsIgnoreCase("remote")) {
-      basicYouTrackDB = YourTracks.remote(urlConnection.getUrl(), iUserName, iUserPassword);
+      basicYouTrackDB = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote(urlConnection.getUrl(),
+          iUserName,
+          iUserPassword);
     } else {
-      basicYouTrackDB = YourTracks.embedded(urlConnection.getPath());
+      basicYouTrackDB = (YouTrackDBImpl) YourTracks.instance(urlConnection.getPath());
     }
 
     message("OK");
@@ -257,14 +259,16 @@ public class ConsoleDatabaseApp extends ConsoleApplication
     }
 
     var connectionType = urlConnection.getType();
-    YouTrackDB embeddedYouTrackDB = null;
-    RemoteYouTrackDB remoteYouTrackDB = null;
+    YouTrackDBImpl embeddedYouTrackDB = null;
+    YouTrackDBRemoteImpl remoteYouTrackDB = null;
 
     if (connectionType.equalsIgnoreCase("remote")) {
-      remoteYouTrackDB = YourTracks.remote(urlConnection.getUrl(), iUserName, iUserPassword);
+      remoteYouTrackDB = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote(urlConnection.getUrl(),
+          iUserName,
+          iUserPassword);
       basicYouTrackDB = remoteYouTrackDB;
     } else {
-      embeddedYouTrackDB = YourTracks.embedded(urlConnection.getPath());
+      embeddedYouTrackDB = (YouTrackDBImpl) YourTracks.instance(urlConnection.getPath());
       basicYouTrackDB = embeddedYouTrackDB;
     }
 
@@ -441,21 +445,23 @@ public class ConsoleDatabaseApp extends ConsoleApplication
 
     var connectionType = urlConnection.getType();
     if (connectionType.equalsIgnoreCase("remote")) {
-      basicYouTrackDB = YourTracks.remote(urlConnection.getUrl(), userName, userPassword);
+      basicYouTrackDB = (YouTrackDBAbstract<?, ?>) YouTrackDBRemoteImpl.remote(
+          urlConnection.getUrl(),
+          userName, userPassword);
     } else {
-      basicYouTrackDB = YourTracks.embedded(urlConnection.getPath());
+      basicYouTrackDB = (YouTrackDBAbstract<?, ?>) YourTracks.instance(urlConnection.getPath());
     }
 
     dbInstanceCreator.run();
 
-    if (basicYouTrackDB instanceof YouTrackDB youTrackDB) {
+    if (basicYouTrackDB instanceof YouTrackDBImpl youTrackDB) {
       currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) youTrackDB.open(
           urlConnection.getDbName(), userName,
           userPassword);
       currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
     } else {
       basicYouTrackDB.create(urlConnection.getDbName(), type);
-      var remoteYouTrackDB = (RemoteYouTrackDB) basicYouTrackDB;
+      var remoteYouTrackDB = (YouTrackDBRemoteImpl) basicYouTrackDB;
       currentDatabaseSession = remoteYouTrackDB.open(urlConnection.getDbName(), userName,
           userPassword);
     }
@@ -1764,7 +1770,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       return;
     }
 
-    if (basicYouTrackDB instanceof YouTrackDB embeddedYouTrackDB) {
+    if (basicYouTrackDB instanceof YouTrackDBImpl embeddedYouTrackDB) {
       if (currentDatabaseSession != null) {
         currentDatabaseSession.close();
       }
@@ -1777,7 +1783,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           password);
       currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
     } else {
-      var remoteYouTrackDB = (RemoteYouTrackDB) basicYouTrackDB;
+      var remoteYouTrackDB = (YouTrackDBRemoteImpl) basicYouTrackDB;
       currentDatabaseSession = remoteYouTrackDB.open(dbName, user, password);
     }
 

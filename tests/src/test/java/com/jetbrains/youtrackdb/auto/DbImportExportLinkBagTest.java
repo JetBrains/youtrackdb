@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
@@ -72,7 +73,7 @@ public class DbImportExportLinkBagTest extends BaseDBTest implements CommandOutp
 
   @Test(dependsOnMethods = "testDbExport")
   public void testDbImport() throws IOException {
-    try (var youTrackDb = YourTracks.embedded(getStorageType() + ":" + testPath)) {
+    try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(getStorageType() + ":" + testPath)) {
       if (youTrackDb.exists(DbImportExportLinkBagTest.class.getSimpleName() + "Import")) {
         youTrackDb.drop(DbImportExportLinkBagTest.class.getSimpleName() + "Import");
       }
@@ -100,7 +101,7 @@ public class DbImportExportLinkBagTest extends BaseDBTest implements CommandOutp
   public void testCompareDatabases() throws IOException {
 
     var first = acquireSession();
-    try (var youTrackDb = YourTracks.embedded(getStorageType() + ":" + testPath)) {
+    try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(getStorageType() + ":" + testPath)) {
       try (var importSession = (DatabaseSessionEmbedded) youTrackDb.open(
           DbImportExportLinkBagTest.class.getSimpleName() + "Import", "admin", "admin")) {
 

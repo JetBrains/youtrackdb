@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.edgebtree.btree;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EdgeKey;
@@ -35,7 +35,7 @@ public class BTreeTestIT {
 
   public static final String DB_NAME = "bTreeTest";
   public static final String DIR_NAME = "/globalBTreeTest";
-  private static BasicYouTrackDB youTrackDB;
+  private static YouTrackDBAbstract<?, ?> youTrackDB;
   private static SharedLinkBagBTree bTree;
   private static AtomicOperationsManager atomicOperationsManager;
   private static AbstractStorage storage;
@@ -63,7 +63,7 @@ public class BTreeTestIT {
 
     FileUtils.deleteRecursively(new File(buildDirectory));
 
-    youTrackDB = YourTracks.embedded(buildDirectory, YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
 
     if (youTrackDB.exists(DB_NAME)) {
       youTrackDB.drop(DB_NAME);
@@ -427,7 +427,8 @@ public class BTreeTestIT {
       var fromKey = keys[fromKeyIndex];
 
       if (random.nextBoolean() && fromKey.targetPosition > Long.MIN_VALUE) {
-        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection, fromKey.targetPosition - 1);
+        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection,
+            fromKey.targetPosition - 1);
       }
 
       final Iterator<RawPairObjectInteger<EdgeKey>> indexIterator;
@@ -612,7 +613,8 @@ public class BTreeTestIT {
       var toKey = keys[toKeyIndex];
 
       if (random.nextBoolean()) {
-        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection, fromKey.targetPosition - 1);
+        fromKey = new EdgeKey(fromKey.ridBagId, fromKey.targetCollection,
+            fromKey.targetPosition - 1);
       }
 
       if (random.nextBoolean()) {

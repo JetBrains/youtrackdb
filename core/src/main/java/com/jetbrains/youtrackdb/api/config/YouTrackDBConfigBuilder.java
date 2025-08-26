@@ -4,8 +4,13 @@ import com.jetbrains.youtrackdb.api.SessionListener;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession.ATTRIBUTES;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import org.apache.commons.configuration2.Configuration;
 
 public interface YouTrackDBConfigBuilder {
+
+  @Nonnull
+  YouTrackDBConfigBuilder fromApacheConfiguration(@Nonnull Configuration configuration);
+
   @Nonnull
   YouTrackDBConfigBuilder fromGlobalConfigurationParameters(
       @Nonnull Map<GlobalConfiguration, Object> values);

@@ -1,11 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import org.junit.After;
@@ -15,19 +14,15 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-/**
- *
- */
 public class RevokeStatementExecutionTest {
 
-  static YouTrackDB youTrackDB;
+  static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
 
   @BeforeClass
   public static void beforeClass() {
-    youTrackDB = YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(RevokeStatementExecutionTest.class),
-        YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(RevokeStatementExecutionTest.class));
   }
 
   @AfterClass

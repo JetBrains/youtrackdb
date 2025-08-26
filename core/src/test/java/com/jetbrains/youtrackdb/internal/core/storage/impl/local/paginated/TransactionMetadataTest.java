@@ -4,7 +4,6 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -24,15 +23,14 @@ import org.junit.Test;
 
 public class TransactionMetadataTest {
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSessionInternal db;
   private static final String DB_NAME = TransactionMetadataTest.class.getSimpleName();
 
   @Before
   public void before() {
 
-    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDB.execute(
         "create database `" + DB_NAME + "` disk users(admin identified by 'admin' role admin)");
     db = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin", "admin");

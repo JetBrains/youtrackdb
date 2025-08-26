@@ -1,33 +1,31 @@
 package com.jetbrains.youtrackdb.internal.lucene.index;
 
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 public class LuceneFailTest {
 
-  private YouTrackDB odb;
+  private YouTrackDBImpl ytdb;
 
   @Before
   public void before() {
-    odb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
-    odb.execute("create database tdb memory users (admin identified by 'admpwd' role admin)")
+    ytdb = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
+    ytdb.execute("create database tdb memory users (admin identified by 'admpwd' role admin)")
         .close();
   }
 
   @After
   public void after() {
-    odb.close();
+    ytdb.close();
   }
 
   @Test
   public void test() {
-    try (var session = odb.open("tdb", "admin", "admpwd")) {
+    try (var session = ytdb.open("tdb", "admin", "admpwd")) {
       session.computeScript("sql", "create property V.text string").close();
       session.computeScript("sql", "create index lucene_index on V(text) FULLTEXT ENGINE LUCENE")
           .close();

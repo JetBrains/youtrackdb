@@ -21,10 +21,8 @@ import static org.testng.AssertJUnit.assertTrue;
 import com.google.common.collect.ImmutableList;
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Entity;
@@ -36,7 +34,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigBuilderImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
@@ -48,6 +46,7 @@ import java.util.Map.Entry;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.testng.Assert;
 import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
@@ -92,8 +91,8 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     }
 
     try (var youTrackDBImport =
-        YourTracks.embedded(
-            testPath + File.separator + IMPORT_DB_PATH, YouTrackDBConfig.defaultConfig())) {
+        (YouTrackDBImpl) YourTracks.instance(
+            testPath + File.separator + IMPORT_DB_PATH)) {
       youTrackDBImport.createIfNotExists(
           IMPORT_DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
       try (var importDB = youTrackDBImport.open(IMPORT_DB_NAME, "admin", "admin")) {
@@ -115,8 +114,8 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
   @Test(dependsOnMethods = "testDbImport")
   public void testCompareDatabases() throws IOException {
     try (var youTrackDBImport =
-        YourTracks.embedded(
-            testPath + File.separator + IMPORT_DB_PATH, YouTrackDBConfig.defaultConfig())) {
+        (YouTrackDBImpl) YourTracks.instance(
+            testPath + File.separator + IMPORT_DB_PATH)) {
       try (var importDB = youTrackDBImport.open(IMPORT_DB_NAME, "admin", "admin")) {
         final var databaseCompare =
             new DatabaseCompare(session, (DatabaseSessionEmbedded) importDB, this);
@@ -133,11 +132,9 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
     final var exportPath = new File(localTesPath, "export.json.gz");
 
-    final YouTrackDBConfig config =
-        new YouTrackDBConfigBuilderImpl()
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
-            .build();
-    try (final var youTrackDB = YourTracks.embedded(
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), true);
+    try (final var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         localTesPath.getPath(),
         config)) {
       youTrackDB.create("original", DatabaseType.DISK);
@@ -303,13 +300,11 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
     final var exportPath = new File(localTesPath, "export_graph.json.gz");
 
-    final YouTrackDBConfig config =
-        new YouTrackDBConfigBuilderImpl()
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
-            .build();
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), true);
 
     try (
-        var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
+        var youTrackDB = (YouTrackDBImpl) YourTracks.instance(localTesPath.getPath(), config);
         var original = createAndOpen(youTrackDB, "original");
         var imported = createAndOpen(youTrackDB, "imported")
     ) {
@@ -382,13 +377,10 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
     final var exportPath = new File(localTesPath, "export_blob.json.gz");
 
-    final YouTrackDBConfig config =
-        new YouTrackDBConfigBuilderImpl()
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, true)
-            .build();
-
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), true);
     try (
-        var youTrackDB = YourTracks.embedded(localTesPath.getPath(), config);
+        var youTrackDB = (YouTrackDBImpl) YourTracks.instance(localTesPath.getPath(), config);
         var original = createAndOpen(youTrackDB, "original");
         var imported = createAndOpen(youTrackDB, "imported")
     ) {
@@ -430,7 +422,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     }
   }
 
-  private static DatabaseSession createAndOpen(YouTrackDB youTrackDB, String dbName) {
+  private static DatabaseSession createAndOpen(YouTrackDBImpl youTrackDB, String dbName) {
     youTrackDB.create(dbName, DatabaseType.DISK);
     return youTrackDB.open(dbName, "admin", "admin");
   }

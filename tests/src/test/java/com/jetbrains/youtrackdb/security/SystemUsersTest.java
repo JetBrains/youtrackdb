@@ -1,13 +1,14 @@
 package com.jetbrains.youtrackdb.security;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.File;
 import org.junit.Test;
 
 public class SystemUsersTest {
+
   @Test
   public void test() {
     final var buildDirectory = System.getProperty("buildDirectory", ".");
@@ -18,9 +19,8 @@ public class SystemUsersTest {
     LogManager.instance()
         .info(this, "YOUTRACKDB_HOME: " + System.getProperty("YOUTRACKDB_HOME"));
 
-    try (var youTrackDB = YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(SystemUsersTest.class),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(SystemUsersTest.class))) {
       youTrackDB.execute(
           "create database " + "test" + " memory users ( admin identified by 'admin' role admin)");
 

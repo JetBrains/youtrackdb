@@ -4,8 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionDecimal;
 import java.math.BigDecimal;
 import org.junit.Before;
@@ -50,8 +50,8 @@ public class SQLFunctionDecimalTest {
 
   @Test
   public void testFromQuery() {
-    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var db = ctx.open("test", "admin", "adminpwd")) {
         var initial = "12324124321234543256758654.76543212345676543254356765434567654";

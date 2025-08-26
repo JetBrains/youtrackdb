@@ -6,8 +6,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import org.junit.Before;
@@ -158,8 +158,8 @@ public class SQLFunctionAbsoluteValueTest {
 
   @Test
   public void testFromQuery() {
-    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var db = ctx.open("test", "admin", "adminpwd")) {
         var tx = db.begin();

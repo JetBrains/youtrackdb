@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
@@ -11,6 +10,7 @@ import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
@@ -46,7 +46,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   private static File buildDir;
 
-  private static YouTrackDB youTrackDB;
+  private static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded testDocumentTx;
   private DatabaseSessionEmbedded baseDocumentTx;
   private final ExecutorService executorService = Executors.newCachedThreadPool();
@@ -65,7 +65,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     buildDir.mkdir();
 
-    youTrackDB = YourTracks.embedded(buildDir.getAbsolutePath());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDir.getAbsolutePath());
     youTrackDB.create("baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords",
         DatabaseType.DISK,
         YouTrackDBConfig.defaultConfig(), "admin",
@@ -270,7 +270,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     private final long seed;
 
-    public DataPropagationTask(long seed, YouTrackDB youTrackDB) {
+    public DataPropagationTask(long seed, YouTrackDBImpl youTrackDB) {
       this.seed = seed;
 
       baseDB = (DatabaseSessionEmbedded)

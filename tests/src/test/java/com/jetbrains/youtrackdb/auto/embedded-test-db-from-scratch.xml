@@ -158,8 +158,6 @@
       <class name="com.jetbrains.youtrackdb.auto.StringsTest"/>
       <class name="com.jetbrains.youtrackdb.auto.DBSequenceTest"/>
       <class name="com.jetbrains.youtrackdb.auto.SQLDBSequenceTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.RemoteProtocolCommandsTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.RunServerTest"/>
     </classes>
   </test>
   <test name="DbTools">

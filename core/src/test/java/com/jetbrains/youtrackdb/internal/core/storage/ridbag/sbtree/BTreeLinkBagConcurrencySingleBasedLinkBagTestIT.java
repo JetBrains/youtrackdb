@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag.sbtree;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -14,6 +13,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.RawTriple;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -44,7 +44,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
   private int topThreshold;
   private int bottomThreshold;
 
-  private YouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
 
   @Before
   public void beforeMethod() {
@@ -56,7 +56,7 @@ public class BTreeLinkBagConcurrencySingleBasedLinkBagTestIT {
     GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.setValue(30);
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(20);
 
-    youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(
         BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class));
 
     if (youTrackDB.exists(BTreeLinkBagConcurrencySingleBasedLinkBagTestIT.class.getSimpleName())) {

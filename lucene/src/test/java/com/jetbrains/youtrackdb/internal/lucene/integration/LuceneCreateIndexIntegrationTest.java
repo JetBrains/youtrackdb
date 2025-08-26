@@ -1,9 +1,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.integration;
 
-import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.util.List;
 import org.junit.After;
@@ -14,15 +12,14 @@ import org.junit.Test;
 public class LuceneCreateIndexIntegrationTest {
 
   private YouTrackDBServer server0;
-  private RemoteYouTrackDB remote;
+  private YouTrackDBRemoteImpl remote;
 
   @Before
   public void before() throws Exception {
     server0 =
         YouTrackDBServer.startFromClasspathConfig(
             "com/jetbrains.youtrackdb/lucene/integration/youtrackdb-simple-server-config.xml");
-    remote = YourTracks.remote("remote:localhost", "root", "test",
-        YouTrackDBConfig.defaultConfig());
+    remote = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root", "test");
 
     remote.execute(
         "create database LuceneCreateIndexIntegrationTest disk users(admin identified by 'admin'"

@@ -2,8 +2,7 @@ package com.jetbrains.youtrackdb.internal.server.security;
 
 import static org.junit.Assert.assertEquals;
 
-import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import org.junit.After;
 import org.junit.Before;
@@ -17,8 +16,7 @@ public class RemoteBasicSecurityTest {
   public void before() throws Exception {
     server = YouTrackDBServer.startFromClasspathConfig("abstract-youtrackdb-server-config.xml");
     var youTrackDB =
-        YourTracks.remote("remote:localhost", "root", "root",
-            YouTrackDBConfig.defaultConfig());
+        (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root", "root");
     youTrackDB.execute(
         "create database test memory users (admin identified by 'admin' role admin, reader"
             + " identified by 'reader' role reader, writer identified by 'writer' role writer)");
@@ -36,8 +34,9 @@ public class RemoteBasicSecurityTest {
   @Test
   public void testCreateAndConnectWriter() {
     // CREATE A SEPARATE CONTEXT TO MAKE SURE IT LOAD STAFF FROM SCRATCH
-    try (var youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost",
+        "root",
+        "root")) {
       try (var session = youTrackDB.open("test", "writer", "writer")) {
         session.executeSQLScript("""
             begin;
@@ -55,8 +54,9 @@ public class RemoteBasicSecurityTest {
   @Test
   public void testCreateAndConnectReader() {
     // CREATE A SEPARATE CONTEXT TO MAKE SURE IT LOAD STAFF FROM SCRATCH
-    try (var youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost",
+        "root",
+        "root")) {
       try (var reader = youTrackDB.open("test", "reader", "reader")) {
         try (var rs = reader.query("select from one")) {
           assertEquals(1, rs.stream().count());
