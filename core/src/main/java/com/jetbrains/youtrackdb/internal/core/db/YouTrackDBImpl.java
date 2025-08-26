@@ -27,7 +27,6 @@ public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> 
 
   @Override
   public void close() {
-    YTDBGraphFactory.unregisterYTDBInstance(this);
-    super.close();
+    YTDBGraphFactory.unregisterYTDBInstance(this, super::close);
   }
 }

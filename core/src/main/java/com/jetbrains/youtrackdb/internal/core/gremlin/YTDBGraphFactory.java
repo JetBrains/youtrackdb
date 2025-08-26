@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -106,10 +107,22 @@ public class YTDBGraphFactory {
     return storagePathYTDBMap.get(path);
   }
 
-  public static void unregisterYTDBInstance(YouTrackDBImpl youTrackDB) {
+  public static void unregisterYTDBInstance(@Nonnull YouTrackDBImpl youTrackDB,
+      @Nullable Runnable onCloseCallback) {
     var ytdbInternal = youTrackDB.internal;
     var path = Path.of(ytdbInternal.getBasePath()).toAbsolutePath();
-    storagePathYTDBMap.remove(path, youTrackDB);
+
+    storagePathYTDBMap.compute(path, (p, ytdb) -> {
+      if (ytdb == youTrackDB) {
+        if (onCloseCallback != null) {
+          onCloseCallback.run();
+        }
+
+        return null;
+      }
+
+      return ytdb;
+    });
   }
 
   public static void closeAll() {
