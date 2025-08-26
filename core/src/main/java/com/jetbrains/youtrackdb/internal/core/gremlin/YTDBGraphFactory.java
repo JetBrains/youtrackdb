@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -126,16 +127,16 @@ public class YTDBGraphFactory {
   }
 
   public static void closeAll() {
-    storagePathYTDBMap.values().forEach(ytdb -> {
+    var ytdbs = new HashMap<>(storagePathYTDBMap);
+    ytdbs.values().forEach(ytdb -> {
       try {
+        //will be removed from storagePathYTDBMap in [unregisterYTDBInstance]
         ytdb.close();
       } catch (Exception e) {
         LogManager.instance()
             .error(YTDBGraphFactory.class, "Error closing of YouTrackDB instance", e);
       }
     });
-
-    storagePathYTDBMap.clear();
   }
 
 }
