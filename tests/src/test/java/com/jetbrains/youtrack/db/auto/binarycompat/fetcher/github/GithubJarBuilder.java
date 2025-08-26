@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.github;
 
 import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.JarDownloader;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -9,12 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class GithubJarBuilder implements JarDownloader {
-
-  private static final Logger logger = LoggerFactory.getLogger(GithubJarBuilder.class);
 
   private final GithubRepoDownloader githubRepoDownloader;
   private final MavenBuilder mavenBuilder;
@@ -41,7 +38,8 @@ public class GithubJarBuilder implements JarDownloader {
     try {
       cleanUp(destination);
     } catch (IOException e) {
-      logger.error("Failed to clean up temporary directory: " + destination);
+      LogManager.instance()
+          .error(this, "Failed to clean up temporary directory: " + destination, e);
     }
     var localRepoPath = githubRepoDownloader.checkoutRepository(repoUrl, branch,
         destination.toAbsolutePath().toString());

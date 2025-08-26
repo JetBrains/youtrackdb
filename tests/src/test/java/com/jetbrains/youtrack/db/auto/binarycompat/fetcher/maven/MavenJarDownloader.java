@@ -1,6 +1,7 @@
 package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.maven;
 
 import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.JarDownloader;
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import java.io.File;
 import java.util.Collections;
 import org.apache.maven.repository.internal.DefaultArtifactDescriptorReader;
@@ -25,15 +26,11 @@ import org.eclipse.aether.spi.connector.RepositoryConnectorFactory;
 import org.eclipse.aether.spi.connector.transport.TransporterFactory;
 import org.eclipse.aether.transport.file.FileTransporterFactory;
 import org.eclipse.aether.transport.http.HttpTransporterFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Maven JAR Downloader using Eclipse Aether
  */
 public class MavenJarDownloader implements JarDownloader {
-
-  private static final Logger logger = LoggerFactory.getLogger(MavenJarDownloader.class);
 
   private final RepositorySystem repositorySystem;
   private final RepositorySystemSession session;
@@ -70,7 +67,7 @@ public class MavenJarDownloader implements JarDownloader {
         repositorySystem.resolveArtifact(session, request);
 
     var jarFile = result.getArtifact().getFile();
-    logger.info("Downloaded: " + jarFile.getAbsolutePath());
+    LogManager.instance().info(this, "Downloaded: " + jarFile.getAbsolutePath());
     return jarFile;
   }
 

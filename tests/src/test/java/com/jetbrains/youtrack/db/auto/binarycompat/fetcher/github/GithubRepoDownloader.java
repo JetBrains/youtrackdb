@@ -1,15 +1,11 @@
 package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.github;
 
+import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import java.io.File;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class GithubRepoDownloader {
-
-  private static final Logger logger = LoggerFactory.getLogger(GithubRepoDownloader.class);
-
 
   public String checkoutRepository(String repoUrl, String branch, String destination) {
     try {
@@ -21,7 +17,8 @@ public class GithubRepoDownloader {
 
       result.close();
     } catch (GitAPIException e) {
-      logger.error("Exception occurred while cloning repo: " + e.getMessage(), e);
+      LogManager.instance()
+          .error(this, "Exception occurred while cloning repo", e);
     }
     return destination;
   }
