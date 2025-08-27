@@ -64,9 +64,11 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.st
 import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.TokenSecurityException;
 import com.jetbrains.youtrackdb.internal.remote.RemoteDatabaseSessionInternal;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -74,6 +76,9 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import javax.annotation.Nullable;
 
 public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDatabaseSession> {
 
@@ -307,12 +312,7 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
   }
 
   @Override
-  public void restore(
-      String name,
-      String user,
-      String password,
-      DatabaseType type,
-      String path,
+  public void restore(String name, String user, String password, String path,
       YouTrackDBConfig config) {
     if (name == null || name.length() <= 0) {
       final var message = "Cannot create unnamed remote storage. Check your syntax";
@@ -321,9 +321,34 @@ public class YouTrackDBInternalRemote implements YouTrackDBInternal<RemoteDataba
     }
 
     var request =
-        new CreateDatabaseRequest(name, type.name().toLowerCase(), null, path);
+        new CreateDatabaseRequest(name, DatabaseType.DISK.name().toLowerCase(), null,
+            path, null);
 
-    var response = connectAndSend(name, user, password, request);
+    connectAndSend(name, user, password, request);
+  }
+
+  @Override
+  public void restore(String name, String user, String password, String path,
+      @Nullable String expectedUUID, YouTrackDBConfig config) {
+    if (name == null || name.length() <= 0) {
+      final var message = "Cannot create unnamed remote storage. Check your syntax";
+      LogManager.instance().error(this, message, null);
+      throw new StorageException(name, message);
+    }
+
+    var request =
+        new CreateDatabaseRequest(name, DatabaseType.DISK.name().toLowerCase(), null, path,
+            expectedUUID);
+
+    connectAndSend(name, user, password, request);
+  }
+
+  @Override
+  public void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+      YouTrackDBConfig config) {
+    throw new UnsupportedOperationException(
+        "Restore from stream suppliers is not supported for remote clients.");
   }
 
   public <T extends BinaryResponse> T connectAndSend(

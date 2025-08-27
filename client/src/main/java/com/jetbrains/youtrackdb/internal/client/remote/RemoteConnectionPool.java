@@ -11,7 +11,9 @@ import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelBinary
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
+/**
+ *
+ */
 public record RemoteConnectionPool(ResourcePool<String, SocketChannelBinaryAsynchClient> pool)
     implements ResourcePoolListener<String, SocketChannelBinaryAsynchClient> {
 

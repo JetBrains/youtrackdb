@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * YouTrackDB management environment, it allows to connect to an environment and manipulate
@@ -71,6 +72,7 @@ import javax.annotation.Nonnull;
  */
 public interface BasicYouTrackDB<R extends BasicResult, S extends BasicDatabaseSession<R, ?>> extends
     AutoCloseable {
+
   /**
    * Open a database
    *
@@ -246,21 +248,37 @@ public interface BasicYouTrackDB<R extends BasicResult, S extends BasicDatabaseS
   SessionPool<S> cachedPool(
       String database, String user, String password, YouTrackDBConfig config);
 
-  /**
-   * Creates database by restoring it from incremental backup. The backup should be created with
-   * {@link BasicDatabaseSession#backup(Path)}.
-   * <p/>
-   * At the moment only disk based databases are supported, you can not restore memory databases.
-   *
-   * @param name     Name of database to be created.
-   * @param user     Name of server user, not needed for local databases.
-   * @param password User password, not needed for local databases.
-   * @param path     Path to the backup directory.
-   * @param config   YouTrackDB config, the same as for
-   *                 {@link #create(String, DatabaseType, YouTrackDBConfig)}
-   */
+  /// Creates database by restoring it from backup. The backup should be created with
+  /// [#backup(Path)].
+  ///
+  /// At the moment only disk based databases are supported, you cannot restore memory databases.
+  ///
+  /// @param name     Name of database to be created.
+  /// @param user     Name of server user, not needed for local databases.
+  /// @param password User password, not needed for local databases.
+  /// @param path     Path to the backup directory.
+  /// @param config   YouTrackDB config, the same as for
+  ///                 [#create(String,DatabaseType,YouTrackDBConfig)]
   void restore(String name, String user, String password, String path,
       YouTrackDBConfig config);
+
+  /// Creates database by restoring it from backup. The backup should be created with
+  /// [#backup(Path)].
+  ///
+  /// At the moment only disk based databases are supported, you can not restore memory databases.
+  ///
+  /// @param name         Name of database to be created.
+  /// @param user         Name of server user, not needed for local databases.
+  /// @param password     User password, not needed for local databases.
+  /// @param path         Path to the backup directory.
+  /// @param expectedUUID UUID of the database to be restored. If null, the database will be
+  ///                     restored only if directory contains backup only from one database.
+  /// @param config       YouTrackDB config, the same as for
+  ///                     [#create(String,DatabaseType,YouTrackDBConfig)]
+  void restore(String name, String user, String password, String path,
+      @Nullable String expectedUUID,
+      YouTrackDBConfig config);
+
 
   /**
    * Subscribe a query as a live query for future create/update event with the referred conditions

@@ -149,6 +149,8 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionNoTx;
 import com.jetbrains.youtrackdb.internal.core.tx.RollbackException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Path;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -167,6 +169,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -2478,6 +2483,22 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
     storage.backup(path);
+  }
+
+  @Override
+  public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier,
+      Function<String, OutputStream> ibuOutputStreamSupplier,
+      Consumer<String> ibuFileRemover) {
+    assert assertIfNotActive();
+
+    checkOpenness();
+    checkOpenedAsRemoteSession();
+
+    checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
+
+    storage.backup(ibuFilesSupplier, ibuInputStreamSupplier, ibuOutputStreamSupplier,
+        ibuFileRemover);
   }
 
   @Nullable

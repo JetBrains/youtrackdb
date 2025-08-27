@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.commons.lang.ArrayUtils;
 
 public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicDatabaseSession<R, ?>>
@@ -358,6 +359,12 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
   public void restore(String name, String user, String password, String path,
       YouTrackDBConfig config) {
     internal.restore(name, user, password, null, path, config);
+  }
+
+  @Override
+  public void restore(String name, String user, String password, String path,
+      @Nullable String expectedUUID, YouTrackDBConfig config) {
+    internal.restore(name, user, password, expectedUUID, path, config);
   }
 
   public void invalidateCachedPools() {

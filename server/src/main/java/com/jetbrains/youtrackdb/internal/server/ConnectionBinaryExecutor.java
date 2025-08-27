@@ -112,7 +112,8 @@ public final class ConnectionBinaryExecutor implements BinaryRequestExecutor {
           "Database named '" + request.getDatabaseName() + "' already exists");
     }
     if (request.getBackupPath() != null && !request.getBackupPath().trim().isEmpty()) {
-      server.restore(request.getDatabaseName(), request.getBackupPath());
+      server.restore(request.getDatabaseName(), request.getBackupPath(),
+          request.getExpectedBackupUUID());
     } else {
       server.createDatabase(
           request.getDatabaseName(),

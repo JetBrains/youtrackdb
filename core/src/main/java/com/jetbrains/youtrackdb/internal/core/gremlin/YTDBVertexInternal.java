@@ -138,10 +138,5 @@ public interface YTDBVertexInternal extends YTDBVertex {
     return edgeStream.collect(Collectors.toList()).iterator();
   }
 
-  @Override
-  default com.jetbrains.youtrackdb.api.record.Vertex getUnderlyingVertex() {
-    return getRawEntity().asVertex();
-  }
-
   com.jetbrains.youtrackdb.api.record.Vertex getRawEntity();
 }

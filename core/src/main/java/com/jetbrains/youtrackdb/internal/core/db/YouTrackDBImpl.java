@@ -8,7 +8,12 @@ import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import java.io.InputStream;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import javax.annotation.Nullable;
 
 public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> implements
     YouTrackDB {
@@ -64,4 +69,14 @@ public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> 
   public ResultSet execute(String script, Object... params) {
     return (ResultSet) super.execute(script, params);
   }
+
+  @Override
+  public void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+      YouTrackDBConfig config) {
+    internal.restore(name, ibuFilesSupplier, ibuInputStreamSupplier,
+        expectedUUID, config);
+  }
+
+
 }

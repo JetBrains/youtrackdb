@@ -34,13 +34,15 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.StatementCache;
+import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import javax.annotation.Nullable;
 
-/**
- *
- */
 public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
     extends AutoCloseable, SchedulerInternal {
 
@@ -255,15 +257,24 @@ public interface YouTrackDBInternal<S extends BasicDatabaseSession<?, ?>>
   S poolOpen(
       String name, String user, String password, DatabasePoolInternal<S> pool);
 
+  void restore(
+      String name,
+      String user,
+      String password,
+      String path,
+      YouTrackDBConfig config);
 
   void restore(
       String name,
       String user,
       String password,
-      DatabaseType type,
       String path,
+      @Nullable String expectedUUID,
       YouTrackDBConfig config);
 
+  void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+      YouTrackDBConfig config);
 
   /**
    * Close the factory with all related databases and pools.

@@ -78,6 +78,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -87,6 +88,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 public class YouTrackDBServer {
@@ -600,8 +603,6 @@ public class YouTrackDBServer {
       return;
     }
 
-
-
     databases.loadAllDatabases();
   }
 
@@ -1077,8 +1078,9 @@ public class YouTrackDBServer {
     return dbs;
   }
 
-  public void restore(String name, String path) {
-    databases.restore(name, null, null, null, path, YouTrackDBConfig.defaultConfig());
+  public void restore(String name, String path, String expectedUUID) {
+    databases.restore(name, null, null, path, null,
+        YouTrackDBConfig.defaultConfig());
   }
 
   public final class YTDBInternalProxy implements YouTrackDBInternal<DatabaseSession>,
@@ -1201,16 +1203,40 @@ public class YouTrackDBServer {
     }
 
     @Override
-    public void restore(String name, String user, String password, DatabaseType type, String path,
+    public void restore(String name, String user, String password, String path,
         YouTrackDBConfig config) {
       dbCreationLock.lock();
       try {
-        internal.restore(name, user, password, type, path, config);
+        internal.restore(name, user, password, path, config);
         dbNamesCache.add(name);
       } finally {
         dbCreationLock.unlock();
       }
+    }
 
+    @Override
+    public void restore(String name, String user, String password, String path,
+        @Nullable String expectedUUID, YouTrackDBConfig config) {
+      dbCreationLock.lock();
+      try {
+        internal.restore(name, user, password, path, expectedUUID, config);
+        dbNamesCache.add(name);
+      } finally {
+        dbCreationLock.unlock();
+      }
+    }
+
+    @Override
+    public void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
+        Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+        YouTrackDBConfig config) {
+      dbCreationLock.lock();
+      try {
+        internal.restore(name, ibuFilesSupplier, ibuInputStreamSupplier, expectedUUID, config);
+        dbNamesCache.add(name);
+      } finally {
+        dbCreationLock.unlock();
+      }
     }
 
     @Override

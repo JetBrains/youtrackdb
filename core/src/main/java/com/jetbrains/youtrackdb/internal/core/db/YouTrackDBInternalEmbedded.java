@@ -49,6 +49,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -57,6 +58,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,6 +70,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.apache.commons.lang.NullArgumentException;
@@ -681,12 +686,48 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
       DatabaseType type,
       YouTrackDBConfig config,
       DatabaseTask<Void> createOps) {
+    createStorage(name, user, password, type, (YouTrackDBConfigImpl) config,
+        (storage, embedded) -> createOps.call(embedded));
+  }
+
+  @Override
+  public void restore(
+      String name,
+      String user,
+      String password,
+      String path,
+      YouTrackDBConfig config) {
+    restore(name, user, password, path, null, config);
+  }
+
+  @Override
+  public void restore(String name, String user, String password, String path,
+      @Nullable String expectedUUID, YouTrackDBConfig config) {
+    createStorage(name, user, password, DatabaseType.DISK, (YouTrackDBConfigImpl) config,
+        (storage, embedded) -> {
+          storage.restoreFromBackup(Path.of(path), expectedUUID);
+        });
+  }
+
+  @Override
+  public void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
+      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+      YouTrackDBConfig config) {
+    createStorage(name, null, null, DatabaseType.DISK, (YouTrackDBConfigImpl) config,
+        (storage, embedded) -> {
+          storage.restoreFromBackup(ibuFilesSupplier, ibuInputStreamSupplier, expectedUUID);
+        });
+  }
+
+  private void createStorage(String name, @Nullable String user, @Nullable String password,
+      DatabaseType type,
+      YouTrackDBConfigImpl config, BiConsumer<AbstractStorage, DatabaseSessionEmbedded> createOps) {
     checkDatabaseName(name);
     final DatabaseSessionEmbedded embedded;
     synchronized (this) {
       if (!exists(name, user, password)) {
         try {
-          config = solveConfig((YouTrackDBConfigImpl) config);
+          config = solveConfig(config);
           AbstractStorage storage;
           if (type == DatabaseType.MEMORY) {
             storage =
@@ -708,9 +749,10 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
                         this);
           }
           storages.put(name, storage);
-          embedded = internalCreate((YouTrackDBConfigImpl) config, storage);
+          embedded = internalCreate(config, storage);
+
           if (createOps != null) {
-            createOps.call(embedded);
+            createOps.accept(storage, embedded);
           }
         } catch (Exception e) {
           throw BaseException.wrapException(
@@ -722,48 +764,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
             "Cannot create new database '" + name + "' because it already exists");
       }
     }
-    embedded.callOnCreateListeners();
   }
 
-  @Override
-  public void restore(
-      String name,
-      String user,
-      String password,
-      DatabaseType type,
-      String path,
-      YouTrackDBConfig config) {
-    checkDatabaseName(name);
-    config = solveConfig((YouTrackDBConfigImpl) config);
-    final DatabaseSessionEmbedded embedded;
-    AbstractStorage storage;
-    synchronized (this) {
-      if (!exists(name, null, null)) {
-        try {
-          storage =
-              (AbstractStorage)
-                  disk.createStorage(
-                      buildName(name),
-                      maxWALSegmentSize,
-                      doubleWriteLogMaxSegSize,
-                      generateStorageId(),
-                      this);
-          embedded = internalCreate((YouTrackDBConfigImpl) config, storage);
-          storages.put(name, storage);
-        } catch (Exception e) {
-          throw BaseException.wrapException(
-              new DatabaseException(basePath, "Cannot restore database '" + name + "'"), e,
-              basePath);
-        }
-      } else {
-        throw new DatabaseException(basePath,
-            "Cannot create new storage '" + name + "' because it already exists");
-      }
-    }
-    storage.restoreFromBackup(Path.of(path));
-    embedded.callOnCreateListeners();
-    embedded.getSharedContext().reInit(storage, embedded);
-  }
 
   private DatabaseSessionEmbedded internalCreate(
       YouTrackDBConfigImpl config, AbstractStorage storage) {
@@ -1208,6 +1210,16 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     }
     if (name.contains("/") || name.contains(":")) {
       throw new DatabaseException(basePath, String.format("Invalid database name:'%s'", name));
+    }
+    if (name.startsWith("ytdb")) {
+      throw new DatabaseException(basePath,
+          String.format("Invalid database name:'%s'. Database name cannot start with 'ytdb'",
+              name));
+    }
+    if (name.startsWith("server")) {
+      throw new DatabaseException(basePath,
+          String.format("Invalid database name:'%s'. Database name cannot start with 'server'",
+              name));
     }
   }
 

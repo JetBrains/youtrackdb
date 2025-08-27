@@ -17,13 +17,16 @@ public class CreateDatabaseRequest implements BinaryRequest<CreateDatabaseRespon
   private String databaseType;
   private String storageMode;
   private String backupPath;
+  private String expectedBackupUUID;
 
   public CreateDatabaseRequest(
-      String databaseName, String databaseType, String storageMode, String backupPath) {
+      String databaseName, String databaseType, String storageMode, String backupPath,
+      String expectedBackupUUID) {
     this.databaseName = databaseName;
     this.databaseType = databaseType;
     this.storageMode = storageMode;
     this.backupPath = backupPath;
+    this.expectedBackupUUID = expectedBackupUUID;
   }
 
   public CreateDatabaseRequest() {
@@ -36,6 +39,7 @@ public class CreateDatabaseRequest implements BinaryRequest<CreateDatabaseRespon
     network.writeString(databaseType);
     network.writeString(storageMode);
     network.writeString(backupPath);
+    network.writeString(expectedBackupUUID);
   }
 
   @Override
@@ -45,9 +49,8 @@ public class CreateDatabaseRequest implements BinaryRequest<CreateDatabaseRespon
     this.databaseName = channel.readString();
     this.databaseType = channel.readString();
     this.storageMode = channel.readString();
-    if (protocolVersion > 35) {
-      this.backupPath = channel.readString();
-    }
+    this.backupPath = channel.readString();
+    this.expectedBackupUUID = channel.readString();
   }
 
   @Override
@@ -89,6 +92,10 @@ public class CreateDatabaseRequest implements BinaryRequest<CreateDatabaseRespon
 
   public String getStorageMode() {
     return storageMode;
+  }
+
+  public String getExpectedBackupUUID() {
+    return expectedBackupUUID;
   }
 
   @Override

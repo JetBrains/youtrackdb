@@ -96,6 +96,7 @@ public class StorageBackupMTIT {
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
           YouTrackDBConfig.defaultConfig());
       youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(),
+          null,
           YouTrackDBConfig.defaultConfig());
 
       final var compare =
@@ -202,7 +203,7 @@ public class StorageBackupMTIT {
 
       GlobalConfiguration.STORAGE_ENCRYPTION_KEY.setValue("T1JJRU5UREJfSVNfQ09PTA==");
       youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
-      youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(), config);
+      youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(), null, config);
 
       final var compare =
           new DatabaseCompare(

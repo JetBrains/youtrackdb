@@ -78,8 +78,7 @@ public class StorageBackupTest {
         backupDbName,
         null,
         null,
-        backupDir.getAbsolutePath(),
-        YouTrackDBConfig.defaultConfig());
+        backupDir.getAbsolutePath(), null, YouTrackDBConfig.defaultConfig());
 
     final var compare =
         new DatabaseCompare(
@@ -180,6 +179,7 @@ public class StorageBackupTest {
         null,
         null,
         backupDir.getAbsolutePath(),
+        null,
         YouTrackDBConfig.defaultConfig());
 
     final var compare =
@@ -281,6 +281,7 @@ public class StorageBackupTest {
         null,
         null,
         backupDir.getAbsolutePath(),
+        null,
         config);
 
     final var compare =
