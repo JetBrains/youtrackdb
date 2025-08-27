@@ -821,6 +821,13 @@ public enum GlobalConfiguration {
       Integer.class,
       10),
 
+  QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT(
+      "youtrackdb.query.gremlin.polymorphicByDefault",
+      "Controls the default behavior of hasLabel step in Gremlin queries.",
+      Boolean.class,
+      false
+  ),
+
   STATEMENT_CACHE_SIZE(
       "youtrackdb.statement.cacheSize",
       "Number of parsed SQL statements kept in cache. Zero means cache disabled",

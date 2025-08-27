@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaPropertyPToken;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl.SkipAsAnonymousMethod;
@@ -156,5 +157,19 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, Edge> addE(final YTDBDomainObjectObjectOutToken<?> out) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.addE(out.name());
+  }
+
+  @SkipAsAnonymousMethod
+  default GraphTraversal<S, E> with(final YTDBQueryConfigParam key, final Object value) {
+    if (!key.type().isInstance(value)) {
+      throw new IllegalArgumentException("The provided value " + value + " is not an instance of "
+          + key.type().getSimpleName());
+    }
+    return with(key.name(), value);
+  }
+
+  @SkipAsAnonymousMethod
+  default GraphTraversal<S, E> with(final YTDBQueryConfigParam key) {
+    return with(key, true);
   }
 }

@@ -35,6 +35,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     implements HasContainerHolder {
 
   private final List<HasContainer> hasContainers = new ArrayList<>();
+  private boolean polymorphic;
 
   public YTDBGraphStep(final GraphStep<S, E> originalGraphStep) {
     super(
@@ -107,9 +108,15 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     } else {
       var query = buildQuery(session);
       if (query != null) {
-        return new DefaultCloseableIterator<>(query.execute(session).stream()
-            .map(getElement)
-            .filter(element -> HasContainer.testAll(element, this.hasContainers)).iterator());
+        var stream = query.execute(session).stream().map(getElement);
+
+        if (!polymorphic) {
+          // this must be optimized in the future. in the case of non-polymorphic queries,
+          // we should propagate a flag to the query engine and make it consider only
+          // non-polymorphic collection ids.
+          stream = stream.filter(element -> HasContainer.testAll(element, this.hasContainers));
+        }
+        return new DefaultCloseableIterator<>(stream.iterator());
       }
 
       return IteratorUtils.filter(getAllElements.apply(graph),
@@ -161,7 +168,6 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     }
   }
 
-
   @Override
   public List<HasContainer> getHasContainers() {
     return Collections.unmodifiableList(this.hasContainers);
@@ -170,5 +176,9 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
   @Override
   public void addHasContainer(final HasContainer hasContainer) {
     this.hasContainers.add(hasContainer);
+  }
+
+  public void setPolymorphic(boolean polymorphic) {
+    this.polymorphic = polymorphic;
   }
 }

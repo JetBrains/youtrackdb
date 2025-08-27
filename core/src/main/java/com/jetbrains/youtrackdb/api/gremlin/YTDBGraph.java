@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.api.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 
@@ -19,7 +18,7 @@ public interface YTDBGraph extends Graph {
   YTDBVertex addVertex(String label);
 
   @Override
-  default GraphTraversalSource traversal() {
+  default YTDBGraphTraversalSource traversal() {
     return new YTDBGraphTraversalSource(this);
   }
 }

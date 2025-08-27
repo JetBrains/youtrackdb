@@ -1,5 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import java.util.List;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
@@ -224,5 +228,86 @@ public class GraphQueryTest extends GraphBaseTest {
 
     v1.addEdge("HasAnimal", v3, "marker", 10);
     v2.addEdge("HasAnimal", v4);
+  }
+
+  @Test
+  public void testPolymorphicLabels() {
+
+    //            animal
+    //     /     /      \      \
+    // fish    mammal   insect  bird
+    //        /     \     \
+    //      cat    human   bee
+
+    session.createVertexClass("animal");
+    session.createClass("fish", "animal");
+    session.createClass("mammal", "animal");
+    session.createClass("bird", "animal");
+    session.createClass("insect", "animal");
+    session.createClass("bee", "insect");
+    session.createClass("cat", "mammal");
+    session.createClass("human", "mammal");
+
+    session.executeInTx(tx -> {
+      tx.newVertex("animal").setProperty("name", "someAnimal");
+
+      tx.newVertex("fish").setProperty("name", "someFish");
+
+      tx.newVertex("cat").setProperty("name", "someCat");
+
+      tx.newVertex("cat").setProperty("name", "otherCat");
+
+      tx.newVertex("insect").setProperty("name", "someInsect");
+    });
+
+    assertThat(queryNames("animal", true))
+        .containsExactlyInAnyOrder("someAnimal", "someFish", "someCat", "otherCat", "someInsect");
+
+    assertThat(queryNames("animal", false))
+        .containsExactlyInAnyOrder("someAnimal");
+
+    assertThat(queryNames("fish", true))
+        .containsExactlyInAnyOrder("someFish");
+
+    assertThat(queryNames("fish", false))
+        .containsExactlyInAnyOrder("someFish");
+
+    assertThat(queryNames("mammal", true))
+        .containsExactlyInAnyOrder("someCat", "otherCat");
+
+    assertThat(queryNames("mammal", false))
+        .isEmpty();
+
+    assertThat(queryNames("insect", true))
+        .containsExactlyInAnyOrder("someInsect");
+
+    assertThat(queryNames("insect", false))
+        .containsExactlyInAnyOrder("someInsect");
+
+    assertThat(queryNames("bird", true))
+        .isEmpty();
+
+    assertThat(queryNames("bird", false))
+        .isEmpty();
+
+    assertThat(queryNames("cat", true))
+        .containsExactlyInAnyOrder("someCat", "otherCat");
+
+    assertThat(queryNames("cat", false))
+        .containsExactlyInAnyOrder("someCat", "otherCat");
+
+    assertThat(queryNames("human", true))
+        .isEmpty();
+
+    assertThat(queryNames("human", false))
+        .isEmpty();
+  }
+
+  private List<String> queryNames(String clazz, boolean polymorphic) {
+    return pool.asGraph().traversal().V()
+        .hasLabel(clazz)
+        .with(YTDBQueryConfigParam.polymorphicQuery, polymorphic)
+        .<String>values("name")
+        .toList();
   }
 }
