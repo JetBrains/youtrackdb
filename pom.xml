@@ -42,6 +42,7 @@
     <module>console-distribution</module>
     <module>gremlin-annotations</module>
     <module>driver</module>
+    <module>console</module>
   </modules>
 
   <scm>
@@ -97,6 +98,7 @@
     <graalvm.version>22.0.0.2</graalvm.version>
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
+    <log4j.version>2.12.4</log4j.version>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
     <gremlin.version>3.7.4</gremlin.version>
   </properties>
@@ -195,6 +197,21 @@
         <groupId>com.google.testing.compile</groupId>
         <artifactId>compile-testing</artifactId>
         <version>0.19</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-api</artifactId>
+        <version>${log4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-core</artifactId>
+        <version>${log4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-slf4j-impl</artifactId>
+        <version>${log4j.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -402,6 +419,11 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-shade-plugin</artifactId>
           <version>3.6.0</version>
+        </plugin>
+        <plugin>
+          <groupId>io.fabric8</groupId>
+          <artifactId>docker-maven-plugin</artifactId>
+          <version>0.46.0</version>
         </plugin>
       </plugins>
 
