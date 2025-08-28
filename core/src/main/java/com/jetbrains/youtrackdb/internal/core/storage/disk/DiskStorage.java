@@ -1933,7 +1933,7 @@ public class DiskStorage extends AbstractStorage {
             return false;
           }
 
-          var fileName = path.getFileName();
+          var fileName = path.getFileName().toString();
           return fileName.endsWith(IBU_EXTENSION) && fileName.startsWith(dbUUID);
         }).map(path -> path.getFileName().toString()).toList().iterator();
       } catch (IOException e) {
