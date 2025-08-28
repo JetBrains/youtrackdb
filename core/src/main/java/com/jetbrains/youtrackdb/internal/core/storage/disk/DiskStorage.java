@@ -136,6 +136,7 @@ public class DiskStorage extends AbstractStorage {
   private static final String ALGORITHM_NAME = "AES";
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
 
+
   private static final ThreadLocal<Cipher> CIPHER =
       ThreadLocal.withInitial(DiskStorage::getCipherInstance);
 
@@ -172,15 +173,16 @@ public class DiskStorage extends AbstractStorage {
   private static final int IBU_METADATA_LAST_LSN_SEGMENT_OFFSET =
       IBU_METADATA_START_LSN_POSITION_OFFSET + Integer.BYTES;
   private static final int IBU_METADATA_LAST_LSN_POSITION_OFFSET =
-      IBU_METADATA_LAST_LSN_SEGMENT_OFFSET + Integer.BYTES;
-
+      IBU_METADATA_LAST_LSN_SEGMENT_OFFSET + Long.BYTES;
   private static final int IBU_METADATA_HASH_CODE_OFFSET =
-      IBU_METADATA_LAST_LSN_POSITION_OFFSET + Long.BYTES + Integer.BYTES;
+      IBU_METADATA_LAST_LSN_POSITION_OFFSET + Integer.BYTES;
 
   private static final int CURRENT_BACKUP_FORMAT_VERSION = 1;
   private static final String CONF_ENTRY_NAME = "database.ocf";
   private static final String BACKUP_DATEFORMAT = "yyyy-MM-dd-HH-mm-ss";
   private static final String CONF_UTF_8_ENTRY_NAME = "database_utf8.ocf";
+  private static final int UUID_LENGTH = 36;
+
 
   private static final String ENCRYPTION_IV = "encryption.iv";
 
@@ -917,7 +919,7 @@ public class DiskStorage extends AbstractStorage {
               .info(this, "Backup unit file %s will be created.", ibuNextFile);
           try (var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile)) {
             var xxHashStream = new XXHashOutputStream(fileStream);
-            var lastLsn = storeBackupDataToStream(fileStream, fromLsn);
+            var lastLsn = storeBackupDataToStream(xxHashStream, fromLsn);
 
             writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn);
           }
@@ -1023,7 +1025,7 @@ public class DiskStorage extends AbstractStorage {
           } else {
             if (read >= IBU_METADATA_SIZE) {
               //tail of data, not metadata for sure
-              xxHash64.update(metaDataCandidate, 0, metaDataCandidate.length);
+              xxHash64.update(metaDataCandidate, 0, IBU_METADATA_SIZE);
               //hash code from metadata will be calculated at the end
               xxHash64.update(buffer, 0, read - IBU_METADATA_SIZE);
               //potential metadata content
@@ -1039,10 +1041,10 @@ public class DiskStorage extends AbstractStorage {
               System.arraycopy(buffer, 0, metaDataCandidate, IBU_METADATA_SIZE - read, read);
             }
           }
-        }
 
-        if (copyStream != null) {
-          copyStream.write(buffer, 0, read);
+          if (copyStream != null && read > 0) {
+            copyStream.write(buffer, 0, read);
+          }
         }
       }
 
@@ -1052,7 +1054,7 @@ public class DiskStorage extends AbstractStorage {
         return null;
       }
 
-      xxHash64.update(metaDataCandidate, 0, metaDataCandidate.length - Long.BYTES);
+      xxHash64.update(metaDataCandidate, 0, IBU_METADATA_HASH_CODE_OFFSET);
 
       var metadataVersion = ShortSerializer.deserializeLiteral(metaDataCandidate,
           IBU_METADATA_VERSION_OFFSET);
@@ -1073,11 +1075,14 @@ public class DiskStorage extends AbstractStorage {
       var metadataHashCode = LongSerializer.deserializeLiteral(metaDataCandidate,
           IBU_METADATA_HASH_CODE_OFFSET);
 
-      if (metadataHashCode != xxHash64.getValue()) {
+      var calculatedHashCode = xxHash64.getValue();
+      xxHash64.close();
+
+      if (calculatedHashCode != metadataHashCode) {
         LogManager.instance()
             .warn(this,
-                "Hash code of the file %s is incorrect. Content of the file is invalid. File either broken or contains invalid data.",
-                ibuFileName);
+                "Hash code of the file %s is broken. Calculated hash code is %d but stored hash code is %d.",
+                ibuFileName, calculatedHashCode, metadataHashCode);
         return null;
       }
 
@@ -1092,8 +1097,7 @@ public class DiskStorage extends AbstractStorage {
         }
       }
 
-      var firstDashIndex = ibuFileName.indexOf('-');
-      if (firstDashIndex == -1) {
+      if (ibuFileName.length() < UUID_LENGTH) {
         LogManager.instance().warn(this, "File name %s does not contain DB UUID.", ibuFileName);
         return null;
       }
@@ -1108,7 +1112,7 @@ public class DiskStorage extends AbstractStorage {
 
       UUID fileNameUUID;
       try {
-        fileNameUUID = UUID.fromString(ibuFileName.substring(firstDashIndex));
+        fileNameUUID = UUID.fromString(ibuFileName.substring(0, UUID_LENGTH));
       } catch (IllegalArgumentException e) {
         LogManager.instance().warn(this, "UUID of the file %s is incorrect.", ibuFileName);
         return null;
@@ -1120,14 +1124,10 @@ public class DiskStorage extends AbstractStorage {
             .warn(this, "UUID of the file %s does not match DB UUID %s.", ibuFileName, dbUUID);
       }
 
-      var secondDashIndex = ibuFileName.indexOf('-', firstDashIndex + 1);
-      if (secondDashIndex == -1) {
-        LogManager.instance()
-            .warn(this, "File %s does not contain backup sequence number.", ibuFileName);
-      }
-
-      var thirdDashIndex = ibuFileName.indexOf('-', secondDashIndex + 1);
-      if (thirdDashIndex == -1) {
+      //uuid-date-sequence number
+      var sequenceNumberStart = UUID_LENGTH + 1 + BACKUP_DATEFORMAT.length() + 1;
+      var afterSequenceDashIndex = ibuFileName.indexOf('-', sequenceNumberStart);
+      if (afterSequenceDashIndex == -1) {
         LogManager.instance()
             .warn(this, "File %s does not contain backup sequence number.", ibuFileName);
       }
@@ -1135,7 +1135,7 @@ public class DiskStorage extends AbstractStorage {
       int sequenceNumber;
       try {
         sequenceNumber = Integer.parseInt(
-            ibuFileName.substring(secondDashIndex + 1, thirdDashIndex));
+            ibuFileName.substring(sequenceNumberStart, afterSequenceDashIndex));
       } catch (NumberFormatException e) {
         LogManager.instance()
             .warn(this, "Sequence number of the file %s is incorrect.", ibuFileName);
@@ -1393,7 +1393,8 @@ public class DiskStorage extends AbstractStorage {
           }
 
           var fileName = path.getFileName();
-          return fileName.endsWith(IBU_EXTENSION) && (expectedUUID == null || fileName.startsWith(
+          return fileName.toString().endsWith(IBU_EXTENSION) && (expectedUUID == null
+              || fileName.startsWith(
               expectedUUID));
         }).map(path -> path.getFileName().toString()).toList().iterator();
       } catch (IOException e) {
@@ -1536,44 +1537,6 @@ public class DiskStorage extends AbstractStorage {
       stateLock.writeLock().unlock();
     }
   }
-
-  //  TODO: implement it next
-//  @Override
-//  public void restoreFullIncrementalBackup(DatabaseSessionInternal session,
-//      final InputStream stream)
-//      throws UnsupportedOperationException {
-//    stateLock.writeLock().lock();
-//    try {
-//      final var aesKeyEncoded =
-//          getConfiguration()
-//              .getContextConfiguration()
-//              .getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
-//      final var aesKey =
-//          aesKeyEncoded == null ? null : Base64.getDecoder().decode(aesKeyEncoded);
-//
-//      if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
-//        throw new InvalidStorageEncryptionKeyException(name,
-//            "Invalid length of the encryption key, provided size is " + aesKey.length);
-//      }
-//
-//      var result = preprocessingIncrementalRestore();
-//      restoreFromIncrementalBackup(
-//          result.charset,
-//          result.serverLocale,
-//          result.locale,
-//          result.contextConfiguration,
-//          aesKey,
-//          stream,
-//          true);
-//
-//      postProcessIncrementalRestore(result.contextConfiguration);
-//    } catch (IOException e) {
-//      throw BaseException.wrapException(
-//          new StorageException(name, "Error during restore from incremental backup"), e, name);
-//    } finally {
-//      stateLock.writeLock().unlock();
-//    }
-//  }
 
   private IncrementalRestorePreprocessingResult preprocessingIncrementalRestore()
       throws IOException {
@@ -1963,87 +1926,87 @@ public class DiskStorage extends AbstractStorage {
                                            String dbUUID) implements Supplier<Iterator<String>> {
 
     @Override
-      public Iterator<String> get() {
-        try (var filesStream = Files.list(backupDirectory)) {
-          return filesStream.filter(path -> {
-            if (Files.isDirectory(path)) {
-              return false;
-            }
+    public Iterator<String> get() {
+      try (var filesStream = Files.list(backupDirectory)) {
+        return filesStream.filter(path -> {
+          if (Files.isDirectory(path)) {
+            return false;
+          }
 
-            var fileName = path.getFileName();
-            return fileName.endsWith(IBU_EXTENSION) && fileName.startsWith(dbUUID);
-          }).map(path -> path.getFileName().toString()).toList().iterator();
-        } catch (IOException e) {
-          throw BaseException.wrapException(new DatabaseException(databaseName,
-                  "Can not list backup unit files in directory '" + backupDirectory + "'"), e,
-              databaseName);
-        }
+          var fileName = path.getFileName();
+          return fileName.endsWith(IBU_EXTENSION) && fileName.startsWith(dbUUID);
+        }).map(path -> path.getFileName().toString()).toList().iterator();
+      } catch (IOException e) {
+        throw BaseException.wrapException(new DatabaseException(databaseName,
+                "Can not list backup unit files in directory '" + backupDirectory + "'"), e,
+            databaseName);
       }
     }
+  }
 
   private record IBULocalFileInputStreamSupplier(Path backupDirectory,
                                                  String databaseName) implements
-        Function<String, InputStream> {
+      Function<String, InputStream> {
 
     @Override
-      public InputStream apply(String ibuFileName) {
-        var ibuPath = backupDirectory.resolve(ibuFileName);
-        try {
-          return new BufferedInputStream(
-              Files.newInputStream(backupDirectory.resolve(ibuFileName)));
-        } catch (IOException e) {
-          throw BaseException.wrapException(new DatabaseException(databaseName,
-              "Can open backup unit file " + ibuPath + " to read it."), e, databaseName);
-        }
+    public InputStream apply(String ibuFileName) {
+      var ibuPath = backupDirectory.resolve(ibuFileName);
+      try {
+        return new BufferedInputStream(
+            Files.newInputStream(backupDirectory.resolve(ibuFileName)));
+      } catch (IOException e) {
+        throw BaseException.wrapException(new DatabaseException(databaseName,
+            "Can open backup unit file " + ibuPath + " to read it."), e, databaseName);
       }
     }
+  }
 
   private record IBULocalFileOutputStreamSupplier(Path backupDirectory,
                                                   String databaseName) implements
-        Function<String, OutputStream> {
+      Function<String, OutputStream> {
 
     @Override
-      public OutputStream apply(String ibuFileName) {
-        var ibuPath = backupDirectory.resolve(ibuFileName);
+    public OutputStream apply(String ibuFileName) {
+      var ibuPath = backupDirectory.resolve(ibuFileName);
+      try {
+        OutputStream os;
+        var fileChannel = FileChannel.open(ibuPath, StandardOpenOption.CREATE_NEW,
+            StandardOpenOption.WRITE);
         try {
-          OutputStream os;
-          var fileChannel = FileChannel.open(ibuPath, StandardOpenOption.CREATE_NEW,
-              StandardOpenOption.WRITE);
-          try {
-            os = Channels.newOutputStream(fileChannel);
-          } catch (Exception e) {
-            fileChannel.close();
-            throw e;
-          }
-          return new ProxyOutputStream(os) {
-            @Override
-            public void close() throws IOException {
-              fileChannel.force(true);
-              super.close();
-            }
-          };
-        } catch (IOException e) {
-          throw BaseException.wrapException(
-              new DatabaseException(databaseName,
-                  "Can create new backup unit file " + ibuPath + " ."),
-              e, databaseName);
+          os = Channels.newOutputStream(fileChannel);
+        } catch (Exception e) {
+          fileChannel.close();
+          throw e;
         }
+        return new ProxyOutputStream(os) {
+          @Override
+          public void close() throws IOException {
+            fileChannel.force(true);
+            super.close();
+          }
+        };
+      } catch (IOException e) {
+        throw BaseException.wrapException(
+            new DatabaseException(databaseName,
+                "Can create new backup unit file " + ibuPath + " ."),
+            e, databaseName);
       }
     }
+  }
 
   private record IBULocalFileRemover(Path backupDirectory, String databaseName) implements
       Consumer<String> {
 
     @Override
-      public void accept(String ibuFileName) {
-        try {
-          var ibuFilePath = backupDirectory.resolve(ibuFileName);
-          Files.deleteIfExists(ibuFilePath);
-          LogManager.instance().info(this, "Deleted backup unit file " + ibuFilePath);
-        } catch (IOException e) {
-          throw BaseException.wrapException(new DatabaseException(databaseName,
-              "Can not delete backup unit file " + ibuFileName + " ."), e, databaseName);
-        }
+    public void accept(String ibuFileName) {
+      try {
+        var ibuFilePath = backupDirectory.resolve(ibuFileName);
+        Files.deleteIfExists(ibuFilePath);
+        LogManager.instance().info(this, "Deleted backup unit file " + ibuFilePath);
+      } catch (IOException e) {
+        throw BaseException.wrapException(new DatabaseException(databaseName,
+            "Can not delete backup unit file " + ibuFileName + " ."), e, databaseName);
       }
     }
+  }
 }

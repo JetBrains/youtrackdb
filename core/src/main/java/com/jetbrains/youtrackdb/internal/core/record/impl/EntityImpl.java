@@ -3490,9 +3490,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
 
       var metadata = session.getMetadata();
-      if (metadata.getImmutableSchemaSnapshot() != null) {
-        metadata.clearThreadLocalSchemaSnapshot();
-      }
       metadata.reload();
       metadata.makeThreadLocalSchemaSnapshot();
       schema = metadata.getImmutableSchemaSnapshot();
