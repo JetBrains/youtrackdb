@@ -104,7 +104,7 @@ public class StorageBackupTest {
   }
 
   @Test
-  public void testSingeThreadIncrementalBackup() {
+  public void testSingeThreadIncrementalBackup() throws Exception {
     FileUtils.deleteRecursively(new File(testDirectory));
 
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
@@ -146,8 +146,8 @@ public class StorageBackupTest {
 
     db.backup(backupDir.toPath());
 
-    for (var n = 0; n < 3; n++) {
-      for (var i = 0; i < 1000; i++) {
+    for (var n = 0; n < 10; n++) {
+      for (var i = 0; i < 10_000; i++) {
         db.begin();
         final var data = new byte[16];
         random.nextBytes(data);
@@ -162,6 +162,9 @@ public class StorageBackupTest {
       }
 
       db.backup(backupDir.toPath());
+
+      //allow directory metadata to be refreshed
+      Thread.sleep(300);
     }
 
     db.backup(backupDir.toPath());
@@ -198,7 +201,7 @@ public class StorageBackupTest {
   }
 
   @Test
-  public void testSingeThreadIncrementalBackupEncryption() {
+  public void testSingeThreadIncrementalBackupEncryption() throws Exception {
     FileUtils.deleteRecursively(new File(testDirectory));
     final var config = new BaseConfiguration();
     config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
@@ -243,8 +246,8 @@ public class StorageBackupTest {
 
     db.backup(backupDir.toPath());
 
-    for (var n = 0; n < 3; n++) {
-      for (var i = 0; i < 1000; i++) {
+    for (var n = 0; n < 10; n++) {
+      for (var i = 0; i < 10_000; i++) {
         db.begin();
         final var data = new byte[16];
         random.nextBytes(data);
@@ -259,6 +262,9 @@ public class StorageBackupTest {
       }
 
       db.backup(backupDir.toPath());
+
+      //allow directory metadata to be refreshed
+      Thread.sleep(300);
     }
 
     db.backup(backupDir.toPath());

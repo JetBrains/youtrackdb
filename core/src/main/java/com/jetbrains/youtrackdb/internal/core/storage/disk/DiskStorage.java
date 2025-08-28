@@ -1463,15 +1463,19 @@ public class DiskStorage extends AbstractStorage {
               tmpDirectory.toAbsolutePath());
 
       UUID metadataUUID = null;
+      LogSequenceNumber lastLsn = null;
+      var metadataList = new ArrayList<BackupMetadata>();
       try {
         for (var ibuFile : ibuFiles) {
           var tmpIBUFile = tmpDirectory.resolve(ibuFile);
+
 
           var isFullBackup = false;
           try (var copyStream = Files.newOutputStream(tmpIBUFile)) {
             try (var bufferedCopyStream = new BufferedOutputStream(copyStream)) {
               var backupMetadata = validateFileAndFetchBackupMetadata(ibuFile,
                   uuidExpectedInBackup, ibuInputStreamSupplier, bufferedCopyStream);
+              metadataList.add(backupMetadata);
               if (backupMetadata == null) {
                 throw new DatabaseException(name, "Backup unit file " + ibuFile
                     + " contains invalid content, restore from this backup is impossible.");
@@ -1488,6 +1492,12 @@ public class DiskStorage extends AbstractStorage {
               }
 
               isFullBackup = backupMetadata.startLsn == null;
+
+              if (lastLsn != null && !backupMetadata.startLsn.equals(lastLsn)) {
+                throw new DatabaseException(
+                    "Backup files are not contiguous, some changes are missing, restore is impossible.");
+              }
+              lastLsn = backupMetadata.endLsn;
             }
           }
 
@@ -1983,6 +1993,14 @@ public class DiskStorage extends AbstractStorage {
           public void close() throws IOException {
             fileChannel.force(true);
             super.close();
+
+            //trying to fsync directory changes making it visible to other processes
+            try (var directoryChannel = FileChannel.open(backupDirectory)) {
+              directoryChannel.force(true);
+            } catch (IOException ignored) {
+              //ignore if attempt is failed.
+            }
+
           }
         };
       } catch (IOException e) {
@@ -2003,6 +2021,14 @@ public class DiskStorage extends AbstractStorage {
         var ibuFilePath = backupDirectory.resolve(ibuFileName);
         Files.deleteIfExists(ibuFilePath);
         LogManager.instance().info(this, "Deleted backup unit file " + ibuFilePath);
+
+        //trying to fsync directory changes making it visible to other processes
+        try (var directoryChannel = FileChannel.open(backupDirectory)) {
+          directoryChannel.force(true);
+        } catch (IOException ignored) {
+          //ignore if attempt is failed.
+        }
+
       } catch (IOException e) {
         throw BaseException.wrapException(new DatabaseException(databaseName,
             "Can not delete backup unit file " + ibuFileName + " ."), e, databaseName);

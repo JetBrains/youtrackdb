@@ -4781,7 +4781,8 @@ public abstract class AbstractStorage
               }
             }
             case null, default -> LogManager.instance()
-                .warn(this, "Record %s will be skipped during data restore", walRecord);
+                .debug(this, "Record %s will be skipped during data restore",
+                    logger, walRecord);
           }
 
           recordsProcessed++;
