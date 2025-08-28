@@ -50,6 +50,7 @@ public class LiveQueryQueueThread extends Thread {
     this.setDaemon(true);
   }
 
+  @Override
   public LiveQueryQueueThread clone() {
     return new LiveQueryQueueThread(this.queue, this.subscribers);
   }

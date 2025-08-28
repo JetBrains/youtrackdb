@@ -2,11 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.google.common.collect.Sets;
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplSession;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplSessionPool;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBPropertyImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
@@ -29,6 +29,7 @@ import org.junit.AssumptionViolatedException;
 
 
 public class YTDBGraphProvider extends AbstractGraphProvider {
+
   @Override
   public Map<String, Object> getBaseConfiguration(
       String graphName,
@@ -45,13 +46,13 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
     var dbType = calculateDbType();
     var directoryPath = getWorkingDirectory();
 
-    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME, graphName);
-    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER, "adminuser");
-    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_PWD, "adminpwd");
-    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH, directoryPath);
-    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_CREATE_IF_NOT_EXISTS, true);
-    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_TYPE, dbType.name());
-    configs.put(YTDBGraphFactory.CONFIG_YOUTRACK_DB_USER_ROLE, "admin");
+    configs.put(ConfigurationParameters.CONFIG_DB_NAME, graphName);
+    configs.put(ConfigurationParameters.CONFIG_USER_NAME, "adminuser");
+    configs.put(ConfigurationParameters.CONFIG_USER_PWD, "adminpwd");
+    configs.put(ConfigurationParameters.CONFIG_DB_PATH, directoryPath);
+    configs.put(ConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
+    configs.put(ConfigurationParameters.CONFIG_DB_TYPE, dbType.name());
+    configs.put(ConfigurationParameters.CONFIG_USER_ROLE, "admin");
 
     return configs;
   }
@@ -62,12 +63,12 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
     return Sets.newHashSet(
         YTDBElementImpl.class,
         YTDBStatefulEdgeImpl.class,
-        YTDBGraphImplSession.class,
         YTDBGraphImplSessionPool.class,
         YTDBPropertyImpl.class,
         YTDBVertexImpl.class,
         YTDBVertexPropertyImpl.class);
   }
+
   @Override
   public Optional<Features> getStaticFeatures() {
     return Optional.of(YTDBFeatures.INSTANCE);
@@ -86,8 +87,9 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
 
     if (configuration != null) {
       var ytdb = YTDBGraphFactory.getYTDBInstance(
-          configuration.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_PATH));
-      var dbName = configuration.getString(YTDBGraphFactory.CONFIG_YOUTRACK_DB_NAME);
+          configuration.getString(ConfigurationParameters.CONFIG_DB_PATH));
+      var dbName = configuration.getString(ConfigurationParameters.CONFIG_DB_NAME);
+
       if (ytdb != null && ytdb.exists(dbName)) {
         ytdb.drop(dbName);
       }

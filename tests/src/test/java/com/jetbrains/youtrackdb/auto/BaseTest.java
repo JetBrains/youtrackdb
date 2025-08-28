@@ -1,14 +1,14 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigBuilderImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import java.util.Locale;
+import org.apache.commons.configuration2.BaseConfiguration;
+import org.apache.commons.configuration2.Configuration;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.AfterSuite;
@@ -28,7 +28,7 @@ public abstract class BaseTest {
   protected String dbName;
 
   protected DatabaseType databaseType;
-  public static YouTrackDB youTrackDB;
+  public static YouTrackDBImpl youTrackDB;
 
 
   public BaseTest() {
@@ -53,13 +53,6 @@ public abstract class BaseTest {
   @BeforeSuite
   public void beforeSuite() {
     try {
-
-      if (youTrackDB == null) {
-        var builder = new YouTrackDBConfigBuilderImpl();
-        final var buildDirectory = System.getProperty("buildDirectory", ".");
-        youTrackDB = YourTracks.embedded(buildDirectory + "/test-db", createConfig(builder));
-      }
-
       createDatabase();
     } catch (Exception e) {
       throw new IllegalStateException(
@@ -67,8 +60,19 @@ public abstract class BaseTest {
     }
   }
 
+  private YouTrackDBImpl getYouTrackDB() {
+    if (youTrackDB == null || !youTrackDB.isOpen()) {
+      final var buildDirectory = System.getProperty("buildDirectory", ".");
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory + "/test-db",
+          createConfig());
+    }
+
+    return youTrackDB;
+  }
+
+
   protected void createDatabase(String dbName) {
-    youTrackDB.createIfNotExists(
+    getYouTrackDB().createIfNotExists(
         dbName,
         databaseType,
         "admin",
@@ -86,7 +90,9 @@ public abstract class BaseTest {
     createDatabase(dbName);
   }
 
-  protected static void dropDatabase(String dbName) {
+  protected void dropDatabase(String dbName) {
+    var youTrackDB = getYouTrackDB();
+
     if (youTrackDB.exists(dbName)) {
       youTrackDB.drop(dbName);
     }
@@ -155,7 +161,7 @@ public abstract class BaseTest {
   }
 
   protected abstract DatabaseSessionEmbedded createSessionInstance(
-      YouTrackDB youTrackDB, String dbName, String user, String password);
+      YouTrackDBImpl youTrackDB, String dbName, String user, String password);
 
   protected final DatabaseSessionEmbedded createSessionInstance() {
     return createSessionInstance("admin", "admin");
@@ -167,7 +173,7 @@ public abstract class BaseTest {
 
   protected final DatabaseSessionEmbedded createSessionInstance(String dbName, String user,
       String password) {
-    return createSessionInstance(youTrackDB, dbName, user, password);
+    return createSessionInstance(getYouTrackDB(), dbName, user, password);
   }
 
   protected final DatabaseSessionEmbedded createSessionInstance(String user, String password) {
@@ -178,17 +184,13 @@ public abstract class BaseTest {
     return acquireSession(dbName);
   }
 
-  protected static DatabaseSessionEmbedded acquireSession(String dbName) {
-    return (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin");
+  protected DatabaseSessionEmbedded acquireSession(String dbName) {
+    return (DatabaseSessionEmbedded) getYouTrackDB().open(dbName, "admin", "admin");
   }
 
   @SuppressWarnings("MethodMayBeStatic")
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    return builder.build();
-  }
-
-  protected static String getTestEnv() {
-    return System.getProperty("youtrackdb.test.env");
+  protected Configuration createConfig() {
+    return new BaseConfiguration();
   }
 
   protected final String getStorageType() {

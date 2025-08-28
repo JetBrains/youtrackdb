@@ -43,7 +43,6 @@ import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
@@ -93,8 +92,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.remotewrapper.RemoteDatabaseSessionWrapper;
 import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionBlockedException;
-import com.jetbrains.youtrackdb.internal.core.gremlin.GremlinUtils;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplSession;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
@@ -220,8 +217,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   private final Map<String, ResultSet> activeQueries;
   private final int resultSetReportThreshold;
-
-  private YTDBGraph graphWrapper;
 
   // database stats!
   private long loadedRecordsCount;
@@ -1384,24 +1379,24 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       record =
           YouTrackDBEnginesManager.instance()
               .getRecordFactoryManager()
-              .newInstance(recordBuffer.recordType, rid, this);
+              .newInstance(recordBuffer.recordType(), rid, this);
       final var rec = record;
       rec.unsetDirty();
 
-      if (record.getRecordType() != recordBuffer.recordType) {
+      if (record.getRecordType() != recordBuffer.recordType()) {
         throw new DatabaseException(getDatabaseName(),
             "Record type is different from the one in the database");
       }
 
       record.recordSerializer = serializer;
-      record.fill(rid, recordBuffer.version, recordBuffer.buffer, false);
+      record.fill(rid, recordBuffer.version(), recordBuffer.buffer(), false);
 
       if (record instanceof EntityImpl entity) {
         entity.checkClass(this);
       }
 
       localCache.updateRecord(record, this);
-      record.fromStream(recordBuffer.buffer);
+      record.fromStream(recordBuffer.buffer());
 
       if (beforeReadOperations(record)) {
         return createRecordNotFoundResult(rid, fetchPreviousRid, fetchNextRid,
@@ -1890,7 +1885,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public void afterCommitOperations(boolean rootTx) {
+  public void afterCommitOperations(boolean rootTx, Map<RID, RID> updatedRids) {
     assert assertIfNotActive();
 
     for (var operation : currentTx.getRecordOperationsInternal()) {
@@ -1948,7 +1943,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     for (var listener : browseListeners()) {
       try {
-        listener.onAfterTxCommit(currentTx);
+        listener.onAfterTxCommit(currentTx, updatedRids);
       } catch (Exception e) {
         final var message =
             "Error after the transaction has been committed. The transaction remains valid. The"
@@ -3192,16 +3187,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenedAsRemoteSession();
 
     return getStorageInfo() != null ? getStorageInfo().getName() : url;
-  }
-
-  @Override
-  public YTDBGraph asGraph() {
-    if (graphWrapper == null) {
-      var config = GremlinUtils.createBaseConfiguration(this);
-      graphWrapper = new YTDBGraphImplSession(this, config);
-    }
-
-    return graphWrapper;
   }
 
   @Override

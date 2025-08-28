@@ -4,12 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.SequenceLimitReachedException;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceException;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
@@ -24,16 +23,15 @@ import org.junit.Test;
 
 public class DBSequenceTest {
 
-  private static BasicYouTrackDB youTrackDB;
+  private static YouTrackDBImpl youTrackDB;
 
   private DatabaseSessionInternal db;
   private SequenceLibrary sequences;
 
   @BeforeClass
   public static void beforeClass() {
-    var builder = YouTrackDBConfig.builder();
-    youTrackDB = YourTracks.embedded("./target/databases/" + DBSequenceTest.class.getSimpleName(),
-        builder.build());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        "./target/databases/" + DBSequenceTest.class.getSimpleName());
   }
 
   @AfterClass

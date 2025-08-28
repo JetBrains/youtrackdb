@@ -4,11 +4,13 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import java.io.File;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,13 +34,14 @@ public class SessionPoolRemoteTest {
 
   @Test
   public void testPoolCloseTx() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
     var youTrackDb =
-        YourTracks.remote(
+        (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote(
             "remote:localhost:",
             "root",
             "root",
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1).build());
+            config);
 
     if (!youTrackDb.exists("test")) {
       youTrackDb.execute(
@@ -74,11 +77,12 @@ public class SessionPoolRemoteTest {
 
   @Test
   public void testPoolDoubleClose() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
     var youTrackDb =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1).build());
+            config);
 
     if (!youTrackDb.exists("test")) {
       youTrackDb.execute(

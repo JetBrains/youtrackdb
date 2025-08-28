@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
@@ -14,7 +13,7 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
@@ -27,6 +26,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -36,7 +36,7 @@ public class StorageBackupMTTest {
   private final Stack<CountDownLatch> backupIterationRecordCount = new Stack<>();
   private final CountDownLatch finished = new CountDownLatch(1);
 
-  private BasicYouTrackDB youTrackDB;
+  private YouTrackDBImpl youTrackDB;
   private String dbName;
 
   @Test
@@ -58,8 +58,8 @@ public class StorageBackupMTTest {
 
     final var backupDbName = StorageBackupMTTest.class.getSimpleName() + "BackUp";
     try {
-      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-          YouTrackDBConfig.defaultConfig());
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+          DbTestBase.getBaseDirectoryPath(getClass()));
       youTrackDB.execute(
           "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
@@ -102,9 +102,9 @@ public class StorageBackupMTTest {
 
       System.out.println("create and restore");
 
-      youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-          YouTrackDBConfig.defaultConfig());
-      youTrackDB.restore(backupDbName, null, null, backupDir.getAbsolutePath(),
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+          DbTestBase.getBaseDirectoryPath(getClass()));
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath(),
           YouTrackDBConfig.defaultConfig());
 
       final var compare =
@@ -126,8 +126,8 @@ public class StorageBackupMTTest {
         }
       }
       try {
-        youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.defaultConfig());
+        youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+            DbTestBase.getBaseDirectoryPath(getClass()));
 
         if (youTrackDB.exists(dbName)) {
           youTrackDB.drop(dbName);
@@ -162,14 +162,11 @@ public class StorageBackupMTTest {
     FileUtils.deleteRecursively(backupDir);
 
     dbName = StorageBackupMTTest.class.getSimpleName();
-    final var config =
-        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
-                "T1JJRU5UREJfSVNfQ09PTA==")
-            .build();
-
+    final var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
+        "T1JJRU5UREJfSVNfQ09PTA==");
     try {
-      youTrackDB = YourTracks.embedded(testDirectory, config);
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
       youTrackDB.execute(
           "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
@@ -212,8 +209,8 @@ public class StorageBackupMTTest {
 
       System.out.println("create and restore");
 
-      youTrackDB = YourTracks.embedded(testDirectory, config);
-      youTrackDB.restore(backupDbName, null, null,
+      youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
+      youTrackDB.restore(backupDbName,
           backupDir.getAbsolutePath(), config);
 
       final var compare =
@@ -235,7 +232,7 @@ public class StorageBackupMTTest {
         }
       }
       try {
-        youTrackDB = YourTracks.embedded(testDirectory, config);
+        youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
         if (youTrackDB.exists(dbName)) {
           youTrackDB.drop(dbName);
         }

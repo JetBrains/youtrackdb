@@ -3738,24 +3738,9 @@ public final class WOWCache extends AbstractWriteCache
     return null;
   }
 
-  private static final class WritePageContainer {
+  private record WritePageContainer(long pageVersion, ByteBuffer copyOfPage,
+                                    Pointer pageCopyDirectMemoryPointer,
+                                    CachePointer originalPagePointer) {
 
-    private final long pageVersion;
-    private final ByteBuffer copyOfPage;
-
-    private final Pointer pageCopyDirectMemoryPointer;
-
-    private final CachePointer originalPagePointer;
-
-    public WritePageContainer(
-        long pageVersion,
-        ByteBuffer copyOfPage,
-        Pointer pageCopyDirectMemoryPointer,
-        CachePointer originalPagePointer) {
-      this.pageVersion = pageVersion;
-      this.copyOfPage = copyOfPage;
-      this.pageCopyDirectMemoryPointer = pageCopyDirectMemoryPointer;
-      this.originalPagePointer = originalPagePointer;
-    }
   }
 }

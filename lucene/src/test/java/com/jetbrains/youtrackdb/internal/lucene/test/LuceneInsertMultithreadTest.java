@@ -19,12 +19,11 @@
 package com.jetbrains.youtrackdb.internal.lucene.test;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
@@ -40,7 +39,7 @@ public class LuceneInsertMultithreadTest {
   private static String buildDirectory;
   private static final String dbName;
   private static final DatabaseType databaseType;
-  private static final YouTrackDB YOUTRACKDB;
+  private static final YouTrackDBImpl YOUTRACKDB;
 
   static {
     System.getProperty("buildDirectory", ".");
@@ -57,8 +56,7 @@ public class LuceneInsertMultithreadTest {
     }
 
     dbName = "multiThread";
-    YOUTRACKDB = YourTracks.embedded(buildDirectory,
-        YouTrackDBConfig.defaultConfig());
+    YOUTRACKDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory);
   }
 
   public LuceneInsertMultithreadTest() {

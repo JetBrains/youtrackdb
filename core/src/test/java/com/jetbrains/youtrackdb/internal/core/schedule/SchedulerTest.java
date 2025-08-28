@@ -3,9 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.schedule;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
+import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
@@ -13,11 +13,14 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseThreadLocalFactory;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -28,7 +31,7 @@ public class SchedulerTest {
 
   @Test
   public void scheduleSQLFunction() throws Exception {
-    try (var context = createContext()) {
+    try (var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext()) {
       var db =
           (DatabaseSessionEmbedded) context.cachedPool("test", "admin",
               CreateDatabaseUtil.NEW_ADMIN_PASSWORD).acquire();
@@ -45,7 +48,7 @@ public class SchedulerTest {
 
   @Test
   public void scheduleWithDbClosed() throws Exception {
-    var context = createContext();
+    var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext();
     {
       var db = (DatabaseSessionEmbedded) context.open("test", "admin",
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
@@ -68,7 +71,7 @@ public class SchedulerTest {
 
   @Test
   public void eventLifecycle() throws Exception {
-    try (var context = createContext()) {
+    try (var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext()) {
       var db =
           (DatabaseSessionEmbedded) context.cachedPool("test", "admin",
               CreateDatabaseUtil.NEW_ADMIN_PASSWORD).acquire();
@@ -95,7 +98,7 @@ public class SchedulerTest {
 
   @Test
   public void eventSavedAndLoaded() throws Exception {
-    var context = createContext();
+    var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext();
     var db =
         (DatabaseSessionInternal) context.open("test", "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
@@ -120,13 +123,14 @@ public class SchedulerTest {
 
   @Test
   public void testScheduleEventWithMultipleActiveDatabaseConnections() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
+
     final var youTrackDb =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.DB_POOL_MAX, 1)
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
     if (!youTrackDb.exists("test")) {
       youTrackDb.execute(
           "create database "
@@ -147,7 +151,7 @@ public class SchedulerTest {
 
   @Test
   public void eventBySQL() throws Exception {
-    var context = createContext();
+    var context = (YouTrackDBAbstract<?, ? extends BasicDatabaseSession<?, ? extends BasicResultSet<?>>>) createContext();
     try (context;
         var db =
             (DatabaseSessionEmbedded) context.open("test", "admin",
@@ -224,8 +228,8 @@ public class SchedulerTest {
     }
   }
 
-  private BasicYouTrackDB createContext() {
-    final BasicYouTrackDB youTrackDB =
+  private YouTrackDBAbstract<?, ?> createContext() {
+    YouTrackDBAbstract<?, ?> youTrackDB =
         CreateDatabaseUtil.createDatabase("test", DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
     YouTrackDBEnginesManager.instance()
@@ -278,9 +282,20 @@ public class SchedulerTest {
     });
   }
 
-  private record TestScheduleDatabaseFactory(BasicYouTrackDB context, String database,
-                                             String username, String password) implements
-      DatabaseThreadLocalFactory {
+  private static class TestScheduleDatabaseFactory implements DatabaseThreadLocalFactory {
+
+    private final YouTrackDBAbstract<?, ?> context;
+    private final String database;
+    private final String username;
+    private final String password;
+
+    public TestScheduleDatabaseFactory(
+        YouTrackDBAbstract<?, ?> context, String database, String username, String password) {
+      this.context = context;
+      this.database = database;
+      this.username = username;
+      this.password = password;
+    }
 
     @Override
     public DatabaseSessionInternal getThreadDatabase() {

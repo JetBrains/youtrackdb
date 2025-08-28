@@ -11,7 +11,6 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
@@ -21,6 +20,8 @@ import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.util.TimerTask;
@@ -29,14 +30,18 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
+import org.apache.commons.configuration2.BaseConfiguration;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
-/**
- *
- */
 public class YouTrackDBEmbeddedTests {
+
+  @After
+  public void after() {
+    YTDBGraphFactory.closeAll();
+  }
 
   @Test
   public void createAndUseEmbeddedDatabase() {
@@ -54,10 +59,9 @@ public class YouTrackDBEmbeddedTests {
     }
   }
 
-  @Test(expected = DatabaseException.class)
+  @Test(expected = CoreException.class)
   public void testEmbeddedDoubleCreate() {
-    try (var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDb = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDb.create("test", DatabaseType.MEMORY);
       youTrackDb.create("test", DatabaseType.MEMORY);
     }
@@ -65,9 +69,8 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void createDropEmbeddedDatabase() {
-    try (var youTrackDb = YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()) + "createDropEmbeddedDatabase",
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDb = YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "createDropEmbeddedDatabase")) {
       youTrackDb.create("test", DatabaseType.MEMORY);
       assertTrue(youTrackDb.exists("test"));
       youTrackDb.drop("test");
@@ -112,60 +115,61 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testListDatabases() {
-    var youTrackDb = YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()) + "listTest1",
-        YouTrackDBConfig.defaultConfig());
-    assertEquals(0, youTrackDb.listDatabases().size());
-    youTrackDb.create("test", DatabaseType.MEMORY);
-    var databases = youTrackDb.listDatabases();
-    assertEquals(1, databases.size());
-    assertTrue(databases.contains("test"));
-    youTrackDb.close();
+    try (var youTrackDb = YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "listTest1")) {
+      assertEquals(0, youTrackDb.listDatabases().size());
+      youTrackDb.create("test", DatabaseType.MEMORY);
+      var databases = youTrackDb.listDatabases();
+      assertEquals(1, databases.size());
+      assertTrue(databases.contains("test"));
+    }
   }
 
   @Test
   public void testListDatabasesPersistent() {
-    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()) + "listTest2",
-        YouTrackDBConfig.defaultConfig());
-    assertEquals(0, youTrackDb.listDatabases().size());
-    youTrackDb.create("testListDatabase", DatabaseType.DISK);
-    var databases = youTrackDb.listDatabases();
-    assertEquals(1, databases.size());
-    assertTrue(databases.contains("testListDatabase"));
-    youTrackDb.drop("testListDatabase");
-    youTrackDb.close();
+    try (var youTrackDb = YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "listTest2")) {
+      assertEquals(0, youTrackDb.listDatabases().size());
+      youTrackDb.create("testListDatabase", DatabaseType.DISK);
+      var databases = youTrackDb.listDatabases();
+      assertEquals(1, databases.size());
+      assertTrue(databases.contains("testListDatabase"));
+      youTrackDb.drop("testListDatabase");
+    }
   }
 
   @Test
   public void testRegisterDatabase() {
-    final var youtrack = YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()) + "testRegisterDatabase",
-        YouTrackDBConfig.defaultConfig());
-    try {
-      youtrack.execute("create system user admin identified by 'admin' role root");
+    try (final var youtrack = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "testRegisterDatabase")) {
+      try {
+        youtrack.execute("create system user admin identified by 'admin' role root");
 
-      final var youtrackEmbedded = (YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
-          (YouTrackDBAbstract<?, ?>) youtrack);
-      assertEquals(0, youtrackEmbedded.listDatabases("", "").size());
-      youtrackEmbedded.initCustomStorage("database1", DbTestBase.getBaseDirectoryPath(getClass()) +
-              "testRegisterDatabase/database1"
-      );
-      try (final var db = youtrackEmbedded.open("database1", "admin", "admin")) {
-        assertEquals("database1", db.getDatabaseName());
-      }
-      youtrackEmbedded.initCustomStorage("database2", DbTestBase.getBaseDirectoryPath(getClass()) +
-              "testRegisterDatabase/database2"
-      );
+        final var youtrackEmbedded = (YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
+            (YouTrackDBAbstract<?, ?>) youtrack);
+        assertEquals(0, youtrackEmbedded.listDatabases("", "").size());
+        youtrackEmbedded.initCustomStorage("database1",
+            DbTestBase.getBaseDirectoryPath(getClass()) +
+                "testRegisterDatabase/database1"
+        );
+        try (final var db = youtrackEmbedded.open("database1", "admin", "admin")) {
+          assertEquals("database1", db.getDatabaseName());
+        }
+        youtrackEmbedded.initCustomStorage("database2",
+            DbTestBase.getBaseDirectoryPath(getClass()) +
+                "testRegisterDatabase/database2"
+        );
 
-      try (final var db = youtrackEmbedded.open("database2", "admin", "admin")) {
-        assertEquals("database2", db.getDatabaseName());
+        try (final var db = youtrackEmbedded.open("database2", "admin", "admin")) {
+          assertEquals("database2", db.getDatabaseName());
+        }
+        youtrackEmbedded.drop("database1", null, null);
+        youtrackEmbedded.drop("database2", null, null);
+        youtrackEmbedded.close();
+      } finally {
+        FileUtils.deleteRecursively(
+            new File(DbTestBase.getBaseDirectoryPath(getClass()) + "testRegisterDatabase"));
       }
-      youtrackEmbedded.drop("database1", null, null);
-      youtrackEmbedded.drop("database2", null, null);
-      youtrackEmbedded.close();
-    } finally {
-      FileUtils.deleteRecursively(
-          new File(DbTestBase.getBaseDirectoryPath(getClass()) + "testRegisterDatabase"));
     }
   }
 
@@ -189,56 +193,51 @@ public class YouTrackDBEmbeddedTests {
 
   @Test(expected = DatabaseException.class)
   public void testUseAfterCloseCreate() {
-    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    var youTrackDb = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDb.close();
     youTrackDb.create("test", DatabaseType.MEMORY);
   }
 
   @Test(expected = DatabaseException.class)
   public void testUseAfterCloseOpen() {
-    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDb.close();
     youTrackDb.open("testUseAfterCloseOpen", "", "");
   }
 
   @Test(expected = DatabaseException.class)
   public void testUseAfterCloseList() {
-    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    var youTrackDb = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDb.close();
     youTrackDb.listDatabases();
   }
 
   @Test(expected = DatabaseException.class)
   public void testUseAfterCloseExists() {
-    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    var youTrackDb = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDb.close();
     youTrackDb.exists("");
   }
 
   @Test(expected = DatabaseException.class)
   public void testUseAfterCloseOpenPoolInternal() {
-    var youTrackDb = (YouTrackDBImpl) YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDb.close();
     youTrackDb.openPool("", "", "", YouTrackDBConfig.defaultConfig());
   }
 
   @Test(expected = DatabaseException.class)
   public void testUseAfterCloseDrop() {
-    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    var youTrackDb = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()));
     youTrackDb.close();
     youTrackDb.drop("");
   }
 
   @Test
   public void testPoolByUrl() {
-    final BasicYouTrackDB youTrackDb =
+    var youTrackDb =
         CreateDatabaseUtil.createDatabase(
             "some", DbTestBase.embeddedDBUrl(getClass()) + "poolTest",
             CreateDatabaseUtil.TYPE_DISK);
@@ -253,43 +252,40 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testDropTL() {
-    final var youTrackDb =
-        YourTracks.embedded(
-            DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    if (!youTrackDb.exists("some")) {
-      youTrackDb.execute(
-          "create database "
-              + "some"
-              + " "
-              + "memory"
-              + " users ( admin identified by '"
-              + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-              + "' role admin)");
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+    try (final var youTrackDb =
+        (YouTrackDBImpl) YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()), config)) {
+      if (!youTrackDb.exists("some")) {
+        youTrackDb.execute(
+            "create database "
+                + "some"
+                + " "
+                + "memory"
+                + " users ( admin identified by '"
+                + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
+                + "' role admin)");
+      }
+      if (!youTrackDb.exists("some1")) {
+        youTrackDb.execute(
+            "create database "
+                + "some1"
+                + " "
+                + "memory"
+                + " users ( admin identified by '"
+                + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
+                + "' role admin)");
+      }
+      var db = youTrackDb.open("some", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      youTrackDb.drop("some1");
+      db.close();
     }
-    if (!youTrackDb.exists("some1")) {
-      youTrackDb.execute(
-          "create database "
-              + "some1"
-              + " "
-              + "memory"
-              + " users ( admin identified by '"
-              + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-              + "' role admin)");
-    }
-    var db = youTrackDb.open("some", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    youTrackDb.drop("some1");
-    db.close();
-    youTrackDb.close();
   }
 
   @Test
   public void testClosePool() {
-    try (var youTrackDB = YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()) + "testClosePool",
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "testClosePool")) {
       if (!youTrackDB.exists("test")) {
         youTrackDB.create("test", DatabaseType.DISK, "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD, "admin");
@@ -309,167 +305,164 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testPoolFactory() {
-    var config =
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.DB_CACHED_POOL_CAPACITY, 2)
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-            .build();
-    var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
-    if (!youTrackDB.exists("testdb")) {
-      youTrackDB.execute(
-          "create database "
-              + "testdb"
-              + " "
-              + "memory"
-              + " users ( admin identified by '"
-              + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-              + "' role admin, reader identified by '"
-              + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-              + "' role reader, writer identified by '"
-              + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-              + "' role writer)");
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.DB_CACHED_POOL_CAPACITY.getKey(), 2);
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()), config)) {
+      if (!youTrackDB.exists("testdb")) {
+        youTrackDB.execute(
+            "create database "
+                + "testdb"
+                + " "
+                + "memory"
+                + " users ( admin identified by '"
+                + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
+                + "' role admin, reader identified by '"
+                + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
+                + "' role reader, writer identified by '"
+                + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
+                + "' role writer)");
+      }
+      var poolAdmin1 =
+          youTrackDB.cachedPool(
+              "testdb",
+              "admin",
+              CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
+              YouTrackDBConfig.builder()
+                  .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+                  .build());
+      var poolAdmin2 =
+          youTrackDB.cachedPool(
+              "testdb",
+              "admin",
+              CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
+              YouTrackDBConfig.builder()
+                  .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+                  .build());
+      var poolReader1 =
+          youTrackDB.cachedPool("testdb", "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      var poolReader2 =
+          youTrackDB.cachedPool("testdb", "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+
+      assertEquals(poolAdmin1, poolAdmin2);
+      assertEquals(poolReader1, poolReader2);
+      assertNotEquals(poolAdmin1, poolReader1);
+
+      var poolWriter1 =
+          youTrackDB.cachedPool("testdb", "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      var poolWriter2 =
+          youTrackDB.cachedPool("testdb", "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+      assertEquals(poolWriter1, poolWriter2);
+
+      var poolAdmin3 =
+          youTrackDB.cachedPool(
+              "testdb",
+              "admin",
+              CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
+              YouTrackDBConfig.builder()
+                  .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+                  .build());
+      assertNotEquals(poolAdmin1, poolAdmin3);
     }
-    var poolAdmin1 =
-        youTrackDB.cachedPool(
-            "testdb",
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    var poolAdmin2 =
-        youTrackDB.cachedPool(
-            "testdb",
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    var poolReader1 =
-        youTrackDB.cachedPool("testdb", "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    var poolReader2 =
-        youTrackDB.cachedPool("testdb", "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-
-    assertEquals(poolAdmin1, poolAdmin2);
-    assertEquals(poolReader1, poolReader2);
-    assertNotEquals(poolAdmin1, poolReader1);
-
-    var poolWriter1 =
-        youTrackDB.cachedPool("testdb", "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    var poolWriter2 =
-        youTrackDB.cachedPool("testdb", "writer", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    assertEquals(poolWriter1, poolWriter2);
-
-    var poolAdmin3 =
-        youTrackDB.cachedPool(
-            "testdb",
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    assertNotEquals(poolAdmin1, poolAdmin3);
-
-    youTrackDB.close();
   }
 
   @Test
   public void testPoolFactoryCleanUp() throws Exception {
-    var config =
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.DB_CACHED_POOL_CAPACITY, 2)
-            .addGlobalConfigurationParameter(GlobalConfiguration.DB_CACHED_POOL_CLEAN_UP_TIMEOUT,
-                1_000)
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-            .build();
-    var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()), config);
-    if (!youTrackDB.exists("testdb")) {
-      youTrackDB.execute(
-          "create database "
-              + "testdb"
-              + " "
-              + "memory"
-              + " users ( admin identified by '"
-              + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-              + "' role admin)");
+    var config = new BaseConfiguration();
+
+    config.setProperty(GlobalConfiguration.DB_CACHED_POOL_CAPACITY.getKey(), 2);
+    config.setProperty(GlobalConfiguration.DB_CACHED_POOL_CLEAN_UP_TIMEOUT.getKey(), 1_000);
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()), config)) {
+      if (!youTrackDB.exists("testdb")) {
+        youTrackDB.execute(
+            "create database "
+                + "testdb"
+                + " "
+                + "memory"
+                + " users ( admin identified by '"
+                + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
+                + "' role admin)");
+      }
+      if (!youTrackDB.exists("testdb1")) {
+        youTrackDB.execute(
+            "create database "
+                + "testdb1"
+                + " "
+                + "memory"
+                + " users ( admin identified by '"
+                + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
+                + "' role admin)");
+      }
+
+      var poolNotUsed =
+          youTrackDB.cachedPool(
+              "testdb1",
+              "admin",
+              CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
+              YouTrackDBConfig.builder()
+                  .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+                  .build());
+      var poolAdmin1 =
+          youTrackDB.cachedPool(
+              "testdb",
+              "admin",
+              CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
+              YouTrackDBConfig.builder()
+                  .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+                  .build());
+      var poolAdmin2 =
+          youTrackDB.cachedPool(
+              "testdb",
+              "admin",
+              CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
+              YouTrackDBConfig.builder()
+                  .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+                  .build());
+      assertFalse(poolAdmin1.isClosed());
+      assertEquals(poolAdmin1, poolAdmin2);
+
+      poolAdmin1.close();
+
+      assertTrue(poolAdmin1.isClosed());
+
+      Thread.sleep(3_000);
+
+      var poolAdmin3 =
+          youTrackDB.cachedPool(
+              "testdb",
+              "admin",
+              CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
+              YouTrackDBConfig.builder()
+                  .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+                  .build());
+      assertNotEquals(poolAdmin1, poolAdmin3);
+      assertFalse(poolAdmin3.isClosed());
+
+      var poolOther =
+          youTrackDB.cachedPool(
+              "testdb",
+              "admin",
+              CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
+              YouTrackDBConfig.builder()
+                  .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
+                  .build());
+      assertNotEquals(poolNotUsed, poolOther);
+      assertTrue(poolNotUsed.isClosed());
     }
-    if (!youTrackDB.exists("testdb1")) {
-      youTrackDB.execute(
-          "create database "
-              + "testdb1"
-              + " "
-              + "memory"
-              + " users ( admin identified by '"
-              + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
-              + "' role admin)");
-    }
-
-    var poolNotUsed =
-        youTrackDB.cachedPool(
-            "testdb1",
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    var poolAdmin1 =
-        youTrackDB.cachedPool(
-            "testdb",
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    var poolAdmin2 =
-        youTrackDB.cachedPool(
-            "testdb",
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    assertFalse(poolAdmin1.isClosed());
-    assertEquals(poolAdmin1, poolAdmin2);
-
-    poolAdmin1.close();
-
-    assertTrue(poolAdmin1.isClosed());
-
-    Thread.sleep(3_000);
-
-    var poolAdmin3 =
-        youTrackDB.cachedPool(
-            "testdb",
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    assertNotEquals(poolAdmin1, poolAdmin3);
-    assertFalse(poolAdmin3.isClosed());
-
-    var poolOther =
-        youTrackDB.cachedPool(
-            "testdb",
-            "admin",
-            CreateDatabaseUtil.NEW_ADMIN_PASSWORD,
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
-    assertNotEquals(poolNotUsed, poolOther);
-    assertTrue(poolNotUsed.isClosed());
-
-    youTrackDB.close();
   }
 
   @Test
   public void testInvalidatePoolCache() {
-    final var config =
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.DB_CACHED_POOL_CAPACITY, 2)
-            .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-            .build();
-    final var youTrackDB = (YouTrackDBImpl) YourTracks.embedded(
+    final var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.DB_CACHED_POOL_CAPACITY.getKey(), 2);
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+
+    final var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(getClass()),
         config);
     youTrackDB.execute(
@@ -497,12 +490,12 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testOpenKeepClean() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     var youTrackDb =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()) + "keepClean",
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
     try {
       youTrackDb.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     } catch (Exception e) {
@@ -547,12 +540,12 @@ public class YouTrackDBEmbeddedTests {
   @Test
   @Ignore
   public void autoClose() throws InterruptedException {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     var youTrackDB =
-        (YouTrackDBImpl) YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
     var embedded = ((YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(
         youTrackDB));
     embedded.initAutoClose(3000);
@@ -577,21 +570,20 @@ public class YouTrackDBEmbeddedTests {
 
   @Test(expected = StorageDoesNotExistException.class)
   public void testOpenNotExistDatabase() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     try (var youTrackDB =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build())) {
+            config)) {
       youTrackDB.open("testOpenNotExistDatabase", "two", "three");
     }
   }
 
   @Test
   public void testExecutor() throws ExecutionException, InterruptedException {
-    try (var youTrackDb = (YouTrackDBImpl) YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDb.create("testExecutor", DatabaseType.MEMORY);
       var internal = (YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(youTrackDb);
       var result =
@@ -606,10 +598,8 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testExecutorNoAuthorization() throws ExecutionException, InterruptedException {
-
-    try (var youTrackDb = (YouTrackDBImpl) YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDb.create("testExecutorNoAuthorization", DatabaseType.MEMORY);
       var internal = (YouTrackDBInternalEmbedded) YouTrackDBInternal.extract(youTrackDb);
       var result =
@@ -623,12 +613,13 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testScheduler() throws InterruptedException {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+
     var youTrackDb =
-        (YouTrackDBImpl) YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
     var internal = YouTrackDBInternal.extract(youTrackDb);
     var latch = new CountDownLatch(2);
     internal.schedule(
@@ -684,12 +675,12 @@ public class YouTrackDBEmbeddedTests {
     session.close();
     youTrackDb.close();
 
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     var youTrackDb1 =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()),
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
     var session1 =
         youTrackDb1.open("testPersistentUUID", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     assertEquals(
@@ -703,8 +694,8 @@ public class YouTrackDBEmbeddedTests {
   @Test
   public void testCreateDatabaseViaSQL() {
     var dbName = "testCreateDatabaseViaSQL";
-    var youTrackDb = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()));
     try (var result = youTrackDb.execute("create database " + dbName + " disk")) {
       Assert.assertTrue(result.hasNext());
       var item = result.next();
@@ -718,12 +709,12 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testCreateDatabaseViaSQLWithUsers() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
     var youTrackDB =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass()) + "testCreateDatabaseViaSQLWithUsers",
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
     youTrackDB.execute(
         "create database test memory users(admin identified by 'adminpwd' role admin)");
     youTrackDB.open("test", "admin", "adminpwd").close();
@@ -733,13 +724,14 @@ public class YouTrackDBEmbeddedTests {
 
   @Test
   public void testCreateDatabaseViaSQLIfNotExistsWithUsers() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+
     final var youTrackDB =
-        YourTracks.embedded(
+        (YouTrackDBImpl) YourTracks.instance(
             DbTestBase.getBaseDirectoryPath(getClass())
                 + "testCreateDatabaseViaSQLIfNotExistsWithUsers",
-            YouTrackDBConfig.builder()
-                .addGlobalConfigurationParameter(GlobalConfiguration.CREATE_DEFAULT_USERS, false)
-                .build());
+            config);
     youTrackDB.execute(
         "create database test memory if not exists users(admin identified by 'adminpwd' role"
             + " admin)");

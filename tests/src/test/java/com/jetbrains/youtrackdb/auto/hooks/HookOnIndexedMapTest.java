@@ -2,13 +2,14 @@ package com.jetbrains.youtrackdb.auto.hooks;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.junit.Test;
 
 public class HookOnIndexedMapTest {
 
   @Test
   public void test() {
-    var youTrackDb = YourTracks.embedded(
+    var youTrackDb = (YouTrackDBImpl) YourTracks.instance(
         DbTestBase.getBaseDirectoryPath(HookOnIndexedMapTest.class));
     youTrackDb.execute(
         "create database " + "test" + " memory users ( admin identified by 'admin' role admin)");

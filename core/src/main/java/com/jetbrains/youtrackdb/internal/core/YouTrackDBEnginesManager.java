@@ -36,6 +36,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseThreadLocalFactory;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.record.RecordFactoryManager;
 import com.jetbrains.youtrackdb.internal.core.shutdown.ShutdownHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -370,6 +371,7 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
         return this;
       }
 
+      YTDBGraphFactory.closeAll();
       active = false;
 
       LogManager.instance().info(this, "YouTrackDB Engine is shutting down...");
@@ -513,10 +515,6 @@ public class YouTrackDBEnginesManager extends ListenerManger<YouTrackDBListener>
       shutdownHook.cancel();
       shutdownHook = null;
     }
-  }
-
-  public SignalHandler getSignalHandler() {
-    return signalHandler;
   }
 
   public void removeSignalHandler() {

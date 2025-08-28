@@ -138,6 +138,7 @@ public final class LRUList implements Iterable<CacheEntry> {
     return head;
   }
 
+  @Override
   public Iterator<CacheEntry> iterator() {
     return new Iterator<CacheEntry>() {
       private CacheEntry next = tail;

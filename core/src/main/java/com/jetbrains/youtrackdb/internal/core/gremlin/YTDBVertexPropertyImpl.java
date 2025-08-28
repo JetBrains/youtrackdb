@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
-import com.jetbrains.youtrackdb.api.gremlin.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import java.util.Arrays;
 import java.util.Collections;
@@ -38,6 +38,8 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
       throw VertexProperty.Exceptions.userSuppliedIdsNotSupported();
     }
 
+    var graph = (YTDBGraphInternal) graph();
+    graph.tx().readWrite();
     var metadata = getMetadataEntity();
 
     metadata.setProperty(key, value);
@@ -46,6 +48,8 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
 
   @Override
   public <U> Iterator<Property<U>> properties(String... propertyKeys) {
+    var graph = (YTDBGraphInternal) graph();
+    graph.tx().readWrite();
     if (!hasMetadataDocument()) {
       return Collections.emptyIterator();
     }
@@ -88,7 +92,7 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     if (metadata == null) {
       var graph = element.getGraph();
       var graphTx = graph.tx();
-      var session = graphTx.getSession();
+      var session = graphTx.getDatabaseSession();
       var tx = session.getActiveTransaction();
 
       metadata = tx.newEmbeddedEntity();

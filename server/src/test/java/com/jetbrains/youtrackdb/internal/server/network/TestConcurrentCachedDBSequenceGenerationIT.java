@@ -2,11 +2,9 @@ package com.jetbrains.youtrackdb.internal.server.network;
 
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.io.File;
 import java.util.ArrayList;
@@ -22,15 +20,15 @@ public class TestConcurrentCachedDBSequenceGenerationIT {
   static final int THREADS = 20;
   static final int RECORDS = 100;
   private YouTrackDBServer server;
-  private RemoteYouTrackDB youTrackDB;
+  private YouTrackDBRemoteImpl youTrackDB;
 
   @Before
   public void before() throws Exception {
     server = new YouTrackDBServer(false);
     server.startup(getClass().getResourceAsStream("youtrackdb-server-config.xml"));
     server.activate();
-    youTrackDB = YourTracks.remote("remote:localhost", "root", "root",
-        YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root",
+        "root");
     youTrackDB.execute(
         "create database ? memory users (admin identified by 'admin' role admin)",
         TestConcurrentCachedDBSequenceGenerationIT.class.getSimpleName());

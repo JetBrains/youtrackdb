@@ -65,10 +65,12 @@ public class DefaultIndexFactory implements IndexFactory {
   }
 
 
+  @Override
   public Set<String> getTypes() {
     return TYPES;
   }
 
+  @Override
   public Set<String> getAlgorithms() {
     return ALGORITHMS;
   }

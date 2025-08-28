@@ -6,11 +6,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
@@ -217,8 +217,8 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
   @SuppressWarnings({"rawtypes", "unchecked", "OverwrittenKey"})
   @Test
   public void testSimpleLiteralSet() throws InterruptedException {
-    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
       ctx.execute(
           "create database testSimpleLiteralSet memory users(admin identified by 'adminpwd' role"
               + " admin)");
@@ -313,8 +313,8 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
   @Test
   public void testLinkCollections() {
-    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
         session.begin();
@@ -507,8 +507,8 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
   @Test
   public void testMapOfLink() {
     // needs a database because of the lazy loading
-    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
         session.begin();
@@ -532,8 +532,8 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
 
   @Test
   public void testDocumentSimple() {
-    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
         session.createClass("TestClass");

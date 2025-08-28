@@ -46,6 +46,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.TokenAuthInfo;
 import com.jetbrains.youtrackdb.internal.core.security.InvalidPasswordException;
@@ -555,6 +556,12 @@ public class YouTrackDBServer {
           LogManager.instance().error(this, "Error during YouTrackDB shutdown", e);
         }
       }
+
+      if (context != null) {
+        context.close();
+        context = null;
+      }
+
       if (databases != null) {
         databases.close();
         databases = null;
@@ -1079,7 +1086,7 @@ public class YouTrackDBServer {
   }
 
   public void restore(String name, String path, String expectedUUID) {
-    databases.restore(name, null, null, path, null,
+    databases.restore(name, path, null, null, expectedUUID,
         YouTrackDBConfig.defaultConfig());
   }
 
@@ -1094,7 +1101,7 @@ public class YouTrackDBServer {
 
     @Override
     public YouTrackDBImpl newYouTrackDb() {
-      return new YouTrackDBImpl(this);
+      return YTDBGraphFactory.ytdbInstance(internal.getBasePath(), () -> this);
     }
 
     @Override

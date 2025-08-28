@@ -236,9 +236,6 @@ public class IOUtils {
     return iDatabaseURL;
   }
 
-  public static String getPathFromDatabaseName(final String iPath) {
-    return iPath.replace('$', '/');
-  }
 
   public static Object encode(final Object iValue) {
     if (iValue instanceof String) {

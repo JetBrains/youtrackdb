@@ -99,7 +99,7 @@ public class TraversePath {
 
     @Override
     public String toString() {
-      return "(" + record.getIdentity().toString() + ")";
+      return "(" + record.getIdentity() + ")";
     }
   }
 

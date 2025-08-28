@@ -2,14 +2,10 @@ package com.jetbrains.youtrackdb.internal.server;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import org.junit.Test;
 
-/**
- *
- */
 public class DBSequenceRemoteTest extends AbstractRemoteTest {
 
   RemoteDatabaseSession session;
@@ -18,8 +14,7 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
   public void setup() throws Exception {
     super.setup();
     var factory =
-        YourTracks.remote("remote:localhost", "root", "root",
-            YouTrackDBConfig.defaultConfig());
+        (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root", "root");
     session = factory.open(name.getMethodName(), "admin", "admin");
   }
 
@@ -76,7 +71,7 @@ public class DBSequenceRemoteTest extends AbstractRemoteTest {
 
     assertThat(
         session.query("select count(*) as count from Person").findFirst(res -> res.getLong("count"))
-        .intValue()).isEqualTo(10);
+            .intValue()).isEqualTo(10);
   }
 
   @Test

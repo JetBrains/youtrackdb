@@ -36,6 +36,7 @@ public class EngineMemory extends EngineAbstract {
   public EngineMemory() {
   }
 
+  @Override
   public Storage createStorage(
       String url,
       long maxWalSegSize,
@@ -52,6 +53,7 @@ public class EngineMemory extends EngineAbstract {
     }
   }
 
+  @Override
   public String getName() {
     return NAME;
   }

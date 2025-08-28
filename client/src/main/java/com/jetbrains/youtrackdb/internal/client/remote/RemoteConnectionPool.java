@@ -14,13 +14,15 @@ import org.slf4j.LoggerFactory;
 /**
  *
  */
-public record RemoteConnectionPool(ResourcePool<String, SocketChannelBinaryAsynchClient> pool)
+public class RemoteConnectionPool
     implements ResourcePoolListener<String, SocketChannelBinaryAsynchClient> {
 
   private static final Logger logger = LoggerFactory.getLogger(RemoteConnectionPool.class);
 
-  public RemoteConnectionPool(int pool) {
-    this.pool = new ResourcePool<>(pool, this);
+  private final ResourcePool<String, SocketChannelBinaryAsynchClient> pool;
+
+  public RemoteConnectionPool(int iMaxResources) {
+    pool = new ResourcePool<>(iMaxResources, this);
   }
 
   protected SocketChannelBinaryAsynchClient createNetworkConnection(
@@ -79,6 +81,10 @@ public record RemoteConnectionPool(ResourcePool<String, SocketChannelBinaryAsync
     }
     iValue.markInUse();
     return canReuse;
+  }
+
+  public ResourcePool<String, SocketChannelBinaryAsynchClient> getPool() {
+    return pool;
   }
 
   public SocketChannelBinaryAsynchClient acquire(

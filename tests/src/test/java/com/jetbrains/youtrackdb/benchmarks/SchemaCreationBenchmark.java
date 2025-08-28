@@ -4,13 +4,14 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 
 public class SchemaCreationBenchmark {
 
   public static final String DB_NAME = "indexBenchmark";
 
   public static void main(String[] args) {
-    try (var youTrackDB = YourTracks.embedded(
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
         "./target/databases/" + SchemaCreationBenchmark.class.getName())) {
       if (youTrackDB.exists(DB_NAME)) {
         System.out.println("Dropping existing database");

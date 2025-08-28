@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.map;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import java.util.List;
 import java.util.NoSuchElementException;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -44,9 +43,9 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
 
   private DatabaseSessionEmbedded getDatabaseSession() {
     var graph = (YTDBGraphInternal) this.traversal.getGraph().orElseThrow();
-    var graphTx = (YTDBTransaction) graph.tx();
+    var graphTx = graph.tx();
     graphTx.readWrite();
-    return graphTx.getSession();
+    return graphTx.getDatabaseSession();
   }
 
   private boolean filterClass(String klass) {

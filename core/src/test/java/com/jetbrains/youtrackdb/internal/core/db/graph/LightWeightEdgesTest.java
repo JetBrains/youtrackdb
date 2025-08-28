@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
@@ -14,13 +13,15 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class LightWeightEdgesTest {
-  private YouTrackDB youTrackDB;
+
+  private YouTrackDBImpl youTrackDB;
   private DatabaseSession session;
 
   @Before
   public void before() {
     youTrackDB =
-        (YouTrackDBImpl)CreateDatabaseUtil.createDatabase("test", DbTestBase.embeddedDBUrl(getClass()),
+        (YouTrackDBImpl) CreateDatabaseUtil.createDatabase("test",
+            DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
     session = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 

@@ -1,12 +1,11 @@
 package com.jetbrains.youtrackdb.internal.lucene.benchmark;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
@@ -48,7 +47,7 @@ public class FulltextIndexFunctionBenchmark {
   }
 
   private DatabaseSessionInternal db;
-  private YouTrackDB context;
+  private YouTrackDBImpl context;
   private DatabaseType type;
 
   private final String name = "lucene-benchmark";
@@ -76,7 +75,7 @@ public class FulltextIndexFunctionBenchmark {
       type = DatabaseType.MEMORY;
     }
 
-    context = YourTracks.embedded(path, YouTrackDBConfig.defaultConfig());
+    context = (YouTrackDBImpl) YourTracks.instance(path);
 
     if (context.exists(name)) {
       context.drop(name);

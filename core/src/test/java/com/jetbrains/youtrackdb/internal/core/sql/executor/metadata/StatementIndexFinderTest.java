@@ -6,7 +6,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -31,9 +30,8 @@ public class StatementIndexFinderTest {
 
   @Before
   public void before() {
-    this.youTrackDb = (YouTrackDBImpl) YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig());
+    this.youTrackDb = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()));
     this.youTrackDb.execute(
         "create database "
             + StatementIndexFinderTest.class.getSimpleName()

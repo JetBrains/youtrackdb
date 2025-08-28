@@ -3,9 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.select;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -14,8 +14,8 @@ public class TestManyProperties {
   @Test
   @Ignore
   public void test() {
-    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDB
           .execute("create database test memory users(admin identified by 'admin' role admin)")
           .close();

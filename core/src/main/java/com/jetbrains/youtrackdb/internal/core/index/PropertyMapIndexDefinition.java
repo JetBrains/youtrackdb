@@ -165,11 +165,13 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     return indexBy == that.indexBy;
   }
 
+  @Override
   public Object createSingleValue(FrontendTransaction transaction, final Object... param) {
     var session = transaction.getDatabaseSession();
     return keyType.convert(refreshRid(session, param[0]), null, null, session);
   }
 
+  @Override
   public void processChangeEvent(
       FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,

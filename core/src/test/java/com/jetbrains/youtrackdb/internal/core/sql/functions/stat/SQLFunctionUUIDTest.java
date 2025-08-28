@@ -25,8 +25,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.misc.SQLFunctionUUID;
 import org.junit.Before;
 import org.junit.Test;
@@ -54,8 +54,8 @@ public class SQLFunctionUUIDTest {
 
   @Test
   public void testQuery() {
-    try (var ctx = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var ctx = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var db = ctx.open("test", "admin", "adminpwd")) {
         db.executeInTx(transaction -> {

@@ -85,10 +85,12 @@ public class IndexRemote implements Index {
     return this;
   }
 
+  @Override
   public IndexRemote delete(FrontendTransaction transaction) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public String getDatabaseName() {
     return databaseName;
   }
@@ -98,19 +100,23 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public long count(DatabaseSessionEmbedded session, final Object iKey) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public IndexRemote put(FrontendTransaction session, final Object key,
       final Identifiable value) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public boolean remove(FrontendTransaction transaction, final Object key) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public boolean remove(FrontendTransaction transaction, final Object key,
       final Identifiable rid) {
     throw new UnsupportedOperationException();
@@ -121,6 +127,7 @@ public class IndexRemote implements Index {
     return -1;
   }
 
+  @Override
   public long rebuild(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
@@ -129,14 +136,17 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public long getSize(DatabaseSessionEmbedded session) {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public long getKeySize() {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public boolean isAutomatic() {
     return indexDefinition != null && indexDefinition.getClassName() != null;
   }
@@ -276,6 +286,7 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public String getName() {
     return name;
   }
@@ -284,14 +295,17 @@ public class IndexRemote implements Index {
   public void flush() {
   }
 
+  @Override
   public String getType() {
     return wrappedType;
   }
 
+  @Override
   public String getAlgorithm() {
     return algorithm;
   }
 
+  @Override
   public Map<String, Object> getConfiguration(DatabaseSessionInternal session) {
     throw new UnsupportedOperationException();
   }
@@ -306,15 +320,18 @@ public class IndexRemote implements Index {
     throw new UnsupportedOperationException();
   }
 
+  @Override
   public RID getIdentity() {
     return rid;
   }
 
+  @Override
   public long rebuild(DatabaseSessionEmbedded session,
       final ProgressListener progressListener) {
     return rebuild(session);
   }
 
+  @Override
   public PropertyTypeInternal[] getKeyTypes() {
     if (indexDefinition != null) {
       return indexDefinition.getTypes();
@@ -328,6 +345,7 @@ public class IndexRemote implements Index {
     return null;
   }
 
+  @Override
   public IndexDefinition getDefinition() {
     return indexDefinition;
   }
@@ -351,6 +369,7 @@ public class IndexRemote implements Index {
     return name.hashCode();
   }
 
+  @Override
   public Set<String> getCollections() {
     return Collections.unmodifiableSet(collectionsToIndex);
   }

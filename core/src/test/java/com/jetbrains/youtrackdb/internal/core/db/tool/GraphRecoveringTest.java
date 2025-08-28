@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -80,9 +79,8 @@ public class GraphRecoveringTest {
 
   @Test
   public void testRecoverPerfectGraphNonLW() {
-    try (var youTrackDB = (YouTrackDBImpl) YourTracks.embedded(
-        DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDB.execute(
           "create database testRecoverPerfectGraphNonLW"
               + " memory users ( admin identified by 'admin' role admin)");
@@ -106,8 +104,8 @@ public class GraphRecoveringTest {
 
   @Test
   public void testRecoverBrokenGraphAllEdges() {
-    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDB.execute(
           "create database testRecoverBrokenGraphAllEdges"
               + " memory users ( admin identified by 'admin' role admin)");
@@ -143,8 +141,8 @@ public class GraphRecoveringTest {
 
   @Test
   public void testRecoverBrokenGraphLinksInVerticesNonLW() {
-    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(
+        DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDB.execute(
           "create database testRecoverBrokenGraphLinksInVerticesNonLW"
               + " memory users ( admin identified by 'admin' role admin)");

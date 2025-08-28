@@ -122,6 +122,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
             txChanges.stream().map(Identifiable::getIdentity)), session);
   }
 
+  @Override
   public IndexMultiValues put(FrontendTransaction transaction, Object key,
       final Identifiable singleValue) {
     final var rid = (RecordId) singleValue.getIdentity();
@@ -441,6 +442,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     return new HashSet<>(result);
   }
 
+  @Override
   public long size(DatabaseSessionEmbedded session) {
     acquireSharedLock();
     long tot;

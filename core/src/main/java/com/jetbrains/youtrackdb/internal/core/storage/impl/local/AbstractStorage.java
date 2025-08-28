@@ -3977,7 +3977,7 @@ public abstract class AbstractStorage
 
   private void startStorageTx(final FrontendTransaction clientTx) throws IOException {
     final var storageTx = transaction.get();
-    assert storageTx == null || storageTx.getClientTx().getId() == clientTx.getId();
+    assert storageTx == null || storageTx.clientTx().getId() == clientTx.getId();
     assert atomicOperationsManager.getCurrentOperation() == null;
 
     transaction.set(new StorageTransaction(clientTx));
@@ -4185,8 +4185,8 @@ public abstract class AbstractStorage
                 this,
                 "Read record %s v.%s size=%d bytes",
                 logger, rid,
-                buff.version,
-                buff.buffer != null ? buff.buffer.length : 0);
+                buff.version(),
+                buff.buffer() != null ? buff.buffer().length : 0);
       }
 
       return new ReadRecordResult(buff, prevRid, nextRid);

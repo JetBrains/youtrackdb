@@ -270,6 +270,7 @@ public abstract class IndexAbstract implements Index {
   /**
    * {@inheritDoc}
    */
+  @Override
   public long rebuild(DatabaseSessionEmbedded session) {
     return rebuild(session, new IndexRebuildOutputListener(this));
   }
@@ -570,7 +571,7 @@ public abstract class IndexAbstract implements Index {
 
     try {
       doDelete(transaction);
-      var session = (DatabaseSessionEmbedded) transaction.getDatabaseSession();
+      var session = transaction.getDatabaseSession();
       // REMOVE THE INDEX ALSO FROM CLASS MAP
       session.getSharedContext().getIndexManager()
           .removeClassPropertyIndex(session, this);

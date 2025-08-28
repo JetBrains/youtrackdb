@@ -707,7 +707,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   MetadataInternal getMetadata();
 
-  void afterCommitOperations(boolean rootTx);
+  void afterCommitOperations(boolean rootTx, Map<RID, RID> updatedRids);
 
   Object get(ATTRIBUTES_INTERNAL attribute);
 

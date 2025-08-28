@@ -112,7 +112,7 @@ public class RemoteConnectionManager {
       final var prev = connections.putIfAbsent(iServerURL, pool);
       if (prev != null) {
         // ALREADY PRESENT, DESTROY IT AND GET THE ALREADY EXISTENT OBJ
-        pool.pool().close();
+        pool.getPool().close();
         pool = prev;
       }
     }
@@ -151,7 +151,7 @@ public class RemoteConnectionManager {
                 logger);
         remove(conn);
       } else {
-        pool.pool().returnResource(conn);
+        pool.getPool().returnResource(conn);
       }
     }
   }
@@ -167,7 +167,7 @@ public class RemoteConnectionManager {
           "Connection cannot be released because the pool doesn't exist anymore");
     }
 
-    pool.pool().remove(conn);
+    pool.getPool().remove(conn);
 
     try {
       conn.unlock();
@@ -192,7 +192,7 @@ public class RemoteConnectionManager {
       return 0;
     }
 
-    return pool.pool().getMaxResources();
+    return pool.getPool().getMaxResources();
   }
 
   public int getAvailableConnections(final String url) {
@@ -201,7 +201,7 @@ public class RemoteConnectionManager {
       return 0;
     }
 
-    return pool.pool().getAvailableResources();
+    return pool.getPool().getAvailableResources();
   }
 
   public int getReusableConnections(final String url) {
@@ -213,7 +213,7 @@ public class RemoteConnectionManager {
       return 0;
     }
 
-    return pool.pool().getInPoolResources();
+    return pool.getPool().getInPoolResources();
   }
 
   public int getCreatedInstancesInPool(final String url) {
@@ -222,7 +222,7 @@ public class RemoteConnectionManager {
       return 0;
     }
 
-    return pool.pool().getCreatedInstances();
+    return pool.getPool().getCreatedInstances();
   }
 
   public void closePool(final String url) {
@@ -236,7 +236,7 @@ public class RemoteConnectionManager {
 
   protected void closePool(RemoteConnectionPool pool) {
     final List<SocketChannelBinaryAsynchClient> conns =
-        new ArrayList<>(pool.pool().getAllResources());
+        new ArrayList<>(pool.getPool().getAllResources());
     for (var c : conns) {
       try {
         // Unregister the listener that make the connection return to the closing pool.
@@ -245,7 +245,7 @@ public class RemoteConnectionManager {
         LogManager.instance().debug(this, "Cannot close binary channel", logger, e);
       }
     }
-    pool.pool().close();
+    pool.getPool().close();
   }
 
   public RemoteConnectionPool getPool(String url) {

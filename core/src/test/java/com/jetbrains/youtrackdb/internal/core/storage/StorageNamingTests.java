@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.InvalidDatabaseNameException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -32,8 +31,7 @@ public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersOne() {
-    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()))) {
       try {
         youTrackDB.create("name%", DatabaseType.MEMORY);
         Assert.fail();
@@ -45,8 +43,7 @@ public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersTwo() {
-    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()))) {
       try {
         youTrackDB.create("na.me", DatabaseType.MEMORY);
         Assert.fail();
@@ -58,8 +55,7 @@ public class StorageNamingTests {
 
   @Test
   public void testSpecialLettersThree() {
-    try (var youTrackDB = YourTracks.embedded(DbTestBase.getBaseDirectoryPath(getClass()),
-        YouTrackDBConfig.defaultConfig())) {
+    try (var youTrackDB = YourTracks.instance(DbTestBase.getBaseDirectoryPath(getClass()))) {
       youTrackDB.create("na_me$", DatabaseType.MEMORY);
       youTrackDB.drop("na_me$");
     }

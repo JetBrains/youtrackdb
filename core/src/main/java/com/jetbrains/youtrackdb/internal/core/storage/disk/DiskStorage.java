@@ -255,7 +255,7 @@ public class DiskStorage extends AbstractStorage {
         SystemVariableResolver.resolveSystemVariables(
             FileUtils.getPath(new java.io.File(url).getPath()));
 
-    storagePath = Paths.get(IOUtils.getPathFromDatabaseName(sp)).normalize().toAbsolutePath();
+    storagePath = Paths.get(sp).normalize().toAbsolutePath();
 
     deleteMaxRetries = GlobalConfiguration.FILE_DELETE_RETRY.getValueAsInteger();
     deleteWaitTime = GlobalConfiguration.FILE_DELETE_DELAY.getValueAsInteger();
@@ -522,7 +522,7 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void postDeleteSteps() {
     var databasePath =
-        IOUtils.getPathFromDatabaseName(SystemVariableResolver.resolveSystemVariables(url));
+        SystemVariableResolver.resolveSystemVariables(url);
     deleteFilesFromDisc(name, deleteMaxRetries, deleteWaitTime, databasePath);
   }
 

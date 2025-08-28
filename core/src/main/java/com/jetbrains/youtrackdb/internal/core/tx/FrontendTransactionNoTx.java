@@ -52,7 +52,6 @@ import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 /**
  * No operation transaction.
@@ -302,11 +301,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   @Override
   public ResultSet computeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
-    throw new UnsupportedOperationException("not supported in no tx mode");
-  }
-
-  @Override
-  public GraphTraversalSource traversal() {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 

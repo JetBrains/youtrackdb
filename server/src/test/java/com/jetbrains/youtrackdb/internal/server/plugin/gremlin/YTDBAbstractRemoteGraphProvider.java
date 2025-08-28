@@ -6,7 +6,9 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
+import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.process.YTDBTemporaryRidConversionTest;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,94 +27,6 @@ import org.apache.tinkerpop.gremlin.structure.Graph.Features;
 import org.apache.tinkerpop.gremlin.structure.RemoteGraph;
 import org.apache.tinkerpop.gremlin.util.MessageSerializer;
 
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_addEXknowsX_fromXaX_toXbX_propertyXweight_0_1X",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_addEXV_outE_label_groupCount_orderXlocalX_byXvalues_descX_selectXkeysX_unfold_limitX1XX_fromXV_hasXname_vadasXX_toXV_hasXname_lopXX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_addV_asXfirstX_repeatXaddEXnextX_toXaddVX_inVX_timesX5X_addEXnextX_toXselectXfirstXX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_VX1X_asXaX_outXcreatedX_addEXcreatedByX_toXaX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_V_asXaX_inXcreatedX_addEXcreatedByX_fromXaX_propertyXyear_2009X_propertyXacl_publicX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_withSideEffectXb_bX_VXaX_addEXknowsX_toXbX_propertyXweight_0_5X",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_V_aggregateXxX_asXaX_selectXxX_unfold_addEXexistsWithX_toXaX_propertyXtime_nowX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_V_hasXname_markoX_asXaX_outEXcreatedX_asXbX_inV_addEXselectXbX_labelX_toXaX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_VX1X_asXaX_outXcreatedX_addEXcreatedByX_toXaX_propertyXweight_2X",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_V_asXaX_outXcreatedX_inXcreatedX_whereXneqXaXX_asXbX_addEXcodeveloperX_fromXaX_toXbX_propertyXyear_2009X",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddEdgeTest",
-    method = "g_VXaX_addEXknowsX_toXbX_propertyXweight_0_1X",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexTest",
-    method = "g_addVXpersonX_propertyXname_stephenX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexTest",
-    method = "g_VX1X_addVXanimalX_propertyXage_selectXaX_byXageXX_propertyXname_puppyX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexTest",
-    method = "g_addV_propertyXlabel_personX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexTest",
-    method = "g_V_addVXanimalX_propertyXage_0X",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexTest",
-    method = "g_addVXpersonX_propertyXsingle_name_stephenX_propertyXsingle_name_stephenmX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphTest",
-    method = "g_V_hasLabelXpersonX_asXpX_VXsoftwareX_addInEXuses_pX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeEdgeTest",
-    method = "g_V_mergeEXlabel_self_weight_05X",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeVertexTest",
-    method = "g_mergeVXlabel_person_name_stephenX_optionXonCreate_label_person_name_stephen_age_19X_option",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeVertexTest",
-    method = "g_injectX0X_mergeVXlabel_person_name_stephenX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeVertexTest",
-    method = "g_withSideEffectXc_label_person_name_stephenX_withSideEffectXm_label_person_name_stephen_age_19X_mergeVXselectXcXX_optionXonCreate_selectXmXX_option",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
-@Graph.OptOut(
-    test = "org.apache.tinkerpop.gremlin.process.traversal.step.map.MergeVertexTest",
-    method = "g_mergeVXlabel_person_name_stephenX",
-    reason = "YTDB returns negative rids for new records that can not be re-attached.")
 @Graph.OptOut(
     test = "org.apache.tinkerpop.gremlin.process.traversal.step.OrderabilityTest",
     method = "g_E_properties_order_value",
@@ -164,7 +78,16 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     var graphsToLoad = LoadGraphWith.GraphData.values();
     var dbType = calculateDbType();
 
+    graphLoadingLoop:
     for (var graphToLoad : graphsToLoad) {
+      var featuresRequired = graphToLoad.featuresRequired();
+      for (var feature : featuresRequired) {
+        if (!YTDBFeatures.INSTANCE.supports(feature.featureClass(), feature.feature())) {
+          //features are not supported for the given graph
+          continue graphLoadingLoop;
+        }
+      }
+
       var location = graphToLoad.location();
       var graphName = getServerGraphName(graphToLoad);
 
@@ -180,22 +103,12 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
         serverContext.drop(graphName);
       }
 
-      var featuresRequired = graphToLoad.featuresRequired();
-      for (var feature : featuresRequired) {
-        if (!YTDBFeatures.INSTANCE.supports(feature.featureClass(), feature.feature())) {
-          //features are not supported for the given graph
-          continue;
-        }
-      }
-
       serverContext.create(graphName, dbType, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, "admin");
-      try (var session = serverContext.open(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)) {
-        var graph = session.asGraph();
-        readIntoGraph(graph, location);
-      }
 
-      graphGetterSessionPools.put(graphName,
-          serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD));
+      var cachedPool = serverContext.cachedPool(graphName, ADMIN_USER_NAME, ADMIN_USER_PASSWORD);
+      readIntoGraph(cachedPool.asGraph(), location);
+
+      graphGetterSessionPools.put(graphName, cachedPool);
     }
 
     if (serverContext.exists(DEFAULT_DB_NAME)) {
@@ -232,11 +145,46 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     return new HashMap<>() {{
       put(Graph.GRAPH, RemoteGraph.class.getName());
       put(RemoteConnection.GREMLIN_REMOTE_CONNECTION_CLASS, DriverRemoteConnection.class.getName());
-      put(DriverRemoteConnection.GREMLIN_REMOTE_DRIVER_SOURCENAME, "g" + serverGraphName);
+      put(DriverRemoteConnection.GREMLIN_REMOTE_DRIVER_SOURCENAME,
+          YTDBGraphManager.TRAVERSAL_SOURCE_PREFIX + serverGraphName);
       put("clusterConfiguration.port", TestClientFactory.PORT);
       put("clusterConfiguration.hosts", "localhost");
-      put(GREMLIN_REMOTE + "attachment", graphGetter);
+
+      if (!YTDBTemporaryRidConversionTest.class.isAssignableFrom(test)) {
+        put(GREMLIN_REMOTE + "attachment", graphGetter);
+      }
     }};
+  }
+
+  @Override
+  public boolean areConfigsTheSame(Configuration config1, Configuration config2) {
+    if (config1.size() != config2.size()) {
+      return false;
+    }
+
+    var config1Keys = config1.getKeys();
+    while (config1Keys.hasNext()) {
+      var config1Key = config1Keys.next();
+
+      var config1Value = config1.getProperty(config1Key);
+      var config2Value = config2.getProperty(config1Key);
+      if (config1Key.equals(GREMLIN_REMOTE + "attachment")) {
+        if (config1Value == null && config2Value == null) {
+          return true;
+        }
+        if (config1Value == null) {
+          return false;
+        }
+
+        return config2Value != null;
+      }
+
+      if (!config1Value.equals(config2Value)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   @Override
@@ -257,7 +205,7 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
 
   public static Cluster.Builder createClusterBuilder(MessageSerializer<?> serializer) {
     // match the content length in the server yaml
-    return TestClientFactory.build().maxContentLength(1000000).serializer(serializer);
+    return TestClientFactory.build().maxContentLength(1000000).serializer(serializer).channelizer(
+        YTDBDriverWebSocketChannelizer.class);
   }
-
 }

@@ -42,6 +42,7 @@ public class LiveQueryQueueThreadV2 extends Thread {
     this.setDaemon(true);
   }
 
+  @Override
   public LiveQueryQueueThreadV2 clone() {
     return new LiveQueryQueueThreadV2(this.ops);
   }

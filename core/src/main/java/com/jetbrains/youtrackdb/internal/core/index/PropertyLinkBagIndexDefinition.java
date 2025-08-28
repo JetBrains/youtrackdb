@@ -53,6 +53,7 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
         param[0]), null, null, transaction.getDatabaseSession());
   }
 
+  @Override
   public void processChangeEvent(
       FrontendTransaction transaction,
       final MultiValueChangeEvent<?, ?> changeEvent,
@@ -96,7 +97,7 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
   @Override
   public Object createValue(FrontendTransaction transaction, final Object... params) {
     var param = params[0];
-    if (!(param instanceof LinkBag)) {
+    if (!(param instanceof LinkBag linkBag)) {
       try {
         var session = transaction.getDatabaseSession();
         return keyType.convert(refreshRid(session, param), null, null, session);
@@ -105,7 +106,6 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
       }
     }
 
-    var linkBag = (LinkBag) param;
     final List<Object> values = new ArrayList<>();
     for (final Identifiable item : linkBag) {
       values.add(createSingleValue(transaction, item.getIdentity()));

@@ -325,7 +325,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public Collection<SchemaProperty> getProperties() {
     assert this.session.assertIfNotActive();
-    var result = delegate.properties(this.session);
+    var result = delegate.properties();
 
     var resultProxy = new ArrayList<SchemaProperty>(result.size());
     for (var schemaProperty : result) {
@@ -449,7 +449,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean isSubClassOf(String iClassName) {
     assert session.assertIfNotActive();
-    return delegate.isSubClassOf(session, iClassName);
+    return delegate.isSubClassOf(iClassName);
   }
 
   @Override
@@ -502,13 +502,13 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassImpl> impl
   @Override
   public boolean isEdgeType() {
     assert session.assertIfNotActive();
-    return delegate.isEdgeType(session);
+    return delegate.isEdgeType();
   }
 
   @Override
   public boolean isVertexType() {
     assert session.assertIfNotActive();
-    return delegate.isVertexType(session);
+    return delegate.isVertexType();
   }
 
   @Override

@@ -2,18 +2,18 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
-import com.jetbrains.youtrackdb.api.common.query.BasicLiveQueryResultListener;
-import com.jetbrains.youtrackdb.api.common.query.LiveQueryMonitor;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
-import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import java.io.InputStream;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.configuration2.Configuration;
 
 public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> implements
     YouTrackDB {
@@ -22,43 +22,6 @@ public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> 
     super(internal);
   }
 
-  @Override
-  public LiveQueryMonitor live(String databaseName, String user, String password, String query,
-      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Map<String, ?> args) {
-    return live(databaseName, user, password, YouTrackDBConfig.defaultConfig(), query, listener,
-        args);
-  }
-
-  @Override
-  public LiveQueryMonitor live(String databaseName, String user, String password,
-      YouTrackDBConfig config, String query, BasicLiveQueryResultListener<DatabaseSession, Result>
-          listener, Object... args) {
-    var pool = internal.openPool(databaseName, user, password, config);
-
-    try (var session = (DatabaseSessionInternal) pool.acquire()) {
-      var storage = (DiskStorage) session.getStorage();
-      return storage.live(pool, query, listener, args);
-    }
-  }
-
-  @Override
-  public LiveQueryMonitor live(String databaseName, String user, String password,
-      YouTrackDBConfig config, String query,
-      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Map<String, ?> args) {
-    var pool = internal.openPool(databaseName, user, password, config);
-
-    try (var session = (DatabaseSessionInternal) pool.acquire()) {
-      var storage = (DiskStorage) session.getStorage();
-      return storage.live(pool, query, listener, args);
-    }
-  }
-
-  @Override
-  public LiveQueryMonitor live(String databaseName, String user, String password, String query,
-      BasicLiveQueryResultListener<DatabaseSession, Result> listener, Object... args) {
-    return live(databaseName, user, password, YouTrackDBConfig.defaultConfig(), query, listener,
-        args);
-  }
 
   @Override
   public ResultSet execute(String script, Map<String, Object> params) {
@@ -71,12 +34,30 @@ public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> 
   }
 
   @Override
-  public void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
-      Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
-      YouTrackDBConfig config) {
-    internal.restore(name, ibuFilesSupplier, ibuInputStreamSupplier,
-        expectedUUID, config);
+  public void restore(@Nonnull String databaseName,
+      @Nonnull String path) {
+    internal.restore(databaseName, null, null, path, null, null);
   }
 
+  @Override
+  public void restore(@Nonnull String databaseName,
+      @Nonnull String path,
+      @Nullable String expectedUUID, @Nonnull Configuration config) {
+    internal.restore(databaseName, null, null, path, expectedUUID,
+        YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
+  }
 
+  @Override
+  public void restore(@Nonnull String databaseName,
+      @Nonnull Supplier<Iterator<String>> ibuFilesSupplier,
+      @Nonnull Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
+      @Nonnull Configuration config) {
+    internal.restore(databaseName, ibuFilesSupplier, ibuInputStreamSupplier, expectedUUID,
+        YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
+  }
+
+  @Override
+  public void close() {
+    YTDBGraphFactory.unregisterYTDBInstance(this, super::close);
+  }
 }

@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
@@ -21,7 +20,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class DatabaseMetadataUpdateListenerTest {
-  private BasicYouTrackDB youTrackDB;
+
+  private YouTrackDBAbstract<?, ?> youTrackDB;
   private DatabaseSessionInternal session;
   private int configCount;
   private int sequenceCount;

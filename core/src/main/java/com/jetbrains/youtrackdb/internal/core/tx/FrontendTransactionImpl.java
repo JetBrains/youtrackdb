@@ -71,7 +71,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 
 public class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
@@ -109,7 +108,6 @@ public class FrontendTransactionImpl implements
   private boolean beforeCallBacksInProgress = false;
 
   protected int txStartCounter;
-  protected boolean sentToServer = false;
   private final boolean readOnly;
 
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
@@ -568,15 +566,17 @@ public class FrontendTransactionImpl implements
           "Given transaction was rolled back, and thus cannot be committed.");
     }
 
+    var result = new HashMap<RID, RID>(originalChangedRecordIdMap.size());
     try {
       status = TXSTATUS.COMMITTING;
-      if (sentToServer || isWriteTransaction()) {
+      if (isWriteTransaction()) {
         session.internalCommit(this);
         session.transactionMeters()
             .writeTransactions()
             .record();
         try {
-          session.afterCommitOperations(true);
+          result.putAll(originalChangedRecordIdMap);
+          session.afterCommitOperations(true, result);
         } catch (Exception e) {
           LogManager.instance().error(this,
               "Error during after commit callback invocation", e);
@@ -588,7 +588,6 @@ public class FrontendTransactionImpl implements
       throw e;
     }
 
-    var result = new HashMap<RID, RID>(originalChangedRecordIdMap);
     close();
     status = TXSTATUS.COMPLETED;
 
@@ -1699,13 +1698,6 @@ public class FrontendTransactionImpl implements
   public ResultSet computeScript(String language, String script, Object... args)
       throws CommandExecutionException, CommandScriptException {
     return session.computeScript(language, script, args);
-  }
-
-  @Override
-  public GraphTraversalSource traversal() {
-    checkIfActive();
-
-    return session.asGraph().traversal();
   }
 
   @Override

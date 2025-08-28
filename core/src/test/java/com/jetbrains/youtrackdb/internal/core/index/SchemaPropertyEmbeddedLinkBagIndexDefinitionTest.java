@@ -1,9 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigBuilderImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import org.apache.commons.configuration2.Configuration;
 import org.junit.Assert;
 
 /**
@@ -13,15 +12,15 @@ public class SchemaPropertyEmbeddedLinkBagIndexDefinitionTest extends
     SchemaPropertyLinkBagAbstractIndexDefinition {
 
   @Override
-  protected YouTrackDBConfig createConfig(YouTrackDBConfigBuilderImpl builder) {
-    builder.addGlobalConfigurationParameter(
-        GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD,
+  protected Configuration createConfig() {
+    var config = super.createConfig();
+    config.setProperty(GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD.getKey(),
         Integer.MAX_VALUE);
-    builder.addGlobalConfigurationParameter(
-        GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD,
+    config.setProperty(
+        GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.getKey(),
         Integer.MAX_VALUE);
 
-    return builder.build();
+    return config;
   }
 
   @Override

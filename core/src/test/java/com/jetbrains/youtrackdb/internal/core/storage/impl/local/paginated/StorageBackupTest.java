@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
@@ -10,11 +9,12 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.util.Random;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,7 +33,7 @@ public class StorageBackupTest {
     FileUtils.deleteRecursively(new File(testDirectory));
     final var dbName = StorageBackupTest.class.getSimpleName();
 
-    var youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
+    var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.execute(
         "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
 
@@ -73,12 +73,10 @@ public class StorageBackupTest {
 
     final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
 
-    youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
-        backupDir.getAbsolutePath(), null, YouTrackDBConfig.defaultConfig());
+        backupDir.getAbsolutePath());
 
     final var compare =
         new DatabaseCompare(
@@ -92,7 +90,7 @@ public class StorageBackupTest {
       youTrackDB.close();
     }
 
-    youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     if (youTrackDB.exists(dbName)) {
       youTrackDB.drop(dbName);
     }
@@ -109,7 +107,7 @@ public class StorageBackupTest {
   public void testSingeThreadIncrementalBackup() {
     FileUtils.deleteRecursively(new File(testDirectory));
 
-    var youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
+    var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
 
     final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.execute(
@@ -173,14 +171,10 @@ public class StorageBackupTest {
 
     final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
 
-    youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
-        backupDir.getAbsolutePath(),
-        null,
-        YouTrackDBConfig.defaultConfig());
+        backupDir.getAbsolutePath());
 
     final var compare =
         new DatabaseCompare(
@@ -194,7 +188,7 @@ public class StorageBackupTest {
       youTrackDB.close();
     }
 
-    youTrackDB = YourTracks.embedded(testDirectory, YouTrackDBConfig.defaultConfig());
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
     youTrackDB.drop(dbName);
     youTrackDB.drop(backupDbName);
 
@@ -206,12 +200,11 @@ public class StorageBackupTest {
   @Test
   public void testSingeThreadIncrementalBackupEncryption() {
     FileUtils.deleteRecursively(new File(testDirectory));
-    final var config =
-        (YouTrackDBConfigImpl) YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_ENCRYPTION_KEY,
-                "T1JJRU5UREJfSVNfQ09PTA==")
-            .build();
-    var youTrackDB = YourTracks.embedded(testDirectory, config);
+    final var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
+        "T1JJRU5UREJfSVNfQ09PTA==");
+
+    var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
 
     final var dbName = StorageBackupTest.class.getSimpleName();
     youTrackDB.execute(
@@ -275,11 +268,9 @@ public class StorageBackupTest {
 
     final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
 
-    youTrackDB = YourTracks.embedded(testDirectory, config);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
     youTrackDB.restore(
         backupDbName,
-        null,
-        null,
         backupDir.getAbsolutePath(),
         null,
         config);
@@ -296,7 +287,7 @@ public class StorageBackupTest {
       youTrackDB.close();
     }
 
-    youTrackDB = YourTracks.embedded(testDirectory, config);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory, config);
     if (youTrackDB.exists(dbName)) {
       youTrackDB.drop(dbName);
     }

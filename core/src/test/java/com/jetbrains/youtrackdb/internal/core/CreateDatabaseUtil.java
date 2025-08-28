@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
@@ -41,7 +40,7 @@ public class CreateDatabaseUtil {
   }
 
   public static void createDatabase(
-      final String database, final BasicYouTrackDB<?, ?> youTrackDB, final String type) {
+      final String database, final YouTrackDBAbstract<?, ?> youTrackDB, final String type) {
     if (!youTrackDB.exists(database)) {
       youTrackDB.execute(
           "create database "

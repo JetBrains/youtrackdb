@@ -53,6 +53,7 @@ public class EntityComparator implements Comparator<Identifiable> {
                     + db.get(DatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE)));
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   public int compare(final Identifiable ind1, final Identifiable ind2) {
     if (ind1 != null && ind1.equals(ind2)) {

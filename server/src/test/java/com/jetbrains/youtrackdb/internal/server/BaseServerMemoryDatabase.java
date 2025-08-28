@@ -1,10 +1,8 @@
 package com.jetbrains.youtrackdb.internal.server;
 
-import com.jetbrains.youtrackdb.api.YourTracks;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
-import com.jetbrains.youtrackdb.api.remote.RemoteYouTrackDB;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
 import java.io.File;
 import org.junit.After;
 import org.junit.Before;
@@ -12,8 +10,9 @@ import org.junit.Rule;
 import org.junit.rules.TestName;
 
 public class BaseServerMemoryDatabase {
+
   protected RemoteDatabaseSession session;
-  protected RemoteYouTrackDB context;
+  protected YouTrackDBRemoteImpl context;
   @Rule
   public TestName name = new TestName();
   protected YouTrackDBServer server;
@@ -28,8 +27,8 @@ public class BaseServerMemoryDatabase {
       throw new RuntimeException(e);
     }
 
-    context = YourTracks.remote("remote:localhost", "root", "root",
-        YouTrackDBConfig.defaultConfig());
+    context = (YouTrackDBRemoteImpl) YouTrackDBRemoteImpl.remote("remote:localhost", "root",
+        "root");
     context
         .execute(
             "create database "

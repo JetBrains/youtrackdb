@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.SessionListener;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Entity;
+import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.RecordHookAbstract;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
@@ -238,7 +239,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
   }
 
   @Override
-  public void onAfterTxCommit(Transaction transaction) {
+  public void onAfterTxCommit(Transaction transaction, Map<RID, RID> ridMapping) {
     List<Map<String, ?>> entries;
 
     synchronized (operations) {

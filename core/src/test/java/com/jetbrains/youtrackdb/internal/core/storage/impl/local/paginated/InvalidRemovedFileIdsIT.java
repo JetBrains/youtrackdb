@@ -2,12 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
 import java.io.IOException;
@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -29,12 +30,9 @@ public class InvalidRemovedFileIdsIT {
 
     deleteDirectory(new File(dbPath));
 
-    final var config =
-        YouTrackDBConfig.builder()
-            .addGlobalConfigurationParameter(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1)
-            .build();
-
-    var youTrackDB = YourTracks.embedded(buildDirectory, config);
+    final var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey(), 1);
+    var youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory, config);
     youTrackDB.execute(
         "create database " + dbName + " disk users ( admin identified by 'admin' role admin)");
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
@@ -75,7 +73,7 @@ public class InvalidRemovedFileIdsIT {
 
     fileMap.close();
 
-    youTrackDB = YourTracks.embedded(buildDirectory, config);
+    youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory, config);
     db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
     final Schema schema = db.getMetadata().getSchema();

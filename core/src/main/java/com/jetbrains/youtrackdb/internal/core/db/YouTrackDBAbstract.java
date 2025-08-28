@@ -19,22 +19,24 @@ import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.api.common.BasicYouTrackDB;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
 import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.lang.ArrayUtils;
 
 public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicDatabaseSession<R, ?>>
-    implements BasicYouTrackDB<R, S> {
+    implements AutoCloseable {
 
   private final ConcurrentLinkedHashMap<DatabasePoolInternal<S>, SessionPoolImpl<S>> cachedPools =
       new ConcurrentLinkedHashMap.Builder<DatabasePoolInternal<S>, SessionPoolImpl<S>>()
@@ -58,7 +60,6 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
    * @param password related to the specified username
    * @return the opened database
    */
-  @Override
   public S open(String database, String user, String password) {
     return open(database, user, password, YouTrackDBConfig.defaultConfig());
   }
@@ -72,7 +73,6 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
    * @param config   custom configuration for current database
    * @return the opened database
    */
-  @Override
   public S open(
       String database, String user, String password, YouTrackDBConfig config) {
     return internal.open(database, user, password, config);
@@ -86,44 +86,38 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
    * @param type     can be disk or memory
    * @see YouTrackDB#create(String, DatabaseType, String...)
    */
-  @Override
   public void create(String database, DatabaseType type) {
     create(database, type, YouTrackDBConfig.defaultConfig());
   }
 
-  /**
-   * Creates a new database alongside with users, passwords and roles.
-   *
-   * <p>If you want to create users during creation of database you should provide array that
-   * consist of triple strings. Each triple string should contain user name, password and role.
-   *
-   * <p>For example:
-   *
-   * <p>{@code youTrackDB.create("test", DatabaseType.DISK, "user1", "password1", "admin",
-   * "user2", "password2", "reader"); }
-   *
-   * <p>The predefined roles are:
-   *
-   * <ul>
-   *   <li>admin: has all privileges on the database
-   *   <li>reader: can read the data but cannot modify it
-   *   <li>writer: can read and modify the data but cannot create or delete classes
-   * </ul>
-   *
-   * @param database        database name
-   * @param type            can be disk or memory
-   * @param userCredentials user names, passwords and roles provided as a sequence of triple
-   *                        strings
-   */
-  @Override
-  public void create(@Nonnull String database, @Nonnull DatabaseType type,
+  /// Creates a new database alongside users, passwords and roles.
+  ///
+  /// If you want to create users during creation of a database you should provide array that
+  /// consists of triple strings. Each triple string should contain the username, password and
+  /// role.
+  ///
+  /// For example:
+  ///
+  /// `youTrackDB.create("test", DatabaseType.DISK, "user1", "password1", "admin","user2",
+  /// "password2", "reader");`
+  ///
+  /// The predefined roles are:
+  ///
+  ///   - admin: has all privileges on the database
+  ///   - reader: can read the data but cannot modify it
+  ///   - writer: can read and modify the data but cannot create or delete classes
+  ///
+  /// @param databaseName    database name
+  /// @param type            can be disk or memory
+  /// @param userCredentials usernames, passwords and roles provided as a sequence of triple
+  ///                        strings
+  public void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
       String... userCredentials) {
     var queryString = new StringBuilder("create database ? " + type.name());
     var params = addUsersToCreationScript(userCredentials, queryString);
-    execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+    execute(queryString.toString(), ArrayUtils.add(params, 0, databaseName)).close();
   }
 
-  @Override
   public void create(@Nonnull String database, @Nonnull DatabaseType type,
       @Nonnull YouTrackDBConfig youTrackDBConfig, String... userCredentials) {
     var queryString = new StringBuilder("create database ? " + type.name());
@@ -140,7 +134,6 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
    * @param type     can be disk or memory
    * @param config   custom configuration for current database
    */
-  @Override
   public void create(String database, DatabaseType type, YouTrackDBConfig config) {
     this.internal.create(database, serverUser, serverPassword, type, config);
   }
@@ -154,46 +147,39 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
    * @param type     can be disk or memory
    * @return true if the database has been created, false if already exists
    */
-  @Override
   public boolean createIfNotExists(String database, DatabaseType type) {
     return createIfNotExists(database, type, YouTrackDBConfig.defaultConfig());
   }
 
-  /**
-   * Creates a new database alongside with users, passwords and roles if such one does not exist
-   * yet.
-   *
-   * <p>If you want to create users during creation of database you should provide array that
-   * consist of triple strings. Each triple string should contain user name, password and role.
-   *
-   * <p>The predefined roles are:
-   *
-   * <ul>
-   *   <li>admin: has all privileges on the database
-   *   <li>reader: can read the data but cannot modify it
-   *   <li>writer: can read and modify the data but cannot create or delete classes
-   * </ul>
-   *
-   * <p>For example:
-   *
-   * <p>{@code youTrackDB.createIfNotExists("test", DatabaseType.DISK, "user1", "password1",
-   * "admin", "user2", "password2", "reader"); }
-   *
-   * @param database        database name
-   * @param type            can be disk or memory
-   * @param userCredentials user names, passwords and roles provided as a sequence of triple
-   *                        strings
-   */
-  @Override
-  public void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
+  /// Creates a new database alongside users, passwords and roles if such a one does not exist yet.
+  ///
+  /// If you want to create users during creation of database you should provide array that consists
+  /// of triple strings. Each triple string should contain the username, password and role.
+  ///
+  /// The predefined roles are:
+  ///
+  ///   - admin: has all privileges on the database
+  ///   - reader: can read the data but cannot modify it
+  ///   - writer: can read and modify the data but cannot create or delete classes
+  ///
+  ///
+  /// For example:
+  ///
+  /// `youTrackDB.createIfNotExists("test", DatabaseType.DISK, "user1", "password1","admin",
+  /// "user2", "password2", "reader");`
+  ///
+  /// @param databaseName    database name
+  /// @param type            can be disk or memory
+  /// @param userCredentials usernames, passwords and roles provided as a sequence of triple
+  ///                        strings
+  public void createIfNotExists(@Nonnull String databaseName, @Nonnull DatabaseType type,
       String... userCredentials) {
     var queryString =
         new StringBuilder("create database ? " + type.name() + " if not exists");
     var params = addUsersToCreationScript(userCredentials, queryString);
-    execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+    execute(queryString.toString(), ArrayUtils.add(params, 0, databaseName)).close();
   }
 
-  @Override
   public void createIfNotExists(@Nonnull String database, @Nonnull DatabaseType type,
       @Nonnull YouTrackDBConfig config, String... userCredentials) {
     var queryString =
@@ -201,6 +187,32 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
     var params = addUsersToCreationScript(userCredentials, queryString);
     addConfigToCreationScript(queryString, config);
     execute(queryString.toString(), ArrayUtils.add(params, 0, database)).close();
+  }
+
+  /// Open the YTDB Graph instance by database name, using the current username and password.
+  ///
+  /// @param databaseName Database name
+  /// @param userName     user name
+  @Nonnull
+  public YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
+      @Nonnull String userPassword) {
+    var sessionPool = cachedPool(databaseName, userName, userPassword);
+    return sessionPool.asGraph();
+  }
+
+  /// Open the YTDB Graph instance by database name, using the current username and password. This
+  /// method allows one to specify database configuration.
+  ///
+  /// @param databaseName Database name
+  /// @param userName     user name
+  /// @param config       database configuration
+  @Nonnull
+  public YTDBGraph openGraph(@Nonnull String databaseName, @Nonnull String userName,
+      @Nonnull String userPassword,
+      @Nonnull Configuration config) {
+    var sessionPool = cachedPool(databaseName, userName, userPassword,
+        YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
+    return sessionPool.asGraph();
   }
 
   private static void addConfigToCreationScript(StringBuilder queryString,
@@ -261,7 +273,6 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
    * @param config   custom configuration for current database
    * @return true if the database has been created, false if already exists
    */
-  @Override
   public boolean createIfNotExists(String database, DatabaseType type, YouTrackDBConfig config) {
     if (!this.internal.exists(database, serverUser, serverPassword)) {
       this.internal.create(database, serverUser, serverPassword, type, config);
@@ -270,52 +281,39 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
     return false;
   }
 
-  /**
-   * Drop a database
-   *
-   * @param database database name
-   */
-  @Override
-  public void drop(String database) {
-    this.internal.drop(database, serverUser, serverPassword);
+  /// Drop a database
+  ///
+  /// @param databaseName database name
+  public void drop(@Nonnull String databaseName) {
+    this.internal.drop(databaseName, serverUser, serverPassword);
   }
 
-  /**
-   * Check if a database exists
-   *
-   * @param database database name to check
-   * @return boolean true if exist false otherwise.
-   */
-  @Override
-  public boolean exists(String database) {
-    return this.internal.exists(database, serverUser, serverPassword);
+  /// Check if a database exists
+  ///
+  /// @param databaseName database name to check
+  /// @return boolean true if exist false otherwise.
+  public boolean exists(@Nonnull String databaseName) {
+    return this.internal.exists(databaseName, serverUser, serverPassword);
   }
 
-  /**
-   * List exiting databases in the current environment
-   *
-   * @return a list of existing databases.
-   */
-  @Override
+  /// List exiting databases in the current environment
+  ///
+  /// @return a list of existing databases.
+  @Nonnull
   public List<String> listDatabases() {
     return new ArrayList<>(this.internal.listDatabases(serverUser, serverPassword));
   }
 
-  /**
-   * Close the current YouTrackDB context with all related databases and pools.
-   */
+  /// Close the current YouTrackDB database manager with all related databases and pools.
   @Override
   public void close() {
     this.cachedPools.clear();
     this.internal.close();
   }
 
-  /**
-   * Check if the current YouTrackDB context is open
-   *
-   * @return boolean true if is open false otherwise.
-   */
-  @Override
+  /// Check if the current YouTrackDB database manager is open
+  ///
+  /// @return boolean true if is open false otherwise.
   public boolean isOpen() {
     return this.internal.isOpen();
   }
@@ -325,7 +323,6 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
     return this.internal.openPool(database, user, password, config);
   }
 
-  @Override
   public SessionPool<S> cachedPool(String database, String user, String password) {
     return cachedPool(database, user, password, YouTrackDBConfig.defaultConfig());
   }
@@ -340,7 +337,6 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
    *                 pool)
    * @return cached {@link SessionPool}
    */
-  @Override
   public SessionPool<S> cachedPool(
       String database, String user, String password, YouTrackDBConfig config) {
     var internalPool = internal.cachedPool(database, user, password, config);
@@ -355,16 +351,86 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
         key -> new SessionPoolImpl<>(this, internalPool));
   }
 
-  @Override
-  public void restore(String name, String user, String password, String path,
-      YouTrackDBConfig config) {
-    internal.restore(name, user, password, null, path, config);
+  public void restore(String name, String path, YouTrackDBConfig config) {
+    internal.restore(name, null, null, path, null, config);
   }
 
-  @Override
-  public void restore(String name, String user, String password, String path,
-      @Nullable String expectedUUID, YouTrackDBConfig config) {
-    internal.restore(name, user, password, expectedUUID, path, config);
+  /// Creates a new database alongside users, passwords and roles and also allows to specify
+  /// database configuration.
+  ///
+  /// If you want to create users during creation of a database you should provide an array that
+  /// consists of triple strings. Each triple string should contain the username, password and
+  /// role.
+  ///
+  /// For example:
+  ///
+  /// `youTrackDB.create("test", DatabaseType.DISK, "user1", "password1", "admin","user2",
+  /// "password2", "reader");`
+  ///
+  /// The predefined roles are:
+  ///
+  ///   - admin: has all privileges on the database
+  ///   - reader: can read the data but cannot modify it
+  ///   - writer: can read and modify the data but cannot create or delete classes
+  ///
+  /// @param databaseName     database name
+  /// @param type             can be disk or memory
+  /// @param youTrackDBConfig database configuration
+  /// @param userCredentials  usernames, passwords and roles provided as a sequence of triple
+  ///                         strings
+  public void create(@Nonnull String databaseName, @Nonnull DatabaseType type,
+      @Nonnull Configuration youTrackDBConfig, String... userCredentials) {
+    var builder = YouTrackDBConfig.builder().fromApacheConfiguration(youTrackDBConfig);
+    create(databaseName, type, builder.build(), userCredentials);
+  }
+
+  /// Creates a new database alongside users, passwords and roles if such a one does not exist yet
+  /// and also allows to specify database configuration.
+  ///
+  /// If you want to create users during the creation of a database, you should provide an array
+  /// that consists of triple strings. Each triple string should contain the username, password and
+  /// role.
+  ///
+  /// The predefined roles are:
+  ///
+  ///   - admin: has all privileges on the database
+  ///   - reader: can read the data but cannot modify it
+  ///   - writer: can read and modify the data but cannot create or delete classes
+  ///
+  ///
+  /// For example:
+  ///
+  /// `youTrackDB.createIfNotExists("test", DatabaseType.DISK, "user1", "password1","admin",
+  /// "user2", "password2", "reader");`
+  ///
+  /// @param databaseName    database name
+  /// @param type            can be disk or memory
+  /// @param config          database configuration
+  /// @param userCredentials usernames, passwords and roles provided as a sequence of triple
+  ///                        strings
+  public void createIfNotExists(@Nonnull String databaseName, @Nonnull DatabaseType type,
+      @Nonnull Configuration config, String... userCredentials) {
+    var builder = YouTrackDBConfig.builder().fromApacheConfiguration(config);
+    createIfNotExists(databaseName, type, builder.build(), userCredentials);
+  }
+
+  /// Creates a database by restoring it from incremental backup. The backup should be created with
+  /// [#incrementalBackup(Path)].
+  ///
+  /// At the moment only disk-based databases are supported, you cannot restore memory databases.
+  ///
+  /// @param databaseName Name of a database to be created.
+  /// @param path         Path to the backup directory.
+  /// @param config       YouTrackDB configuration.
+  public void restore(@Nonnull String databaseName,
+      @Nonnull String path,
+      @Nullable Configuration config) {
+    if (config == null) {
+      restore(databaseName, path, YouTrackDBConfig.defaultConfig());
+    } else {
+      var builder = YouTrackDBConfig.builder().fromApacheConfiguration(config);
+      restore(databaseName, path, builder.build());
+    }
   }
 
   public void invalidateCachedPools() {
@@ -374,12 +440,10 @@ public abstract class YouTrackDBAbstract<R extends BasicResult, S extends BasicD
     }
   }
 
-  @Override
   public BasicResultSet<? extends BasicResult> execute(String script, Map<String, Object> params) {
     return internal.executeServerStatementNamedParams(script, serverUser, serverPassword, params);
   }
 
-  @Override
   public BasicResultSet<? extends BasicResult> execute(String script, Object... params) {
     return internal.executeServerStatementPositionalParams(script, serverUser, serverPassword,
         params);

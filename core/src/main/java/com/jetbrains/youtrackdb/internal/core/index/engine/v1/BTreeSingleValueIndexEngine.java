@@ -64,6 +64,7 @@ public final class BTreeSingleValueIndexEngine
     return name;
   }
 
+  @Override
   public void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException {
     BinarySerializer keySerializer = storage.resolveObjectSerializer(data.getKeySerializedId());
     var serializerFactory = storage.getComponentsFactory().binarySerializerFactory;

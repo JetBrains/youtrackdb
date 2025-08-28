@@ -47,6 +47,7 @@ public interface WriteAheadLog extends AutoCloseable {
 
   LogSequenceNumber log(WriteableWALRecord record) throws IOException;
 
+  @Override
   void close() throws IOException;
 
   void close(boolean flush) throws IOException;
