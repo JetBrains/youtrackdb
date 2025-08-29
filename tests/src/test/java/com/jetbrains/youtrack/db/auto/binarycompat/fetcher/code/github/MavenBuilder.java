@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.github;
+package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github;
 
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import java.io.File;

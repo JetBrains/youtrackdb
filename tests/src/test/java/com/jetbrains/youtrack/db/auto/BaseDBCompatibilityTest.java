@@ -7,13 +7,18 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.CommonDownloader;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.JarDownloader;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.JarDownloader.LocationType;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.github.GithubJarBuilder;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.github.GithubRepoDownloader;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.github.MavenBuilder;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.maven.MavenJarDownloader;
+import com.jetbrains.youtrack.db.api.DatabaseType;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.CommonDownloader;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.JarDownloader;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.JarDownloader.LocationType;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github.GithubJarBuilder;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github.GithubRepoDownloader;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github.MavenBuilder;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.maven.MavenJarDownloader;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data.CommonDbDownloader;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data.CommonDbDownloader.DbLocationInfo;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data.CommonDbDownloader.DbLocationType;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data.CommonDbDownloader.DbMetadata;
 import com.jetbrains.youtrack.db.internal.common.log.LogManager;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
@@ -33,10 +38,11 @@ import org.testng.annotations.Test;
 
 public class BaseDBCompatibilityTest {
 
-  private CommonDownloader downloader = new CommonDownloader(Map.of(
+  private final CommonDownloader downloader = new CommonDownloader(Map.of(
       LocationType.GIT, new GithubJarBuilder(new GithubRepoDownloader(), new MavenBuilder()),
       LocationType.MAVEN, new MavenJarDownloader("./local-repo")
   ));
+  private final CommonDbDownloader dbDownloader = new CommonDbDownloader();
 
   @Test
   public void shouldLoadOldDb() throws Exception {
@@ -74,10 +80,12 @@ public class BaseDBCompatibilityTest {
         LogManager.instance().info(
             this,
             "Testing db %s exported with version %s binary compatibility with version: %s",
-            dbMetadata.name(), importVersion.name());
+            dbMetadata.name(), exportVersion.name(), importVersion.name());
 
+        var importDirectory = Files.createTempDirectory(
+            "ytdb-import" + dbMetadata.name() + "___" + importVersion.name());
         var importMetadata = new DbMetadata(dbMetadata.name(),
-            dbMetadata.location() + "___import" + importVersion.name(),
+            new DbLocationInfo(importDirectory.toAbsolutePath().toString(), DbLocationType.FILE),
             dbMetadata.user(), dbMetadata.password()
         );
         var importSession = loadSession(importMetadata, importVersion);
@@ -97,7 +105,11 @@ public class BaseDBCompatibilityTest {
                 unused -> {
                 }
             );
-            assertTrue(compare.compare());
+            assertTrue(
+                "Db " + dbMetadata + ". Opened with version " + importVersion
+                    + " is not compatible to db exported with version "
+                    + exportVersion + " and reimported with version " + importVersion,
+                compare.compare());
 
           } finally {
             closeSession(newSessionOnOldDb);
@@ -111,7 +123,7 @@ public class BaseDBCompatibilityTest {
   }
 
   private String exportDbWithVersion(DbMetadata dbMetadata, VersionInfo version)
-      throws MalformedURLException, ClassNotFoundException, NoSuchMethodException, InvocationTargetException, IllegalAccessException, InstantiationException {
+      throws IOException, ClassNotFoundException, NoSuchMethodException, InvocationTargetException, IllegalAccessException, InstantiationException {
     var session = loadSession(dbMetadata, version);
     var loader = session.loader();
 
@@ -152,8 +164,7 @@ public class BaseDBCompatibilityTest {
         version.location().source(),
         version.name()
     );
-    var loader = new URLClassLoader(new URL[]{importJar.toURL()},
-        ClassLoader.getSystemClassLoader());
+    var loader = new URLClassLoader(new URL[]{importJar.toURL()});
     var configClass = loader.loadClass("com.jetbrains.youtrack.db.api.config.YouTrackDBConfig");
     var configBuilderClass = loader.loadClass(
         "com.jetbrains.youtrack.db.api.config.YouTrackDBConfigBuilder");
@@ -167,8 +178,16 @@ public class BaseDBCompatibilityTest {
 
     var embeddedMethod = youtracks.getDeclaredMethod("embedded", String.class, configClass);
 
-    var ytdbImpl = embeddedMethod.invoke(null, dbMetadata.location(),
+    var location = dbDownloader.prepareDbLocation(dbMetadata);
+    var ytdbImpl = embeddedMethod.invoke(null, location,
         configBuilderBuildMethod.invoke(configBuilder));
+    var existsMethod = ytdbClass.getDeclaredMethod("exists", String.class);
+    if (!(boolean) existsMethod.invoke(ytdbImpl, dbMetadata.name())) {
+      var createMethod = ytdbClass.getDeclaredMethod("create", String.class, DatabaseType.class,
+          String[].class);
+      createMethod.invoke(ytdbImpl, dbMetadata.name(), DatabaseType.DISK,
+          new String[]{dbMetadata.user(), dbMetadata.password(), "admin"});
+    }
     var openMethod = ytdbClass.getDeclaredMethod("open", String.class, String.class, String.class);
     var session = openMethod.invoke(ytdbImpl, dbMetadata.name(), "admin", "admin");
 
@@ -181,9 +200,13 @@ public class BaseDBCompatibilityTest {
   private static void closeSession(SessionLoadMetadata session)
       throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
     var sessionCloseMethod = session.sessionClass().getDeclaredMethod("close");
-    sessionCloseMethod.invoke(session.session());
+    if (session.session() != null) {
+      sessionCloseMethod.invoke(session.session());
+    }
     var closeMethod = session.ytdbClass().getDeclaredMethod("close");
-    closeMethod.invoke(session.ytdb());
+    if (session.ytdb() != null) {
+      closeMethod.invoke(session.ytdb());
+    }
   }
 
   private List<TestPlan> loadTestPlan() throws IOException {
@@ -232,10 +255,6 @@ public class BaseDBCompatibilityTest {
   }
 
   private record VersionInfo(String name, LocationInfo location) {
-
-  }
-
-  private record DbMetadata(String name, String location, String user, String password) {
 
   }
 }

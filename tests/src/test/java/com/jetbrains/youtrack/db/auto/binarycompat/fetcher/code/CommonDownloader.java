@@ -1,6 +1,6 @@
-package com.jetbrains.youtrack.db.auto.binarycompat.fetcher;
+package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code;
 
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.JarDownloader.LocationType;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.JarDownloader.LocationType;
 import java.io.File;
 import java.util.Map;
 

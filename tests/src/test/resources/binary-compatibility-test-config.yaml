@@ -1,7 +1,15 @@
 runs:
   - dbs:
       - name: "DbCreationTest"
-        location: "/Users/logart/dev/youtrackdb/tests/target/test-db"
+        location:
+          source: "/Users/logart/dev/youtrackdb/tests/target/test-db"
+          type: FILE
+        user: "admin"
+        password: "admin"
+      - name: "DbCreationTest"
+        location:
+          source: "https://github.com/logart/youtrackdb/releases/download/1.1/test-db.tar.gz"
+          type: HTTP
         user: "admin"
         password: "admin"
     versions:

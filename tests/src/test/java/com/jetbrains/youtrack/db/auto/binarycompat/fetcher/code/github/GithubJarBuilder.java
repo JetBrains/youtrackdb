@@ -1,24 +1,27 @@
-package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.github;
+package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github;
 
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.JarDownloader;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
+import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.JarDownloader;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
+import javax.annotation.Nonnull;
 
 public class GithubJarBuilder implements JarDownloader {
 
   private final GithubRepoDownloader githubRepoDownloader;
   private final MavenBuilder mavenBuilder;
+  private final File root;
 
   public GithubJarBuilder(GithubRepoDownloader githubRepoDownloader, MavenBuilder mavenBuilder) {
     this.githubRepoDownloader = githubRepoDownloader;
     this.mavenBuilder = mavenBuilder;
+    try {
+      this.root = Files.createTempDirectory("ytdb-github-jar-builder").toFile();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   @Override
@@ -34,16 +37,30 @@ public class GithubJarBuilder implements JarDownloader {
 
   public File checkoutAndBuildProject(String repoUrl, String branch)
       throws InterruptedException, IOException {
-    var destination = Files.createTempDirectory("ytdb-" + branch);
-    try {
-      cleanUp(destination);
-    } catch (IOException e) {
-      LogManager.instance()
-          .error(this, "Failed to clean up temporary directory: " + destination, e);
-    }
-    var localRepoPath = githubRepoDownloader.checkoutRepository(repoUrl, branch,
-        destination.toAbsolutePath().toString());
+    var localRepoPath = checkout(repoUrl, branch);
+    return buildWithMaven(localRepoPath);
+  }
 
+  @Nonnull
+  private String checkout(String repoUrl, String branch) throws IOException, InterruptedException {
+    var branchDir = root.toPath().resolve(branch);
+    if (!branchDir.toFile().exists()) {
+      Files.createDirectory(branchDir);
+    }
+    String localRepoPath;
+    if (Files.list(branchDir).findAny().isPresent()) {
+      // directory already exists checking out the branch
+      localRepoPath = githubRepoDownloader.pullBranch(branch,
+          branchDir.toAbsolutePath().toString());
+    } else {
+      localRepoPath = githubRepoDownloader.checkoutRepository(repoUrl, branch,
+          branchDir.toAbsolutePath().toString());
+    }
+    return localRepoPath;
+  }
+
+  @Nonnull
+  private File buildWithMaven(String localRepoPath) throws IOException, InterruptedException {
     var repoDirContent = Files.list(Path.of(localRepoPath)).toList();
     if (repoDirContent.size() == 1) {
       // If the repo contains only one directory, we assume it's the project root
@@ -52,21 +69,5 @@ public class GithubJarBuilder implements JarDownloader {
 
     var repo = mavenBuilder.build(localRepoPath);
     return Path.of(repo + "/core/target/youtrackdb-core-1.0.0-SNAPSHOT.jar").toFile();
-  }
-
-  private void cleanUp(Path dir) throws IOException {
-    Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
-      @Override
-      public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-        Files.delete(file); // delete files
-        return FileVisitResult.CONTINUE;
-      }
-
-      @Override
-      public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-        Files.delete(dir); // delete directory after its contents
-        return FileVisitResult.CONTINUE;
-      }
-    });
   }
 }

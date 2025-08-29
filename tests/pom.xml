@@ -169,6 +169,12 @@
       <artifactId>org.eclipse.jgit</artifactId>
       <version>7.3.0.202506031305-r</version>
     </dependency>
+    <!-- to unarchive database for binary compatibility tests -->
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-compress</artifactId>
+      <version>1.26.2</version>
+    </dependency>
   </dependencies>
 
   <build>
