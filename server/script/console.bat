@@ -44,6 +44,6 @@ set SSL_OPTS="-Dyoutrackdb.client.ssl.enabled=false -Djavax.net.ssl.keyStore=%KE
 
 set YOUTRACKDB_SETTINGS=-Xmx1024m -Djna.nosys=true -Djava.util.logging.config.file="%YOUTRACKDB_HOME%\config\youtrackdb-client-log.properties" -Djava.awt.headless=true
 
-call %JAVA% -client %SSL_OPTS% %YOUTRACKDB_SETTINGS% -Dfile.encoding=utf-8 -Dyoutrackdb.build.number="@BUILD@" -cp "%YOUTRACKDB_HOME%\lib\*;%YOUTRACKDB_HOME%\plugins\*" com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp %CMD_LINE_ARGS%
+call %JAVA% -client %SSL_OPTS% %YOUTRACKDB_SETTINGS% -Dfile.encoding=utf-8 -Dyoutrackdb.build.number="@BUILD@" -cp "%YOUTRACKDB_HOME%\lib\*;%YOUTRACKDB_HOME%\plugins\*" com.jetbrains.youtrackdb.internal.tools.console.ConsoleDatabaseApp %CMD_LINE_ARGS%
 
 :end

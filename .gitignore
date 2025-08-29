@@ -132,6 +132,14 @@ buildNumber.properties
 .idea/**/dynamic.xml
 .idea/**/uiDesigner.xml
 .idea/shelf/*
+.idea/remote-targets.xml
+.idea/mavenHomeManager.xml
+.idea/compiler.xml
+.idea/encodings.xml
+.idea/jarRepositories.xml
+.idea/misc.xml
+.idea/vcs.xml
+.idea/workspace.xml
 
 # Gradle:
 .idea/**/gradle.xml

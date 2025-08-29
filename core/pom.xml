@@ -28,6 +28,7 @@
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>-ea
+      -Xms${heapSize}
       -Xmx${heapSize}
       -Dyoutrackdb.storage.diskCache.bufferSize=4096
       -Dindex.flushAfterCreate=false
@@ -40,13 +41,14 @@
       -Ddb.makeFullCheckpointOnSchemaChange=false
       -Dyoutrackdb.security.userPasswordSaltIterations=10
       -Dyoutrackdb.memory.directMemory.trackMode=true
-      -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
+      -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
       -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
       -Dyoutrackdb.security.warningDefaultUsers=false
       <!-- new security feature -->
       -Dyoutrackdb.security.createDefaultUsers=false
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
       --add-opens java.base/sun.security.x509=ALL-UNNAMED
+      --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
       -Dyoutrackdb.memory.directMemory.preallocate=false
       -Dyoutrackdb.file.log.deletion=false
     </argLine>
@@ -116,11 +118,12 @@
         <configuration>
           <systemPropertyVariables>
             <buildDirectory>${project.build.directory}</buildDirectory>
+            <build.dir>${project.build.directory}</build.dir>
           </systemPropertyVariables>
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
         </configuration>
@@ -142,7 +145,7 @@
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
         </configuration>
@@ -165,37 +168,27 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <executions>
-          <!-- Replacing default-compile as it is treated specially by Maven -->
-          <execution>
-            <id>default-compile</id>
-            <phase>none</phase>
-          </execution>
-          <!-- Replacing default-testCompile as it is treated specially by Maven -->
-          <execution>
-            <id>default-testCompile</id>
-            <phase>none</phase>
-          </execution>
-          <execution>
-            <id>java-compile</id>
-            <phase>compile</phase>
-            <goals>
-              <goal>compile</goal>
-            </goals>
-          </execution>
-          <execution>
-            <id>java-test-compile</id>
-            <phase>test-compile</phase>
-            <goals>
-              <goal>testCompile</goal>
-            </goals>
-          </execution>
-        </executions>
+        <configuration>
+          <annotationProcessors>
+            <annotationProcessor>
+              com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDslProcessor
+            </annotationProcessor>
+          </annotationProcessors>
+        </configuration>
       </plugin>
     </plugins>
   </build>
 
   <dependencies>
+    <dependency>
+      <groupId>com.palantir.javapoet</groupId>
+      <artifactId>javapoet</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-gremlin-annotations</artifactId>
+      <version>${project.version}</version>
+    </dependency>
     <dependency>
       <groupId>it.unimi.dsi</groupId>
       <artifactId>fastutil</artifactId>
@@ -252,6 +245,20 @@
       <groupId>javax.activation</groupId>
       <artifactId>javax.activation-api</artifactId>
       <version>1.2.0</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-groovy</artifactId>
+      <version>${gremlin.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-test</artifactId>
+      <scope>test</scope>
     </dependency>
 
 

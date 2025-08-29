@@ -194,7 +194,7 @@
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
         </configuration>
@@ -241,14 +241,16 @@
       </activation>
       <properties>
         <argLine>-ea
+          -Xms${heapSize}
           -Xmx${heapSize}
           -Dyoutrackdb.storage.diskCache.bufferSize=4096
           -Dindex.flushAfterCreate=false
           -Dyoutrackdb.storage.makeFullCheckpointAfterCreate=false
-          -Dstorage.makeFullCheckpointAfterCollectionCreate=false -Dstorage.wal.syncOnPageFlush=false
+          -Dstorage.makeFullCheckpointAfterCollectionCreate=false
+          -Dstorage.wal.syncOnPageFlush=false
           -Dstorage.configuration.syncOnUpdate=false
           -Dyoutrackdb.memory.directMemory.trackMode=true
-          -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
+          -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
           -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
           -Dyoutrackdb.security.warningDefaultUsers=false
           -Dyoutrackdb.file.log.deletion=false

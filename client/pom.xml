@@ -32,9 +32,10 @@
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
     <argLine>
       -ea
+      -Xms${heapSize}
       -Xmx${heapSize}
       -Dyoutrackdb.memory.directMemory.trackMode=true
-      -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
+      -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
       -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
       -Dyoutrackdb.storage.diskCache.bufferSize=4096
       -Dyoutrackdb.security.warningDefaultUsers=false
@@ -72,7 +73,7 @@
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
         </configuration>
