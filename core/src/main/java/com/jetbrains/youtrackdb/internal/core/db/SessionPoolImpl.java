@@ -1,12 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.AcquireTimeoutException;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplSessionPool;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
 import com.jetbrains.youtrackdb.internal.core.util.URLHelper;
 
 /**
@@ -208,9 +209,10 @@ public class SessionPoolImpl<S extends BasicDatabaseSession<?, ?>> implements
       throw new UnsupportedOperationException("Only embedded databases are supported");
     }
 
+    var configuration = ytdbImpl.internal.getConfiguration().toApacheConfiguration();
+    configuration.setProperty(ConfigurationParameters.CONFIG_DB_NAME, getDbName());
     //noinspection unchecked
-    return new YTDBGraphImplSessionPool((SessionPool<DatabaseSession>) this,
-        ytdbImpl.internal.getConfiguration().toApacheConfiguration());
+    return new YTDBGraphEmbedded((SessionPool<DatabaseSession>) this, configuration);
   }
 
   /**

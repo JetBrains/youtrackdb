@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Date;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Test;
 
 /**
@@ -41,12 +42,12 @@ public class LuceneReuseTest extends LuceneBaseTest {
     var results =
         session.execute("SELECT FROM Reuse WHERE name='John' and search_class('Reese') =true");
 
-    assertThat(results).hasSize(10);
+    assertThat(IteratorUtils.count(results)).isEqualTo(10);
 
     results = session.execute(
         "SELECT FROM Reuse WHERE search_class('Reese')=true  and name='John'");
 
-    assertThat(results).hasSize(10);
+    assertThat(IteratorUtils.count(results)).isEqualTo(10);
     session.commit();
   }
 
@@ -90,16 +91,16 @@ public class LuceneReuseTest extends LuceneBaseTest {
     var results =
         session.execute("SELECT FROM Reuse WHERE name='John' and search_class('Reese')=true");
 
-    assertThat(results).hasSize(10);
+    assertThat(IteratorUtils.count(results)).isEqualTo(10);
 
     results = session.execute("SELECT FROM Reuse WHERE search_class('Reese')=true and name='John'");
 
-    assertThat(results).hasSize(10);
+    assertThat(IteratorUtils.count(results)).isEqualTo(10);
 
     results =
         session.execute(
             "SELECT FROM Reuse WHERE name='John' AND search_class('surname:Franklin') =true");
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
   }
 }

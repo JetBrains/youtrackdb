@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.lucene.analysis.en.EnglishAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -65,7 +66,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
             "select * from Song where  search_fields(['title','author'] ,'title:mountain AND"
                 + " author:Fabbio')=true")) {
 
-      assertThat(docs).hasSize(1);
+      assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     }
   }
 
@@ -76,7 +77,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
             "select * from Song where  search_fields(['title','author'] ,'title:mountain OR"
                 + " author:Fabbio')=true")) {
 
-      assertThat(docs).hasSize(91);
+      assertThat(IteratorUtils.count(docs)).isEqualTo(91);
     }
   }
 
@@ -85,7 +86,7 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
     try (var docs =
         session.query(
             "select * from  Song where search_fields(['title','author'] ,'title:mountain')=true")) {
-      assertThat(docs).hasSize(5);
+      assertThat(IteratorUtils.count(docs)).isEqualTo(5);
     }
   }
 
@@ -93,10 +94,10 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
   public void testSelectOnTitleAndAuthorWithMatchOnAuthor() {
     try (var docs =
         session.query("select * from Song where search_class('author:fabbio')=true")) {
-      assertThat(docs).hasSize(87);
+      assertThat(IteratorUtils.count(docs)).isEqualTo(87);
     }
     try (var docs = session.query("select * from Song where search_class('fabbio')=true")) {
-      assertThat(docs).hasSize(87);
+      assertThat(IteratorUtils.count(docs)).isEqualTo(87);
     }
   }
 
@@ -120,15 +121,15 @@ public class LuceneMultiFieldTest extends LuceneBaseTest {
     session.computeScript("sql", script).close();
 
     try (var resultSet = session.query("select * from Item where search_class('te*')=true")) {
-      assertThat(resultSet).hasSize(1);
+      assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     }
 
     try (var docs = session.query("select * from Item where search_class('test')=true")) {
-      assertThat(docs).hasSize(1);
+      assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     }
 
     try (var docs = session.query("select * from Item where search_class('title:test')=true")) {
-      assertThat(docs).hasSize(1);
+      assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     }
 
     // index

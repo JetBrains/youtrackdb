@@ -45,6 +45,6 @@ public class LuceneQueryErrorTest extends BaseLuceneTest {
     var query = "select * from Song where [title] LUCENE \"\" ";
     var result = session.query(query);
 
-    Assertions.assertThat(result).isEmpty();
+    Assertions.assertThat(result.toList()).isEmpty();
   }
 }

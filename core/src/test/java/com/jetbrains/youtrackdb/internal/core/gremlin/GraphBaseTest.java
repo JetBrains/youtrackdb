@@ -17,14 +17,14 @@ import org.junit.Before;
 
 public abstract class GraphBaseTest extends DbTestBase {
 
-  protected Graph graph;
+  protected YTDBGraph graph;
 
   @Before
   public void setupGraphDB() {
     graph = openGraph();
   }
 
-  protected Graph openGraph() {
+  protected YTDBGraph openGraph() {
     var config = getBaseConfiguration();
 
     config.setProperty(ConfigurationParameters.CONFIG_DB_PATH, dbPath);
@@ -35,7 +35,7 @@ public abstract class GraphBaseTest extends DbTestBase {
     config.setProperty(ConfigurationParameters.CONFIG_DB_TYPE, dbType);
     config.setProperty(ConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
 
-    return GraphFactory.open(config);
+    return (YTDBGraph) GraphFactory.open(config);
   }
 
   @Nonnull

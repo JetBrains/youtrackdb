@@ -1,0 +1,3 @@
+org.apache.tinkerpop.gremlin.console.jsr223.DriverGremlinPlugin
+org.apache.tinkerpop.gremlin.console.jsr223.UtilitiesGremlinPlugin
+com.jetbrains.youtrackdb.internal.core.gremlin.jsr223.YTDBGremlinPlugin

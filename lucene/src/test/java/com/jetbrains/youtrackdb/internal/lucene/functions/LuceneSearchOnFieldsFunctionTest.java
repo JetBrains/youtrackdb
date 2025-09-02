@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.lucene.test.BaseLuceneTest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -30,7 +31,7 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
   public void shouldSearchOnSingleField() throws Exception {
     final var resultSet =
         session.query("SELECT from Song where SEARCH_FIELDS(['title'], 'BELIEVE') = true");
-    assertThat(resultSet).hasSize(2);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(2);
     resultSet.close();
   }
 
@@ -41,7 +42,7 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
         session.query(
             "SELECT from Song where SEARCH_FIELDS(['title'], '*EVE*', {'allowLeadingWildcard':"
                 + " true}) = true");
-    assertThat(resultSet).hasSize(14);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(14);
     resultSet.close();
   }
 
@@ -51,7 +52,7 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
         session.query(
             "SELECT from Song where SEARCH_FIELDS(['title'], 'BELIEVE') = true OR"
                 + " SEARCH_FIELDS(['author'], 'Bob') = true ");
-    assertThat(resultSet).hasSize(41);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(41);
     resultSet.close();
   }
 
@@ -61,7 +62,7 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
         session.query(
             "SELECT from Song where SEARCH_FIELDS(['title'], 'tambourine') = true AND"
                 + " SEARCH_FIELDS(['author'], 'Bob') = true ");
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
   }
 
@@ -71,7 +72,7 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
         session.query(
             "SELECT from Song where SEARCH_FIELDS(['title'], 'tambourine') = true AND"
                 + " SEARCH_FIELDS(['author'], 'Bob', {'allowLeadingWildcard': true}) = true ");
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
   }
 
@@ -81,7 +82,7 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
         session.query(
             "SELECT from Song where SEARCH_FIELDS(['lyrics','description'],"
                 + " '(description:happiness) (lyrics:sad)  ') = true ");
-    assertThat(resultSet).hasSize(2);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(2);
     resultSet.close();
 
     resultSet =
@@ -89,14 +90,14 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
             "SELECT from Song where SEARCH_FIELDS(['description','lyrics'],"
                 + " '(description:happiness) (lyrics:sad)  ') = true ");
 
-    assertThat(resultSet).hasSize(2);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(2);
     resultSet.close();
 
     resultSet =
         session.query(
             "SELECT from Song where SEARCH_FIELDS(['description'], '(description:happiness)"
                 + " (lyrics:sad)  ') = true ");
-    assertThat(resultSet).hasSize(2);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(2);
     resultSet.close();
   }
 
@@ -118,7 +119,7 @@ public class LuceneSearchOnFieldsFunctionTest extends BaseLuceneTest {
 
     final var resultSet =
         session.query("SELECT from RockSong where SEARCH_FIELDS(['title'], '+only +rock') = true ");
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
   }
 

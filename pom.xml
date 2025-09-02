@@ -16,12 +16,11 @@
 
   <groupId>io.youtrackdb</groupId>
   <artifactId>youtrackdb-parent</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>${revision}${sha1}${changelist}</version>
   <packaging>pom</packaging>
 
   <name>YouTrackDB</name>
   <description>YouTrackDB NoSQL document graph DB</description>
-  <inceptionYear>2009</inceptionYear>
   <licenses>
     <license>
       <name>Apache 2</name>
@@ -43,6 +42,7 @@
     <module>gremlin-annotations</module>
     <module>driver</module>
     <module>process-test-suites</module>
+    <module>console</module>
   </modules>
 
   <scm>
@@ -55,12 +55,14 @@
     <system>YouTrack</system>
     <url>https://youtrack.jetbrains.com/issues/YTDB</url>
   </issueManagement>
+
   <distributionManagement>
     <snapshotRepository>
       <id>space-youtrackdb-daily</id>
       <url>https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily</url>
     </snapshotRepository>
   </distributionManagement>
+
   <repositories>
     <repository>
       <id>space-youtrackdb-daily</id>
@@ -75,6 +77,10 @@
   </repositories>
 
   <properties>
+    <revision>0.5.0</revision>
+    <sha1/>
+    <changelist>-SNAPSHOT</changelist>
+
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.build.resourceEncoding>UTF-8</project.build.resourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -98,6 +104,7 @@
     <graalvm.version>22.0.0.2</graalvm.version>
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
+    <log4j.version>2.25.1</log4j.version>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
     <gremlin.version>3.7.4</gremlin.version>
   </properties>
@@ -118,7 +125,7 @@
       <dependency>
         <groupId>com.google.guava</groupId>
         <artifactId>guava</artifactId>
-        <version>33.4.0-jre</version>
+        <version>33.4.8-jre</version>
       </dependency>
       <dependency>
         <groupId>org.slf4j</groupId>
@@ -138,7 +145,7 @@
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-core</artifactId>
-        <version>2.18.3</version>
+        <version>2.19.1</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
@@ -188,6 +195,11 @@
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.apache.tinkerpop</groupId>
+        <artifactId>gremlin-console</artifactId>
+        <version>${gremlin.version}</version>
+      </dependency>
+      <dependency>
         <groupId>com.palantir.javapoet</groupId>
         <artifactId>javapoet</artifactId>
         <version>0.7.0</version>
@@ -196,6 +208,13 @@
         <groupId>com.google.testing.compile</groupId>
         <artifactId>compile-testing</artifactId>
         <version>0.19</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-bom</artifactId>
+        <version>${log4j.version}</version>
+        <scope>import</scope>
+        <type>pom</type>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -211,12 +230,15 @@
         </plugin>
         <plugin>
           <artifactId>maven-clean-plugin</artifactId>
-          <version>3.4.1</version>
+          <version>3.5.0</version>
         </plugin>
 
         <plugin>
           <artifactId>maven-resources-plugin</artifactId>
           <version>3.3.1</version>
+          <configuration>
+            <nonFilteredFileExtensions>kryo</nonFilteredFileExtensions>
+          </configuration>
         </plugin>
 
         <plugin>
@@ -257,7 +279,7 @@
 
         <plugin>
           <artifactId>maven-deploy-plugin</artifactId>
-          <version>3.1.1</version>
+          <version>3.1.4</version>
         </plugin>
 
         <plugin>
@@ -281,7 +303,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-gpg-plugin</artifactId>
-          <version>3.1.0</version>
+          <version>3.2.8</version>
           <configuration>
             <gpgArguments>
               <arg>--pinentry-mode</arg>
@@ -404,8 +426,37 @@
           <artifactId>maven-shade-plugin</artifactId>
           <version>3.6.0</version>
         </plugin>
+        <plugin>
+          <groupId>io.fabric8</groupId>
+          <artifactId>docker-maven-plugin</artifactId>
+          <version>0.46.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>flatten-maven-plugin</artifactId>
+          <version>1.7.2</version>
+          <configuration>
+            <updatePomFile>true</updatePomFile>
+            <flattenMode>resolveCiFriendliesOnly</flattenMode>
+          </configuration>
+          <executions>
+            <execution>
+              <id>flatten</id>
+              <phase>process-resources</phase>
+              <goals>
+                <goal>flatten</goal>
+              </goals>
+            </execution>
+            <execution>
+              <id>flatten.clean</id>
+              <phase>clean</phase>
+              <goals>
+                <goal>clean</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
       </plugins>
-
     </pluginManagement>
 
     <plugins>
@@ -469,7 +520,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
-        <version>3.3.0</version>
+        <version>3.3.1</version>
         <executions>
           <execution>
             <id>attach-sources</id>
@@ -506,8 +557,11 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>flatten-maven-plugin</artifactId>
+      </plugin>
     </plugins>
-
   </build>
 
   <profiles>

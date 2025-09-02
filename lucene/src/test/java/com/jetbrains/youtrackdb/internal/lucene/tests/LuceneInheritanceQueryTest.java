@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -49,7 +50,7 @@ public class LuceneInheritanceQueryTest extends LuceneBaseTest {
     session.begin();
     var resultSet = session.query("select from C1 where search_class(\"abc\")=true ");
 
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
     session.commit();
   }

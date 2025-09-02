@@ -18,6 +18,7 @@
 
 package com.jetbrains.youtrackdb.internal.lucene.tests;
 
+import java.util.Iterator;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,7 +43,7 @@ public class LuceneQueryErrorTest extends LuceneBaseTest {
     var query = "select * from Song where search_class(\"\")=true ";
     var result = session.query(query);
 
-    Assertions.assertThat(result).isEmpty();
+    Assertions.assertThat((Iterator<?>) result).isExhausted();
     result.close();
     session.commit();
   }
