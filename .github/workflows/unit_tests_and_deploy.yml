@@ -23,7 +23,7 @@ jobs:
                {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
              ]
       - name: Build with maven
-        run: mvn -B package --file pom.xml
+        run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
   JDK-21-Windows-x64-Disk:
     name: Unit Tests on JDK 21 Windows x64 (Disk)
     runs-on: windows-latest
@@ -44,7 +44,7 @@ jobs:
                {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
              ]
       - name: Build with maven
-        run: mvn -B package --file pom.xml
+        run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
   JDK-21-Linux-x64-Disk:
     name: Unit Tests on JDK 21 Linux x64 (Disk)
     runs-on: ubuntu-latest
@@ -65,7 +65,7 @@ jobs:
                {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
              ]
       - name: Build with maven
-        run: mvn -B package --file pom.xml
+        run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
   deploy:
     name: Deployment to maven repository
     runs-on: ubuntu-latest
@@ -79,6 +79,11 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      - name: Set short git commit SHA
+        id: vars
+        run: |
+          calculatedSha=$(git rev-parse --short ${{ github.sha }})
+          echo "COMMIT_SHORT_SHA=$calculatedSha" >> $GITHUB_ENV
       - name: Generation of settings.xml
         uses: s4u/maven-settings-action@v3.1.0
         with:
@@ -86,5 +91,7 @@ jobs:
             [ 
                {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
              ]
-      - name: Build with maven
-        run: mvn -DskipTests=true -B deploy --file pom.xml
+      - name: Deploy with maven
+        run: mvn -Dsha1=${{ env.COMMIT_SHORT_SHA }} -DskipTests=true -B deploy --file pom.xml
+      - name: Deploy YTDB console to the docker hub
+        run: mvn -pl console -am -Ddocker.username=youtrackdb -Ddocker.password=${{secrets.DOCKER_PASSWORD}} -Dsha1="-${{ env.COMMIT_SHORT_SHA }}" -DdockerImages=true -DskipTests=true -Ddocker.tags.latest=latest -B clean deploy --file pom.xml

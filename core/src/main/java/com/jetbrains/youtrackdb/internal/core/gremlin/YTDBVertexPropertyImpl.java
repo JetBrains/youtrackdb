@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import java.util.Arrays;
 import java.util.Collections;
@@ -17,7 +18,7 @@ import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
 public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
-    VertexProperty<V> {
+    YTDBVertexProperty<V> {
 
   public YTDBVertexPropertyImpl(Property<V> property, Vertex vertex) {
     super(property.key(), property.value(), (YTDBElementImpl) vertex);
