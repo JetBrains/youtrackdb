@@ -18,7 +18,7 @@
   <parent>
     <groupId>io.youtrackdb</groupId>
     <artifactId>youtrackdb-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>${revision}${sha1}${changelist}</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -61,11 +61,6 @@
     <dependency>
       <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-lucene</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-jdbc</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>

@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin;
 
+import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
-import com.jetbrains.youtrackdb.internal.core.gremlin.GremlinUtils;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginAbstract;
 import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import javax.annotation.Nonnull;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.tinkerpop.gremlin.server.GremlinServer;
 
 public class GremlinServerPlugin extends ServerPluginAbstract implements DatabaseLifecycleListener {
@@ -106,7 +107,11 @@ public class GremlinServerPlugin extends ServerPluginAbstract implements Databas
     }
 
     var databaseName = session.getDatabaseName();
-    var config = GremlinUtils.createBaseConfiguration(session);
+    var contextConfig = session.getConfiguration();
+    var config = new BaseConfiguration();
+    contextConfig.merge(config);
+    config.setProperty(ConfigurationParameters.CONFIG_DB_NAME, databaseName);
+
     graphManager.openGraph(databaseName,
         name -> graphManager.newGraphProxyInstance(databaseName, config));
   }
