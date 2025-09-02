@@ -4,8 +4,8 @@ on:
     branches: [ "develop" ]
 jobs:
   JDK-21-Mac-ARM-Disk:
-    name: Unit Tests on JDK 21 Mac ARM (Disk)
-    runs-on: macos-latest
+    name: Unit Tests on JDK 21 Ubuntu ARM (Disk)
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -32,7 +32,7 @@ jobs:
       - name: Build with maven
         run: mvn `-Dyoutrackdb.test.env=ci -B package --file pom.xml
   JDK-21-Linux-x64-Disk:
-    name: Unit Tests on JDK 21 Linux x64 (Disk)
+    name: Unit Tests on JDK 21 Ubuntu x64 (Disk)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -59,14 +59,14 @@ jobs:
           distribution: 'temurin'
           cache: maven
           server-id: space-youtrackdb-daily
-          server-username: ${{ secrets.SPACE_USER_NAME }}
-          server-password: ${{ secrets.SPACE_REPO_PASSWORD }}
+          server-username: ${{secrets.SPACE_USER_NAME}}
+          server-password: ${{secrets.SPACE_REPO_PASSWORD}}
       - name: Set short git commit SHA
         id: vars
         run: |
-          calculatedSha=$(git rev-parse --short ${{ github.sha }})
+          calculatedSha=$(git rev-parse --short ${{github.sha}})
           echo "COMMIT_SHORT_SHA=$calculatedSha" >> $GITHUB_ENV
       - name: Deploy with maven
-        run: mvn -Dsha1="-${{ env.COMMIT_SHORT_SHA }}" -DskipTests=true -B deploy --file pom.xml
+        run: mvn -Dsha1="-${{env.COMMIT_SHORT_SHA}}" -DskipTests=true -B deploy --file pom.xml
       - name: Deploy YTDB console to the docker hub
-        run: mvn -pl console -am -Ddocker.username=youtrackdb -Ddocker.password=${{secrets.DOCKER_PASSWORD}} -Dsha1="-${{ env.COMMIT_SHORT_SHA }}" -DdockerImages=true -DskipTests=true -Ddocker.tags.latest=latest -B clean deploy --file pom.xml
+        run: mvn -pl console -am -Ddocker.username=youtrackdb -Ddocker.password=${{secrets.DOCKER_PASSWORD}} -Dsha1="-${{env.COMMIT_SHORT_SHA}}" -DdockerImages=true -DskipTests=true -Ddocker.tags.latest=latest -B clean deploy --file pom.xml
