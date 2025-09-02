@@ -24,6 +24,7 @@ import java.io.Serializable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
+import org.apache.commons.configuration2.Configuration;
 
 /**
  * Represents a context configuration where custom setting could be defined for the context only. If
@@ -198,5 +199,12 @@ public class ContextConfiguration implements Serializable {
 
   public void merge(ContextConfiguration contextConfiguration) {
     this.config.putAll(contextConfiguration.config);
+  }
+
+  public void merge(Configuration configuration) {
+    for (var entry : config.entrySet()) {
+      var value = entry.getValue();
+      configuration.setProperty(entry.getKey(), value);
+    }
   }
 }

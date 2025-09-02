@@ -14,6 +14,4 @@ public interface YTDBVertex extends Vertex, YTDBElement {
 
   @Override
   YTDBEdge addEdge(String label, Vertex inVertex, Object... keyValues);
-
-  com.jetbrains.youtrackdb.api.record.Vertex getUnderlyingVertex();
 }
