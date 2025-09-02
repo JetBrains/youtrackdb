@@ -16,7 +16,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
       - name: Generation of settings.xml
-        uses: s4u/maven-settings-action@v3.1.0
+        uses: s4u/maven-settings-action@v4.0.0
         with:
           servers: |
             [ 
@@ -37,7 +37,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
       - name: Generation of settings.xml
-        uses: s4u/maven-settings-action@v3.1.0
+        uses: s4u/maven-settings-action@v4.0.0
         with:
           servers: |
             [ 
@@ -58,7 +58,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
       - name: Generation of settings.xml
-        uses: s4u/maven-settings-action@v3.1.0
+        uses: s4u/maven-settings-action@v4.0.0
         with:
           servers: |
             [ 
