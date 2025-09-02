@@ -94,4 +94,4 @@ jobs:
       - name: Deploy with maven
         run: mvn -Dsha1=${{ env.COMMIT_SHORT_SHA }} -DskipTests=true -B deploy --file pom.xml
       - name: Deploy YTDB console to the docker hub
-        run: mvn -pl console -am -Ddocker.username=youtrackdb -Ddocker.password==${{secrets.DOCKER_PASSWORD}} -Dsha1=${{ env.COMMIT_SHORT_SHA }} -DdockerImages=true -DskipTests=true -Ddocker.tags.latest=latest -B clean deploy --file pom.xml
+        run: mvn -pl console -am -Ddocker.username=youtrackdb -Ddocker.password=${{secrets.DOCKER_PASSWORD}} -Dsha1="-${{ env.COMMIT_SHORT_SHA }}" -DdockerImages=true -DskipTests=true -Ddocker.tags.latest=latest -B clean deploy --file pom.xml
