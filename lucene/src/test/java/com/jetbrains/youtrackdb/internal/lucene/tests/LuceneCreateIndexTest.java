@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.lucene.tests;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -70,23 +71,23 @@ public class LuceneCreateIndexTest extends LuceneBaseTest {
     var docs = session.query(
         "select * from Song where search_fields(['title'],'mountain')=true");
 
-    assertThat(docs).hasSize(4);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(4);
     docs.close();
     docs = session.query("select * from Song where search_fields(['author'],'Fabbio')=true");
 
-    assertThat(docs).hasSize(87);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(87);
     docs.close();
     var query =
         "select * from Song where search_fields(['title'],'mountain')=true AND"
             + " search_fields(['author'],'Fabbio')=true";
     docs = session.query(query);
-    assertThat(docs).hasSize(1);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     docs.close();
     query =
         "select * from Song where search_fields(['title'],'mountain')=true   and author = 'Fabbio'";
     docs = session.query(query);
 
-    assertThat(docs).hasSize(1);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     docs.close();
   }
 
@@ -95,7 +96,7 @@ public class LuceneCreateIndexTest extends LuceneBaseTest {
     var query = "select * from Song where search_fields(['title'],'local')=true ";
     var docs = session.query(query);
 
-    assertThat(docs).hasSize(1);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     docs.close();
   }
 }

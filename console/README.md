@@ -118,10 +118,10 @@ standard `YTDBGraph` instances.
 They are "standard" in the sense that they are typically used for all
 TinkerPop examples and test cases.
 
-- `createClassic()` - The original TinkerPop 2.x toy graph [diagram](/images/tinkerpop-classic.png).
+- `createClassic()` - The original TinkerPop 2.x toy graph [diagram](images/tinkerpop-classic.png).
 - `createModern()` - The TinkerPop 3.x representation of the "classic" graph,
   where the main difference is that vertex labels are defined and the "weight"
-  edge property is a `double` rather than a`float` [diagram](/images/tinkerpop-modern.png).
+  edge property is a `double` rather than a`float` [diagram](images/tinkerpop-modern.png).
 
 ```
 gremlin> ytdb = YourTracks.instance("data")
@@ -242,7 +242,7 @@ the traversal would read as follows: `g.V(id).outE().group().by(T.label).by(__.i
 The console automatically performs the static imports for these methods,
 so they do not need to be imported again in that environment.*
 
-![Diagram of modern graph](/images/tinkerpop-modern.png)
+![Diagram of modern graph](images/tinkerpop-modern.png)
 
 The diagram above displays the "modern" graph for reference.
 Assuming that g refers to a `TraversalSource` generated from a
