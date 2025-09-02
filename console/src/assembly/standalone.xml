@@ -22,17 +22,21 @@ limitations under the License.
   <includeBaseDirectory>false</includeBaseDirectory>
   <fileSets>
     <fileSet>
-      <directory>src/main/bin</directory>
+      <directory>src/bin</directory>
       <outputDirectory>/bin</outputDirectory>
       <fileMode>0755</fileMode>
     </fileSet>
     <fileSet>
-      <directory>conf</directory>
+      <directory>src/conf</directory>
       <outputDirectory>/conf</outputDirectory>
     </fileSet>
     <fileSet>
-      <directory>src/main/ext</directory>
+      <directory>src/ext</directory>
       <outputDirectory>/ext</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>src/data</directory>
+      <outputDirectory>/data</outputDirectory>
     </fileSet>
     <fileSet>
       <directory>target/*.jar</directory>
@@ -47,7 +51,17 @@ limitations under the License.
       <scope>runtime</scope>
       <excludes>
         <exclude>org.apache.tinkerpop:gremlin-groovy</exclude>
+        <exclude>io.youtrackdb:youtrackdb-core</exclude>
+        <exclude>org.slf4j:jcl-over-slf4j</exclude>
       </excludes>
+    </dependencySet>
+    <dependencySet>
+      <outputDirectory>/ext/youtrackdb/plugin</outputDirectory>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+      <includes>
+        <include>io.youtrackdb:youtrackdb-core</include>
+      </includes>
     </dependencySet>
     <dependencySet>
       <outputDirectory>/ext/gremlin-groovy/plugin</outputDirectory>
@@ -55,6 +69,14 @@ limitations under the License.
       <scope>runtime</scope>
       <includes>
         <include>org.apache.tinkerpop:gremlin-groovy</include>
+      </includes>
+    </dependencySet>
+    <dependencySet>
+      <outputDirectory>/ext/youtrackdb/lib</outputDirectory>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+      <includes>
+        <include>io.youtrackdb:youtrackdb-core</include>
       </includes>
     </dependencySet>
     <dependencySet>

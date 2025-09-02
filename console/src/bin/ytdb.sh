@@ -74,7 +74,7 @@ fi
 
 # Script debugging is disabled by default, but can be enabled with -l
 # TRACE or -l DEBUG or enabled by exporting
-# SCRIPT_DEBUG=nonemptystring to ytdb.sh's environment
+# SCRIPT_DEBUG=nonemptystring to gremlin.sh's environment
 if [ -z "${SCRIPT_DEBUG:-}" ]; then
     SCRIPT_DEBUG=
 fi
@@ -97,8 +97,12 @@ if [ ! -z "${JAVA_OPTIONS}" ]; then
     JVM_OPTS+=( "${JAVA_OPTIONS}" )
 fi
 
-JVM_OPTS+=( "-Duser.working_dir=${USER_DIR}" "-Dtinkerpop.ext=${USER_EXT_DIR:-${SYSTEM_EXT_DIR}}" "-Dlog4j.configurationFile=conf/log4j.xml" "-Dytdb.log4j.level=$YTDB_LOG_LEVEL" )
+JVM_OPTS+=( "-Duser.working_dir=${USER_DIR}" "-Dtinkerpop.ext=${USER_EXT_DIR:-${SYSTEM_EXT_DIR}}" "-Dlog4j2.configurationFile=conf/log4j2.xml" "-Dytdb.log4j.level=$YTDB_LOG_LEVEL" )
 JVM_OPTS=$(awk -v RS=' ' '!/^$/ {if (!x[$0]++) print}' <<< "${JVM_OPTS}" | grep -v '^$' | paste -sd ' ' -)
+JVM_OPTS+=("--add-opens=java.base/sun.nio.ch=ALL-UNNAMED")
+JVM_OPTS+=("--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED")
+JVM_OPTS+=("--add-opens=java.base/sun.security.x509=ALL-UNNAMED")
+JVM_OPTS+=("--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED")
 
 if [ -n "$SCRIPT_DEBUG" ]; then
     # in debug mode enable debugging of :install command
@@ -107,10 +111,6 @@ if [ -n "$SCRIPT_DEBUG" ]; then
     echo "JVM_OPTS: $JVM_OPTS"
     set -x
 fi
-
-# Try to detect JDK version
-JAVA_VERSION=$($JAVA -version 2>&1 | awk -F '"' '/version/ {print $2}')
-JVM_OPTS+=( "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED" )
 
 # Start the JVM, execute the application, and return its exit code
 # shellcheck disable=SC2068

@@ -22,7 +22,7 @@ limitations under the License.
   <fileSets>
     <fileSet>
       <fileMode>0775</fileMode>
-      <directory>target/youtrackdb-${project.artifactId}-${project.version}-standalone/bin
+      <directory>target/${project.artifactId}-${project.version}-standalone/bin
       </directory>
       <outputDirectory>bin</outputDirectory>
       <includes>
@@ -31,24 +31,28 @@ limitations under the License.
       </includes>
     </fileSet>
     <fileSet>
-      <directory>target/youtrackdb-${project.artifactId}-${project.version}-standalone/conf
+      <directory>target/${project.artifactId}-${project.version}-standalone/conf
       </directory>
       <outputDirectory>conf</outputDirectory>
     </fileSet>
     <fileSet>
-      <directory>target/youtrackdb-${project.artifactId}-${project.version}-standalone/ext
+      <directory>target/${project.artifactId}-${project.version}-standalone/ext
       </directory>
       <outputDirectory>ext</outputDirectory>
     </fileSet>
     <fileSet>
-      <directory>target/youtrackdb-${project.artifactId}-${project.version}-standalone/lib
+      <directory>target/${project.artifactId}-${project.version}-standalone/lib
       </directory>
       <outputDirectory>lib</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>target/${project.artifactId}-${project.version}-standalone/data</directory>
+      <outputDirectory>data</outputDirectory>
     </fileSet>
   </fileSets>
   <files>
     <file>
-      <source>src/main/static/LICENSE</source>
+      <source>src/static/LICENSE</source>
       <outputDirectory>.</outputDirectory>
     </file>
   </files>

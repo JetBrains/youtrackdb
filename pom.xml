@@ -16,12 +16,11 @@
 
   <groupId>io.youtrackdb</groupId>
   <artifactId>youtrackdb-parent</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>${revision}${sha1}${changelist}</version>
   <packaging>pom</packaging>
 
   <name>YouTrackDB</name>
   <description>YouTrackDB NoSQL document graph DB</description>
-  <inceptionYear>2009</inceptionYear>
   <licenses>
     <license>
       <name>Apache 2</name>
@@ -55,12 +54,14 @@
     <system>YouTrack</system>
     <url>https://youtrack.jetbrains.com/issues/YTDB</url>
   </issueManagement>
+
   <distributionManagement>
     <snapshotRepository>
       <id>space-youtrackdb-daily</id>
       <url>https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily</url>
     </snapshotRepository>
   </distributionManagement>
+
   <repositories>
     <repository>
       <id>space-youtrackdb-daily</id>
@@ -75,6 +76,10 @@
   </repositories>
 
   <properties>
+    <revision>0.5.0</revision>
+    <sha1/>
+    <changelist>-SNAPSHOT</changelist>
+
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.build.resourceEncoding>UTF-8</project.build.resourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -98,7 +103,7 @@
     <graalvm.version>22.0.0.2</graalvm.version>
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
-    <log4j.version>2.12.4</log4j.version>
+    <log4j.version>2.25.1</log4j.version>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
     <gremlin.version>3.7.4</gremlin.version>
   </properties>
@@ -189,6 +194,11 @@
         <version>${gremlin.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.apache.tinkerpop</groupId>
+        <artifactId>gremlin-console</artifactId>
+        <version>${gremlin.version}</version>
+      </dependency>
+      <dependency>
         <groupId>com.palantir.javapoet</groupId>
         <artifactId>javapoet</artifactId>
         <version>0.7.0</version>
@@ -200,18 +210,10 @@
       </dependency>
       <dependency>
         <groupId>org.apache.logging.log4j</groupId>
-        <artifactId>log4j-api</artifactId>
+        <artifactId>log4j-bom</artifactId>
         <version>${log4j.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.logging.log4j</groupId>
-        <artifactId>log4j-core</artifactId>
-        <version>${log4j.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.logging.log4j</groupId>
-        <artifactId>log4j-slf4j-impl</artifactId>
-        <version>${log4j.version}</version>
+        <scope>import</scope>
+        <type>pom</type>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -233,6 +235,9 @@
         <plugin>
           <artifactId>maven-resources-plugin</artifactId>
           <version>3.3.1</version>
+          <configuration>
+            <nonFilteredFileExtensions>kryo</nonFilteredFileExtensions>
+          </configuration>
         </plugin>
 
         <plugin>
@@ -425,8 +430,32 @@
           <artifactId>docker-maven-plugin</artifactId>
           <version>0.46.0</version>
         </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>flatten-maven-plugin</artifactId>
+          <version>1.7.2</version>
+          <configuration>
+            <updatePomFile>true</updatePomFile>
+            <flattenMode>resolveCiFriendliesOnly</flattenMode>
+          </configuration>
+          <executions>
+            <execution>
+              <id>flatten</id>
+              <phase>process-resources</phase>
+              <goals>
+                <goal>flatten</goal>
+              </goals>
+            </execution>
+            <execution>
+              <id>flatten.clean</id>
+              <phase>clean</phase>
+              <goals>
+                <goal>clean</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
       </plugins>
-
     </pluginManagement>
 
     <plugins>
@@ -527,8 +556,11 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>flatten-maven-plugin</artifactId>
+      </plugin>
     </plugins>
-
   </build>
 
   <profiles>

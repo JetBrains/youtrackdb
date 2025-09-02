@@ -6,7 +6,7 @@
   <parent>
     <groupId>io.youtrackdb</groupId>
     <artifactId>youtrackdb-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>${revision}${sha1}${changelist}</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -45,8 +45,22 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
+      <groupId>org.apache.tinkerpop</groupId>
+      <artifactId>gremlin-console</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.apache.logging.log4j</groupId>
-      <artifactId>log4j-slf4j-impl</artifactId>
+      <artifactId>log4j-api</artifactId>
+      <version>${log4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>${log4j.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-slf4j2-impl</artifactId>
     </dependency>
   </dependencies>
 
@@ -83,7 +97,7 @@
             <descriptor>src/assembly/standalone.xml</descriptor>
             <descriptor>src/assembly/distribution.xml</descriptor>
           </descriptors>
-          <finalName>youtrackdb-${project.artifactId}-${project.version}</finalName>
+          <finalName>${project.artifactId}-${project.version}</finalName>
           <outputDirectory>target</outputDirectory>
           <workDirectory>target/assembly/work</workDirectory>
           <tarLongFileMode>warn</tarLongFileMode>
@@ -93,113 +107,6 @@
             </manifest>
           </archive>
         </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <executions>
-          <execution>
-            <phase>package</phase>
-            <goals>
-              <goal>shade</goal>
-            </goals>
-            <configuration>
-              <shadedArtifactAttached>true</shadedArtifactAttached>
-              <shadedClassifierName>uber</shadedClassifierName>
-              <shadeSourcesContent>true</shadeSourcesContent>
-              <createSourcesJar>true</createSourcesJar>
-              <transformers>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.DontIncludeResourceTransformer">
-                  <resources>
-                    <resource>LICENSE.txt</resource>
-                    <resource>LICENSE</resource>
-                    <resource>NOTICE.txt</resource>
-                    <resource>NOTICE</resource>
-                    <resource>licenses</resource>
-                    <!--Exclude kryo, minlog and bigint licenses to avoid conflict as they are included in
-                        both gremlin-shaded and gremlin-driver-->
-                    <resource>META-INF/licenses/kryo</resource>
-                    <resource>META-INF/licenses/minlog</resource>
-                    <resource>META-INF/licenses/bigint</resource>
-                  </resources>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/LICENSE</resource>
-                  <file>src/main/static/LICENSE</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/NOTICE</resource>
-                  <file>src/main/static/NOTICE</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/foundation</resource>
-                  <file>src/main/static/licenses/foundation</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/jbcrypt</resource>
-                  <file>src/main/static/licenses/jbcrypt</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/jline2</resource>
-                  <file>src/main/static/licenses/jline2</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/kryo</resource>
-                  <file>src/main/static/licenses/kryo</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/minlog</resource>
-                  <file>src/main/static/licenses/minlog</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/bigint</resource>
-                  <file>src/main/static/licenses/bigint</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/ganymed-ssh</resource>
-                  <file>src/main/static/licenses/ganymed-ssh</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/normalize</resource>
-                  <file>src/main/static/licenses/normalize</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/slf4j</resource>
-                  <file>src/main/static/licenses/slf4j</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/treelayout</resource>
-                  <file>src/main/static/licenses/treelayout</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/logback</resource>
-                  <file>src/main/static/licenses/logback</file>
-                </transformer>
-                <transformer
-                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                  <resource>META-INF/licenses/antlr4</resource>
-                  <file>src/main/static/licenses/antlr4</file>
-                </transformer>
-              </transformers>
-            </configuration>
-          </execution>
-        </executions>
       </plugin>
     </plugins>
 
@@ -211,13 +118,13 @@
           <configuration>
             <images>
               <image>
-                <name>youtrackdb/youtrackdb-console:${project.version}</name>
+                <name>youtrackdb/youtrackdb-console</name>
                 <build>
                   <dockerFile>${project.build.directory}/../Dockerfile</dockerFile>
                   <args>
-                    <GREMLIN_CONSOLE_DIR>
-                      target/youtrackdb-${project.artifactId}-${project.version}-standalone
-                    </GREMLIN_CONSOLE_DIR>
+                    <YTDB_CONSOLE_DIR>
+                      target/${project.artifactId}-${project.version}-standalone
+                    </YTDB_CONSOLE_DIR>
                   </args>
                   <tags>
                     <!-- docker.tags.* properties are empty if project.version is a pre-release

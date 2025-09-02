@@ -23,7 +23,7 @@ RUN apk add --no-cache --update \
     bash \
     openjdk21-jdk
 
-COPY src/main/docker/docker-entrypoint.sh /
+COPY docker/docker-entrypoint.sh /
 COPY ${YTDB_CONSOLE_DIR} /opt/ytdb-console
 
 WORKDIR /opt/ytdb-console
@@ -31,5 +31,8 @@ WORKDIR /opt/ytdb-console
 RUN addgroup -S ytdb && adduser -S -s /bin/false -G ytdb ytdb
 RUN chown -R ytdb:ytdb /opt/ytdb-console
 USER ytdb
+
+VOLUME /opt/ytdb-console/conf
+VOLUME /opt/ytdb-console/data
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
