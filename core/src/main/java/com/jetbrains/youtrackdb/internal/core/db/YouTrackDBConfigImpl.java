@@ -90,12 +90,7 @@ public class YouTrackDBConfigImpl implements YouTrackDBConfig {
   @Override
   public @Nonnull Configuration toApacheConfiguration() {
     var conf = new BaseConfiguration();
-    var keys = configuration.getContextKeys();
-
-    for (var key : keys) {
-      var value = configuration.getValue(key, null);
-      conf.setProperty(key, value);
-    }
+    configuration.merge(conf);
 
     for (var entry : attributes.entrySet()) {
       var value = entry.getValue();

@@ -66,3 +66,5 @@ jobs:
              ]
       - name: Build with maven
         run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
+      - name: Build YTDB console to the docker hub
+        run: mvn -pl console -am -DdockerImages=true -DskipTests=true -Ddocker.tags.latest=latest -B clean package --file pom.xml

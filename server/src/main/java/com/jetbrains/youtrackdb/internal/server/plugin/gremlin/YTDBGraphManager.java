@@ -31,7 +31,7 @@ public class YTDBGraphManager implements GraphManager {
 
   @Nonnull
   private final YouTrackDBServer youTrackDBServer;
-  private final ConcurrentHashMap<String, YTDBServerGraphImpl> registeredGraphs = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, YTDBGraphServer> registeredGraphs = new ConcurrentHashMap<>();
   private final YTDBTransactionListener transactionListener = new YTDBTransactionListener();
   private final ThreadLocal<QuerySession> currentQuerySession = new ThreadLocal<>();
   private final ConcurrentHashMap<UUID, Map<RID, RID>> fetchedCommitedRids = new ConcurrentHashMap<>();
@@ -160,12 +160,12 @@ public class YTDBGraphManager implements GraphManager {
       }
 
       var g = supplier.apply(name);
-      if (!(g instanceof YTDBServerGraphImpl ytdbServerGraphImpl)) {
+      if (!(g instanceof YTDBGraphServer ytdbGraphServer)) {
         throw new IllegalArgumentException(
-            "Graph must be of type " + YTDBServerGraphImpl.class.getName());
+            "Graph must be of type " + YTDBGraphServer.class.getName());
       }
 
-      return ytdbServerGraphImpl;
+      return ytdbGraphServer;
     });
   }
 
@@ -190,18 +190,18 @@ public class YTDBGraphManager implements GraphManager {
     fetchedCommitedRids.remove(msg.getRequestId());
   }
 
-  public YTDBServerGraphImpl newGraphProxyInstance(String databaseName, Configuration config) {
-    return new YTDBServerGraphImpl(databaseName, config);
+  public YTDBGraphServer newGraphProxyInstance(String databaseName, Configuration config) {
+    return new YTDBGraphServer(databaseName, config);
   }
 
-  public final class YTDBServerGraphImpl extends YTDBGraphImplAbstract {
+  public final class YTDBGraphServer extends YTDBGraphImplAbstract {
     static {
-      registerOptimizationStrategies(YTDBServerGraphImpl.class);
+      registerOptimizationStrategies(YTDBGraphServer.class);
     }
 
     private final String databaseName;
 
-    public YTDBServerGraphImpl(String databaseName, Configuration config) {
+    public YTDBGraphServer(String databaseName, Configuration config) {
       super(config);
       this.databaseName = databaseName;
     }
@@ -241,6 +241,7 @@ public class YTDBGraphManager implements GraphManager {
   private record QuerySession(AuthenticatedUser user, RequestMessage requestMessage) {
 
   }
+
 
   private final class YTDBTransactionListener implements SessionListener {
 
