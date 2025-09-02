@@ -2,20 +2,16 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimi
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
-import org.apache.tinkerpop.gremlin.process.traversal.step.Parameterizing;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 
 public final class YTDBGraphStepStrategy
@@ -46,59 +42,29 @@ public final class YTDBGraphStepStrategy
     }
     final var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
-    final var schema = tx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
 
-    final var polymorphicByDefault = tx.getDatabaseSession().getConfiguration()
-        .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    final var polymorphic = traversal.getStrategies().getStrategy(OptionsStrategy.class)
+        .map(s -> s.getOptions().get(YTDBQueryConfigParam.polymorphicQuery.name()))
+        .map(s -> ((boolean) s))
+        .orElseGet(() ->
+            tx.getDatabaseSession()
+                .getConfiguration()
+                .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT)
+        );
 
-    @SuppressWarnings({"rawtypes", "unchecked"}) final var ytdbGraphStep = new YTDBGraphStep(
-        originalGraphStep);
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    final var ytdbGraphStep = new YTDBGraphStep(originalGraphStep);
+    ytdbGraphStep.setPolymorphic(polymorphic);
     //noinspection unchecked
     TraversalHelper.replaceStep(step, ytdbGraphStep, traversal);
-    Boolean queryPolymorphic = null;
 
     Step<?, ?> currentStep = ytdbGraphStep.getNextStep();
     while (currentStep instanceof HasContainerHolder hch) {
-
-      if (currentStep instanceof Parameterizing parameterizing &&
-          parameterizing.getParameters().contains(YTDBQueryConfigParam.polymorphicQuery.name())) {
-        final var paramValue = parameterizing.getParameters()
-            .get(YTDBQueryConfigParam.polymorphicQuery.name(), () -> polymorphicByDefault)
-            .getFirst();
-
-        if (queryPolymorphic == null) {
-          queryPolymorphic = paramValue;
-        } else if (queryPolymorphic != paramValue) {
-          throw new IllegalStateException(
-              "Can't combine polymorphic and non-polymorphic query steps");
-        }
-      } else {
-        queryPolymorphic = polymorphicByDefault;
-      }
-
       hch.getHasContainers().forEach(ytdbGraphStep::addHasContainer);
-
-      final Set<String> labels;
-      if (queryPolymorphic) {
-        labels = currentStep.getLabels().stream()
-            .flatMap(lbl ->
-                Stream.concat(
-                    Stream.of(lbl),
-                    schema.getClass(lbl).getAllSuperClasses().stream().map(SchemaClass::getName)
-                )
-            )
-            .collect(Collectors.toSet());
-      } else {
-        labels = currentStep.getLabels();
-      }
-
-      labels.forEach(ytdbGraphStep::addLabel);
+      currentStep.getLabels().forEach(ytdbGraphStep::addLabel);
       traversal.removeStep(currentStep);
       currentStep = currentStep.getNextStep();
     }
-    ytdbGraphStep.setPolymorphic(
-        queryPolymorphic == null ? polymorphicByDefault : queryPolymorphic
-    );
     return ytdbGraphStep;
   }
 

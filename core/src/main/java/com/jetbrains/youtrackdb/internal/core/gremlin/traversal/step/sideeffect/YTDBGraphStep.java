@@ -4,8 +4,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphBaseQuery;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBSchemaClassImpl;
@@ -57,8 +55,9 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     var graph = getGraph();
 
     var userVertices = elements(
-        YTDBGraph::vertices, YTDBGraph::vertices,
-        result -> new YTDBVertexImpl(graph, result.asVertex()));
+        YTDBGraph::vertices,
+        result -> new YTDBVertexImpl(graph, result.asVertex())
+    );
 
     var schemaVertices = createClassIterator(graph);
     if (schemaVertices == null) {
@@ -76,8 +75,9 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
   private Iterator<? extends Edge> edges() {
     var graph = getGraph();
     return elements(
-        YTDBGraph::edges, YTDBGraph::edges,
-        result -> new YTDBStatefulEdgeImpl(graph, result.asStatefulEdge()));
+        YTDBGraph::edges,
+        result -> new YTDBStatefulEdgeImpl(graph, result.asStatefulEdge())
+    );
   }
 
   /**
@@ -87,14 +87,12 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
    *
    * @param getElementsByIds Function that will return an iterator over all the vertices/edges in
    *                         the graph that have the specific IDs
-   * @param getAllElements   Function that returns an iterator of all the vertices or all the edges
-   *                         (i.e. full scan)
    * @return An iterator for all the vertices/edges for this step
    */
   private <ElementType extends Element> Iterator<? extends ElementType> elements(
       BiFunction<YTDBGraph, Object[], Iterator<ElementType>> getElementsByIds,
-      Function<YTDBGraph, Iterator<ElementType>> getAllElements,
-      Function<Result, ElementType> getElement) {
+      Function<Result, ElementType> getElement
+  ) {
     final var graph = getGraph();
     var tx = graph.tx();
     tx.readWrite();
@@ -103,24 +101,37 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
 
     if (this.ids != null && this.ids.length > 0) {
       /* Got some element IDs, so just get the elements using those */
-      return IteratorUtils.filter(getElementsByIds.apply(graph, this.ids),
-          element -> HasContainer.testAll(element, this.hasContainers));
+      return IteratorUtils.filter(
+          getElementsByIds.apply(graph, this.ids),
+          element -> HasContainer.testAll(element, this.hasContainers)
+      );
     } else {
-      var query = buildQuery(session);
-      if (query != null) {
-        var stream = query.execute(session).stream().map(getElement);
+      final var builder = new YTDBGraphQueryBuilder(isVertexStep());
+      final var labelContainers = new ArrayList<HasContainer>();
+      final var rejectedContainers = new ArrayList<HasContainer>();
 
-        if (!polymorphic) {
-          // this must be optimized in the future. in the case of non-polymorphic queries,
-          // we should propagate a flag to the query engine and make it consider only
-          // non-polymorphic collection ids.
-          stream = stream.filter(element -> HasContainer.testAll(element, this.hasContainers));
+      for (var hasContainer : this.hasContainers) {
+        switch (builder.addCondition(hasContainer)) {
+          case LABEL -> labelContainers.add(hasContainer);
+          case NOT_CONVERTED -> rejectedContainers.add(hasContainer);
         }
-        return new DefaultCloseableIterator<>(stream.iterator());
       }
 
-      return IteratorUtils.filter(getAllElements.apply(graph),
-          element -> HasContainer.testAll(element, this.hasContainers));
+      final var query = builder.build(session);
+      var stream = query.execute(session).stream().map(getElement);
+
+      if (!polymorphic) {
+        // this must be optimized in the future. in the case of non-polymorphic queries,
+        // we should propagate a flag to the query engine and make it consider only
+        // non-polymorphic collection ids.
+        stream = stream.filter(element -> HasContainer.testAll(element, labelContainers));
+      }
+
+      if (!rejectedContainers.isEmpty()) {
+        // applying containers not converted to SQL conditions
+        stream = stream.filter(element -> HasContainer.testAll(element, rejectedContainers));
+      }
+      return new DefaultCloseableIterator<>(stream.iterator());
     }
   }
 
@@ -143,13 +154,6 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
     }
 
     return null;
-  }
-
-  @Nullable
-  public YTDBGraphBaseQuery buildQuery(DatabaseSessionEmbedded session) {
-    var builder = new YTDBGraphQueryBuilder(isVertexStep());
-    this.hasContainers.forEach(builder::addCondition);
-    return builder.build(session);
   }
 
   @Override

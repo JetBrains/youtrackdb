@@ -2,10 +2,16 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import java.util.List;
+import java.util.function.Function;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -231,7 +237,7 @@ public class GraphQueryTest extends GraphBaseTest {
   }
 
   @Test
-  public void testPolymorphicLabels() {
+  public void testPolymorphicLabelsSimple() {
 
     //            animal
     //     /     /      \      \
@@ -239,75 +245,172 @@ public class GraphQueryTest extends GraphBaseTest {
     //        /     \     \
     //      cat    human   bee
 
-    session.createVertexClass("animal");
-    session.createClass("fish", "animal");
-    session.createClass("mammal", "animal");
-    session.createClass("bird", "animal");
-    session.createClass("insect", "animal");
-    session.createClass("bee", "insect");
-    session.createClass("cat", "mammal");
-    session.createClass("human", "mammal");
+    final var prefix = "testPolymorphicLabelsSimple_";
+    final var animal = session.createVertexClass(prefix + "animal");
+    final var fish = session.createClass(prefix + "fish", animal.getName());
+    final var mammal = session.createClass(prefix + "mammal", animal.getName());
+    final var bird = session.createClass(prefix + "bird", animal.getName());
+    final var insect = session.createClass(prefix + "insect", animal.getName());
+    final var bee = session.createClass(prefix + "bee", insect.getName());
+    final var cat = session.createClass(prefix + "cat", mammal.getName());
+    final var human = session.createClass(prefix + "human", mammal.getName());
 
     session.executeInTx(tx -> {
-      tx.newVertex("animal").setProperty("name", "someAnimal");
+      tx.newVertex(animal).setProperty("name", "someAnimal");
 
-      tx.newVertex("fish").setProperty("name", "someFish");
+      tx.newVertex(fish).setProperty("name", "someFish");
 
-      tx.newVertex("cat").setProperty("name", "someCat");
+      tx.newVertex(cat).setProperty("name", "someCat");
 
-      tx.newVertex("cat").setProperty("name", "otherCat");
+      tx.newVertex(cat).setProperty("name", "otherCat");
 
-      tx.newVertex("insect").setProperty("name", "someInsect");
+      tx.newVertex(insect).setProperty("name", "someInsect");
     });
 
-    assertThat(queryNames("animal", true))
+    assertThat(queryNames(animal, true))
         .containsExactlyInAnyOrder("someAnimal", "someFish", "someCat", "otherCat", "someInsect");
 
-    assertThat(queryNames("animal", false))
+    assertThat(queryNames(animal, false))
         .containsExactlyInAnyOrder("someAnimal");
 
-    assertThat(queryNames("fish", true))
+    assertThat(queryNames(fish, true))
         .containsExactlyInAnyOrder("someFish");
 
-    assertThat(queryNames("fish", false))
+    assertThat(queryNames(fish, false))
         .containsExactlyInAnyOrder("someFish");
 
-    assertThat(queryNames("mammal", true))
+    assertThat(queryNames(mammal, true))
         .containsExactlyInAnyOrder("someCat", "otherCat");
 
-    assertThat(queryNames("mammal", false))
+    assertThat(queryNames(mammal, false))
         .isEmpty();
 
-    assertThat(queryNames("insect", true))
+    assertThat(queryNames(insect, true))
         .containsExactlyInAnyOrder("someInsect");
 
-    assertThat(queryNames("insect", false))
+    assertThat(queryNames(insect, false))
         .containsExactlyInAnyOrder("someInsect");
 
-    assertThat(queryNames("bird", true))
+    assertThat(queryNames(bird, true))
         .isEmpty();
 
-    assertThat(queryNames("bird", false))
+    assertThat(queryNames(bird, false))
         .isEmpty();
 
-    assertThat(queryNames("cat", true))
+    assertThat(queryNames(cat, true))
         .containsExactlyInAnyOrder("someCat", "otherCat");
 
-    assertThat(queryNames("cat", false))
+    assertThat(queryNames(cat, false))
         .containsExactlyInAnyOrder("someCat", "otherCat");
 
-    assertThat(queryNames("human", true))
+    assertThat(queryNames(human, true))
         .isEmpty();
 
-    assertThat(queryNames("human", false))
+    assertThat(queryNames(human, false))
         .isEmpty();
   }
 
-  private List<String> queryNames(String clazz, boolean polymorphic) {
-    return pool.asGraph().traversal().V()
-        .hasLabel(clazz)
+  @Test
+  public void testPolymorphicLabelsWithFilters() {
+
+    final var prefix = "testPolymorphicLabelsWithFilters_";
+    final var character = session.createVertexClass(prefix + "character");
+    final var pirate = session.createClass(prefix + "pirate", character.getName());
+
+    session.executeInTx(tx -> {
+      final var billyBones = tx.newVertex(pirate);
+      billyBones.setProperty("name", "Billy Bones");
+      billyBones.setProperty("noOfLegs", 2);
+      billyBones.setProperty("noOfEyes", 2);
+
+      final var longJohn = tx.newVertex(pirate);
+      longJohn.setProperty("name", "John Silver");
+      longJohn.setProperty("noOfLegs", 1);
+      longJohn.setProperty("noOfEyes", 2);
+
+      final var blindPew = tx.newVertex(pirate);
+      blindPew.setProperty("name", "Blind Pew");
+      blindPew.setProperty("noOfLegs", 2);
+      blindPew.setProperty("noOfEyes", 0);
+
+      final var jim = tx.newVertex(character);
+      jim.setProperty("name", "Jim Hawkins");
+      jim.setProperty("noOfLegs", 2);
+      jim.setProperty("noOfEyes", 2);
+    });
+
+    assertThat((queryNames(character, false)))
+        .containsExactlyInAnyOrder("Jim Hawkins");
+
+    assertThat(queryNames(character, true))
+        .containsExactlyInAnyOrder("Jim Hawkins", "Billy Bones", "John Silver", "Blind Pew");
+
+    assertThat(queryNames(
+        character, true,
+        t -> t.has("noOfEyes", P.lt(2))
+    )).containsExactlyInAnyOrder("Blind Pew");
+
+    assertThat(queryNames(
+        character, false,
+        t -> t.has("noOfEyes", P.lt(2))
+    )).isEmpty();
+
+    assertThat(queryNames(
+        pirate, true,
+        t -> t.has("noOfEyes", P.lt(2))
+    )).containsExactlyInAnyOrder("Blind Pew");
+
+    assertThat(queryNames(
+        pirate, false,
+        t -> t.has("noOfEyes", P.lt(2))
+    )).containsExactlyInAnyOrder("Blind Pew");
+
+    assertThat(queryNames(
+        character, false,
+        t -> t.has("name", TextP.startingWith("J"))
+    )).containsExactlyInAnyOrder("Jim Hawkins");
+
+    assertThat(queryNames(
+        character, true,
+        t -> t.has("name", TextP.startingWith("J"))
+    )).containsExactlyInAnyOrder("Jim Hawkins", "John Silver");
+
+    assertThat(queryNames(
+        character, false,
+        t -> t.has("name", TextP.startingWith("J"))
+    )).containsExactlyInAnyOrder("Jim Hawkins");
+
+    assertThat(queryNames(
+        character, true,
+        t -> t.has("name", TextP.endingWith("s")).has("noOfLegs", P.gt(1))
+    )).containsExactlyInAnyOrder("Jim Hawkins", "Billy Bones");
+
+    assertThat(queryNames(
+        character, false,
+        t -> t.has("name", TextP.endingWith("s")).has("noOfLegs", P.gt(1))
+    )).containsExactlyInAnyOrder("Jim Hawkins");
+
+    assertThat(queryNames(character, false,
+        t -> t.has("noOfLegs", P.neq(2))
+    )).isEmpty();
+
+    assertThat(queryNames(character, true,
+        t -> t.has("noOfLegs", P.neq(2))
+    )).containsExactlyInAnyOrder("John Silver");
+  }
+
+  private List<String> queryNames(SchemaClass clazz, boolean polymorphic) {
+    return queryNames(clazz, polymorphic, Function.identity());
+  }
+
+  private List<String> queryNames(SchemaClass clazz, boolean polymorphic,
+      Function<YTDBGraphTraversal<Vertex, Vertex>, YTDBGraphTraversal<Vertex, Vertex>> filter) {
+    final var t = pool.asGraph().traversal()
         .with(YTDBQueryConfigParam.polymorphicQuery, polymorphic)
-        .<String>values("name")
+        .V()
+        .hasLabel(clazz.getName());
+
+    return filter.apply(t).<String>values("name")
         .toList();
   }
 }

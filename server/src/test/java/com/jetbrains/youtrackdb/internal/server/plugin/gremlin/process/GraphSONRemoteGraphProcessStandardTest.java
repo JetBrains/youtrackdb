@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.server.plugin.gremlin.process;
 
+import com.jetbrains.youtrackdb.internal.gremlin.suites.YTDBProcessTestSuite;
 import com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBGraphSONRemoteGraphProvider;
 import org.apache.tinkerpop.gremlin.GraphProviderClass;
 import org.apache.tinkerpop.gremlin.structure.RemoteGraph;
