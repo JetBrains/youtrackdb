@@ -59,7 +59,7 @@ else
     echo "pid file not present or params detected"
     "$JAVA" -client $JAVA_OPTS -Dyoutrackdb.config.file="$CONFIG_FILE" \
         -cp "$YOUTRACKDB_HOME/lib/youtrackdb-tools-@VERSION@.jar:$YOUTRACKDB_HOME/lib/*" \
-        com.jetbrains.youtrack.db.internal.server.ServerShutdownMain $*
+        com.jetbrains.youtrackdb.internal.server.ServerShutdownMain $*
 
     if [ "x$wait" = "xyes" ] ; then
       echo "wait for YoutrackDB server to shutdown"

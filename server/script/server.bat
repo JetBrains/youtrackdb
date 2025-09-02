@@ -63,6 +63,6 @@ set MAXHEAP=-Xms2G -Xmx2G
 rem YOUTRACKDB MAXIMUM DISKCACHE IN MB, EXAMPLE: "-Dyoutrackdb.storage.diskCache.bufferSize=8192" FOR 8GB of DISKCACHE
 set MAXDISKCACHE=
 
-call %JAVA% -server %JAVA_OPTS% %MAXHEAP% %JAVA_OPTS_SCRIPT% %YOUTRACKDB_SETTINGS% %MAXDISKCACHE% -Dcom.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager -Djava.util.logging.config.file="%LOG_FILE%" -Dyoutrackdb.config.file="%CONFIG_FILE%" -Dyoutrackdb.www.path="%WWW_PATH%" -Dyoutrackdb.build.number="@BUILD@" -cp "%YOUTRACKDB_HOME%\lib\*;%YOUTRACKDB_HOME%\plugins\*" %CMD_LINE_ARGS% com.jetbrains.youtrack.db.internal.server.ServerMain
+call %JAVA% -server %JAVA_OPTS% %MAXHEAP% %JAVA_OPTS_SCRIPT% %YOUTRACKDB_SETTINGS% %MAXDISKCACHE% -Dcom.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager -Djava.util.logging.config.file="%LOG_FILE%" -Dyoutrackdb.config.file="%CONFIG_FILE%" -Dyoutrackdb.www.path="%WWW_PATH%" -Dyoutrackdb.build.number="@BUILD@" -cp "%YOUTRACKDB_HOME%\lib\*;%YOUTRACKDB_HOME%\plugins\*" %CMD_LINE_ARGS% com.jetbrains.youtrackdb.internal.server.ServerMain
 
 :end
