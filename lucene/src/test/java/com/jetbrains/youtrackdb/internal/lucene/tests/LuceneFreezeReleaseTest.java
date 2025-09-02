@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -37,14 +38,14 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     session.begin();
     var results = session.query("select from Person where search_class('John')=true");
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
     session.commit();
     session.freeze();
 
     session.begin();
     results = session.execute("select from Person where search_class('John')=true");
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
     session.commit();
 
@@ -55,7 +56,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     doc.setProperty("name", "John");
 
     results = session.query("select from Person where search_class('John')=true");
-    assertThat(results).hasSize(2);
+    assertThat(IteratorUtils.count(results)).isEqualTo(2);
     results.close();
 
     session.commit();
@@ -79,7 +80,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     session.begin();
     var results = session.execute("select from Person where search_class('John')=true");
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
     session.commit();
 
@@ -90,7 +91,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
     session.begin();
     results = session.execute("select from Person where search_class('John')=true");
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
     session.commit();
 
@@ -104,7 +105,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
 
     session.begin();
     results = session.execute("select from Person where search_class('John')=true");
-    assertThat(results).hasSize(2);
+    assertThat(IteratorUtils.count(results)).isEqualTo(2);
     results.close();
     session.commit();
   }

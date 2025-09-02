@@ -71,7 +71,7 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
         session.query(
             "select * from Song where [title,author] LUCENE \"(title:mountain AND"
                 + " author:Fabbio)\"");
-    assertThat(docs).hasSize(1);
+    assertThat(docs.toList()).hasSize(1);
   }
 
   @Test
@@ -93,21 +93,21 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
         session.query(
             "select * from Song where [title,author] LUCENE \"(title:mountain OR author:Fabbio)\"");
 
-    assertThat(docs).hasSize(91);
+    assertThat(docs.toList()).hasSize(91);
   }
 
   @Test
   public void testSelectOnTitleAndAuthorWithMatchOnTitle() {
     var docs = session.query("select * from Song where [title,author] LUCENE \"mountain\"");
 
-    assertThat(docs).hasSize(5);
+    assertThat(docs.toList()).hasSize(5);
   }
 
   @Test
   public void testSelectOnTitleAndAuthorWithMatchOnAuthor() {
     var docs = session.query("select * from Song where [title,author] LUCENE \"author:fabbio\"");
 
-    assertThat(docs).hasSize(87);
+    assertThat(docs.toList()).hasSize(87);
   }
 
   @Test
@@ -115,7 +115,7 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
   public void testSelectOnAuthorWithMatchOnAuthor() {
     var docs = session.query("select * from Song where [author,title] LUCENE \"(fabbio)\"");
 
-    assertThat(docs).hasSize(87);
+    assertThat(docs.toList()).hasSize(87);
   }
 
   @Test
@@ -137,12 +137,12 @@ public class LuceneMultiFieldTest extends BaseLuceneTest {
     session.computeScript("sql", script).close();
 
     var docs = session.query("select * from Item where Title lucene 'te*'");
-    assertThat(docs).hasSize(1);
+    assertThat(docs.toList()).hasSize(1);
 
     //noinspection deprecation
     docs = session.query("select * from Item where [Title, Summary, Content] lucene 'test'");
 
-    assertThat(docs).hasSize(1);
+    assertThat(docs.toList()).hasSize(1);
 
     // nidex api
     final var index = session.getSharedContext().getIndexManager()

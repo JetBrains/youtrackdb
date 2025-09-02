@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.lucene.test.BaseLuceneTest;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -36,18 +37,18 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
         session.query("SELECT from Song where SEARCH_INDEX('Song.title', 'BELIEVE') = true");
 
     //    resultSet.getExecutionPlan().ifPresent(x -> System.out.println(x.prettyPrint(0, 2)));
-    assertThat(resultSet).hasSize(2);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(2);
 
     resultSet.close();
 
     resultSet = session.query("SELECT from Song where SEARCH_INDEX('Song.title', \"bel*\") = true");
 
-    assertThat(resultSet).hasSize(3);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(3);
     resultSet.close();
 
     resultSet = session.query("SELECT from Song where SEARCH_INDEX('Song.title', 'bel*') = true");
 
-    assertThat(resultSet).hasSize(3);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(3);
 
     resultSet.close();
   }
@@ -59,7 +60,7 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
         "SELECT from Song where SEARCH_INDEX('Song.title', '') = true");
 
     //    resultSet.getExecutionPlan().ifPresent(x -> System.out.println(x.prettyPrint(0, 2)));
-    assertThat(resultSet).hasSize(0);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(0);
 
     resultSet.close();
   }
@@ -75,7 +76,7 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
                 + " true}) = true");
 
     //    resultSet.getExecutionPlan().ifPresent(x -> System.out.println(x.prettyPrint(0, 2)));
-    assertThat(resultSet).hasSize(14);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(14);
 
     resultSet.close();
   }
@@ -88,7 +89,7 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
             "SELECT from Song where SEARCH_INDEX('Song.title', 'BELIEVE') = true OR"
                 + " SEARCH_INDEX('Song.author', 'Bob') = true ");
 
-    assertThat(resultSet).hasSize(41);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(41);
     resultSet.close();
   }
 
@@ -100,7 +101,7 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
             "SELECT from Song where SEARCH_INDEX('Song.title', 'tambourine') = true AND"
                 + " SEARCH_INDEX('Song.author', 'Bob') = true ");
 
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
   }
 
@@ -112,7 +113,7 @@ public class LuceneSearchOnIndexFunctionTest extends BaseLuceneTest {
             "SELECT from Song where SEARCH_INDEX('Song.title', 'tambourine') = true AND"
                 + " SEARCH_INDEX('Song.author', 'Bob', {'allowLeadingWildcard': true}) = true ");
 
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
   }
 
