@@ -1,0 +1,44 @@
+package com.jetbrains.youtrackdb.internal.common.test;
+
+public abstract class SpeedTestMultiThreads extends SpeedTestAbstract {
+
+  protected final Class<? extends SpeedTestThread> threadClass;
+  protected final int threads;
+  protected long threadCycles;
+
+  protected SpeedTestMultiThreads(
+      long iCycles, int iThreads, Class<? extends SpeedTestThread> iThreadClass) {
+    super(1);
+    threadClass = iThreadClass;
+    threads = iThreads;
+    threadCycles = iCycles;
+  }
+
+  public int getThreads() {
+    return threads;
+  }
+
+  @Override
+  public void cycle() throws InterruptedException {
+    final var ts = new SpeedTestThread[threads];
+    SpeedTestThread t;
+    for (var i = 0; i < threads; ++i) {
+      try {
+        final var c =
+            threadClass.getConstructor(SpeedTestMultiThreads.class, Integer.TYPE);
+        t = c.newInstance(this, i);
+        ts[i] = t;
+
+        t.setCycles(threadCycles / threads);
+        t.start();
+      } catch (Exception e) {
+        e.printStackTrace();
+        return;
+      }
+    }
+
+    for (var i = 0; i < threads; ++i) {
+      ts[i].join();
+    }
+  }
+}

@@ -21,7 +21,7 @@
 <youtrackdb-server>
   <handlers>
     <!-- AUTOMATIC BACKUP, TO TURN ON SET THE 'ENABLED' PARAMETER TO 'true' -->
-    <handler class="com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup">
+    <handler class="com.jetbrains.youtrackdb.internal.server.handler.AutomaticBackup">
       <parameters>
         <parameter name="enabled" value="false"/>
         <!-- LOCATION OF JSON CONFIGURATION FILE -->
@@ -31,7 +31,7 @@
     <!-- SERVER SIDE SCRIPT INTERPRETER. WARNING, THIS CAN BE A SECURITY HOLE BECAUSE MALICIOUS CODE COULD BE INJECTED.
         ENABLE IT ONLY IF CLIENTS ARE TRUSTED, TO TURN ON SET THE 'ENABLED' PARAMETER TO 'true' -->
     <handler
-      class="com.jetbrains.youtrack.db.internal.server.handler.ServerSideScriptInterpreter">
+      class="com.jetbrains.youtrackdb.internal.server.handler.ServerSideScriptInterpreter">
       <parameters>
         <parameter name="enabled" value="true"/>
         <parameter name="allowedLanguages" value="SQL"/>
@@ -40,13 +40,13 @@
       </parameters>
     </handler>
     <!-- CUSTOM SQL FUNCTIONS -->
-    <handler class="com.jetbrains.youtrack.db.internal.server.handler.CustomSQLFunctionPlugin">
+    <handler class="com.jetbrains.youtrackdb.internal.server.handler.CustomSQLFunctionPlugin">
       <parameters>
         <!-- LOCATION OF JSON CONFIGURATION FILE -->
         <parameter name="config" value="${YOUTRACKDB_HOME}/config/custom-sql-functions.json"/>
       </parameters>
     </handler>
-    <handler class="com.jetbrains.youtrack.db.internal.server.plugin.gremlin.GremlinServerPlugin">
+    <handler class="com.jetbrains.youtrackdb.internal.server.plugin.gremlin.GremlinServerPlugin">
       <parameters>
         <parameter name="config" value="${YOUTRACKDB_HOME}/config/gremlin-server.yaml"/>
       </parameters>
@@ -55,7 +55,7 @@
   <network>
     <sockets>
       <socket
-        implementation="com.jetbrains.youtrack.db.internal.server.network.ServerTLSSocketFactory"
+        implementation="com.jetbrains.youtrackdb.internal.server.network.ServerTLSSocketFactory"
         name="ssl">
         <parameters>
           <parameter value="false" name="network.ssl.clientAuth"/>
@@ -66,7 +66,7 @@
         </parameters>
       </socket>
       <socket
-        implementation="com.jetbrains.youtrack.db.internal.server.network.ServerTLSSocketFactory"
+        implementation="com.jetbrains.youtrackdb.internal.server.network.ServerTLSSocketFactory"
         name="https">
         <parameters>
           <parameter value="false" name="network.ssl.clientAuth"/>
@@ -81,9 +81,9 @@
       <!-- Default registered protocol. It reads commands using the HTTP protocol
           and write data locally -->
       <protocol name="binary"
-        implementation="com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary"/>
+        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.binary.NetworkProtocolBinary"/>
       <protocol name="http"
-        implementation="com.jetbrains.youtrack.db.internal.server.network.protocol.http.NetworkProtocolHttpDb"/>
+        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb"/>
     </protocols>
     <listeners>
       <listener protocol="binary" ip-address="0.0.0.0" port-range="2424-2430" socket="default"/>
@@ -92,7 +92,7 @@
           <!-- Connection's custom parameters. If not specified the global configuration
               will be taken -->
           <parameter name="youtrackdb.network.http.charset" value="utf-8"/>
-          <parameter value="true" name="youtrackdb.network.http.jsonResponseError"/>
+          <parameter value="true" name="youtrackdbnetwork.http.jsonResponseError"/>
           <parameter value="Content-Security-Policy: frame-ancestors 'none'"
             name="network.http.additionalResponseHeaders"></parameter>
           <!-- Define additional HTTP headers to always send as response -->
@@ -103,7 +103,7 @@
         <commands>
           <command
             pattern="GET|www GET|studio/ GET| GET|*.htm GET|*.html GET|*.xml GET|*.jpeg GET|*.jpg GET|*.png GET|*.gif GET|*.js GET|*.css GET|*.swf GET|*.ico GET|*.txt GET|*.otf GET|*.pjs GET|*.svg GET|*.json GET|*.woff GET|*.woff2 GET|*.ttf GET|*.svgz"
-            implementation="com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent">
+            implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent">
             <parameters>
               <!-- Don't cache html resources in development mode -->
               <entry name="http.cache:*.htm *.html"
@@ -113,7 +113,7 @@
             </parameters>
           </command>
           <command pattern="GET|gephi/*"
-            implementation="com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetGephi"/>
+            implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.get.ServerCommandGetGephi"/>
 
         </commands>
       </listener>

@@ -8,14 +8,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.AbstractGraphProvider;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
-import org.apache.tinkerpop.gremlin.TestHelper;
 import org.apache.tinkerpop.gremlin.driver.Client;
 import org.apache.tinkerpop.gremlin.driver.Cluster;
-import org.apache.tinkerpop.gremlin.process.computer.Computer;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.AnonymousTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
@@ -193,6 +192,7 @@ import org.apache.tinkerpop.gremlin.util.ser.Serializers;
 public abstract class AbstractRemoteGraphProvider extends AbstractGraphProvider implements
     AutoCloseable {
 
+  protected static final AtomicLong CONFIG_ID_GENERATOR = new AtomicLong(0);
   private final int AVAILABLE_PROCESSORS = Runtime.getRuntime().availableProcessors();
   private static final Set<Class> IMPLEMENTATION = new HashSet<>() {{
     add(RemoteGraph.class);
@@ -250,8 +250,40 @@ public abstract class AbstractRemoteGraphProvider extends AbstractGraphProvider 
   public Graph openTestGraph(final Configuration config) {
     final var serverGraphName = config.getString(
         DriverRemoteConnection.GREMLIN_REMOTE_DRIVER_SOURCENAME);
-    return remoteCache.computeIfAbsent(serverGraphName,
-        k -> RemoteGraph.open(new DriverRemoteConnection(cluster, config), config));
+    return remoteCache.compute(serverGraphName,
+        (k, graph) -> {
+
+          if (graph != null) {
+            var graphConfig = graph.configuration();
+            if (areConfigsTheSame(config, graphConfig)) {
+              return graph;
+            }
+          }
+
+          return RemoteGraph.open(new DriverRemoteConnection(cluster, config), config);
+        });
+  }
+
+  public boolean areConfigsTheSame(final Configuration config1, final Configuration config2) {
+    if (config1.size() != config2.size()) {
+      return false;
+    }
+
+    if (config1.size() == config2.size()) {
+      var config1Keys = config1.getKeys();
+      while (config1Keys.hasNext()) {
+        var config1Key = config1Keys.next();
+        var config1Value = config1.getProperty(config1Key);
+        var config2Value = config2.getProperty(config1Key);
+
+        if (!config1Value.equals(config2Value)) {
+
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   @Override
