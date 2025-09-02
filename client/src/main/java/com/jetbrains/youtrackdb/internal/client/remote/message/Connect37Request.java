@@ -1,0 +1,74 @@
+package com.jetbrains.youtrackdb.internal.client.remote.message;
+
+import com.jetbrains.youtrackdb.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryProtocolSession;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryRequest;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryResponse;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelBinaryProtocol;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataInput;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrackdb.internal.remote.RemoteDatabaseSessionInternal;
+import java.io.IOException;
+
+public class Connect37Request implements BinaryRequest<ConnectResponse> {
+
+  private String username;
+  private String password;
+
+  public Connect37Request(String username, String password) {
+    this.username = username;
+    this.password = password;
+  }
+
+  public Connect37Request() {
+  }
+
+  @Override
+  public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
+      BinaryProtocolSession session) throws IOException {
+    network.writeString(username);
+    network.writeString(password);
+  }
+
+  @Override
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
+      throws IOException {
+    username = channel.readString();
+    password = channel.readString();
+  }
+
+  @Override
+  public byte getCommand() {
+    return ChannelBinaryProtocol.REQUEST_CONNECT;
+  }
+
+  @Override
+  public String getDescription() {
+    return "Connect";
+  }
+
+  public String getPassword() {
+    return password;
+  }
+
+  public String getUsername() {
+    return username;
+  }
+
+  @Override
+  public boolean requireDatabaseSession() {
+    return false;
+  }
+
+  @Override
+  public ConnectResponse createResponse() {
+    return new ConnectResponse();
+  }
+
+  @Override
+  public BinaryResponse execute(BinaryRequestExecutor executor) {
+    return executor.executeConnect37(this);
+  }
+}

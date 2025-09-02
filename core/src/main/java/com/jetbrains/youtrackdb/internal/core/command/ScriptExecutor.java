@@ -1,0 +1,28 @@
+package com.jetbrains.youtrackdb.internal.core.command;
+
+import com.jetbrains.youtrackdb.api.query.ResultSet;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import java.util.Map;
+
+/**
+ *
+ */
+public interface ScriptExecutor {
+
+  ResultSet execute(DatabaseSessionEmbedded database, String script, Object... params);
+
+  ResultSet execute(DatabaseSessionEmbedded database, String script, Map params);
+
+  Object executeFunction(
+      CommandContext context, final String functionName, final Map<Object, Object> iArgs);
+
+  void registerInterceptor(ScriptInterceptor interceptor);
+
+  void unregisterInterceptor(ScriptInterceptor interceptor);
+
+  default void close(String iDatabaseName) {
+  }
+
+  default void closeAll() {
+  }
+}

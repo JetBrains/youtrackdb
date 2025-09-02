@@ -41,7 +41,7 @@
       -Ddb.makeFullCheckpointOnSchemaChange=false
       -Dyoutrackdb.security.userPasswordSaltIterations=10
       -Dyoutrackdb.memory.directMemory.trackMode=true
-      -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
+      -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
       -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
       -Dyoutrackdb.security.warningDefaultUsers=false
       <!-- new security feature -->
@@ -123,7 +123,7 @@
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
         </configuration>
@@ -145,7 +145,7 @@
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.internal.JUnitTestListener</value>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
         </configuration>
@@ -168,37 +168,27 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <executions>
-          <!-- Replacing default-compile as it is treated specially by Maven -->
-          <execution>
-            <id>default-compile</id>
-            <phase>none</phase>
-          </execution>
-          <!-- Replacing default-testCompile as it is treated specially by Maven -->
-          <execution>
-            <id>default-testCompile</id>
-            <phase>none</phase>
-          </execution>
-          <execution>
-            <id>java-compile</id>
-            <phase>compile</phase>
-            <goals>
-              <goal>compile</goal>
-            </goals>
-          </execution>
-          <execution>
-            <id>java-test-compile</id>
-            <phase>test-compile</phase>
-            <goals>
-              <goal>testCompile</goal>
-            </goals>
-          </execution>
-        </executions>
+        <configuration>
+          <annotationProcessors>
+            <annotationProcessor>
+              com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDslProcessor
+            </annotationProcessor>
+          </annotationProcessors>
+        </configuration>
       </plugin>
     </plugins>
   </build>
 
   <dependencies>
+    <dependency>
+      <groupId>com.palantir.javapoet</groupId>
+      <artifactId>javapoet</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-gremlin-annotations</artifactId>
+      <version>${project.version}</version>
+    </dependency>
     <dependency>
       <groupId>it.unimi.dsi</groupId>
       <artifactId>fastutil</artifactId>

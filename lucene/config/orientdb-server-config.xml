@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <youtrackdb-server>
   <handlers>
-    <handler class="com.jetbrains.youtrack.db.internal.server.plugin.mail.MailPlugin">
+    <handler class="com.jetbrains.youtrackdb.internal.server.plugin.mail.MailPlugin">
       <parameters>
         <parameter value="true" name="enabled"/>
         <parameter value="localhost" name="profile.default.mail.smtp.host"/>
@@ -13,7 +13,7 @@
         <parameter value="yyyy-MM-dd HH:mm:ss" name="profile.default.mail.date.format"/>
       </parameters>
     </handler>
-    <handler class="com.jetbrains.youtrack.db.internal.server.handler.AutomaticBackup">
+    <handler class="com.jetbrains.youtrackdb.internal.server.handler.AutomaticBackup">
       <parameters>
         <parameter value="false" name="enabled"/>
         <parameter value="4h" name="delay"/>
@@ -23,7 +23,7 @@
         <parameter value="" name="db.exclude"/>
       </parameters>
     </handler>
-    <handler class="com.jetbrains.youtrack.db.internal.server.handler.ServerSideScriptInterpreter">
+    <handler class="com.jetbrains.youtrackdb.internal.server.handler.ServerSideScriptInterpreter">
       <parameters>
         <parameter value="false" name="enabled"/>
       </parameters>
@@ -32,10 +32,10 @@
   <network>
     <protocols>
       <protocol
-        implementation="com.jetbrains.youtrack.db.internal.server.network.protocol.binary.NetworkProtocolBinary"
+        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.binary.NetworkProtocolBinary"
         name="binary"/>
       <protocol
-        implementation="com.jetbrains.youtrack.db.internal.server.network.protocol.http.NetworkProtocolHttpDb"
+        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb"
         name="http"/>
     </protocols>
     <listeners>
@@ -43,7 +43,7 @@
       <listener protocol="http" port-range="2482-2490" ip-address="0.0.0.0">
         <commands>
           <command
-            implementation="com.jetbrains.youtrack.db.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent"
+            implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.get.ServerCommandGetStaticContent"
             pattern="GET|www GET|studio/ GET| GET|*.htm GET|*.html GET|*.xml GET|*.jpeg GET|*.jpg GET|*.png GET|*.gif GET|*.js GET|*.css GET|*.swf GET|*.ico GET|*.txt GET|*.otf GET|*.pjs GET|*.svg GET|*.json GET|*.woff GET|*.ttf GET|*.svgz"
             stateful="false">
             <parameters>

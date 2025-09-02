@@ -1,0 +1,173 @@
+<!DOCTYPE suite SYSTEM "http://beust.com/testng/testng-1.0.dtd">
+<suite name="Paginated Local Test Suite" verbose="2" parallel="false">
+  <parameter name="remote" value="false"/>
+  <test name="DbCreation">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.DbCreationTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DbListenerTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DBMethodsTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.AlterDatabaseTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DbCopyTest"/>
+    </classes>
+  </test>
+  <test name="Schema">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.SchemaTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.AbstractClassTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DefaultValuesTrivialTest"/>
+    </classes>
+  </test>
+  <test name="Security">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.SecurityTest"/>
+    </classes>
+  </test>
+  <test name="Hook">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.HookTxTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.hooks.HookOnIndexedMapTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.LiveQuery30Test"/>
+      <class name="com.jetbrains.youtrackdb.auto.LiveQuery30TxTest"/>
+    </classes>
+  </test>
+  <test name="Population">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.EntityTreeTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.CRUDTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.CRUDInheritanceTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.CRUDDocumentPhysicalTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.ComplexTypesTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.CRUDDocumentValidationTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DBRecordMetadataTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DocumentTrackingTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DBRecordCreateTest"/>
+    </classes>
+  </test>
+  <test name="Tx">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.TransactionAtomicTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.FrontendTransactionImplTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.TransactionConsistencyTest"/>
+    </classes>
+  </test>
+  <test name="Index">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.DateIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.IndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.ByteArrayKeyTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.ClassIndexManagerTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.IndexConcurrentCommitTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLSelectIndexReuseTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLCreateIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLDropIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLDropClassIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLDropSchemaPropertyIndexTest"/>
+
+      <class name="com.jetbrains.youtrackdb.auto.SchemaIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.ClassIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SchemaPropertyIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.CollectionIndexTest"/>
+
+      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetValuesTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetValuesTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareMultiValueGetEntriesTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.IndexTxAwareOneValueGetEntriesTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.MapIndexTest"/>
+      <class
+        name="com.jetbrains.youtrackdb.auto.SQLSelectByLinkedSchemaPropertyIndexReuseTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.LinkListIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.LinkBagIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.LinkMapIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.IndexTxTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.OrderByIndexReuseTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.LinkSetIndexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.CompositeIndexWithNullTest"/>
+    </classes>
+  </test>
+  <test name="Query">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.WrongQueryTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.BetweenConversionTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.PreparedStatementTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.QueryLocalCacheIntegrationTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.PolymorphicQueryTest"/>
+    </classes>
+  </test>
+  <test name="Parsing">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.JSONTest"/>
+    </classes>
+  </test>
+  <test name="Graph">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.GraphDatabaseTest"/>
+    </classes>
+  </test>
+  <test name="GEO">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.GEOTest"/>
+    </classes>
+  </test>
+  <test name="Index Manager">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.IndexManagerTest"/>
+    </classes>
+  </test>
+  <test name="Binary">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.BinaryTest"/>
+    </classes>
+  </test>
+  <test name="sql-commands">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.SQLCommandsTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLCreateClassTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLDropClassTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLInsertTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLSelectTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLMetadataTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLSelectProjectionsTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLSelectGroupByTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLFunctionsTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLUpdateTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLDeleteTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLCreateVertexTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLDeleteEdgeTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLBatchTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLCombinationFunctionTests"/>
+    </classes>
+  </test>
+  <test name="other-commands">
+    <classes>
+    </classes>
+  </test>
+  <test name="misc">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.TruncateClassTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DateTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLCreateLinkTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.MultipleDBTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.ConcurrentUpdatesTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.ConcurrentQueriesTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.ConcurrentCommandAndOpenTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.CollateTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.EmbeddedLinkBagTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.BTreeBasedLinkBagTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.StringsTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.DBSequenceTest"/>
+      <class name="com.jetbrains.youtrackdb.auto.SQLDBSequenceTest"/>
+    </classes>
+  </test>
+  <test name="DbTools">
+    <classes>
+      <!--      <class name="com.jetbrains.youtrackdb.auto.DbImportExportTest"/>-->
+    </classes>
+  </test>
+  <test name="End">
+    <classes>
+      <class name="com.jetbrains.youtrackdb.auto.DbClosedTest"/>
+    </classes>
+  </test>
+</suite>

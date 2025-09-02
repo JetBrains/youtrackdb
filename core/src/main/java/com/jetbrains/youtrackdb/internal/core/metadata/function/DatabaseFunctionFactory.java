@@ -1,0 +1,54 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
+package com.jetbrains.youtrackdb.internal.core.metadata.function;
+
+import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
+import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionFactory;
+import java.util.Set;
+
+/**
+ * Dynamic function factory bound to the database's functions
+ */
+public class DatabaseFunctionFactory implements SQLFunctionFactory {
+
+  @Override
+  public void registerDefaultFunctions(DatabaseSessionInternal db) {
+    // DO NOTHING
+  }
+
+  @Override
+  public boolean hasFunction(final String name, DatabaseSessionInternal session) {
+    return session.getMetadata().getFunctionLibrary().getFunction(session, name) != null;
+  }
+
+  @Override
+  public Set<String> getFunctionNames(DatabaseSessionInternal session) {
+    return session.getMetadata().getFunctionLibrary().getFunctionNames();
+  }
+
+  @Override
+  public SQLFunction createFunction(final String name, DatabaseSessionInternal session)
+      throws CommandExecutionException {
+    final var f = session.getMetadata().getFunctionLibrary().getFunction(session, name);
+    return new DatabaseFunction(f);
+  }
+}
