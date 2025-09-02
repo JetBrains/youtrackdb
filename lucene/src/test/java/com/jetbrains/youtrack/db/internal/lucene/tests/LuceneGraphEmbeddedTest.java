@@ -19,6 +19,7 @@
 package com.jetbrains.youtrack.db.internal.lucene.tests;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
@@ -56,15 +57,15 @@ public class LuceneGraphEmbeddedTest extends LuceneBaseTest {
 
     var docs = session.query("SELECT from City where name = 'London / a' ");
 
-    Assertions.assertThat(docs).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(docs)).isEqualTo(1);
 
     var resultSet = session.query("SELECT from City where name = 'London / a' ");
 
-    Assertions.assertThat(resultSet).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
     resultSet = session.query("SELECT from City where name = 'Rome' ");
 
-    Assertions.assertThat(resultSet).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
   }
 
@@ -95,7 +96,7 @@ public class LuceneGraphEmbeddedTest extends LuceneBaseTest {
       System.out.println(plan.prettyPrint(0, 2));
     }
 
-    Assertions.assertThat(resultSet).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
     session.commit();
   }

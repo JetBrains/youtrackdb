@@ -31,6 +31,7 @@ import com.jetbrains.youtrack.db.internal.lucene.LuceneIndexFactory;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.zip.GZIPInputStream;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -110,7 +111,7 @@ public class LuceneExportImportTest extends BaseLuceneTest {
     // redo the query
     query = session.query("select from City where name lucene 'Rome'");
 
-    assertThat(query).hasSize(1);
+    assertThat(IteratorUtils.count(query)).isEqualTo(1);
     session.commit();
   }
 }

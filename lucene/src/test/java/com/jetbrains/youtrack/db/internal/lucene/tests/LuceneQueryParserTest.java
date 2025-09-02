@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.stream.Collectors;
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,7 +33,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
     // querying with leading wildcard
     var docs = session.query("select * from Song where search_class(\"(title:*tain)\") = true");
 
-    assertThat(docs).hasSize(4);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(4);
     docs.close();
     session.commit();
   }
@@ -48,12 +49,12 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
 
     var docs = session.query("select * from Song where search_class('Hunter') =true");
 
-    assertThat(docs).hasSize(97);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(97);
     docs.close();
 
     docs = session.query("select * from Song where search_class('HUNTER')=true");
 
-    assertThat(docs).hasSize(0);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(0);
     docs.close();
   }
 
@@ -68,7 +69,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
     // querying with leading wildcard
     var docs = session.query("select * from Song where search_class ('title:*tain')=true");
 
-    assertThat(docs).hasSize(4);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(4);
     docs.close();
   }
 
@@ -104,7 +105,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
     var docs =
         rs.stream().map(r -> r.<String>getProperty("title")).collect(Collectors.toList());
 
-    assertThat(docs).hasSize(5);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(5);
     rs.close();
     // no boost, order changed
     assertThat(docs)
@@ -149,7 +150,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
     var docs =
         rs.stream().map(r -> r.<String>getProperty("title")).collect(Collectors.toList());
 
-    assertThat(docs).hasSize(5);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(5);
     rs.close();
 
     // no boost, order changed
@@ -187,12 +188,12 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
     var docs =
         rs.stream().map(r -> r.<Float>getProperty("$score")).collect(Collectors.toList());
 
-    assertThat(docs).hasSize(5);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(5);
     rs.close();
 
     Assert.assertEquals(boostedDocs, docs);
 
-    assertThat(docs).hasSize(5);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(5);
     rs.close();
   }
 
@@ -211,7 +212,7 @@ public class LuceneQueryParserTest extends LuceneBaseTest {
                 + "  \"query\": \"org.apache.lucene.analysis.core.KeywordAnalyzer\" } "
                 + ")=true");
 
-    assertThat(resultSet).hasSize(5);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(5);
     resultSet.close();
   }
 }

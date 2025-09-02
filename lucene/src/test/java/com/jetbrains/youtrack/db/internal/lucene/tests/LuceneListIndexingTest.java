@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -123,7 +124,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     try (var query = session.query("select from City where search_class('Beautiful') =true ")) {
 
-      assertThat(query).hasSize(2);
+      assertThat(IteratorUtils.count(query)).isEqualTo(2);
     }
   }
 
@@ -180,28 +181,28 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
     try (var query =
         session.query("select from Person where search_class('name:Enrico') =true ")) {
-      assertThat(query).hasSize(1);
+      assertThat(IteratorUtils.count(query)).isEqualTo(1);
       try (var queryTwo =
           session.query("select from (select from Person search_class('name:Enrico')=true)")) {
 
-        assertThat(queryTwo).hasSize(1);
+        assertThat(IteratorUtils.count(queryTwo)).isEqualTo(1);
         try (var queryThree =
             session.query("select from Person where search_class('Jared')=true")) {
 
-          assertThat(queryThree).hasSize(1);
+          assertThat(IteratorUtils.count(queryThree)).isEqualTo(1);
           try (var queryFour =
               session.query("select from Person where search_class('Funny') =true")) {
 
-            assertThat(queryFour).hasSize(1);
+            assertThat(IteratorUtils.count(queryFour)).isEqualTo(1);
             try (var queryFive =
                 session.query("select from Person where search_class('Geek')=true")) {
 
-              assertThat(queryFive).hasSize(2);
+              assertThat(IteratorUtils.count(queryFive)).isEqualTo(2);
               try (var querySix =
                   session.query(
                       "select from Person where search_class('(name:Enrico AND tags:Geek)"
                           + " ')=true")) {
-                assertThat(querySix).hasSize(1);
+                assertThat(IteratorUtils.count(querySix)).isEqualTo(1);
               }
             }
           }

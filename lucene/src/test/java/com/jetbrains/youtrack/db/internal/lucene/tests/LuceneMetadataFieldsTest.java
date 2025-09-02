@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import static com.jetbrains.youtrack.db.internal.lucene.functions.LuceneFunctionsUtils.doubleEscape;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -28,7 +29,7 @@ public class LuceneMetadataFieldsTest extends LuceneBaseTest {
     var results =
         session.query("SELECT FROM Song WHERE search_class('RID:(" + ridQuery + ") ')=true ");
 
-    assertThat(results).hasSize(2);
+    assertThat(IteratorUtils.count(results)).isEqualTo(2);
     results.close();
   }
 }

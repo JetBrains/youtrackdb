@@ -7,6 +7,7 @@ import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import org.apache.lucene.document.DateTools;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -72,12 +73,12 @@ public class LuceneRangeTest extends BaseLuceneTest {
     // range
     var results = session.execute("SELECT FROM Person WHERE age LUCENE 'age:[5 TO 6]'");
 
-    assertThat(results).hasSize(2);
+    assertThat(IteratorUtils.count(results)).isEqualTo(2);
 
     // single value
     results = session.execute("SELECT FROM Person WHERE age LUCENE 'age:5'");
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     session.commit();
   }
 
@@ -106,7 +107,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
         session.execute(
             "SELECT FROM Person WHERE date LUCENE 'date:[" + fiveDaysAgo + " TO " + today + "]'");
 
-    assertThat(results).hasSize(5);
+    assertThat(IteratorUtils.count(results)).isEqualTo(5);
     session.commit();
   }
 
@@ -138,7 +139,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
             "SELECT * FROM Person WHERE [name,surname,date,age] LUCENE 'age:[5 TO 6] name:robert "
                 + " '");
 
-    assertThat(results).hasSize(3);
+    assertThat(IteratorUtils.count(results)).isEqualTo(3);
 
     // date range
     results =
@@ -149,7 +150,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
                 + today
                 + "]'");
 
-    assertThat(results).hasSize(5);
+    assertThat(IteratorUtils.count(results)).isEqualTo(5);
 
     // age and date range with MUST
     results =
@@ -160,7 +161,7 @@ public class LuceneRangeTest extends BaseLuceneTest {
                 + today
                 + "]'");
 
-    assertThat(results).hasSize(2);
+    assertThat(IteratorUtils.count(results)).isEqualTo(2);
   }
 
   @Test

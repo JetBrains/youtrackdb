@@ -27,6 +27,7 @@ import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -94,7 +95,7 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
 
     session.begin();
     var docs = session.query("select from Song where title lucene 'mountain'");
-    assertThat(docs).hasSize(4);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(4);
     session.commit();
 
     TimeUnit.SECONDS.sleep(5);
@@ -105,7 +106,7 @@ public class LuceneInsertDeleteTest extends BaseLuceneTest {
 
     session.begin();
     docs = session.query("select from Song where  title lucene 'mountain'");
-    assertThat(docs).hasSize(0);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(0);
     session.commit();
   }
 }

@@ -5,6 +5,7 @@ import org.apache.lucene.codecs.simpletext.SimpleTextCodec;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,7 +38,7 @@ public class LuceneSandboxTest extends LuceneBaseTest {
         session.query(
             "select from cdr WHERE filename LUCENE ' RRC.20161229193002.PROD_R4.eno.data '");
 
-    Assertions.assertThat(res).hasSize(2);
+    Assertions.assertThat(IteratorUtils.count(res)).isEqualTo(2);
     res.close();
     // exact match
     res =
@@ -45,12 +46,12 @@ public class LuceneSandboxTest extends LuceneBaseTest {
             "select from cdr WHERE filename LUCENE '"
                 + " \"MDCA20MCR201612291911.277904.eno.RRC.20161229193002.PROD_R4.eno.data\" '");
 
-    Assertions.assertThat(res).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(res)).isEqualTo(1);
     res.close();
     // wildcard
     res = session.query("select from cdr WHERE filename LUCENE ' MDCA* '");
 
-    Assertions.assertThat(res).hasSize(2);
+    Assertions.assertThat(IteratorUtils.count(res)).isEqualTo(2);
     res.close();
   }
 
@@ -66,7 +67,7 @@ public class LuceneSandboxTest extends LuceneBaseTest {
         session.query(
             "select from cdr WHERE SEARCH_CLASS( ' RRC.20161229193002.PROD_R4.eno.data ') = true");
 
-    Assertions.assertThat(res).hasSize(2);
+    Assertions.assertThat(IteratorUtils.count(res)).isEqualTo(2);
     res.close();
     // exact match
     res =
@@ -75,7 +76,7 @@ public class LuceneSandboxTest extends LuceneBaseTest {
                 + " \"MDCA20MCR201612291911.277904.eno.RRC.20161229193002.PROD_R4.eno.data\" ') ="
                 + " true");
 
-    Assertions.assertThat(res).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(res)).isEqualTo(1);
     res.close();
     // wildcard
     res = session.query("select from cdr WHERE SEARCH_CLASS(' MDCA* ')= true");
@@ -83,7 +84,7 @@ public class LuceneSandboxTest extends LuceneBaseTest {
     // leadind wildcard
     res = session.query("select from cdr WHERE SEARCH_CLASS(' *20MCR2016122* ') =true");
 
-    Assertions.assertThat(res).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(res)).isEqualTo(1);
     res.close();
   }
 

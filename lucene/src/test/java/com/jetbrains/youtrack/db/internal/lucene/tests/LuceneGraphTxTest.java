@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -50,7 +51,7 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
     session.begin();
     var resultSet = session.execute("select from City where search_class('London') =true ");
 
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
 
     var activeTx = session.getActiveTransaction();
     v = activeTx.load(v);
@@ -64,16 +65,16 @@ public class LuceneGraphTxTest extends LuceneBaseTest {
     // only berlin
     session.begin();
     resultSet = session.execute("select from City where search_class('Berlin') =true ");
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
 
     resultSet = session.execute("select from City where search_class('London') =true ");
-    assertThat(resultSet).hasSize(0);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(0);
 
     resultSet = session.execute("select from City where search_class('Berlin') =true ");
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
 
     resultSet = session.execute("select from City where search_class('London') =true ");
-    assertThat(resultSet).hasSize(0);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(0);
     session.commit();
   }
 }

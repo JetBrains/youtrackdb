@@ -21,6 +21,7 @@ package com.jetbrains.youtrack.db.internal.lucene.tests;
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.Assert;
 import org.junit.Before;
@@ -55,7 +56,7 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
     session.begin();
     var query = "select * from City where search_class('name:Rome')=true";
     var docs = session.query(query);
-    Assertions.assertThat(docs).hasSize(size);
+    Assertions.assertThat(IteratorUtils.count(docs)).isEqualTo(size);
     docs.close();
     session.commit();
     session.close();
@@ -63,7 +64,7 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
     session = (DatabaseSessionEmbedded) pool.acquire();
     session.begin();
     docs = session.query(query);
-    Assertions.assertThat(docs).hasSize(size);
+    Assertions.assertThat(IteratorUtils.count(docs)).isEqualTo(size);
     docs.close();
     session.commit();
 
@@ -72,12 +73,12 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
     session.commit();
 
     docs = session.query(query);
-    Assertions.assertThat(docs).hasSize(0);
+    Assertions.assertThat(IteratorUtils.count(docs)).isEqualTo(0);
     docs.close();
     session.close();
     session = (DatabaseSessionEmbedded) pool.acquire();
     docs = session.query(query);
-    Assertions.assertThat(docs).hasSize(0);
+    Assertions.assertThat(IteratorUtils.count(docs)).isEqualTo(0);
     docs.close();
     session.getMetadata().reload();
 

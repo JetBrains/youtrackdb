@@ -6,6 +6,7 @@ import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
 import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrack.db.api.record.DBRecord;
 import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -39,7 +40,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
         session.query(
             "SELECT from Song where SEARCH_More([?, ?],{'minTermFreq':1, 'minDocFreq':1} ) = true",
             firstRecordId, secondRecordId)) {
-      assertThat(resultSet).hasSize(48);
+      assertThat(IteratorUtils.count(resultSet)).isEqualTo(48);
     }
     tx.commit();
   }
@@ -59,7 +60,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
         tx.query(
             "SELECT from Song where SEARCH_More([?, ?] , {'minTermFreq':1, 'minDocFreq':1} ) = true",
             firstRecordId, secondRecordId)) {
-      assertThat(resultSet).hasSize(84);
+      assertThat(IteratorUtils.count(resultSet)).isEqualTo(84);
     }
     tx.commit();
   }
@@ -84,7 +85,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
         session.query(
             "SELECT from Song where author ='Hunter' AND SEARCH_More([?, ?, ? ,?],{'minTermFreq':1, 'minDocFreq':1} ) = true",
             firstRecordId, secondRecordId, thirdRecordId, fourthRecordId)) {
-      assertThat(resultSet).hasSize(8);
+      assertThat(IteratorUtils.count(resultSet)).isEqualTo(8);
     }
     tx.commit();
   }
@@ -109,7 +110,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
       if (plan != null) {
         System.out.println(plan.prettyPrint(1, 1));
       }
-      assertThat(resultSet).hasSize(138);
+      assertThat(IteratorUtils.count(resultSet)).isEqualTo(138);
     }
   }
 
@@ -136,7 +137,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
       if (plan != null) {
         System.out.println(plan.prettyPrint(1, 1));
       }
-      assertThat(resultSet).hasSize(84);
+      assertThat(IteratorUtils.count(resultSet)).isEqualTo(84);
     }
     tx.commit();
   }
@@ -150,7 +151,7 @@ public class LuceneSearchMoreLikeThisFunctionTest extends BaseLuceneTest {
         session.query(
             "SELECT from Song  let $a=(SELECT @rid FROM Song WHERE author = 'Hunter')  where"
                 + " SEARCH_More( $a, { 'minTermFreq':1, 'minDocFreq':1} ) = true")) {
-      assertThat(resultSet).hasSize(229);
+      assertThat(IteratorUtils.count(resultSet)).isEqualTo(229);
     }
   }
 }

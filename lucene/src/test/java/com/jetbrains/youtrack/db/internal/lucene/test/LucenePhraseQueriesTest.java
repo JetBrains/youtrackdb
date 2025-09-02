@@ -3,6 +3,7 @@ package com.jetbrains.youtrack.db.internal.lucene.test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrack.db.api.schema.PropertyType;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -51,68 +52,74 @@ public class LucenePhraseQueriesTest extends BaseLuceneTest {
   }
 
   @Test
-  public void testPhraseQueries() throws Exception {
+  public void testPhraseQueries() {
 
     var vertexes = session.query("select from Role where name lucene ' \"Business Owner\" '  ");
 
-    assertThat(vertexes).hasSize(1);
+    assertThat(IteratorUtils.count(vertexes)).isEqualTo(1);
 
     vertexes = session.query("select from Role where name lucene ' \"Owner of Business\" '  ");
 
-    assertThat(vertexes).hasSize(0);
+    assertThat(IteratorUtils.count(vertexes)).isEqualTo(0);
 
     vertexes = session.query("select from Role where name lucene ' \"System Owner\" '  ");
 
-    assertThat(vertexes).hasSize(0);
+    assertThat(IteratorUtils.count(vertexes)).isEqualTo(0);
 
     vertexes = session.query("select from Role where name lucene ' \"System SME\"~1 '  ");
 
-    assertThat(vertexes).hasSize(2);
+    assertThat(IteratorUtils.count(vertexes)).isEqualTo(2);
 
     vertexes = session.query("select from Role where name lucene ' \"System Business\"~1 '  ");
 
-    assertThat(vertexes).hasSize(2);
+    assertThat(IteratorUtils.count(vertexes)).isEqualTo(2);
 
     vertexes = session.query("select from Role where name lucene ' /[mb]oat/ '  ");
 
-    assertThat(vertexes).hasSize(2);
+    assertThat(IteratorUtils.count(vertexes)).isEqualTo(2);
   }
 
   @Test
-  public void testComplexPhraseQueries() throws Exception {
+  public void testComplexPhraseQueries() {
 
     session.begin();
-    var vertexes = session.query("select from Role where name lucene ?", "\"System SME\"~1");
+    var vertexes = session.query("select from Role where name lucene ?", "\"System SME\"~1")
+        .toVertexList();
 
     assertThat(vertexes).allMatch(v -> v.<String>getProperty("name").contains("SME"));
 
-    vertexes = session.query("select from Role where name lucene ? ", "\"SME System\"~1");
+    vertexes = session.query("select from Role where name lucene ? ", "\"SME System\"~1")
+        .toVertexList();
 
     assertThat(vertexes).isEmpty();
 
-    vertexes = session.query("select from Role where name lucene ? ", "\"Owner Of Business\"");
-    vertexes.stream().forEach(v -> System.out.println("v = " + v.getProperty("name")));
+    vertexes = session.query("select from Role where name lucene ? ", "\"Owner Of Business\"")
+        .toVertexList();
+    vertexes.forEach(v -> System.out.println("v = " + v.getProperty("name")));
 
     assertThat(vertexes).isEmpty();
 
-    vertexes = session.query("select from Role where name lucene ? ", "\"System Business SME\"");
+    vertexes = session.query("select from Role where name lucene ? ", "\"System Business SME\"")
+        .toVertexList();
 
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System Business SME"));
 
-    vertexes = session.query("select from Role where name lucene ? ", "\"System Owner\"~1 -IT");
+    vertexes = session.query("select from Role where name lucene ? ", "\"System Owner\"~1 -IT")
+        .toVertexList();
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System Business Owner"));
 
-    vertexes = session.query("select from Role where name lucene ? ", "+System +Own*~0.0 -IT");
+    vertexes = session.query("select from Role where name lucene ? ", "+System +Own*~0.0 -IT")
+        .toVertexList();
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System Business Owner"));
 
     vertexes = session.query("select from Role where name lucene ? ",
-        "\"System Owner\"~1 -Business");
+        "\"System Owner\"~1 -Business").toVertexList();
     assertThat(vertexes)
         .hasSize(1)
         .allMatch(v -> v.<String>getProperty("name").equalsIgnoreCase("System IT Owner"));

@@ -1,9 +1,11 @@
 package com.jetbrains.youtrack.db.internal.lucene.functions;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.jetbrains.youtrack.db.internal.lucene.tests.LuceneBaseTest;
 import java.util.HashMap;
 import java.util.Map;
-import static org.assertj.core.api.Assertions.assertThat;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -24,7 +26,7 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
 
     var resultSet = session.query("SELECT from Song where SEARCH_Class('BELIEVE') = true");
 
-    assertThat(resultSet).hasSize(2);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(2);
 
     resultSet.close();
   }
@@ -36,7 +38,7 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
         session.query(
             "SELECT from Song where SEARCH_CLASS( '*EVE*', {'allowLeadingWildcard': true}) = true");
 
-    assertThat(resultSet).hasSize(14);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(14);
 
     resultSet.close();
   }
@@ -49,7 +51,7 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
             "SELECT from Song where SEARCH_CLASS('BELIEVE') = true OR SEARCH_CLASS('GOODNIGHT') ="
                 + " true ");
 
-    assertThat(resultSet).hasSize(5);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(5);
     resultSet.close();
   }
 
@@ -61,7 +63,7 @@ public class LuceneSearchOnClassFunctionTest extends LuceneBaseTest {
             "SELECT from Song where SEARCH_CLASS('GOODNIGHT') = true AND SEARCH_CLASS( 'Irene',"
                 + " {'allowLeadingWildcard': true}) = true ");
 
-    assertThat(resultSet).hasSize(1);
+    assertThat(IteratorUtils.count(resultSet)).isEqualTo(1);
     resultSet.close();
   }
 

@@ -8,6 +8,7 @@ import com.jetbrains.youtrack.db.internal.lucene.test.BaseLuceneTest;
 import java.io.IOException;
 import org.apache.lucene.analysis.en.EnglishAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -56,6 +57,6 @@ public class LuceneAllIndexTest extends BaseLuceneTest {
   public void testLuceneFunction() {
     var docs =
         session.query("select from Song where lucene_match( \"Song.author:Fabbio\" ) = true ");
-    assertThat(docs).hasSize(87);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(87);
   }
 }

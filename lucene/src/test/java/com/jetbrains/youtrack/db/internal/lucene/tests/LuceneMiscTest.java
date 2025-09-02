@@ -24,6 +24,7 @@ import com.jetbrains.youtrack.db.api.schema.PropertyType;
 import com.jetbrains.youtrack.db.api.schema.Schema;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -50,28 +51,28 @@ public class LuceneMiscTest extends LuceneBaseTest {
         session.query(
             "select from Test where search_index('Test.attr1',\"foo*\") =true OR"
                 + " search_index('Test.attr2', \"foo*\")=true  ");
-    assertThat(results).hasSize(2);
+    assertThat(IteratorUtils.count(results)).isEqualTo(2);
     results.close();
 
     results =
         session.query(
             "select from Test where SEARCH_FIELDS( ['attr1'], 'bar') = true OR"
                 + " SEARCH_FIELDS(['attr2'], 'bar*' )= true ");
-    assertThat(results).hasSize(2);
+    assertThat(IteratorUtils.count(results)).isEqualTo(2);
     results.close();
 
     results =
         session.query(
             "select from Test where SEARCH_FIELDS( ['attr1'], 'foo*') = true AND"
                 + " SEARCH_FIELDS(['attr2'], 'bar*') = true");
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
 
     results =
         session.query(
             "select from Test where SEARCH_FIELDS( ['attr1'], 'bar*') = true AND"
                 + " SEARCH_FIELDS(['attr2'], 'foo*')= true");
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
   }
 
@@ -93,7 +94,7 @@ public class LuceneMiscTest extends LuceneBaseTest {
             + " true";
     var results = session.query(query);
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
 
     // WITH PROJECTION it works using index directly
@@ -102,7 +103,7 @@ public class LuceneMiscTest extends LuceneBaseTest {
         "select  from (select name from Person where age = 18) where"
             + " search_index('Person.name','Enrico') = true";
     results = session.query(query);
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
   }
 
@@ -125,7 +126,7 @@ public class LuceneMiscTest extends LuceneBaseTest {
     params.put("name", "FOO or");
     var results = session.execute(query, params);
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     session.commit();
   }
 
@@ -167,12 +168,12 @@ public class LuceneMiscTest extends LuceneBaseTest {
 
     var results = session.query("select from AuthorOf");
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
 
     results.close();
     results = session.query("select from AuthorOf where in.title lucene 'hurricane'");
 
-    assertThat(results).hasSize(1);
+    assertThat(IteratorUtils.count(results)).isEqualTo(1);
     results.close();
   }
 }

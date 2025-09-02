@@ -122,7 +122,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   public void testReturnObject() {
     final var result = session.computeScript("sql", "return [{ a: 'b' }, { c: 'd'}]");
 
-    assertThat(result).isNotNull();
+    assertThat((Object) result).isNotNull();
     assertThat(result.hasNext()).isTrue();
     final var value = ((Collection<Object>) result.next().getProperty("value"));
     assertThat(result.hasNext()).isFalse();

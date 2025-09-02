@@ -18,6 +18,7 @@
 
 package com.jetbrains.youtrack.db.internal.lucene.tests;
 
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,14 +44,14 @@ public class LuceneSkipLimitTest extends LuceneBaseTest {
     var docs =
         session.query("select * from Song where search_fields(['title'],\"(title:man)\")=true");
 
-    Assertions.assertThat(docs).hasSize(14);
+    Assertions.assertThat(IteratorUtils.count(docs)).isEqualTo(14);
     docs.close();
     docs =
         session.query(
             "select * from Song where search_fields(['title'],\"(title:man)\")=true skip 10 limit"
                 + " 10");
 
-    Assertions.assertThat(docs).hasSize(4);
+    Assertions.assertThat(IteratorUtils.count(docs)).isEqualTo(4);
 
     //    Assert.assertEquals(docs.contains(doc), false);
     docs.close();
@@ -59,7 +60,7 @@ public class LuceneSkipLimitTest extends LuceneBaseTest {
             "select * from Song where search_fields(['title'],\"(title:man)\")=true skip 14 limit"
                 + " 10");
 
-    Assertions.assertThat(docs).hasSize(0);
+    Assertions.assertThat(IteratorUtils.count(docs)).isEqualTo(0);
     docs.close();
     session.commit();
   }
