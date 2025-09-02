@@ -8,20 +8,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-      - name: Generation of settings.xml
-        uses: s4u/maven-settings-action@v3.1.0
-        with:
-          servers: |
-            [ 
-               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
-             ]
       - name: Build with maven
         run: mvn -B package --file pom.xml
   JDK-21-Windows-x64-Memory:
@@ -29,20 +22,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-      - name: Generation of settings.xml
-        uses: s4u/maven-settings-action@v3.1.0
-        with:
-          servers: |
-            [ 
-               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
-             ]
       - name: Build with maven
         run: mvn -B package --file pom.xml
   JDK-21-Linux-x64-Disk:
@@ -50,19 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-      - name: Generation of settings.xml
-        uses: s4u/maven-settings-action@v3.1.0
-        with:
-          servers: |
-            [ 
-               {"id": "space-youtrackdb-daily", "username": "${{ secrets.SPACE_USER_NAME }}", "password": "${{ secrets.SPACE_REPO_PASSWORD }}"}
-             ]
       - name: Build with maven
         run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
