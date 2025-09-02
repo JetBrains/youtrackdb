@@ -34,7 +34,7 @@
       -Xmx${heapSize}
       -Dyoutrackdb.storage.diskCache.bufferSize=4096
       -Dyoutrackdb.memory.directMemory.trackMode=true
-      -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
+      -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
       -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
       -Dyoutrackdb.security.warningDefaultUsers=false
       -Dyoutrackdb.file.log.deletion=false
@@ -183,7 +183,7 @@
           <properties>
             <property>
               <name>listener</name>
-              <value>com.jetbrains.youtrack.db.TestNGTestListener</value>
+              <value>com.jetbrains.youtrackdb.TestNGTestListener</value>
             </property>
           </properties>
           <redirectTestOutputToFile>false</redirectTestOutputToFile>
@@ -203,7 +203,7 @@
             <configuration>
               <suiteXmlFiles>
                 <suiteXmlFile>
-                  src/test/java/com/jetbrains/youtrack/db/auto/embedded-test-db-from-scratch.xml
+                  src/test/java/com/jetbrains/youtrackdb/auto/embedded-test-db-from-scratch.xml
                 </suiteXmlFile>
               </suiteXmlFiles>
             </configuration>
@@ -221,7 +221,7 @@
 <!--              </systemPropertyVariables>-->
 <!--              <suiteXmlFiles>-->
 <!--                <suiteXmlFile>-->
-<!--                  src/test/java/com/jetbrains/youtrack/db/auto/remote-test-db-from-scratch.xml-->
+          <!--                  src/test/java/com/jetbrains/youtrackdb/auto/remote-test-db-from-scratch.xml-->
 <!--                </suiteXmlFile>-->
 <!--              </suiteXmlFiles>-->
 <!--            </configuration>-->
