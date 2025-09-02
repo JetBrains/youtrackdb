@@ -1,7 +1,7 @@
 {
   "name": "security",
   "version": "1.0",
-  "javaClass": "com.jetbrains.youtrack.db.internal.security.SecurityPlugin",
+  "javaClass": "com.jetbrains.youtrackdb.internal.security.SecurityPlugin",
   "parameters": {},
   "description": "This is the YouTrackDB Security Plugin",
   "license": "Apache 2"

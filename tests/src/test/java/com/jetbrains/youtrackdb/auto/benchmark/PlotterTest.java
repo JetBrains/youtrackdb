@@ -1,0 +1,45 @@
+package com.jetbrains.youtrackdb.auto.benchmark;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.knowm.xchart.style.Styler;
+
+public class PlotterTest {
+
+  private Plotter plotter;
+
+  @Before
+  public void setup() {
+    plotter = new Plotter();
+  }
+
+  @Test
+  public void histogram() throws Exception {
+    final var chart =
+        plotter.getCategoryChart(
+            "Test chart name", "Test x axis", "Test y axis", Styler.LegendPosition.InsideNW);
+    plotter.addSeriesToHistogram(chart);
+    plotter.exportChartAsPDF(chart, "target/histogram");
+    Assert.assertTrue(new File("target/histogram.pdf").exists());
+  }
+
+  @Test
+  public void lineChart() throws Exception {
+    final var chart =
+        plotter.getXYChart(
+            "Test chart name", "Test x axis", "Test y axis", Styler.LegendPosition.InsideNW);
+    final List<Integer> xData = new ArrayList<>();
+    final List<Double> yData = new ArrayList<>();
+    for (var i = -3; i <= 3; i++) {
+      xData.add(i);
+      yData.add(Math.pow(10, i));
+    }
+    plotter.addSeriesToLineChart(chart, "10^x", xData, yData);
+    plotter.exportChartAsPDF(chart, "target/lineChart");
+    Assert.assertTrue(new File("target/lineChart.pdf").exists());
+  }
+}
