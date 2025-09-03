@@ -45,7 +45,6 @@ the
 following dependency to your Maven project:
 
 ```xml
-
 <dependency>
   <groupId>io.youtrackdb</groupId>
   <artifactId>youtrackdb-core</artifactId>
@@ -56,7 +55,6 @@ following dependency to your Maven project:
 You also need to add a YTDB snapshot repository to your Maven pom.xml file:
 
 ```xml
-
 <repositories>
   <repository>
     <id>ytdb-github</id>
