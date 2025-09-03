@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.auto;
+package com.jetbrains.youtrackdb.auto;
 
 import static org.junit.Assert.assertTrue;
 
@@ -7,22 +7,22 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
-import com.jetbrains.youtrack.db.api.DatabaseType;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.CommonDownloader;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.JarDownloader;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.JarDownloader.LocationType;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github.GithubJarBuilder;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github.GithubRepoDownloader;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github.MavenBuilder;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.maven.MavenJarDownloader;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data.CommonDbDownloader;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data.CommonDbDownloader.DbLocationInfo;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data.CommonDbDownloader.DbLocationType;
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data.CommonDbDownloader.DbMetadata;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseCompare;
-import com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseImport;
+import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.CommonDownloader;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.JarDownloader;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.JarDownloader.LocationType;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.github.GithubJarBuilder;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.github.GithubRepoDownloader;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.github.MavenBuilder;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.maven.MavenJarDownloader;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.data.CommonDbDownloader;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.data.CommonDbDownloader.DbLocationInfo;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.data.CommonDbDownloader.DbLocationType;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.data.CommonDbDownloader.DbMetadata;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -33,6 +33,7 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import org.testng.annotations.Test;
 
@@ -40,7 +41,7 @@ public class BaseDBCompatibilityTest {
 
   private final CommonDownloader downloader = new CommonDownloader(Map.of(
       LocationType.GIT, new GithubJarBuilder(new GithubRepoDownloader(), new MavenBuilder()),
-      LocationType.MAVEN, new MavenJarDownloader("./local-repo")
+      LocationType.MAVEN, new MavenJarDownloader("/tmp/youtrackdb/binarycompat/local-repo")
   ));
   private final CommonDbDownloader dbDownloader = new CommonDbDownloader();
 
@@ -101,8 +102,9 @@ public class BaseDBCompatibilityTest {
             var compare = new DatabaseCompare(
                 (DatabaseSessionEmbedded) importSession.session(),
                 (DatabaseSessionEmbedded) newSessionOnOldDb.session(),
-                //do nothing
-                unused -> {
+                Map.of("ouser", Set.of("password")),
+                msg -> {
+                  LogManager.instance().info(this, msg);
                 }
             );
             assertTrue(
@@ -128,9 +130,9 @@ public class BaseDBCompatibilityTest {
     var loader = session.loader();
 
     var exportDbClass = loader.loadClass(
-        "com.jetbrains.youtrack.db.internal.core.db.tool.DatabaseExport");
+        "com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport");
     var commandOutputListenerClass = loader.loadClass(
-        "com.jetbrains.youtrack.db.internal.core.command.CommandOutputListener");
+        "com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener");
     var exportDbMethod = exportDbClass.getDeclaredMethod("run");
     var exportDbObjectConstructor = exportDbClass.getDeclaredConstructor(
         session.sessionClass, String.class, commandOutputListenerClass);
@@ -159,28 +161,27 @@ public class BaseDBCompatibilityTest {
   @Nonnull
   private SessionLoadMetadata loadSession(DbMetadata dbMetadata, VersionInfo version)
       throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException, InvocationTargetException, MalformedURLException {
-    var importJar = downloader.prepareArtifact(
+    var importJars = downloader.prepareArtifact(
         version.location().type(),
         version.location().source(),
         version.name()
     );
-    var loader = new URLClassLoader(new URL[]{importJar.toURL()});
-    var configClass = loader.loadClass("com.jetbrains.youtrack.db.api.config.YouTrackDBConfig");
-    var configBuilderClass = loader.loadClass(
-        "com.jetbrains.youtrack.db.api.config.YouTrackDBConfigBuilder");
+    // this class loader "sees", all the classes from the current class loader which could issues,
+    // in case some classes are removed in the newer version of the code, but still present in the older one
+    // but without it, I will need a mechanism to load all the db dependencies,
+    // without specifying them manually one more time in the db compatibility test
+    // this is an open question for now.
+    // to deliver test sooner I will leave it as is with this comment
+    var loader = new URLClassLoader(new URL[]{importJars.toURI().toURL()});
     var ytdbClass = loader.loadClass(
-        "com.jetbrains.youtrack.db.internal.core.db.YouTrackDBAbstract");
-    var youtracks = loader.loadClass("com.jetbrains.youtrack.db.api.YourTracks");
+        "com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract");
+    var youtracks = loader.loadClass("com.jetbrains.youtrackdb.api.YourTracks");
 
-    var configBuilderFactoryMethod = configClass.getDeclaredMethod("builder");
-    var configBuilderBuildMethod = configBuilderClass.getDeclaredMethod("build");
-    var configBuilder = configBuilderClass.cast(configBuilderFactoryMethod.invoke(null));
-
-    var embeddedMethod = youtracks.getDeclaredMethod("embedded", String.class, configClass);
+    var embeddedMethod = youtracks.getDeclaredMethod("instance", String.class);
 
     var location = dbDownloader.prepareDbLocation(dbMetadata);
-    var ytdbImpl = embeddedMethod.invoke(null, location,
-        configBuilderBuildMethod.invoke(configBuilder));
+    var ytdbImpl = embeddedMethod.invoke(null, location);
+
     var existsMethod = ytdbClass.getDeclaredMethod("exists", String.class);
     if (!(boolean) existsMethod.invoke(ytdbImpl, dbMetadata.name())) {
       var createMethod = ytdbClass.getDeclaredMethod("create", String.class, DatabaseType.class,
@@ -192,7 +193,7 @@ public class BaseDBCompatibilityTest {
     var session = openMethod.invoke(ytdbImpl, dbMetadata.name(), "admin", "admin");
 
     var databaseSessionEmbeddedClass = loader.loadClass(
-        "com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded");
+        "com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded");
     return new SessionLoadMetadata(loader, ytdbClass, ytdbImpl, databaseSessionEmbeddedClass,
         session);
   }

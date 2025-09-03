@@ -1,6 +1,6 @@
-package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.github;
+package com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.github;
 
-import com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code.JarDownloader;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.JarDownloader;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;

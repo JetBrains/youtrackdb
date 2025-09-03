@@ -8,7 +8,7 @@ runs:
         password: "admin"
       - name: "DbCreationTest"
         location:
-          source: "https://github.com/logart/youtrackdb/releases/download/1.1/test-db.tar.gz"
+          source: "https://github.com/logart/youtrackdb/releases/download/1.0-new-classes/new-class-names-test-db.tar.gz"
           type: HTTP
         user: "admin"
         password: "admin"

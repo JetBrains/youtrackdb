@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.data;
+package com.jetbrains.youtrackdb.auto.binarycompat.fetcher.data;
 
 import java.io.IOException;
 

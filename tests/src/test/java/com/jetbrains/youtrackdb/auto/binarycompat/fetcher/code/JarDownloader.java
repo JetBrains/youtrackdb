@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.auto.binarycompat.fetcher.code;
+package com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code;
 
 
 import java.io.File;
