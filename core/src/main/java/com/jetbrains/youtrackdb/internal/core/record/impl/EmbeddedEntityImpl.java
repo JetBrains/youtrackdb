@@ -5,18 +5,18 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import java.lang.ref.WeakReference;
 import javax.annotation.Nullable;
 
 public class EmbeddedEntityImpl extends EntityImpl implements EmbeddedEntity {
   public EmbeddedEntityImpl(String clazz, DatabaseSessionEmbedded session) {
-    super(new RecordId(), session, clazz);
+    super(new ChangeableRecordId(), session, clazz);
     checkEmbeddable();
   }
 
   public EmbeddedEntityImpl(DatabaseSessionEmbedded session) {
-    super(new RecordId(), session);
+    super(new ChangeableRecordId(), session);
     status = STATUS.LOADED;
   }
 
