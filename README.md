@@ -38,8 +38,7 @@ YouTrackDB's key features are:
 ### Easy to install and use
 YouTrackDB can run on any platform without configuration and installation.
 
-If you want to experiment with YouTrackDB, please check out our REPL [console](console/README.md)
-console.
+If you want to experiment with YouTrackDB, please check out our REPL [console](console/README.md).
 
 ```bash
 docker run -it youtrackdb/youtrackdb-console

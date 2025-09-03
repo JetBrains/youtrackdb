@@ -3,9 +3,9 @@ on:
   push:
     branches: [ "develop" ]
 jobs:
-  JDK-21-Windows-ARM-Disk:
+  JDK-21-Ubuntu-ARM-Disk:
     name: Unit Tests on JDK 21 Windows ARM (Disk)
-    runs-on: windows-11-arm
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -31,7 +31,7 @@ jobs:
           cache: maven
       - name: Build with maven
         run: mvn `-Dyoutrackdb.test.env=ci -B package --file pom.xml
-  JDK-21-Linux-x64-Disk:
+  JDK-21-Ubuntu-x64-Disk:
     name: Unit Tests on JDK 21 Ubuntu x64 (Disk)
     runs-on: ubuntu-latest
     steps:
@@ -48,7 +48,7 @@ jobs:
   deploy:
     name: Deployment to maven repository
     runs-on: ubuntu-latest
-    needs: [ JDK-21-Windows-ARM-Disk, JDK-21-Linux-x64-Disk, JDK-21-Windows-x64-Disk ]
+    needs: [ JDK-21-Ubuntu-ARM-Disk, JDK-21-Ubuntu-x64-Disk, JDK-21-Windows-x64-Disk ]
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
