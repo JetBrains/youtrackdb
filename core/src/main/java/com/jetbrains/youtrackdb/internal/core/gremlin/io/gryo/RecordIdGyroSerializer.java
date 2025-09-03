@@ -16,13 +16,7 @@ public class RecordIdGyroSerializer extends Serializer<RecordId> {
   @Override
   public RecordId read(
       final Kryo kryo, final Input input, final Class<RecordId> tinkerGraphClass) {
-    var rid = new RecordId(input.readString());
-
-    if (rid.isNew()) {
-      return new ChangeableRecordId(rid);
-    }
-
-    return rid;
+    return ChangeableRecordId.deserialize(input.readString());
   }
 
   @Override

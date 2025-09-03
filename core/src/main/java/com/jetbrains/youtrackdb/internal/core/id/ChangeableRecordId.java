@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.id;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Collections;
@@ -9,6 +10,16 @@ import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 
+/// This is a thread-safe version of RecordId that supports tracking of its identity changes.
+///
+/// Though even here the meaning of to be thread safe means that changes of identity will be visible
+/// in other threads but not that it can be changed in other threads.
+///
+/// It **SHOULD NOT** be used except of:
+/// 1. Deserialization of newly created records from the server response, as that is done in a
+/// separate thread by an asynchronous Netty channel.
+/// 2. Passing of RecordId instance to the newly created records, so once they become persistent,
+/// their identity will be visible to other threads.
 public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
 
   private static final VarHandle volatileCollectionIdHandle;
@@ -265,5 +276,44 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     recordId.collectionPosition = collectionPosition;
 
     return recordId;
+  }
+
+  public static RecordId deserialize(String ridStr) {
+    if (ridStr != null) {
+      ridStr = ridStr.trim();
+    }
+
+    if (ridStr == null || ridStr.isEmpty()) {
+      return new ChangeableRecordId();
+    }
+
+    if (!StringSerializerHelper.contains(ridStr, SEPARATOR)) {
+      throw new IllegalArgumentException(
+          "Argument '"
+              + ridStr
+              + "' is not a RecordId in form of string. Format must be:"
+              + " <collection-id>:<collection-position>");
+    }
+
+    final var parts = StringSerializerHelper.split(ridStr, SEPARATOR, PREFIX);
+
+    if (parts.size() != 2) {
+      throw new IllegalArgumentException(
+          "Argument received '"
+              + ridStr
+              + "' is not a RecordId in form of string. Format must be:"
+              + " #<collection-id>:<collection-position>. Example: #3:12");
+    }
+
+    var collectionId = Integer.parseInt(parts.get(0));
+    checkCollectionLimits(collectionId);
+
+    var collectionPosition = Long.parseLong(parts.get(1));
+
+    if (collectionPosition < 0) {
+      return new ChangeableRecordId(collectionId, collectionPosition);
+    }
+
+    return new RecordId(collectionId, collectionPosition);
   }
 }
