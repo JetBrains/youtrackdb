@@ -36,9 +36,14 @@ YouTrackDB's key features are:
 7. **GEO-queries and full-text search**: GEO-queries and full-text search are supported using Lucene integration.
 
 ### Easy to install and use
-
 YouTrackDB can run on any platform without configuration and installation.
-The full Server distribution is a few MBs without the demo database.
+
+If you want to experiment with YouTrackDB, please check out our REPL [console](console/README.md)
+console.
+
+```bash
+docker run -it youtrackdb/youtrackdb-console
+```
 
 To install YouTrackDB as an embedded database (migration to the Gremlin Server is in progress), add
 the
@@ -68,4 +73,25 @@ You also need to add a YTDB snapshot repository to your Maven pom.xml file:
     </snapshots>
   </repository>
 </repositories>
+```
+
+or in case of Gradle:
+
+```
+dependencies {
+    implementation 'io.youtrackdb:youtrackdb-core:0.5.0-SNAPSHOT'
+}
+```
+
+and
+
+```
+repositories {
+    maven {
+        url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+        mavenContent {
+            snapshotsOnly()
+        }
+    }
+}
 ```
