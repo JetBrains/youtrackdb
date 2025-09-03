@@ -47,7 +47,7 @@ public class RecordId implements RID, SerializableStream {
   protected int collectionId = COLLECTION_ID_INVALID;
   protected long collectionPosition = COLLECTION_POS_INVALID;
 
-  protected RecordId() {
+  public RecordId() {
   }
 
   public RecordId(final int collectionId, final long position) {

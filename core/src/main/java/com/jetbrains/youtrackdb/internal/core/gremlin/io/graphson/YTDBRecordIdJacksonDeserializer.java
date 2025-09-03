@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.io.graphson;
 
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.IOException;
 import org.apache.tinkerpop.shaded.jackson.core.JsonParser;
@@ -16,7 +17,13 @@ public class YTDBRecordIdJacksonDeserializer extends StdDeserializer<RID> {
   @Override
   public RID deserialize(JsonParser jsonParser, DeserializationContext deserializationContext)
       throws IOException {
-    var rid = deserializationContext.readValue(jsonParser, String.class);
-    return new RecordId(rid);
+    var strRid = deserializationContext.readValue(jsonParser, String.class);
+    var rid = new RecordId(strRid);
+
+    if (rid.isNew()) {
+      return new ChangeableRecordId(rid);
+    }
+
+    return rid;
   }
 }

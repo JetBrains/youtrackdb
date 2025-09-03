@@ -47,18 +47,14 @@ public class RecordBytes extends RecordAbstract implements Blob {
 
   private static final byte[] EMPTY_SOURCE = new byte[]{};
 
-  public RecordBytes(DatabaseSessionEmbedded session) {
-    super(session);
-    source = EMPTY_SOURCE;
-  }
-
-  public RecordBytes(final DatabaseSessionEmbedded iDatabase, final byte[] iSource) {
-    super(iDatabase, iSource);
+  public RecordBytes(RecordId recordId, final DatabaseSessionEmbedded iDatabase,
+      final byte[] iSource) {
+    super(recordId, iDatabase, iSource);
     Objects.requireNonNull(iSource);
   }
 
   public RecordBytes(DatabaseSessionEmbedded session, final RecordId iRecordId) {
-    super(session);
+    super(iRecordId, session);
     assert assertIfAlreadyLoaded(recordId);
 
     recordId.setCollectionAndPosition(iRecordId.getCollectionId(),

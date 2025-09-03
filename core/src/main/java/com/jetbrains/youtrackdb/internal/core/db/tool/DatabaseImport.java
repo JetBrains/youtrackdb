@@ -45,7 +45,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.EntityFieldWalker;
 import com.jetbrains.youtrackdb.internal.core.db.tool.importer.ConverterData;
 import com.jetbrains.youtrackdb.internal.core.db.tool.importer.LinksRewriter;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
@@ -1224,7 +1223,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       });
 
       RID rid;
-      RID lastRid = new ChangeableRecordId();
+      RID lastRid = new RecordId();
 
       long lastLapRecords = 0;
       var last = begin;

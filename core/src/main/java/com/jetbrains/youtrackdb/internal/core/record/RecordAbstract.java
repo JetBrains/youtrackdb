@@ -32,7 +32,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableIdentity;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.SerializableStream;
@@ -72,16 +71,17 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public RecordOperation txEntry;
   public boolean processingInCallback = false;
 
-  public RecordAbstract(@Nonnull DatabaseSessionEmbedded session) {
-    recordId = new ChangeableRecordId();
+  public RecordAbstract(@Nonnull RecordId recordId, @Nonnull DatabaseSessionEmbedded session) {
+    this.recordId = recordId;
     this.session = session;
   }
 
-  public RecordAbstract(@Nonnull DatabaseSessionEmbedded session, final byte[] source) {
+  public RecordAbstract(@Nonnull RecordId recordId, @Nonnull DatabaseSessionEmbedded session,
+      final byte[] source) {
     this.source = source;
     size = source.length;
 
-    recordId = new ChangeableRecordId();
+    this.recordId = recordId;
     this.session = session;
   }
 

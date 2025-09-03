@@ -31,7 +31,6 @@ import com.jetbrains.youtrackdb.internal.common.thread.ThreadPoolExecutorWithLog
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -78,7 +77,7 @@ public abstract class DBSequence {
   private static final String FIELD_NAME = "name";
   private static final String FIELD_TYPE = "type";
 
-  protected RID entityRid = new ChangeableRecordId();
+  protected RID entityRid;
 
   private final ReentrantLock updateLock = new ReentrantLock();
 

@@ -60,7 +60,7 @@ import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImportException;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
@@ -555,7 +555,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           "TOT_REQS",
           conn.get("totalRequests"));
 
-      resultSet.add(new RawPair<>(new ChangeableRecordId(), row));
+      resultSet.add(new RawPair<>(new RecordId(), row));
     }
 
     resultSet.sort((o1, o2) -> {

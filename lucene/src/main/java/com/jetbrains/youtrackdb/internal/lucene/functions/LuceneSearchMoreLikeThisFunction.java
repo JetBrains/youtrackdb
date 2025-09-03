@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -99,7 +98,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
         ridsAsString.stream()
             .map(
                 rid -> {
-                  RecordId recordId = new ChangeableRecordId();
+                  var recordId = new RecordId();
 
                   recordId.fromString(rid);
                   recordId = recordId.copy();

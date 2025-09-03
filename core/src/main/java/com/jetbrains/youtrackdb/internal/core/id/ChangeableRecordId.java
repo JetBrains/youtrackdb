@@ -1,70 +1,130 @@
 package com.jetbrains.youtrackdb.internal.core.id;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.util.Collections;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 
 public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
+
+  private static final VarHandle volatileCollectionIdHandle;
+  private static final VarHandle volatileCollectionPositionHandle;
+
+  static {
+    var lookup = MethodHandles.lookup();
+    try {
+      volatileCollectionIdHandle = lookup.findVarHandle(RecordId.class, "collectionId", int.class);
+      volatileCollectionPositionHandle = lookup.findVarHandle(RecordId.class, "collectionPosition",
+          long.class);
+    } catch (ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+
+  }
 
   private Set<IdentityChangeListener> identityChangeListeners;
 
   /**
    * Counter for temporal identity of record id till it will not be defined during storage of
-   * record. This counter is not thread safe because we care only about difference in single thread.
-   * Even if number will be duplicated in different threads it does not matter for us. JVM
-   * guarantees atomicity arithmetic operations on <code>int</code>s
+   * record.
    */
-  private static int tempIdCounter = 0;
+  private static final AtomicLong tempIdCounter = new AtomicLong();
 
   /**
    * Temporary identity of record id. It is used to identify record id in memory before it will be
-   * stored in database and will get real identity. If record id would not be comparable we would
-   * not need it.
+   * stored in a database and will get real identity.
    */
-  private int tempId;
+  private final long tempId;
+
+  public ChangeableRecordId(int collectionId, long collectionPosition) {
+    volatileCollectionIdHandle.set(this, collectionId);
+    volatileCollectionPositionHandle.set(this, collectionPosition);
+
+    if (!isPersistent()) {
+      tempId = tempIdCounter.getAndIncrement();
+    } else {
+      tempId = COLLECTION_POS_INVALID;
+    }
+  }
+
+  public ChangeableRecordId(RecordId recordId) {
+    var collectionId = recordId.getCollectionId();
+    var collectionPosition = recordId.getCollectionPosition();
+
+    volatileCollectionIdHandle.set(this, collectionId);
+    volatileCollectionPositionHandle.set(this, collectionPosition);
+
+    if (!recordId.isPersistent()) {
+      tempId = tempIdCounter.getAndIncrement();
+    } else {
+      tempId = COLLECTION_POS_INVALID;
+    }
+  }
 
   public ChangeableRecordId() {
-    tempId = tempIdCounter++;
+    tempId = tempIdCounter.getAndIncrement();
   }
+
+  private ChangeableRecordId(long tempId) {
+    this.tempId = tempId;
+  }
+
 
   @Override
   public void setCollectionId(int collectionId) {
-    if (collectionId == this.collectionId) {
+    if (collectionId == getCollectionId()) {
       return;
     }
 
     checkCollectionLimits(collectionId);
 
     fireBeforeIdentityChange();
-    this.collectionId = collectionId;
+
+    volatileCollectionIdHandle.set(this, collectionId);
+
     fireAfterIdentityChange();
   }
 
   @Override
   public void setCollectionPosition(long collectionPosition) {
-    if (collectionPosition == this.collectionPosition) {
+    if (collectionPosition == getCollectionPosition()) {
       return;
     }
 
     fireBeforeIdentityChange();
-    this.collectionPosition = collectionPosition;
+    volatileCollectionPositionHandle.set(this, collectionPosition);
+
     fireAfterIdentityChange();
   }
 
   @Override
   public void setCollectionAndPosition(int collectionId, long collectionPosition) {
-    if (collectionId == this.collectionId && collectionPosition == this.collectionPosition) {
+    if (collectionId == getCollectionId() && collectionPosition == getCollectionPosition()) {
       return;
     }
 
     checkCollectionLimits(collectionId);
 
     fireBeforeIdentityChange();
-    this.collectionId = collectionId;
-    this.collectionPosition = collectionPosition;
+
+    volatileCollectionIdHandle.set(this, collectionId);
+    volatileCollectionPositionHandle.set(this, collectionPosition);
+
     fireAfterIdentityChange();
+  }
+
+  @Override
+  public int getCollectionId() {
+    return (int) volatileCollectionIdHandle.get(this);
+  }
+
+  @Override
+  public long getCollectionPosition() {
+    return (long) volatileCollectionPositionHandle.get(this);
   }
 
   @Override
@@ -125,6 +185,9 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     }
     final var other = (RecordId) ((Identifiable) obj).getIdentity();
 
+    var collectionId = getCollectionId();
+    var collectionPosition = getCollectionPosition();
+
     if (collectionId == other.collectionId && collectionPosition == other.collectionPosition) {
       if (collectionId != COLLECTION_ID_INVALID || collectionPosition != COLLECTION_POS_INVALID) {
         return true;
@@ -142,11 +205,14 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
 
   @Override
   public int hashCode() {
+    var collectionId = getCollectionId();
+    var collectionPosition = getCollectionPosition();
+
     if (collectionPosition != COLLECTION_POS_INVALID || collectionId != COLLECTION_ID_INVALID) {
-      return super.hashCode();
+      return 31 * collectionId + 103 * (int) collectionPosition;
     }
 
-    return super.hashCode() + 17 * tempId;
+    return (31 * collectionId + 103 * (int) collectionPosition) + 17 * Long.hashCode(tempId);
   }
 
   @Override
@@ -157,13 +223,16 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
 
     var otherIdentity = other.getIdentity();
     final var otherCollectionId = otherIdentity.getCollectionId();
+    var collectionId = getCollectionId();
+    var collectionPosition = getCollectionPosition();
+
     if (collectionId == otherCollectionId) {
       final var otherCollectionPos = other.getIdentity().getCollectionPosition();
 
       if (collectionPosition == otherCollectionPos) {
         if ((collectionId == COLLECTION_ID_INVALID && collectionPosition == COLLECTION_POS_INVALID)
             && otherIdentity instanceof ChangeableRecordId otherRecordId) {
-          return Integer.compare(tempId, otherRecordId.tempId);
+          return Long.compare(tempId, otherRecordId.tempId);
         }
 
         return 0;
@@ -179,11 +248,14 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
 
   @Override
   public RecordId copy() {
+    var collectionId = getCollectionId();
+    var collectionPosition = getCollectionPosition();
+
     if (collectionId == COLLECTION_ID_INVALID && collectionPosition == COLLECTION_POS_INVALID) {
-      var recordId = new ChangeableRecordId();
-      recordId.collectionId = collectionId;
-      recordId.collectionPosition = collectionPosition;
-      recordId.tempId = tempId;
+      var recordId = new ChangeableRecordId(tempId);
+
+      volatileCollectionIdHandle.set(recordId, collectionId);
+      volatileCollectionPositionHandle.set(recordId, collectionPosition);
 
       return recordId;
     }
