@@ -57,9 +57,9 @@ You also need to add a YTDB snapshot repository to your Maven pom.xml file:
 ```xml
 <repositories>
   <repository>
-    <id>ytdb-github</id>
-    <name>youtrackdb-snapshots</name>
-    <url>https://maven.pkg.github.com/youtrackdb/youtrackdb</url>
+    <name>Central Portal Snapshots</name>
+    <id>central-portal-snapshots</id>
+    <url>https://central.sonatype.com/repository/maven-snapshots/</url>
     <releases>
       <enabled>false</enabled>
     </releases>

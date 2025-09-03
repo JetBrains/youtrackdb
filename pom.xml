@@ -57,17 +57,27 @@
 
   <distributionManagement>
     <snapshotRepository>
-      <id>ytdb-github</id>
-      <name>YouTrackDB snapshots repository</name>
-      <url>https://maven.pkg.github.com/youtrackdb/youtrackdb</url>
+      <id>central-portal-snapshots</id>
+      <name>Central Portal Snapshots</name>
+      <url>>https://central.sonatype.com/repository/maven-snapshots/</url>
     </snapshotRepository>
   </distributionManagement>
 
   <repositories>
     <repository>
-      <id>ytdb-github</id>
-      <name>youtrackdb-snapshots</name>
-      <url>https://maven.pkg.github.com/youtrackdb/youtrackdb</url>
+      <name>Central Portal Snapshots</name>
+      <id>central-portal-snapshots</id>
+      <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+    <repository>
+      <id>space-youtrackdb</id>
+      <url>https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily</url>
       <releases>
         <enabled>false</enabled>
       </releases>
