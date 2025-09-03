@@ -57,15 +57,17 @@
 
   <distributionManagement>
     <snapshotRepository>
-      <id>space-youtrackdb-daily</id>
-      <url>https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily</url>
+      <id>ytdb-github</id>
+      <name>YouTrackDB snapshots repository</name>
+      <url>https://maven.pkg.github.com/youtrackdb/youtrackdb</url>
     </snapshotRepository>
   </distributionManagement>
 
   <repositories>
     <repository>
-      <id>space-youtrackdb-daily</id>
-      <url>https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily</url>
+      <id>ytdb-github</id>
+      <name>youtrackdb-snapshots</name>
+      <url>https://maven.pkg.github.com/youtrackdb/youtrackdb</url>
       <releases>
         <enabled>false</enabled>
       </releases>

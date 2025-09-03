@@ -39,3 +39,35 @@ YouTrackDB's key features are:
 
 YouTrackDB can run on any platform without configuration and installation.
 The full Server distribution is a few MBs without the demo database.
+
+To install YouTrackDB as an embedded database (migration to the Gremlin Server is in progress), add
+the
+following dependency to your Maven project:
+
+```xml
+
+<dependency>
+  <groupId>io.youtrackdb</groupId>
+  <artifactId>youtrackdb-core</artifactId>
+  <version>0.5.0-SNAPSHOT</version>
+</dependency>
+```
+
+You also need to add a YTDB snapshot repository to your Maven pom.xml file:
+
+```xml
+
+<repositories>
+  <repository>
+    <id>ytdb-github</id>
+    <name>youtrackdb-snapshots</name>
+    <url>https://maven.pkg.github.com/youtrackdb/youtrackdb</url>
+    <releases>
+      <enabled>false</enabled>
+    </releases>
+    <snapshots>
+      <enabled>true</enabled>
+    </snapshots>
+  </repository>
+</repositories>
+```

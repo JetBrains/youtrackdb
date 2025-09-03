@@ -63,12 +63,13 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-          server-id: space-youtrackdb-daily
-          server-username: ${{secrets.SPACE_USER_NAME}}
-          server-password: ${{secrets.SPACE_REPO_PASSWORD}}
       - name: Deploy SHA prefixed version with maven
-        run: mvn -Dsha1="-${{env.COMMIT_SHORT_SHA}}" -DskipTests=true -B deploy --file pom.xml
+        run: mvn -Dsha1=-${{ env.COMMIT_SHORT_SHA }} -DskipTests=true -B deploy --file pom.xml
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Deploy snapshot with maven
         run: mvn -DskipTests=true -B deploy --file pom.xml
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Deploy YTDB console to the docker hub
-        run: mvn -pl console -am -Ddocker.username=youtrackdb -Ddocker.password=${{secrets.DOCKER_PASSWORD}} -Dsha1="-${{env.COMMIT_SHORT_SHA}}" -DdockerImages=true -DskipTests=true -Ddocker.tags.latest=latest -B clean deploy --file pom.xml
+        run: mvn -pl console -am -Ddocker.username=youtrackdb -Ddocker.password=${{ secrets.DOCKER_PASSWORD }} -Dsha1=-${{ env.COMMIT_SHORT_SHA }} -DdockerImages=true -DskipTests=true -Ddocker.tags.latest=latest -B clean deploy --file pom.xml
