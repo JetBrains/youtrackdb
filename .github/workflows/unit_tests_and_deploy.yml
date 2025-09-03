@@ -16,7 +16,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
       - name: Build with maven
-        run: mvn -Dyoutrackdb.test.env=ci -B package --file pom.xml
+        run: mvn `-Dyoutrackdb.test.env=ci -B package --file pom.xml
   JDK-21-Windows-x64-Disk:
     name: Unit Tests on JDK 21 Windows x64 (Disk)
     runs-on: windows-latest
