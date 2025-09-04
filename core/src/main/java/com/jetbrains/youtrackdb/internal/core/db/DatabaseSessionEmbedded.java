@@ -951,7 +951,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var blob = new RecordBytes(this, bytes);
+    var blob = new RecordBytes(new ChangeableRecordId(), this, bytes);
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
 
     var tx = (FrontendTransactionImpl) currentTx;
@@ -967,7 +967,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var blob = new RecordBytes(this);
+    var blob = new RecordBytes(this, new ChangeableRecordId());
     blob.setInternalStatus(RecordElement.STATUS.LOADED);
 
     var tx = (FrontendTransactionImpl) currentTx;
@@ -1006,7 +1006,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           "The class " + cls.getName() + " is an edge type and cannot be used to create an entity, "
               + "please use newStatefulEdge() method");
     }
-    var entity = new EntityImpl(this, className);
+    var entity = new EntityImpl(new ChangeableRecordId(), this, className);
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
 
     currentTx.addRecordOperation(entity, RecordOperation.CREATED);
@@ -1050,7 +1050,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
-    var edge = new StatefullEdgeEntityImpl(this, className);
+    var edge = new StatefullEdgeEntityImpl(new ChangeableRecordId(), this, className);
     currentTx.addRecordOperation(edge, RecordOperation.CREATED);
 
     edge.convertPropertiesToClassAndInitDefaultValues(edge.getImmutableSchemaClass(this));
@@ -1590,7 +1590,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_CREATE, className);
-    var vertex = new VertexEntityImpl(this, className);
+    var vertex = new VertexEntityImpl(new ChangeableRecordId(), this, className);
     currentTx.addRecordOperation(vertex, RecordOperation.CREATED);
     vertex.convertPropertiesToClassAndInitDefaultValues(vertex.getImmutableSchemaClass(this));
 

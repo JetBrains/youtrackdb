@@ -675,8 +675,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           try {
             recordsCounter++;
 
-            final var entity1 = new EntityImpl(sessionOne);
-            final var entity2 = new EntityImpl(sessionTwo);
+            final var entity1 = new EntityImpl(sessionOne, new RecordId());
+            final var entity2 = new EntityImpl(sessionTwo, new RecordId());
 
             final var position = physicalPosition.collectionPosition;
             rid1.setCollectionPosition(position);

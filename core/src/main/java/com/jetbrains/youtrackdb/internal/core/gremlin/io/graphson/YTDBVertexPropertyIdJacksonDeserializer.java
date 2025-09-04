@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.io.graphson;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.IOException;
 import org.apache.tinkerpop.shaded.jackson.core.JsonParser;
@@ -21,6 +22,11 @@ public class YTDBVertexPropertyIdJacksonDeserializer extends StdDeserializer<YTD
     var collectionId = Integer.parseInt(parts[0]);
     var collectionPosition = Long.parseLong(parts[1]);
     var key = parts[2];
+
+    if (collectionPosition < 0) {
+      return new YTDBVertexPropertyId(new ChangeableRecordId(collectionId, collectionPosition),
+          key);
+    }
 
     return new YTDBVertexPropertyId(new RecordId(collectionId, collectionPosition), key);
   }

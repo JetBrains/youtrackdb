@@ -53,7 +53,8 @@ public class RecordFactoryManager {
     declareRecordType(
         EntityImpl.RECORD_TYPE,
         "entity",
-        EntityImpl.class, (rid, database) -> new EntityImpl(database, rid));
+        EntityImpl.class,
+        (rid, database) -> new EntityImpl(database, rid));
     declareRecordType(VertexEntityImpl.RECORD_TYPE,
         "vertex",
         VertexEntityImpl.class,

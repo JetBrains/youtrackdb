@@ -22,8 +22,9 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
 
   public static final byte RECORD_TYPE = 'e';
 
-  public StatefullEdgeEntityImpl(@Nonnull DatabaseSessionEmbedded session, String iClassName) {
-    super(session, iClassName);
+  public StatefullEdgeEntityImpl(@Nonnull RecordId recordId,
+      @Nonnull DatabaseSessionEmbedded session, String iClassName) {
+    super(recordId, session, iClassName);
   }
 
   public StatefullEdgeEntityImpl(DatabaseSessionEmbedded database, RecordId rid) {
