@@ -8,7 +8,7 @@
 
 ------
 
-[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Knowledge base](https://youtrack.jetbrains.com/articles/YTDB) | [Roadmap](https://youtrack.jetbrains.com/articles/YTDB-A-3/Project-roadmap)
+[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Knowledge base](https://youtrack.jetbrains.com/articles/YTDB) | [Roadmap](https://youtrack.jetbrains.com/articles/YTDB-A-3/Project-roadmap) | [Build server](https://youtrackdb.teamcity.com/project/YouTrackDB?mode=builds&guest=1)
 
 ### Join our Zulip community!
 
