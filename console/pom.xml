@@ -167,6 +167,13 @@
               <skip>true</skip>
             </configuration>
           </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <configuration>
+              <skipPublishing>true</skipPublishing>
+            </configuration>
+          </plugin>
 
           <plugin>
             <groupId>io.fabric8</groupId>
