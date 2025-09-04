@@ -41,6 +41,7 @@
     <module>console-distribution</module>
     <module>gremlin-annotations</module>
     <module>driver</module>
+    <module>process-test-suites</module>
     <module>console</module>
   </modules>
 

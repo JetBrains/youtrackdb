@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import javax.annotation.Nonnull;
@@ -24,6 +25,18 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   public YTDBGraphTraversalSourceDSL(
       RemoteConnection connection) {
     super(connection);
+  }
+
+  public YTDBGraphTraversalSource with(final YTDBQueryConfigParam key, final Object value) {
+    if (!key.type().isInstance(value)) {
+      throw new IllegalArgumentException("The provided value " + value + " is not an instance of "
+          + key.type().getSimpleName());
+    }
+    return (YTDBGraphTraversalSource) with(key.name(), value);
+  }
+
+  public YTDBGraphTraversalSource with(final YTDBQueryConfigParam key) {
+    return with(key, true);
   }
 
   /// Start a new transaction if it is not yet started and executes passed in code in it.

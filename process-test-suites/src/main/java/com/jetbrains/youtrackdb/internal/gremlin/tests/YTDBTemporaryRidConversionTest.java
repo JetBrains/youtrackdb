@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.server.plugin.gremlin.process;
+package com.jetbrains.youtrackdb.internal.gremlin.tests;
 
 import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.junit.Assert.assertEquals;
@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.util.stream.IntStream;
-import org.apache.tinkerpop.gremlin.AbstractGremlinTest;
 import org.apache.tinkerpop.gremlin.FeatureRequirement;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
@@ -26,7 +25,7 @@ import org.junit.runner.RunWith;
 
 @SuppressWarnings("AbstractClassWithOnlyOneDirectInheritor")
 @RunWith(GremlinProcessRunner.class)
-public abstract class YTDBTemporaryRidConversionTest extends AbstractGremlinTest {
+public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlinTest {
 
   public abstract Traversal<?, ?> get_g_addV_repeat128_with_fail_in_first_step(int firstSteps);
 

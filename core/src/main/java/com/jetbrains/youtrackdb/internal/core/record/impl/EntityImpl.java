@@ -448,7 +448,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForBinding();
     if (!name.isEmpty() && name.charAt(0) == '@') {
-      var value = (RET) EntityHelper.getRecordAttribute(session, this, name);
+      var value = (RET) EntityHelper.getRecordAttribute(this, name);
       if (value != null) {
         return value;
       }

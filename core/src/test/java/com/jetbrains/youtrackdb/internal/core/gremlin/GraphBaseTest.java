@@ -65,7 +65,10 @@ public abstract class GraphBaseTest extends DbTestBase {
       var usedIndexes = 0;
       for (var step : traversal.asAdmin().getSteps()) {
         if (step instanceof YTDBGraphStep<?, ?> ytdbGraphStep) {
-          var query = ytdbGraphStep.buildQuery(session);
+          var query = new YTDBGraphQueryBuilder(
+              ytdbGraphStep.isVertexStep(),
+              ytdbGraphStep.getHasContainers()
+          ).build(session);
 
           Assert.assertNotNull(query);
           usedIndexes += query.usedIndexes(session);
