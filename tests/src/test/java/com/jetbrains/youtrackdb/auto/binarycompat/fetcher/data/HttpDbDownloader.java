@@ -9,6 +9,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.zip.GZIPInputStream;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -20,21 +21,39 @@ public class HttpDbDownloader implements DbDownloader {
     var url = new URL(urlString);
     var conn = (HttpURLConnection) url.openConnection();
 
-    // Request headers
     conn.setRequestProperty("Accept-Encoding", "gzip"); // ask server for gzip if available
     conn.setConnectTimeout(10_000);
     conn.setReadTimeout(10_000);
 
-    // Wrap input stream with GZIP decompressor
     File outputDir;
-    try (InputStream in = new BufferedInputStream(conn.getInputStream());
-        var gzipIn = new GZIPInputStream(in);
+    try (var is = new BufferedInputStream(conn.getInputStream())) {
+      outputDir = untar(is);
+    } finally {
+      conn.disconnect();
+    }
+    var absolutePath = outputDir.getAbsolutePath();
+    // if there is only one directory inside outputDir, return that directory
+    var files = outputDir.listFiles();
+    if (files != null && files.length == 1 && files[0].isDirectory()) {
+      absolutePath = files[0].getAbsolutePath();
+    }
+    return absolutePath;
+  }
+
+  static File untar(InputStream tarStream) throws IOException {
+    File outputDir;
+    try (var gzipIn = new GZIPInputStream(tarStream);
         var tarIn = new TarArchiveInputStream(gzipIn)) {
 
-      outputDir = Files.createTempDirectory("ytdb-http-db-downloader").toFile();
+      var outputPath = Files.createTempDirectory("ytdb-http-db-downloader");
+      var normalizedOutputPath = outputPath.normalize();
+      outputDir = outputPath.toFile();
       TarArchiveEntry entry;
       while ((entry = tarIn.getNextTarEntry()) != null) {
         var outFile = new File(outputDir, entry.getName());
+        if (!outFile.toPath().normalize().startsWith(normalizedOutputPath)) {
+          throw new IOException("Tar entry is outside of the target dir: " + entry.getName());
+        }
 
         if (entry.isDirectory()) {
           outFile.mkdirs();
@@ -50,15 +69,7 @@ public class HttpDbDownloader implements DbDownloader {
           }
         }
       }
-    } finally {
-      conn.disconnect();
+      return outputDir;
     }
-    var absolutePath = outputDir.getAbsolutePath();
-    // if there is only one directory inside outputDir, return that directory
-    var files = outputDir.listFiles();
-    if (files != null && files.length == 1 && files[0].isDirectory()) {
-      absolutePath = files[0].getAbsolutePath();
-    }
-    return absolutePath;
   }
 }
