@@ -91,10 +91,6 @@ public class RecordId implements RID, SerializableStream {
     return pos < 0;
   }
 
-  public static boolean isTemporary(final long collectionPosition) {
-    return collectionPosition < COLLECTION_POS_INVALID;
-  }
-
   public static boolean isA(final String iString) {
     return PatternConst.PATTERN_RID.matcher(iString).matches();
   }
@@ -173,18 +169,6 @@ public class RecordId implements RID, SerializableStream {
       return Long.compare(collectionPosition, otherCollectionPos);
     } else if (collectionId > otherCollectionId) {
       return 1;
-    }
-
-    return -1;
-  }
-
-  public int compare(final Identifiable obj1, final Identifiable obj2) {
-    if (obj1 == obj2) {
-      return 0;
-    }
-
-    if (obj1 != null) {
-      return obj1.compareTo(obj2);
     }
 
     return -1;
@@ -302,7 +286,7 @@ public class RecordId implements RID, SerializableStream {
     return this;
   }
 
-  private void checkCollectionLimits() {
+  protected void checkCollectionLimits() {
     checkCollectionLimits(collectionId);
   }
 

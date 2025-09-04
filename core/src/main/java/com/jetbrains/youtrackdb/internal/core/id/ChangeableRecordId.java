@@ -1,7 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.id;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.serialization.BinaryProtocol;
+import com.jetbrains.youtrackdb.internal.core.serialization.MemoryStream;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Collections;
@@ -21,7 +28,6 @@ import javax.annotation.Nonnull;
 /// 2. Passing of RecordId instance to the newly created records, so once they become persistent,
 /// their identity will be visible to other threads.
 public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
-
   private static final VarHandle volatileCollectionIdHandle;
   private static final VarHandle volatileCollectionPositionHandle;
 
@@ -52,8 +58,8 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
   private final long tempId;
 
   public ChangeableRecordId(int collectionId, long collectionPosition) {
-    volatileCollectionIdHandle.set(this, collectionId);
-    volatileCollectionPositionHandle.set(this, collectionPosition);
+    volatileCollectionIdHandle.setVolatile(this, collectionId);
+    volatileCollectionPositionHandle.setVolatile(this, collectionPosition);
 
     if (!isPersistent()) {
       tempId = tempIdCounter.getAndIncrement();
@@ -66,8 +72,8 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     var collectionId = recordId.getCollectionId();
     var collectionPosition = recordId.getCollectionPosition();
 
-    volatileCollectionIdHandle.set(this, collectionId);
-    volatileCollectionPositionHandle.set(this, collectionPosition);
+    volatileCollectionIdHandle.setVolatile(this, collectionId);
+    volatileCollectionPositionHandle.setVolatile(this, collectionPosition);
 
     if (!recordId.isPersistent()) {
       tempId = tempIdCounter.getAndIncrement();
@@ -95,7 +101,7 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
 
     fireBeforeIdentityChange();
 
-    volatileCollectionIdHandle.set(this, collectionId);
+    volatileCollectionIdHandle.setVolatile(this, collectionId);
 
     fireAfterIdentityChange();
   }
@@ -107,7 +113,7 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     }
 
     fireBeforeIdentityChange();
-    volatileCollectionPositionHandle.set(this, collectionPosition);
+    volatileCollectionPositionHandle.setVolatile(this, collectionPosition);
 
     fireAfterIdentityChange();
   }
@@ -122,20 +128,20 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
 
     fireBeforeIdentityChange();
 
-    volatileCollectionIdHandle.set(this, collectionId);
-    volatileCollectionPositionHandle.set(this, collectionPosition);
+    volatileCollectionIdHandle.setVolatile(this, collectionId);
+    volatileCollectionPositionHandle.setVolatile(this, collectionPosition);
 
     fireAfterIdentityChange();
   }
 
   @Override
   public int getCollectionId() {
-    return (int) volatileCollectionIdHandle.get(this);
+    return (int) volatileCollectionIdHandle.getVolatile(this);
   }
 
   @Override
   public long getCollectionPosition() {
-    return (long) volatileCollectionPositionHandle.get(this);
+    return (long) volatileCollectionPositionHandle.getVolatile(this);
   }
 
   @Override
@@ -258,6 +264,160 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
   }
 
   @Override
+  public boolean isValidPosition() {
+    return getCollectionPosition() != COLLECTION_POS_INVALID;
+  }
+
+  @Override
+  public boolean isPersistent() {
+    var collectionId = getCollectionId();
+    var collectionPosition = getCollectionPosition();
+
+    return collectionId > -1 && collectionPosition > COLLECTION_POS_INVALID;
+  }
+
+  @Override
+  public boolean isNew() {
+    return getCollectionPosition() < 0;
+  }
+
+  @Override
+  public boolean isTemporary() {
+    var collectionId = getCollectionId();
+    var collectionPosition = getCollectionPosition();
+
+    return collectionId != -1 && collectionPosition < COLLECTION_POS_INVALID;
+  }
+
+  @Override
+  public String toString() {
+    return generateString(getCollectionId(), getCollectionPosition());
+  }
+
+  @Override
+  public StringBuilder toString(StringBuilder iBuffer) {
+    if (iBuffer == null) {
+      iBuffer = new StringBuilder();
+    }
+
+    var collectionId = getCollectionId();
+    var collectionPosition = getCollectionPosition();
+
+    iBuffer.append(PREFIX);
+    iBuffer.append(collectionId);
+    iBuffer.append(SEPARATOR);
+    iBuffer.append(collectionPosition);
+    return iBuffer;
+  }
+
+  @Override
+  public void toStream(DataOutput out) throws IOException {
+    out.writeShort(getCollectionId());
+    out.writeLong(getCollectionPosition());
+  }
+
+  @Override
+  public int toStream(OutputStream iStream) throws IOException {
+    final var beginOffset = BinaryProtocol.short2bytes((short) getCollectionId(), iStream);
+    BinaryProtocol.long2bytes(getCollectionPosition(), iStream);
+    return beginOffset;
+  }
+
+  @Override
+  public int toStream(MemoryStream iStream) throws IOException {
+    final var beginOffset = BinaryProtocol.short2bytes((short) getCollectionId(), iStream);
+    BinaryProtocol.long2bytes(getCollectionPosition(), iStream);
+    return beginOffset;
+  }
+
+  @Override
+  public byte[] toStream() {
+    final var buffer = new byte[BinaryProtocol.SIZE_SHORT + BinaryProtocol.SIZE_LONG];
+
+    BinaryProtocol.short2bytes((short) getCollectionId(), buffer, 0);
+    BinaryProtocol.long2bytes(getCollectionPosition(), buffer, BinaryProtocol.SIZE_SHORT);
+
+    return buffer;
+  }
+
+  @Override
+  public String next() {
+    return generateString(getCollectionId(), getCollectionPosition() + 1);
+  }
+
+  @Override
+  public void reset() {
+    volatileCollectionIdHandle.setVolatile(this, COLLECTION_ID_INVALID);
+    volatileCollectionPositionHandle.setVolatile(this, COLLECTION_POS_INVALID);
+  }
+
+  @Override
+  public void fromStream(DataInput in) throws IOException {
+    volatileCollectionIdHandle.setVolatile(this, in.readShort());
+    volatileCollectionPositionHandle.setVolatile(this, in.readLong());
+  }
+
+  @Override
+  public RecordId fromStream(InputStream iStream) throws IOException {
+    volatileCollectionIdHandle.setVolatile(this, BinaryProtocol.bytes2short(iStream));
+    volatileCollectionPositionHandle.setVolatile(this, BinaryProtocol.bytes2long(iStream));
+    return this;
+  }
+
+  @Override
+  public RecordId fromStream(MemoryStream iStream) {
+    volatileCollectionIdHandle.setVolatile(this, iStream.getAsShort());
+    volatileCollectionPositionHandle.setVolatile(this, iStream.getAsLong());
+    return this;
+  }
+
+  @Override
+  public RecordId fromStream(byte[] iBuffer) {
+    if (iBuffer != null) {
+      volatileCollectionIdHandle.setVolatile(this, BinaryProtocol.bytes2short(iBuffer, 0));
+      volatileCollectionPositionHandle.setVolatile(this,
+          BinaryProtocol.bytes2long(iBuffer, BinaryProtocol.SIZE_SHORT));
+    }
+    return this;
+  }
+
+  @Override
+  public void fromString(String iRecordId) {
+    if (iRecordId != null) {
+      iRecordId = iRecordId.trim();
+    }
+
+    if (iRecordId == null || iRecordId.isEmpty()) {
+      volatileCollectionIdHandle.setVolatile(this, COLLECTION_ID_INVALID);
+      volatileCollectionPositionHandle.setVolatile(this, COLLECTION_POS_INVALID);
+      return;
+    }
+
+    if (!StringSerializerHelper.contains(iRecordId, SEPARATOR)) {
+      throw new IllegalArgumentException(
+          "Argument '"
+              + iRecordId
+              + "' is not a RecordId in form of string. Format must be:"
+              + " <collection-id>:<collection-position>");
+    }
+
+    final var parts = StringSerializerHelper.split(iRecordId, SEPARATOR, PREFIX);
+
+    if (parts.size() != 2) {
+      throw new IllegalArgumentException(
+          "Argument received '"
+              + iRecordId
+              + "' is not a RecordId in form of string. Format must be:"
+              + " #<collection-id>:<collection-position>. Example: #3:12");
+    }
+
+    volatileCollectionIdHandle.setVolatile(this, Integer.parseInt(parts.getFirst()));
+    checkCollectionLimits();
+
+    volatileCollectionPositionHandle.setVolatile(this, Integer.parseInt(parts.get(1)));
+  }
+
+  @Override
   public RecordId copy() {
     var collectionId = getCollectionId();
     var collectionPosition = getCollectionPosition();
@@ -265,8 +425,8 @@ public class ChangeableRecordId extends RecordId implements ChangeableIdentity {
     if (collectionId == COLLECTION_ID_INVALID && collectionPosition == COLLECTION_POS_INVALID) {
       var recordId = new ChangeableRecordId(tempId);
 
-      volatileCollectionIdHandle.set(recordId, collectionId);
-      volatileCollectionPositionHandle.set(recordId, collectionPosition);
+      volatileCollectionIdHandle.setVolatile(recordId, collectionId);
+      volatileCollectionPositionHandle.setVolatile(recordId, collectionPosition);
 
       return recordId;
     }
