@@ -20,6 +20,7 @@ package com.jetbrains.youtrackdb.internal.lucene.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -48,13 +49,13 @@ public class LuceneMixIndexTest extends LuceneBaseTest {
             "select * from Song where  author = 'Hornsby' and"
                 + " search_index('Song.composite','title:mountain')=true ");
 
-    assertThat(docs).hasSize(1);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     docs.close();
     docs =
         session.query(
             "select * from Song where  author = 'Hornsby' and"
                 + " search_index('Song.composite','title:ballad')=true");
-    assertThat(docs).hasSize(0);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(0);
     docs.close();
   }
 
@@ -65,14 +66,14 @@ public class LuceneMixIndexTest extends LuceneBaseTest {
         session.query(
             "select * from Song where  author = 'Hornsby' and"
                 + " search_index('Song.composite','title:mountain')=true ");
-    assertThat(docs).hasSize(1);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     docs.close();
     docs =
         session.query(
             "select * from Song where author = 'Hornsby' and"
                 + " search_index('Song.composite','lyrics:happy')=true ");
 
-    assertThat(docs).hasSize(1);
+    assertThat(IteratorUtils.count(docs)).isEqualTo(1);
     docs.close();
   }
 }

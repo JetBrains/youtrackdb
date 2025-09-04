@@ -42,6 +42,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.zip.GZIPInputStream;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -147,7 +148,7 @@ public class LuceneAutomaticBackupRestoreTest {
   public void shouldExportImport() throws IOException, InterruptedException {
 
     try (var query = db.query("select from City where name lucene 'Rome'")) {
-      assertThat(query).hasSize(1);
+      assertThat(IteratorUtils.count(query)).isEqualTo(1);
     }
 
     var jsonConfig =
@@ -214,7 +215,8 @@ public class LuceneAutomaticBackupRestoreTest {
     assertThat(index).isNotNull();
     assertThat(index.getType()).isEqualTo(SchemaClass.INDEX_TYPE.FULLTEXT.name());
 
-    assertThat(db.query("select from City where name lucene 'Rome'")).hasSize(1);
+    assertThat(
+        IteratorUtils.count(db.query("select from City where name lucene 'Rome'"))).isEqualTo(1);
   }
 
   private DatabaseSessionEmbedded createAndOpen() {

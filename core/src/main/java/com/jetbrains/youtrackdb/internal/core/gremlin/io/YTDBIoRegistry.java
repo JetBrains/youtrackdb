@@ -43,8 +43,14 @@ public final class YTDBIoRegistry extends AbstractIoRegistry {
       case RecordId recordId -> recordId;
 
       case Map<?, ?> map -> {
-        var rid = new RecordId(((Number) map.get(COLLECTION_ID)).intValue(),
-            ((Number) map.get(COLLECTION_POSITION)).longValue());
+        var collectionId = ((Number) map.get(COLLECTION_ID)).intValue();
+        var collectionPosition = ((Number) map.get(COLLECTION_POSITION)).longValue();
+        RecordId rid;
+        if (collectionPosition < 0) {
+          rid = new ChangeableRecordId(collectionId, collectionPosition);
+        } else {
+          rid = new RecordId(collectionId, collectionPosition);
+        }
 
         if (map.containsKey(PROPERTY_KEY)) {
           yield new YTDBVertexPropertyId(rid, (String) map.get(PROPERTY_KEY));

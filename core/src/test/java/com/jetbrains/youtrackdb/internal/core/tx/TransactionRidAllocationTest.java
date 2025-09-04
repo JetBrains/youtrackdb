@@ -125,7 +125,7 @@ public class TransactionRidAllocationTest {
       var record = recordOperation.value.value;
 
       var serializer = second.getSerializer();
-      var deserialized = new EntityImpl(second, "V");
+      var deserialized = new EntityImpl(new RecordId(), second, "V");
       serializer.fromStream(second, record, deserialized, null);
 
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
@@ -196,7 +196,7 @@ public class TransactionRidAllocationTest {
       var record = recordOperation.value.value;
       var serializer = second.getSerializer();
 
-      var deserialized = new EntityImpl(second, "V");
+      var deserialized = new EntityImpl(new RecordId(), second, "V");
       serializer.fromStream(second, record, deserialized, null);
       deserialized.setIdentity(recordOperation.value.key.getIdentity());
       deserialized.setInternalStatus(STATUS.LOADED);

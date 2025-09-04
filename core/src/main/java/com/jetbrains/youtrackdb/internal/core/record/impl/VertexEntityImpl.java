@@ -40,8 +40,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     super(database, (RecordId) rid);
   }
 
-  public VertexEntityImpl(DatabaseSessionEmbedded session, String klass) {
-    super(session, klass);
+  public VertexEntityImpl(RecordId recordId, DatabaseSessionEmbedded session, String klass) {
+    super(recordId, session, klass);
     if (!getImmutableSchemaClass(session).isVertexType()) {
       throw new IllegalArgumentException(getSchemaClassName() + " is not a vertex class");
     }

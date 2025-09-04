@@ -17,7 +17,7 @@ nse, Version 2.0 (the "License");
   <parent>
     <groupId>io.youtrackdb</groupId>
     <artifactId>youtrackdb-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>${revision}${sha1}${changelist}</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -113,6 +113,12 @@ nse, Version 2.0 (the "License");
       <groupId>org.apache.httpcomponents</groupId>
       <artifactId>fluent-hc</artifactId>
       <version>4.5.14</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-process-test-suites</artifactId>
+      <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

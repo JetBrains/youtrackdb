@@ -1,9 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.function.Consumer;
+import org.apache.commons.lang3.function.FailableConsumer;
+import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.util.AbstractTransaction;
 import org.apache.tinkerpop.gremlin.structure.util.TransactionException;
@@ -20,6 +24,61 @@ public final class YTDBTransaction extends AbstractTransaction {
   public YTDBTransaction(YTDBGraphImplAbstract graph) {
     super(graph);
     this.graph = graph;
+  }
+
+  public static <X extends Exception> void executeInTX(
+      FailableConsumer<YTDBGraphTraversalSource, X> code, YTDBTransaction tx) throws X {
+    var ok = false;
+    YTDBGraphTraversalSource g = tx.begin();
+    try {
+      code.accept(g);
+      ok = true;
+    } finally {
+      if (ok) {
+        tx.commit();
+      } else {
+        tx.rollback();
+      }
+    }
+  }
+
+  public static <X extends Exception> void executeInTX(
+      FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code,
+      YTDBTransaction tx) throws X {
+    var ok = false;
+    YTDBGraphTraversalSource g = tx.begin();
+    try {
+      var traversal = code.apply(g);
+      traversal.iterate();
+      ok = true;
+    } finally {
+      if (ok) {
+        tx.commit();
+      } else {
+        tx.rollback();
+      }
+    }
+  }
+
+
+  public static <X extends Exception, R> R computeInTx(
+      FailableFunction<YTDBGraphTraversalSource, R, X> code, YTDBTransaction tx) throws X {
+    var ok = false;
+    R result;
+
+    YTDBGraphTraversalSource g = tx.begin();
+    try {
+      result = code.apply(g);
+      ok = true;
+    } finally {
+      if (ok) {
+        tx.commit();
+      } else {
+        tx.rollback();
+      }
+    }
+
+    return result;
   }
 
   @Override
@@ -107,6 +166,12 @@ public final class YTDBTransaction extends AbstractTransaction {
         activeSession = null;
       }
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public YTDBGraphTraversalSource begin() {
+    return new YTDBGraphTraversalSource(graph);
   }
 
   @Override

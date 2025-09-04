@@ -789,7 +789,7 @@ public class EntityHelper {
       return null;
     }
 
-    var result = getRecordAttribute(session, current, iFieldName);
+    var result = getRecordAttribute(current, iFieldName);
     if (result != null) {
       return result;
     }
@@ -804,8 +804,7 @@ public class EntityHelper {
   }
 
   @Nullable
-  public static Object getRecordAttribute(DatabaseSessionInternal session, Identifiable current,
-      String iFieldName) {
+  public static Object getRecordAttribute(Identifiable current, String iFieldName) {
     if (!iFieldName.isEmpty()) {
       final var begin = iFieldName.charAt(0);
       if (begin == '@') {

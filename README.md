@@ -8,7 +8,7 @@
 
 ------
 
-[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Knowledge base](https://youtrack.jetbrains.com/articles/YTDB) | [Roadmap](https://youtrack.jetbrains.com/articles/YTDB-A-3/Project-roadmap)
+[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Knowledge base](https://youtrack.jetbrains.com/articles/YTDB) | [Roadmap](https://youtrack.jetbrains.com/articles/YTDB-A-3/Project-roadmap) | [Build server](https://youtrackdb.teamcity.com/project/YouTrackDB?mode=builds&guest=1)
 
 ### Join our Zulip community!
 
@@ -36,6 +36,61 @@ YouTrackDB's key features are:
 7. **GEO-queries and full-text search**: GEO-queries and full-text search are supported using Lucene integration.
 
 ### Easy to install and use
-
 YouTrackDB can run on any platform without configuration and installation.
-The full Server distribution is a few MBs without the demo database.
+
+If you want to experiment with YouTrackDB, please check out our REPL [console](console/README.md).
+
+```bash
+docker run -it youtrackdb/youtrackdb-console
+```
+
+To install YouTrackDB as an embedded database (migration to the Gremlin Server is in progress), add
+the
+following dependency to your Maven project:
+
+```xml
+<dependency>
+  <groupId>io.youtrackdb</groupId>
+  <artifactId>youtrackdb-core</artifactId>
+  <version>0.5.0-SNAPSHOT</version>
+</dependency>
+```
+
+You also need to add a YTDB snapshot repository to your Maven pom.xml file:
+
+```xml
+<repositories>
+  <repository>
+    <name>Central Portal Snapshots</name>
+    <id>central-portal-snapshots</id>
+    <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+    <releases>
+      <enabled>false</enabled>
+    </releases>
+    <snapshots>
+      <enabled>true</enabled>
+    </snapshots>
+  </repository>
+</repositories>
+```
+
+or in case of Gradle:
+
+```
+dependencies {
+    implementation 'io.youtrackdb:youtrackdb-core:0.5.0-SNAPSHOT'
+}
+```
+
+and
+
+```
+repositories {
+    maven {
+        url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+        mavenContent {
+            snapshotsOnly()
+        }
+    }
+}
+```

@@ -16,6 +16,7 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.multipart;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
@@ -35,7 +36,7 @@ public class HttpMultipartFileToRecordContentParser implements
       final HttpMultipartContentInputStream in,
       DatabaseSessionEmbedded db)
       throws IOException {
-    var record = new RecordBytes(db);
+    var record = new RecordBytes(db, new ChangeableRecordId());
     record.fromInputStream(in);
 
     return record.getIdentity();

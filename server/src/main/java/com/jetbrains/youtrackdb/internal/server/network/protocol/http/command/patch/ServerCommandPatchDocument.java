@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.p
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -59,7 +58,7 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
                     throw new IllegalArgumentException("Invalid Record ID in request: " + recordId);
                   }
                 } else {
-                  recordId = new ChangeableRecordId();
+                  recordId = new RecordId();
                 }
 
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT
