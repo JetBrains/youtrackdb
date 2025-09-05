@@ -1,4 +1,5 @@
 build.number
+.flattened-pom.xml
 *.class
 */target/*
 target

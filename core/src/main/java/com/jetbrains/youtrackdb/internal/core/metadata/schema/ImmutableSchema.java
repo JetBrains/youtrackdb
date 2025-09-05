@@ -1,0 +1,331 @@
+/*
+ *
+ *
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *
+ *
+ */
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
+
+import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.api.schema.GlobalProperty;
+import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntSet;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+
+/**
+ * @since 10/21/14
+ */
+public class ImmutableSchema implements SchemaInternal {
+
+  private final Int2ObjectOpenHashMap<SchemaClass> collectionsToClasses;
+  private final Map<String, SchemaClassInternal> classes;
+  private final Map<String, LazySchemaClass> classesRefs;
+  private final IntSet blobCollections;
+
+  public final int version;
+  private final RID identity;
+  private final List<GlobalProperty> properties;
+  private final CollectionSelectionFactory collectionSelectionFactory;
+  private final Map<String, IndexDefinition> indexes;
+
+  public ImmutableSchema(@Nonnull SchemaShared schemaShared,
+      @Nonnull DatabaseSessionInternal session) {
+    version = schemaShared.getVersion();
+    identity = schemaShared.getIdentity();
+    collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
+
+    var schemaSharedClassesRefs = schemaShared.getClassesRefs(session);
+    var size = schemaSharedClassesRefs.size();
+    collectionsToClasses = new Int2ObjectOpenHashMap<>(size * 3);
+    this.classes = new HashMap<>(size);
+
+    classesRefs = new HashMap<>(schemaSharedClassesRefs.size());
+    classesRefs.putAll(schemaSharedClassesRefs);
+
+    for (var className : classesRefs.keySet()) {
+      var lazyClass = schemaShared.getLazyClass(className);
+      lazyClass.loadIfNeeded(session);
+      final var immutableClass = new SchemaImmutableClass(session, lazyClass.getDelegate(), this);
+
+      this.classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
+
+      for (var collectionId : immutableClass.getCollectionIds()) {
+        collectionsToClasses.put(collectionId, immutableClass);
+      }
+    }
+
+    properties = new ArrayList<>();
+    properties.addAll(schemaShared.getGlobalProperties());
+
+    for (SchemaClass cl : this.classes.values()) {
+      ((SchemaImmutableClass) cl).init(session);
+    }
+
+    this.blobCollections = schemaShared.getBlobCollections();
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var internalIndexes = indexManager.getIndexes();
+
+    var indexes = new HashMap<String, IndexDefinition>(internalIndexes.size());
+    for (var index : internalIndexes) {
+      var indexDefinition = index.getDefinition();
+      var indexName = index.getName();
+      var metadata = index.getMetadata();
+
+      if (metadata == null) {
+        metadata = Collections.emptyMap();
+      }
+
+      String collateName = null;
+      try {
+        collateName = indexDefinition.getCollate().getName();
+      } catch (UnsupportedOperationException e) {
+        //do nothing
+      }
+
+      indexes.put(indexName.toLowerCase(Locale.ROOT),
+          new IndexDefinition(indexName, indexDefinition.getClassName(),
+              Collections.unmodifiableList(indexDefinition.getProperties()),
+              SchemaClass.INDEX_TYPE.valueOf(index.getType()),
+              indexDefinition.isNullValuesIgnored(), collateName, metadata));
+    }
+
+    this.indexes = Collections.unmodifiableMap(indexes);
+  }
+
+  @Override
+  public ImmutableSchema makeSnapshot() {
+    return this;
+  }
+
+  @Override
+  public int countClasses() {
+    return classes.size();
+  }
+
+  @Nonnull
+  @Override
+  public SchemaClass createClass(String iClassName) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Nonnull
+  @Override
+  public SchemaClass createClass(@Nonnull String iClassName, @Nonnull SchemaClass iSuperClass) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SchemaClass createClass(String iClassName, SchemaClass... superClasses) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SchemaClass createClass(String iClassName, SchemaClass iSuperClass, int[] iCollectionIds) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Nonnull
+  @Override
+  public SchemaClass createClass(@Nonnull String className, int collections,
+      @Nonnull SchemaClass... superClasses) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SchemaClass createClass(String className, int[] collectionIds,
+      SchemaClass... superClasses) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SchemaClass createAbstractClass(String iClassName) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SchemaClass createAbstractClass(String iClassName, SchemaClass iSuperClass) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SchemaClass createAbstractClass(String iClassName, SchemaClass... superClasses) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void dropClass(String iClassName) {
+    throw new UnsupportedOperationException();
+  }
+
+
+  @Override
+  public boolean existsClass(String iClassName) {
+    return classes.containsKey(iClassName.toLowerCase(Locale.ROOT));
+  }
+
+  @Override
+  public SchemaClass getClass(Class<?> iClass) {
+    if (iClass == null) {
+      return null;
+    }
+
+    return getClass(iClass.getSimpleName());
+  }
+
+  @Override
+  public SchemaClass getClass(String iClassName) {
+    return getClassInternal(iClassName);
+  }
+
+  @Nullable
+  @Override
+  public SchemaClassInternal getClassInternal(String iClassName) {
+    if (iClassName == null) {
+      return null;
+    }
+
+    return classes.get(iClassName.toLowerCase(Locale.ENGLISH));
+  }
+
+  @Override
+  public SchemaClass getOrCreateClass(String iClassName) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SchemaClass getOrCreateClass(String iClassName, SchemaClass iSuperClass) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public SchemaClass getOrCreateClass(String iClassName, SchemaClass... superClasses) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public Collection<SchemaClass> getClasses() {
+    return new HashSet<>(classes.values());
+  }
+
+  @Override
+  public Map<String, RID> getClassesRefs() {
+    var result = new HashMap<String, RID>(classesRefs.size());
+    for (var lazyClassRef : classesRefs.entrySet()) {
+      result.put(lazyClassRef.getKey(), lazyClassRef.getValue().getId());
+    }
+    return result;
+  }
+
+  @Override
+  public Collection<String> getIndexes() {
+    return indexes.keySet();
+  }
+
+  @Override
+  public boolean indexExists(String indexName) {
+    return indexes.containsKey(indexName.toLowerCase(Locale.ROOT));
+  }
+
+  @Override
+  public @Nonnull IndexDefinition getIndexDefinition(String indexName) {
+    var indexDefinition = indexes.get(indexName.toLowerCase(Locale.ROOT));
+    if (indexDefinition == null) {
+      throw new IllegalArgumentException("Index '" + indexName + "' not found");
+    }
+
+    return indexDefinition;
+  }
+
+  @Override
+  public int getVersion() {
+    return version;
+  }
+
+  @Override
+  public RecordId getIdentity() {
+    return new RecordId(identity);
+  }
+
+  @Override
+  public Set<SchemaClass> getClassesRelyOnCollection(String collectionName,
+      DatabaseSessionInternal session) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
+
+    final var collectionId = session.getCollectionIdByName(collectionName);
+    final Set<SchemaClass> result = new HashSet<SchemaClass>();
+    for (SchemaClass c : classes.values()) {
+      if (ArrayUtils.contains(c.getPolymorphicCollectionIds(), collectionId)) {
+        result.add(c);
+      }
+    }
+
+    return result;
+  }
+
+  @Override
+  public CollectionSelectionFactory getCollectionSelectionFactory() {
+    return collectionSelectionFactory;
+  }
+
+  @Override
+  public SchemaClass getClassByCollectionId(int collectionId) {
+    return collectionsToClasses.get(collectionId);
+  }
+
+
+  @Nullable
+  @Override
+  public GlobalProperty getGlobalPropertyById(int id) {
+    if (id >= properties.size()) {
+      return null;
+    }
+    return properties.get(id);
+  }
+
+  @Override
+  public List<GlobalProperty> getGlobalProperties() {
+    return Collections.unmodifiableList(properties);
+  }
+
+  @Override
+  public GlobalProperty createGlobalProperty(String name, PropertyType type, Integer id) {
+    throw new UnsupportedOperationException();
+  }
+
+  public IntSet getBlobCollections() {
+    return blobCollections;
+  }
+}

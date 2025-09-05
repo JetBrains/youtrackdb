@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<youtrackdb-server>
+  <handlers>
+    <handler class="com.jetbrains.youtrackdb.internal.server.handler.ServerSideScriptInterpreter">
+      <parameters>
+        <parameter value="true" name="enabled"/>
+        <parameter value="SQL" name="allowedLanguages"/>
+      </parameters>
+    </handler>
+  </handlers>
+  <network>
+    <protocols>
+      <protocol
+        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.binary.NetworkProtocolBinary"
+        name="binary"/>
+      <protocol
+        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb"
+        name="http"/>
+    </protocols>
+    <listeners>
+      <listener protocol="binary" port-range="2424" ip-address="0.0.0.0"/>
+    </listeners>
+  </network>
+  <storages>
+  </storages>
+  <users>
+    <user resources="*" password="root" name="root"/>
+    <user resources="connect,server.listDatabases" password="guest" name="guest"/>
+  </users>
+  <properties>
+    <entry name="log.console.level" value="info"/>
+    <entry name="log.file.level" value="fine"/>
+  </properties>
+  <isAfterFirstTime>true</isAfterFirstTime>
+</youtrackdb-server>

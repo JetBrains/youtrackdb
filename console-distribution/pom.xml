@@ -15,13 +15,13 @@
   <parent>
     <groupId>io.youtrackdb</groupId>
     <artifactId>youtrackdb-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>${revision}${sha1}${changelist}</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>youtrackdb-console-distribution</artifactId>
   <name>YouTrackDB Console Distribution</name>
   <properties>
-    <jar.manifest.mainclass>com.jetbrains.youtrack.db.internal.tools.console.ConsoleDatabaseApp
+    <jar.manifest.mainclass>com.jetbrains.youtrackdb.internal.tools.console.ConsoleDatabaseApp
     </jar.manifest.mainclass>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!--This property is updated automatically and is needed to make build reproducible-->

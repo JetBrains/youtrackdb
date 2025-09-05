@@ -99,10 +99,10 @@ exec "$JAVA" $JAVA_OPTS \
     $JAVA_OPTS_SCRIPT \
     $YOUTRACKDB_SETTINGS \
     $DEBUG_OPTS \
-    -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager \
+    -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager \
     -Djava.util.logging.config.file="$YOUTRACKDB_LOG_CONF" \
     -Dyoutrackdb.config.file="$CONFIG_FILE" \
     -Dyoutrackdb.www.path="$YOUTRACKDB_WWW_PATH" \
     -Dyoutrackdb.build.number="@BUILD@" \
     -cp "$YOUTRACKDB_HOME/lib/youtrackdb-server-@VERSION@.jar:$YOUTRACKDB_HOME/lib/*:$YOUTRACKDB_HOME/plugins/*" \
-    $ARGS com.jetbrains.youtrack.db.internal.server.ServerMain
+    $ARGS com.jetbrains.youtrackdb.internal.server.ServerMain

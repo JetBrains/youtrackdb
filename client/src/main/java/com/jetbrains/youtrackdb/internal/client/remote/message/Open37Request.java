@@ -1,0 +1,82 @@
+package com.jetbrains.youtrackdb.internal.client.remote.message;
+
+import com.jetbrains.youtrackdb.internal.client.binary.BinaryRequestExecutor;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryProtocolSession;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryRequest;
+import com.jetbrains.youtrackdb.internal.client.remote.BinaryResponse;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelBinaryProtocol;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataInput;
+import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataOutput;
+import com.jetbrains.youtrackdb.internal.remote.RemoteDatabaseSessionInternal;
+import java.io.IOException;
+
+public class Open37Request implements BinaryRequest<Open37Response> {
+
+  private String databaseName;
+  private String userName;
+  private String userPassword;
+
+  public Open37Request(String databaseName, String userName, String userPassword) {
+    this.databaseName = databaseName;
+    this.userName = userName;
+    this.userPassword = userPassword;
+  }
+
+  public Open37Request() {
+  }
+
+  @Override
+  public void write(RemoteDatabaseSessionInternal databaseSession, ChannelDataOutput network,
+      BinaryProtocolSession session) throws IOException {
+    network.writeString(databaseName);
+    network.writeString(userName);
+    network.writeString(userPassword);
+  }
+
+  @Override
+  public void read(DatabaseSessionEmbedded databaseSession, ChannelDataInput channel,
+      int protocolVersion)
+      throws IOException {
+    databaseName = channel.readString();
+    userName = channel.readString();
+    userPassword = channel.readString();
+  }
+
+  @Override
+  public byte getCommand() {
+    return ChannelBinaryProtocol.REQUEST_DB_OPEN;
+  }
+
+  @Override
+  public String getDescription() {
+    return "Open Database";
+  }
+
+  public String getDatabaseName() {
+    return databaseName;
+  }
+
+  public String getUserName() {
+    return userName;
+  }
+
+  public String getUserPassword() {
+    return userPassword;
+  }
+
+  @Override
+  public boolean requireDatabaseSession() {
+    return false;
+  }
+
+  @Override
+  public Open37Response createResponse() {
+    return new Open37Response();
+  }
+
+  @Override
+  public BinaryResponse execute(BinaryRequestExecutor executor) {
+    return executor.executeDatabaseOpen37(this);
+  }
+}

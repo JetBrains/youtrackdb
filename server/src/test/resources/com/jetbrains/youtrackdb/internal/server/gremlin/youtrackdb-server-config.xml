@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+   ~ /*
+   ~  *
+   ~  *  Licensed under the Apache License, Version 2.0 (the "License");
+   ~  *  you may not use this file except in compliance with the License.
+   ~  *  You may obtain a copy of the License at
+   ~  *
+   ~  *       http://www.apache.org/licenses/LICENSE-2.0
+   ~  *
+   ~  *  Unless required by applicable law or agreed to in writing, software
+   ~  *  distributed under the License is distributed on an "AS IS" BASIS,
+   ~  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   ~  *  See the License for the specific language governing permissions and
+   ~  *  limitations under the License.
+   ~  *
+   ~  * *
+   ~  */
+   -->
+
+<youtrackdb-server>
+  <handlers>
+    <handler class="com.jetbrains.youtrackdb.internal.server.plugin.gremlin.GremlinServerPlugin">
+      <parameters>
+        <parameter name="config"
+          value="classpath:com/jetbrains/youtrackdb/internal/server/gremlin/gremlin-server.yaml"/>
+      </parameters>
+    </handler>
+  </handlers>
+  <network>
+    <sockets>
+      <socket
+        implementation="com.jetbrains.youtrackdb.internal.server.network.ServerTLSSocketFactory"
+        name="ssl">
+        <parameters>
+          <parameter value="false" name="network.ssl.clientAuth"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.keyStore"/>
+          <parameter value="password" name="network.ssl.keyStorePassword"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.trustStore"/>
+          <parameter value="password" name="network.ssl.trustStorePassword"/>
+        </parameters>
+      </socket>
+      <socket
+        implementation="com.jetbrains.youtrackdb.internal.server.network.ServerTLSSocketFactory"
+        name="https">
+        <parameters>
+          <parameter value="false" name="network.ssl.clientAuth"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.keyStore"/>
+          <parameter value="password" name="network.ssl.keyStorePassword"/>
+          <parameter value="config/cert/youtrackdb.ks" name="network.ssl.trustStore"/>
+          <parameter value="password" name="network.ssl.trustStorePassword"/>
+        </parameters>
+      </socket>
+    </sockets>
+    <protocols>
+      <protocol name="binary"
+        implementation="com.jetbrains.youtrackdb.internal.server.network.protocol.binary.NetworkProtocolBinary"/>
+    </protocols>
+    <listeners>
+      <listener protocol="binary" ip-address="0.0.0.0" port-range="2424-2430" socket="default"/>
+    </listeners>
+    <collection>
+    </collection>
+  </network>
+  <storages>
+  </storages>
+  <users>
+    <user resources="*" password="root" name="root"/>
+    <user resources="connect,server.listDatabases" password="guest" name="guest"/>
+  </users>
+  <properties>
+    <entry name="profiler.enabled" value="false"/>
+  </properties>
+</youtrackdb-server>

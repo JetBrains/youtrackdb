@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- Licensed under the  Apache License, Version 2.0 (the "License");
+<!-- Licensed under the  Apache Lice
+nse, Version 2.0 (the "License");
     You may not use this file except in compliance with the License.
     You may obtain a copy of the License  at http://www.apache.org/licenses/LICENSE-2.0.
     Unless required by applicable law or agreed to in writing, software distributed under the
@@ -16,7 +17,7 @@
   <parent>
     <groupId>io.youtrackdb</groupId>
     <artifactId>youtrackdb-parent</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>${revision}${sha1}${changelist}</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -27,7 +28,7 @@
   <properties>
     <javac.src.version>${maven.compiler.source}</javac.src.version>
     <javac.target.version>${maven.compiler.target}</javac.target.version>
-    <jar.manifest.mainclass>com.jetbrains.youtrack.db.internal.server.ServerMain
+    <jar.manifest.mainclass>com.jetbrains.youtrackdb.internal.server.ServerMain
     </jar.manifest.mainclass>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!--This property is updated automatically and is needed to make build reproducible-->
@@ -77,7 +78,7 @@
     <dependency>
       <groupId>org.bouncycastle</groupId>
       <artifactId>bcpkix-jdk18on</artifactId>
-      <version>1.80</version>
+      <version>1.81</version>
     </dependency>
 
 
@@ -91,13 +92,6 @@
     <dependency>
       <groupId>org.apache.tinkerpop</groupId>
       <artifactId>gremlin-server</artifactId>
-      <version>3.7.4-YTDB-20250618.095831-3</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.tinkerpop</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.tinkerpop</groupId>
@@ -110,14 +104,21 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.tinkerpop</groupId>
-      <artifactId>gremlin-driver</artifactId>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-driver</artifactId>
+      <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.httpcomponents</groupId>
       <artifactId>fluent-hc</artifactId>
       <version>4.5.14</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.youtrackdb</groupId>
+      <artifactId>youtrackdb-process-test-suites</artifactId>
+      <version>${project.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -136,7 +137,7 @@
           -Dyoutrackdb.storage.diskCache.bufferSize=4096
           -Dyoutrackdb.security.userPasswordSaltIterations=10
           -Dyoutrackdb.memory.directMemory.trackMode=true
-          -Djava.util.logging.manager=com.jetbrains.youtrack.db.internal.common.log.ShutdownLogManager
+          -Djava.util.logging.manager=com.jetbrains.youtrackdb.internal.common.log.ShutdownLogManager
           -Dyoutrackdb.storage.diskCache.checksumMode=StoreAndThrow
           -Dyoutrackdb.security.warningDefaultUsers=false
           -Dyoutrackdb.file.log.deletion=false
@@ -245,6 +246,12 @@
           <excludes>
             <exclude>${exclude.test.1}</exclude>
           </excludes>
+          <properties>
+            <property>
+              <name>listener</name>
+              <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
+            </property>
+          </properties>
         </configuration>
       </plugin>
       <plugin>
@@ -283,5 +290,4 @@
       </plugin>
     </plugins>
   </build>
-
 </project>
