@@ -1,4 +1,4 @@
-package com.jetbrains.youtrack.db.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -7,10 +7,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import com.jetbrains.youtrack.db.api.transaction.Transaction;
-import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.api.transaction.Transaction;
+import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;

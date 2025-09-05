@@ -1,11 +1,11 @@
-package com.jetbrains.youtrack.db.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.transaction.Transaction;
-import com.jetbrains.youtrack.db.api.transaction.TxConsumer;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.api.record.Entity;
+import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.api.transaction.Transaction;
+import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
 // todo potentially implement SchemaClass interface to make it interchangeable
 // this will require a lot of boilerplate code to be generated to delegate all the cals to delegate

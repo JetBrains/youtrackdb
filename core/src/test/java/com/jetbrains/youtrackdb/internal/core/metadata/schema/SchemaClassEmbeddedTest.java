@@ -1,10 +1,10 @@
-package com.jetbrains.youtrack.db.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.BaseMemoryInternalDatabase;
+import com.jetbrains.youtrackdb.api.schema.Schema;
+import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import org.junit.Test;
 
 public class SchemaClassEmbeddedTest extends BaseMemoryInternalDatabase {
@@ -13,9 +13,8 @@ public class SchemaClassEmbeddedTest extends BaseMemoryInternalDatabase {
   public void shouldAddSuperClass() {
     final Schema oSchema = session.getMetadata().getSchema();
 
-    SchemaClass oClass = oSchema.createClass("Test1");
-    SchemaClass newSuperClass = oSchema.createClass("Super");
-    final int oldClusterId = oClass.getCollectionIds()[0];
+    var oClass = oSchema.createClass("Test1");
+    var newSuperClass = oSchema.createClass("Super");
 
     oClass.addSuperClass(newSuperClass);
 

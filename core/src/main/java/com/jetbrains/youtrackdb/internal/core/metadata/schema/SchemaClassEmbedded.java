@@ -1,12 +1,12 @@
-package com.jetbrains.youtrack.db.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.util.ArrayUtils;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrackdb.api.exception.SchemaException;
+import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;

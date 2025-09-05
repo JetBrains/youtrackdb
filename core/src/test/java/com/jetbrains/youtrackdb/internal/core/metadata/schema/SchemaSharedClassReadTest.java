@@ -1,29 +1,27 @@
-package com.jetbrains.youtrack.db.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 
-import com.jetbrains.youtrack.db.api.YouTrackDB;
-import com.jetbrains.youtrack.db.api.common.SessionPool;
-import com.jetbrains.youtrack.db.api.config.GlobalConfiguration;
-import com.jetbrains.youtrack.db.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.Schema;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass;
-import com.jetbrains.youtrack.db.internal.DbTestBase;
-import com.jetbrains.youtrack.db.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrack.db.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrackdb.api.common.SessionPool;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.api.schema.Schema;
+import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
 import org.junit.Test;
 
 public class SchemaSharedClassReadTest extends DbTestBase {
 
   @Test
   public void testRereadClassAfterModification() {
-
     Schema schema = session.getMetadata().getSchema();
 
     var originalClass = schema.createClass("zurich");
@@ -73,7 +71,7 @@ public class SchemaSharedClassReadTest extends DbTestBase {
 
   @Test
   public void testReadPropertiesFromStorage2() {
-    final YouTrackDB youTrackDb =
+    final var youTrackDb =
         new YouTrackDBImpl(YouTrackDBInternal.embedded(
             getBaseDirectoryPath(getClass()),
             YouTrackDBConfig.builder()

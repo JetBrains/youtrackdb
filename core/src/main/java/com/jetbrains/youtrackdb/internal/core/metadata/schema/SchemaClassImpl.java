@@ -17,35 +17,35 @@
  *
  *
  */
-package com.jetbrains.youtrack.db.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import static com.jetbrains.youtrack.db.api.schema.SchemaClass.EDGE_CLASS_NAME;
-import static com.jetbrains.youtrack.db.api.schema.SchemaClass.VERTEX_CLASS_NAME;
+import static com.jetbrains.youtrackdb.api.schema.SchemaClass.EDGE_CLASS_NAME;
+import static com.jetbrains.youtrackdb.api.schema.SchemaClass.VERTEX_CLASS_NAME;
 
-import com.jetbrains.youtrack.db.api.exception.ConfigurationException;
-import com.jetbrains.youtrack.db.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.exception.SecurityAccessException;
-import com.jetbrains.youtrack.db.api.query.Result;
-import com.jetbrains.youtrack.db.api.record.Entity;
-import com.jetbrains.youtrack.db.api.record.RID;
-import com.jetbrains.youtrack.db.api.schema.PropertyType;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass.ATTRIBUTES;
-import com.jetbrains.youtrack.db.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrack.db.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrack.db.internal.common.log.LogManager;
-import com.jetbrains.youtrack.db.internal.common.util.CommonConst;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrack.db.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrack.db.internal.core.index.Index;
-import com.jetbrains.youtrack.db.internal.core.index.IndexDefinitionFactory;
-import com.jetbrains.youtrack.db.internal.core.index.IndexException;
-import com.jetbrains.youtrack.db.internal.core.metadata.schema.collectionselection.RoundRobinCollectionSelectionStrategy;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Role;
-import com.jetbrains.youtrack.db.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrack.db.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrack.db.internal.core.storage.StorageCollection;
-import com.jetbrains.youtrack.db.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.api.exception.SchemaException;
+import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
+import com.jetbrains.youtrackdb.api.query.Result;
+import com.jetbrains.youtrackdb.api.record.Entity;
+import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES;
+import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
+import com.jetbrains.youtrackdb.internal.core.index.IndexException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.RoundRobinCollectionSelectionStrategy;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
 import java.util.ArrayList;
@@ -477,6 +477,15 @@ public abstract class SchemaClassImpl {
       }
 
       return p;
+    } finally {
+      releaseSchemaReadLock();
+    }
+  }
+
+  public SchemaPropertyImpl getDeclaredPropertyInternal(String propertyName) {
+    acquireSchemaReadLock();
+    try {
+      return properties.get(propertyName);
     } finally {
       releaseSchemaReadLock();
     }
@@ -974,7 +983,7 @@ public abstract class SchemaClassImpl {
       if (iClassName.equalsIgnoreCase(getName())) {
         return true;
       }
-      for (LazySchemaClass superClass : superClasses.values()) {
+      for (var superClass : superClasses.values()) {
         superClass.loadIfNeeded(session);
         if (superClass.getDelegate().isSubClassOf(session, iClassName)) {
           return true;
@@ -1021,6 +1030,14 @@ public abstract class SchemaClassImpl {
    */
   public boolean isSuperClassOf(DatabaseSessionInternal session, final SchemaClassImpl clazz) {
     return clazz != null && clazz.isSubClassOf(session, this);
+  }
+
+  public boolean isSuperClassOf(DatabaseSessionInternal session, final String className) {
+    var clazz = owner.getClass(session, className);
+    if (clazz == null) {
+      return false;
+    }
+    return clazz.isSuperClassOf(session, this);
   }
 
   public Object get(DatabaseSessionInternal session, final ATTRIBUTES iAttribute) {

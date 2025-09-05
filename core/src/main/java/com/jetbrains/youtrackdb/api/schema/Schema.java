@@ -17,11 +17,11 @@
  *
  *
  */
-package com.jetbrains.youtrack.db.api.schema;
+package com.jetbrains.youtrackdb.api.schema;
 
-import com.jetbrains.youtrack.db.api.exception.SchemaException;
-import com.jetbrains.youtrack.db.api.record.Edge;
-import com.jetbrains.youtrack.db.api.record.RID;
+import com.jetbrains.youtrackdb.api.exception.SchemaException;
+import com.jetbrains.youtrackdb.api.record.Edge;
+import com.jetbrains.youtrackdb.api.record.RID;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
