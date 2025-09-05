@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.test;
 
 import com.jetbrains.youtrackdb.api.query.ResultSet;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -69,15 +70,15 @@ public class LuceneIssuesTest extends BaseLuceneTest {
 
     documents = session.query("select from Test where [a] lucene 'lion'");
 
-    Assertions.assertThat(documents).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(documents)).isEqualTo(1);
 
     documents = session.query("select from Test where [b] lucene 'mouse'");
 
-    Assertions.assertThat(documents).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(documents)).isEqualTo(1);
 
     documents = session.query("select from Test where [a] lucene 'lion' OR [b] LUCENE 'mouse' ");
 
-    Assertions.assertThat(documents).hasSize(2);
+    Assertions.assertThat(IteratorUtils.count(documents)).isEqualTo(2);
   }
 
   @Test
@@ -91,14 +92,14 @@ public class LuceneIssuesTest extends BaseLuceneTest {
 
     documents = session.query("select from Test where a lucene 'lion'");
 
-    Assertions.assertThat(documents).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(documents)).isEqualTo(1);
 
     documents = session.query("select from Test where b lucene 'mouse'");
 
-    Assertions.assertThat(documents).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(documents)).isEqualTo(1);
 
     documents = session.query("select from Test where a lucene 'lion' OR b LUCENE 'mouse' ");
 
-    Assertions.assertThat(documents).hasSize(2);
+    Assertions.assertThat(IteratorUtils.count(documents)).isEqualTo(2);
   }
 }

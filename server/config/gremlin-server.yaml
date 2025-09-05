@@ -25,17 +25,30 @@ scriptEngines: {
   gremlin-groovy: {
     plugins: { org.apache.tinkerpop.gremlin.server.jsr223.GremlinServerGremlinPlugin: {},
                com.jetbrains.youtrackdb.internal.core.gremlin.jsr223.YTDBGremlinPlugin: { },
-               org.apache.tinkerpop.gremlin.jsr223.ImportGremlinPlugin: {classImports: [java.lang.Math], methodImports: [java.lang.Math#*]},
-               org.apache.tinkerpop.gremlin.jsr223.ScriptFileGremlinPlugin: {files: []}, 
-               org.apache.tinkerpop.gremlin.groovy.jsr223.GroovyCompilerGremlinPlugin: {compilerConfigurationOptions: { OptimizationOptions: { asmResolving: false}}}
+               org.apache.tinkerpop.gremlin.groovy.jsr223.GroovyCompilerGremlinPlugin: {
+                 enableThreadInterrupt: true,
+                 timedInterrupt: 10000,
+                 compilation: COMPILE_STATIC,
+                 extensions: org.apache.tinkerpop.gremlin.groovy.jsr223.customizer.SimpleSandboxExtension
+               },
+               org.apache.tinkerpop.gremlin.jsr223.ImportGremlinPlugin: {
+                 classImports: [ java.lang.Math ],
+                 methodImports: [ java.lang.Math#* ] },
+    }
         }
     }
 }
 serializers:
-  - { className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3, config: { ioRegistries: [ com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry ] } }         # application/json
+  - { className: org.apache.tinkerpop.gremlin.util.ser.GraphSONMessageSerializerV3, config: {
+    ioRegistries: [ com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry ]
+  } }         # application/json
 processors:
-  - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSessionOpProcessor, config: { sessionTimeout: 28800000 } }
-  - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBTraversalOpProcessor, config: { cacheExpirationTime: 600000, cacheMaxSize: 1000 } }
+  - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBSessionOpProcessor,
+      config: { sessionTimeout: 28800000 }
+  }
+  - { className: com.jetbrains.youtrackdb.internal.server.plugin.gremlin.YTDBTraversalOpProcessor,
+      config: { cacheExpirationTime: 600000, cacheMaxSize: 1000 }
+  }
 metrics: {
   consoleReporter: {enabled: true, interval: 180000},
   csvReporter: {enabled: true, interval: 180000, fileName: /tmp/gremlin-server-metrics.csv},

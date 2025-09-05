@@ -16,6 +16,7 @@ package com.jetbrains.youtrackdb.internal.spatial.functions;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.spatial.BaseSpatialLuceneTest;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -89,13 +90,13 @@ public class LuceneSpatialWithinTest extends BaseSpatialLuceneTest {
             "SELECT from Polygon where ST_Within(geometry, ST_Buffer(ST_GeomFromText('POINT(50"
                 + " 50)'), 50)) = true");
 
-    assertThat(execute).hasSize(2);
+    assertThat(IteratorUtils.count(execute)).isEqualTo(2);
 
     execute =
         session.query(
             "SELECT from Polygon where ST_Within(geometry, ST_Buffer(ST_GeomFromText('POINT(50"
                 + " 50)'), 30)) = true");
 
-    assertThat(execute).hasSize(1);
+    assertThat(IteratorUtils.count(execute)).isEqualTo(1);
   }
 }

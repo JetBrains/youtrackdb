@@ -20,6 +20,7 @@ package com.jetbrains.youtrackdb.internal.lucene.tests;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.Before;
 import org.junit.Test;
@@ -54,7 +55,7 @@ public class LuceneDocumentEmbeddedTest extends LuceneBaseTest {
     var results =
         session.execute("select from City where SEARCH_FIELDS(['name'] ,'London') = true ");
 
-    Assertions.assertThat(results).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(results)).isEqualTo(1);
     session.commit();
   }
 
@@ -70,7 +71,7 @@ public class LuceneDocumentEmbeddedTest extends LuceneBaseTest {
     var results =
         session.execute("select from City where SEARCH_FIELDS(['name'] ,'Berlin')=true ");
 
-    Assertions.assertThat(results).hasSize(1);
+    Assertions.assertThat(IteratorUtils.count(results)).isEqualTo(1);
     session.commit();
   }
 }

@@ -11,16 +11,12 @@ public class YTDBGraphQuery implements YTDBGraphBaseQuery {
 
   protected final Map<String, Object> params;
   protected final String query;
-  private final Integer target;
+  private final int target;
 
   public YTDBGraphQuery(String query, Map<String, Object> params, Integer target) {
     this.query = query;
     this.params = params;
     this.target = target;
-  }
-
-  public String getQuery() {
-    return query;
   }
 
   @Override
