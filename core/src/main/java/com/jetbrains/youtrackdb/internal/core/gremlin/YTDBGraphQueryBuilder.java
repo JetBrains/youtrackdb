@@ -23,7 +23,7 @@ public class YTDBGraphQueryBuilder {
 
   private final boolean vertexStep;
 
-  // we maintain a two-level hierarchy of the requested classes:
+  // we maintain a two-level collection of the requested classes:
   // the outer level is for each hasLabel step, the inner level is for each requested
   // class/label within hasLabel step.
   // all labels within a single step are combined using UNION semantics, e.g. hasLabel("A", "B")
@@ -78,6 +78,20 @@ public class YTDBGraphQueryBuilder {
   }
 
   private List<String> buildClassList(HierarchyAnalyzer hierarchyAnalyzer) {
+    final var hierarchyRoot =
+        vertexStep ? SchemaClass.VERTEX_CLASS_NAME : SchemaClass.EDGE_CLASS_NAME;
+    if (requestedClasses.isEmpty()) {
+      return List.of(hierarchyRoot);
+    }
+
+    if (requestedClasses.size() == 1 && requestedClasses.iterator().next().size() == 1) {
+      final var singleClass = requestedClasses.iterator().next().iterator().next();
+      if (hierarchyAnalyzer.classExists(singleClass)) {
+        return List.of(singleClass);
+      } else {
+        return List.of();
+      }
+    }
 
     return requestedClasses.stream()
         // 1. Apply "union" to each inner class set. At this point we just remove all classes whose
@@ -108,9 +122,7 @@ public class YTDBGraphQueryBuilder {
                     )
                     .collect(Collectors.toSet())
         )
-        .orElseGet(
-            () -> Set.of(vertexStep ? SchemaClass.VERTEX_CLASS_NAME : SchemaClass.EDGE_CLASS_NAME)
-        )
+        .orElseGet(() -> Set.of(hierarchyRoot))
         .stream()
         .toList();
   }
