@@ -179,7 +179,7 @@ public class StorageBackupMTIT {
 
       latch.countDown();
 
-      TimeUnit.MINUTES.sleep(5);
+      TimeUnit.MINUTES.sleep(15);
 
       stop = true;
 

@@ -164,7 +164,7 @@ public class StorageBackupTest {
       db.backup(backupDir.toPath());
 
       //allow directory metadata to be refreshed
-      Thread.sleep(300);
+      Thread.sleep(500);
     }
 
     db.backup(backupDir.toPath());
@@ -264,7 +264,7 @@ public class StorageBackupTest {
       db.backup(backupDir.toPath());
 
       //allow directory metadata to be refreshed
-      Thread.sleep(300);
+      Thread.sleep(500);
     }
 
     db.backup(backupDir.toPath());

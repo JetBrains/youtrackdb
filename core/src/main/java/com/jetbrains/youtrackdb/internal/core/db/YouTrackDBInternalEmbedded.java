@@ -732,8 +732,12 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
       DatabaseType type,
       YouTrackDBConfig config,
       DatabaseTask<Void> createOps) {
-    createStorage(name, user, password, type, (YouTrackDBConfigImpl) config,
-        (storage, embedded) -> createOps.call(embedded));
+    if (createOps != null) {
+      createStorage(name, user, password, type, (YouTrackDBConfigImpl) config,
+          (storage, embedded) -> createOps.call(embedded));
+    } else {
+      createStorage(name, user, password, type, (YouTrackDBConfigImpl) config, null);
+    }
   }
 
   @Override
