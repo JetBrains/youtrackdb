@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -650,7 +651,7 @@ public class IndexTest extends BaseDBTest {
   public void testIndexParamsAutoConversion() {
 
     final EntityImpl doc;
-    final RecordId result;
+    final RecordIdInternal result;
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSchema().existsClass("IndexTestTerm")) {
         final var termClass =
@@ -675,7 +676,7 @@ public class IndexTest extends BaseDBTest {
               .getIndex("idxTerm")
 
               .getRids(db, "42")) {
-        result = (RecordId) stream.findAny().orElse(null);
+        result = (RecordIdInternal) stream.findAny().orElse(null);
       }
     }
     Assert.assertNotNull(result);

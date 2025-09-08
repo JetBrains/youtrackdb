@@ -20,7 +20,7 @@ package com.jetbrains.youtrackdb.internal.lucene.test;
 
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.stream.Collectors;
@@ -243,9 +243,9 @@ public class LuceneTransactionQueryTest extends BaseLuceneTest {
 
     var iterator = coll.iterator();
     var i = 0;
-    RecordId rid = null;
+    RecordIdInternal rid = null;
     while (iterator.hasNext()) {
-      rid = (RecordId) iterator.next();
+      rid = (RecordIdInternal) iterator.next();
       i++;
     }
 

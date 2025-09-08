@@ -94,6 +94,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedExcep
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
@@ -1181,7 +1182,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+  public <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadFirstRecordAndNextRidInCollection(
       int collectionId) {
     assert assertIfNotActive();
 
@@ -1196,7 +1197,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return null;
     }
 
-    RecordId firstRid;
+    RecordIdInternal firstRid;
     if (firstPosition == null || firstPosition.length == 0) {
       firstRid = firstTxRid;
     } else if (firstTxRid == null) {
@@ -1235,7 +1236,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+  public <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadLastRecordAndPreviousRidInCollection(
       int collectionId) {
     assert assertIfNotActive();
 
@@ -1250,7 +1251,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return null;
     }
 
-    RecordId lastRid;
+    RecordIdInternal lastRid;
     if (lastPosition == null || lastPosition.length == 0) {
       lastRid = lastTxRid;
     } else if (lastTxRid == null) {
@@ -1287,15 +1288,15 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   @Nullable
-  public final LoadRecordResult executeReadRecord(final @Nonnull RecordId rid,
+  public final LoadRecordResult executeReadRecord(final @Nonnull RecordIdInternal rid,
       boolean fetchPreviousRid, boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
     assert assertIfNotActive();
 
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    RecordId previousRid = null;
-    RecordId nextRid = null;
+    RecordIdInternal previousRid = null;
+    RecordIdInternal nextRid = null;
     getMetadata().makeThreadLocalSchemaSnapshot();
     try {
       checkSecurity(
@@ -1389,7 +1390,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
 
       record.recordSerializer = serializer;
-      record.fill(rid, recordBuffer.version(), recordBuffer.buffer(), false);
+      record.fill(recordBuffer.version(), recordBuffer.buffer(), false);
 
       if (record instanceof EntityImpl entity) {
         entity.checkClass(this);
@@ -1463,10 +1464,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  private LoadRecordResult createRecordNotFoundResult(RecordId rid, boolean fetchPreviousRid,
+  private LoadRecordResult createRecordNotFoundResult(RecordIdInternal rid,
+      boolean fetchPreviousRid,
       boolean fetchNextRid, boolean throwExceptionIfRecordNotFound) {
-    RecordId previousRid = null;
-    RecordId nextRid = null;
+    RecordIdInternal previousRid = null;
+    RecordIdInternal nextRid = null;
     if (throwExceptionIfRecordNotFound) {
       throw new RecordNotFoundException(getDatabaseName(), rid);
     } else {
@@ -1482,8 +1484,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nullable
-  private RecordId fetchNextRid(RecordId rid) {
-    RecordId nextRid;
+  private RecordIdInternal fetchNextRid(RecordIdInternal rid) {
+    RecordIdInternal nextRid;
     while (true) {
       var higherPositions = storage.higherPhysicalPositions(this, rid.getCollectionId(),
           new PhysicalPosition(rid.getCollectionPosition()), 1);
@@ -1491,11 +1493,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
       if (higherPositions != null && higherPositions.length > 0) {
         if (txNextRid == null) {
-          nextRid = new RecordId(rid.getCollectionId(), higherPositions[0].collectionPosition);
+          nextRid = new RecordId(rid.getCollectionId(),
+              higherPositions[0].collectionPosition);
         } else if (higherPositions[0].collectionPosition > txNextRid.getCollectionPosition()) {
           nextRid = txNextRid;
         } else {
-          nextRid = new RecordId(rid.getCollectionId(), higherPositions[0].collectionPosition);
+          nextRid = new RecordId(rid.getCollectionId(),
+              higherPositions[0].collectionPosition);
         }
       } else {
         nextRid = txNextRid;
@@ -1517,8 +1521,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Nullable
-  private RecordId fetchPreviousRid(RecordId rid) {
-    RecordId previousRid;
+  private RecordIdInternal fetchPreviousRid(RecordIdInternal rid) {
+    RecordIdInternal previousRid;
 
     while (true) {
       var lowerPositions = storage.lowerPhysicalPositions(this, rid.getCollectionId(),
@@ -1526,11 +1530,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       var txPreviousRid = currentTx.getPreviousRidInCollection(rid);
       if (lowerPositions != null && lowerPositions.length > 0) {
         if (txPreviousRid == null) {
-          previousRid = new RecordId(rid.getCollectionId(), lowerPositions[0].collectionPosition);
+          previousRid = new RecordId(rid.getCollectionId(),
+              lowerPositions[0].collectionPosition);
         } else if (lowerPositions[0].collectionPosition < txPreviousRid.getCollectionPosition()) {
           previousRid = txPreviousRid;
         } else {
-          previousRid = new RecordId(rid.getCollectionId(), lowerPositions[0].collectionPosition);
+          previousRid = new RecordId(rid.getCollectionId(),
+              lowerPositions[0].collectionPosition);
         }
       } else {
         previousRid = txPreviousRid;
@@ -3369,8 +3375,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCollection(
-      @Nonnull RecordId recordId) {
+  public <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndNextRidInCollection(
+      @Nonnull RecordIdInternal recordId) {
     assert assertIfNotActive();
 
     while (true) {
@@ -3392,8 +3398,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Nullable
   @Override
-  public <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCollection(
-      @Nonnull RecordId recordId) {
+  public <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndPreviousRidInCollection(
+      @Nonnull RecordIdInternal recordId) {
     assert assertIfNotActive();
 
     while (true) {
@@ -3456,7 +3462,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return RID.COLLECTION_ID_INVALID;
     }
 
-    var rid = (RecordId) record.getIdentity();
+    var rid = (RecordIdInternal) record.getIdentity();
     SchemaClassInternal schemaClass = null;
     // if collection id is not set yet try to find it out
     if (rid.getCollectionId() <= RID.COLLECTION_ID_INVALID) {
@@ -4015,7 +4021,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private void checkRecordClass(
-      final SchemaClass recordClass, final String iCollectionName, final RecordId rid) {
+      final SchemaClass recordClass, final String iCollectionName, final RecordIdInternal rid) {
     assert assertIfNotActive();
 
     final var collectionIdClass =
@@ -4702,7 +4708,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     var properties = entity.getPropertyNamesInternal(true, false);
-    var linksToUpdateMap = new HashMap<RecordId, int[]>();
+    var linksToUpdateMap = new HashMap<RecordIdInternal, int[]>();
     for (var propertyName : properties) {
       linksToUpdateMap.clear();
 
@@ -4815,7 +4821,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       dirtyProperties = filterEdgeProperties(dirtyProperties);
     }
 
-    var linksToUpdateMap = new HashMap<RecordId, int[]>();
+    var linksToUpdateMap = new HashMap<RecordIdInternal, int[]>();
     for (var propertyName : dirtyProperties) {
       linksToUpdateMap.clear();
 
@@ -4833,17 +4839,17 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               switch (event.getChangeType()) {
                 case ADD -> {
                   assert event.getValue() != null;
-                  incrementLinkCounter((RecordId) event.getValue(), linksToUpdateMap);
+                  incrementLinkCounter((RecordIdInternal) event.getValue(), linksToUpdateMap);
                 }
                 case REMOVE -> {
                   assert event.getOldValue() != null;
-                  decrementLinkCounter((RecordId) event.getOldValue(), linksToUpdateMap);
+                  decrementLinkCounter((RecordIdInternal) event.getOldValue(), linksToUpdateMap);
                 }
                 case UPDATE -> {
                   assert event.getValue() != null;
                   assert event.getOldValue() != null;
-                  incrementLinkCounter((RecordId) event.getValue(), linksToUpdateMap);
-                  decrementLinkCounter((RecordId) event.getOldValue(), linksToUpdateMap);
+                  incrementLinkCounter((RecordIdInternal) event.getValue(), linksToUpdateMap);
+                  decrementLinkCounter((RecordIdInternal) event.getOldValue(), linksToUpdateMap);
                 }
               }
             }
@@ -4861,7 +4867,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private void updateOppositeLinks(@Nonnull EntityImpl entity, String propertyName,
-      HashMap<RecordId, int[]> linksToUpdateMap) {
+      HashMap<RecordIdInternal, int[]> linksToUpdateMap) {
     var oppositeLinkBagPropertyName = EntityImpl.getOppositeLinkBagPropertyName(propertyName);
     for (var entitiesToUpdate : linksToUpdateMap.entrySet()) {
       var oppositeLink = entitiesToUpdate.getKey();
@@ -4919,8 +4925,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  private static void decrementLinkCounter(@Nonnull RecordId recordId,
-      @Nonnull HashMap<RecordId, int[]> linksToUpdateMap) {
+  private static void decrementLinkCounter(@Nonnull RecordIdInternal recordId,
+      @Nonnull HashMap<RecordIdInternal, int[]> linksToUpdateMap) {
     linksToUpdateMap.compute(
         recordId,
         (key, value) -> {
@@ -4936,8 +4942,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         });
   }
 
-  private static void incrementLinkCounter(@Nonnull RecordId recordId,
-      @Nonnull HashMap<RecordId, int[]> linksToUpdateMap) {
+  private static void incrementLinkCounter(@Nonnull RecordIdInternal recordId,
+      @Nonnull HashMap<RecordIdInternal, int[]> linksToUpdateMap) {
     linksToUpdateMap.compute(
         recordId,
         (key, value) -> {
@@ -4951,7 +4957,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private static void addToLinksContainer(Object value,
-      HashMap<RecordId, int[]> links) {
+      HashMap<RecordIdInternal, int[]> links) {
     if (value == null) {
       return;
     }
@@ -4960,30 +4966,30 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       case Identifiable identifiable -> {
         if (identifiable instanceof Entity entity) {
           if (!entity.isEmbedded()) {
-            incrementLinkCounter((RecordId) identifiable.getIdentity(), links);
+            incrementLinkCounter((RecordIdInternal) identifiable.getIdentity(), links);
           }
         } else {
-          incrementLinkCounter((RecordId) identifiable.getIdentity(), links);
+          incrementLinkCounter((RecordIdInternal) identifiable.getIdentity(), links);
         }
       }
       case EntityLinkListImpl linkList -> {
         for (var link : linkList) {
-          incrementLinkCounter((RecordId) link, links);
+          incrementLinkCounter((RecordIdInternal) link, links);
         }
       }
       case EntityLinkSetImpl linkSet -> {
         for (var link : linkSet) {
-          incrementLinkCounter((RecordId) link, links);
+          incrementLinkCounter((RecordIdInternal) link, links);
         }
       }
       case EntityLinkMapIml linkMap -> {
         for (var link : linkMap.values()) {
-          incrementLinkCounter((RecordId) link, links);
+          incrementLinkCounter((RecordIdInternal) link, links);
         }
       }
       case LinkBag linkBag -> {
         for (var link : linkBag) {
-          incrementLinkCounter((RecordId) link, links);
+          incrementLinkCounter((RecordIdInternal) link, links);
         }
       }
       default -> {
@@ -4992,7 +4998,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   private static void subtractFromLinksContainer(Object value,
-      HashMap<RecordId, int[]> links) {
+      HashMap<RecordIdInternal, int[]> links) {
     if (value == null) {
       return;
     }
@@ -5001,30 +5007,30 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       case Identifiable identifiable -> {
         if (identifiable instanceof Entity entity) {
           if (!entity.isEmbedded()) {
-            decrementLinkCounter((RecordId) identifiable.getIdentity(), links);
+            decrementLinkCounter((RecordIdInternal) identifiable.getIdentity(), links);
           }
         } else {
-          decrementLinkCounter((RecordId) identifiable.getIdentity(), links);
+          decrementLinkCounter((RecordIdInternal) identifiable.getIdentity(), links);
         }
       }
       case EntityLinkListImpl linkList -> {
         for (var link : linkList) {
-          decrementLinkCounter((RecordId) link, links);
+          decrementLinkCounter((RecordIdInternal) link, links);
         }
       }
       case EntityLinkSetImpl linkSet -> {
         for (var link : linkSet) {
-          decrementLinkCounter((RecordId) link, links);
+          decrementLinkCounter((RecordIdInternal) link, links);
         }
       }
       case EntityLinkMapIml linkMap -> {
         for (var link : linkMap.values()) {
-          decrementLinkCounter((RecordId) link, links);
+          decrementLinkCounter((RecordIdInternal) link, links);
         }
       }
       case LinkBag linkBag -> {
         for (var link : linkBag) {
-          decrementLinkCounter((RecordId) link, links);
+          decrementLinkCounter((RecordIdInternal) link, links);
         }
       }
       default -> {

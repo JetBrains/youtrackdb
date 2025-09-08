@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
@@ -17,7 +18,7 @@ public class StreamSerializerRIDTest {
   private static final int FIELD_SIZE = ShortSerializer.SHORT_SIZE + LongSerializer.LONG_SIZE;
   private static final int collectionId = 5;
   private static final long position = 100500L;
-  private static RecordId OBJECT;
+  private static RecordIdInternal OBJECT;
   private static StreamSerializerRID streamSerializerRID;
   private static BinarySerializerFactory serializerFactory;
 

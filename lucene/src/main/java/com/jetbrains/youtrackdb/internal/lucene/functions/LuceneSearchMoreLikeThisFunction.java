@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
@@ -97,13 +97,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
     var others =
         ridsAsString.stream()
             .map(
-                rid -> {
-                  var recordId = new RecordId();
-
-                  recordId.fromString(rid);
-                  recordId = recordId.copy();
-                  return recordId;
-                })
+                rid -> RecordIdInternal.fromString(rid, false))
             .<DBRecord>map(recordId1 -> {
               var transaction = db.getActiveTransaction();
               return transaction.load(recordId1);

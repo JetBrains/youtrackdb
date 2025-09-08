@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Iterator;
 import java.util.List;
@@ -153,7 +153,7 @@ public class DatabaseRepair extends DatabaseTool<DatabaseSessionEmbedded> {
         return true;
       }
 
-      if (((RecordId) id).isValidPosition()) {
+      if (((RecordIdInternal) id).isValidPosition()) {
         if (id.isPersistent()) {
           try {
             var transaction = session.getActiveTransaction();

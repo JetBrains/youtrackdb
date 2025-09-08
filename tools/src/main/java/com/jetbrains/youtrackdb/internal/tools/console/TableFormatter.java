@@ -29,7 +29,6 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.ImmutableRecordId;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -321,11 +320,7 @@ public class TableFormatter {
       value = getPrettyFieldMultiValue(((Collection<?>) value).iterator(), multiValueMaxEntries,
           session);
     } else if (value instanceof Identifiable identifiable) {
-      if (identifiable.equals(ImmutableRecordId.EMPTY_RECORD_ID)) {
-        value = value.toString();
-      } else {
-        value = identifiable.getIdentity().toString();
-      }
+      value = identifiable.getIdentity().toString();
     } else if (value instanceof Date) {
       var dateFormat = new SimpleDateFormat(StorageConfiguration.DEFAULT_DATETIME_FORMAT);
       dateFormat.setTimeZone(session.getDatabaseTimeZone());

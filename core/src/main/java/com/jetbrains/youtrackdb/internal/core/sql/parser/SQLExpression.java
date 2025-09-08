@@ -95,7 +95,8 @@ public class SQLExpression extends SimpleNode {
 
     // from here it's old stuff, only for the old executor
     if (value instanceof SQLRid v) {
-      return new RecordId(v.collection.getValue().intValue(), v.position.getValue().longValue());
+      return new RecordId(v.collection.getValue().intValue(),
+          v.position.getValue().longValue());
     } else if (value instanceof SQLMathExpression) {
       return ((SQLMathExpression) value).execute(iCurrentRecord, ctx);
     } else if (value instanceof SQLArrayConcatExpression) {
@@ -137,7 +138,8 @@ public class SQLExpression extends SimpleNode {
 
     // from here it's old stuff, only for the old executor
     if (value instanceof SQLRid v) {
-      return new RecordId(v.collection.getValue().intValue(), v.position.getValue().longValue());
+      return new RecordId(v.collection.getValue().intValue(),
+          v.position.getValue().longValue());
     } else if (value instanceof SQLMathExpression) {
       return ((SQLMathExpression) value).execute(iCurrentRecord, ctx);
     } else if (value instanceof SQLArrayConcatExpression) {

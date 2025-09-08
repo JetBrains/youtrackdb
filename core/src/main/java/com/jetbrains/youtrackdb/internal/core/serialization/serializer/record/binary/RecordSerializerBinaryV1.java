@@ -47,7 +47,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
@@ -528,24 +527,6 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     serializeEntity(session, entity, bytes, clazz, schema, encryption);
   }
 
-  @Override
-  public boolean isSerializingClassNameByDefault() {
-    return false;
-  }
-
-  @Override
-  public <RET> RET deserializeFieldTyped(
-      DatabaseSessionEmbedded session, BytesContainer bytes,
-      String iFieldName,
-      boolean isEmbedded,
-      ImmutableSchema schema,
-      PropertyEncryption encryption) {
-    if (isEmbedded) {
-      skipClassName(bytes);
-    }
-    return deserializeFieldTypedLoopAndReturn(session, bytes, iFieldName, schema, encryption);
-  }
-
   @Nullable
   protected <RET> RET deserializeFieldTypedLoopAndReturn(
       DatabaseSessionEmbedded session, BytesContainer bytes,
@@ -619,95 +600,6 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     var fieldSize = VarIntSerializer.readAsInteger(bytes);
     var type = readOType(bytes, false);
     return new Tuple<>(fieldSize, type);
-  }
-
-  @Override
-  public void deserializeDebug(
-      DatabaseSessionEmbedded session, BytesContainer bytes,
-      RecordSerializationDebug debugInfo,
-      ImmutableSchema schema) {
-
-    var headerLength = VarIntSerializer.readAsInteger(bytes);
-    var headerPos = bytes.offset;
-
-    debugInfo.properties = new ArrayList<>();
-    var last = 0;
-    String fieldName;
-    PropertyTypeInternal type;
-    var cumulativeLength = 0;
-    while (true) {
-      var debugProperty = new RecordSerializationDebugProperty();
-      GlobalProperty prop;
-
-      int fieldLength;
-
-      try {
-        if (bytes.offset >= headerPos + headerLength) {
-          break;
-        }
-
-        final var len = VarIntSerializer.readAsInteger(bytes);
-        debugInfo.properties.add(debugProperty);
-        if (len > 0) {
-          // PARSE FIELD NAME
-          fieldName = stringFromBytesIntern(session, bytes.bytes, bytes.offset, len);
-          bytes.skip(len);
-
-          var valuePositionAndType =
-              getFieldSizeAndTypeFromCurrentPosition(bytes);
-          fieldLength = valuePositionAndType.getFirstVal();
-          type = valuePositionAndType.getSecondVal();
-        } else {
-          // LOAD GLOBAL PROPERTY BY ID
-          final var id = (len * -1) - 1;
-          debugProperty.globalId = id;
-          prop = schema.getGlobalPropertyById(id);
-          fieldLength = VarIntSerializer.readAsInteger(bytes);
-          debugProperty.valuePos = headerPos + headerLength + cumulativeLength;
-          if (prop != null) {
-            fieldName = prop.getName();
-            type = PropertyTypeInternal.convertFromPublicType(prop.getType());
-          } else {
-            cumulativeLength += fieldLength;
-            continue;
-          }
-        }
-        debugProperty.name = fieldName;
-        debugProperty.type = type;
-
-        int valuePos;
-        if (fieldLength > 0) {
-          valuePos = headerPos + headerLength + cumulativeLength;
-        } else {
-          valuePos = 0;
-        }
-
-        cumulativeLength += fieldLength;
-
-        if (valuePos != 0) {
-          var headerCursor = bytes.offset;
-          bytes.offset = valuePos;
-          try {
-            debugProperty.value = deserializeValue(session, bytes, type,
-                new EntityImpl(session, new RecordId()));
-          } catch (RuntimeException ex) {
-            debugProperty.faildToRead = true;
-            debugProperty.readingException = ex;
-            debugProperty.failPosition = bytes.offset;
-          }
-          if (bytes.offset > last) {
-            last = bytes.offset;
-          }
-          bytes.offset = headerCursor;
-        } else {
-          debugProperty.value = null;
-        }
-      } catch (RuntimeException ex) {
-        debugInfo.readingFailure = true;
-        debugInfo.readingException = ex;
-        debugInfo.failPosition = bytes.offset;
-      }
-    }
   }
 
   protected int writeEmbeddedMap(

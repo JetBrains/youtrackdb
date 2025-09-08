@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.io.YTIOException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.enterprise.channel.SocketChannel;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -228,7 +229,7 @@ public abstract class SocketChannelBinary extends SocketChannel
     return tmp;
   }
 
-  public RecordId readRID() throws IOException {
+  public RecordIdInternal readRID() throws IOException {
     final int collectionId = readShort();
     final var collectionPosition = readLong();
     return new RecordId(collectionId, collectionPosition);

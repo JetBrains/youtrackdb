@@ -39,7 +39,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable;
@@ -847,7 +847,7 @@ public enum PropertyTypeInternal {
         }
         case String s -> {
           try {
-            return new RecordId((String) value);
+            return RecordIdInternal.fromString(s, false);
           } catch (Exception e) {
             throw new ValidationException(session,
                 conversionErrorMessage(value, this));
@@ -866,7 +866,7 @@ public enum PropertyTypeInternal {
       if (value instanceof Entity entity && entity.isEmbedded()) {
         return false;
       }
-      if (value instanceof RecordId rid && !rid.isValidPosition()) {
+      if (value instanceof RecordIdInternal rid && !rid.isValidPosition()) {
         return false;
       }
 
@@ -879,7 +879,7 @@ public enum PropertyTypeInternal {
         return false;
       }
 
-      if (value instanceof RecordId rid && !rid.isValidPosition()) {
+      if (value instanceof RecordIdInternal rid && !rid.isValidPosition()) {
         return false;
       }
 
@@ -895,8 +895,8 @@ public enum PropertyTypeInternal {
       }
 
       var identifiable = (Identifiable) value;
-      var rid = identifiable.getIdentity();
-      return new RecordId(rid.getCollectionId(), rid.getCollectionPosition());
+      var rid = (RecordIdInternal) identifiable.getIdentity();
+      return rid.copy();
     }
 
     @Override
@@ -1329,7 +1329,7 @@ public enum PropertyTypeInternal {
     TYPES_BY_CLASS.put(Byte.TYPE, BYTE);
     TYPES_BY_CLASS.put(Character.class, STRING);
     TYPES_BY_CLASS.put(Character.TYPE, STRING);
-    TYPES_BY_CLASS.put(RecordId.class, LINK);
+    TYPES_BY_CLASS.put(RecordIdInternal.class, LINK);
     TYPES_BY_CLASS.put(BigDecimal.class, DECIMAL);
     TYPES_BY_CLASS.put(BigInteger.class, DECIMAL);
     TYPES_BY_CLASS.put(LinkBag.class, LINKBAG);

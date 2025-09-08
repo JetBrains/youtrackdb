@@ -16,7 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphIoStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
@@ -166,7 +166,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       var tx = session.getActiveTransaction();
       var ids = Stream.of(elementIds).map(YTDBGraphImplAbstract::createRecordId);
       var entities =
-          ids.filter(id -> ((RecordId) id).isValidPosition()).map(rid -> {
+          ids.filter(id -> ((RecordIdInternal) id).isValidPosition()).map(rid -> {
             try {
               return tx.loadEntity(rid);
             } catch (RecordNotFoundException e) {
@@ -182,7 +182,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       return rid;
     }
     if (id instanceof String strRid) {
-      return new RecordId(strRid);
+      return RecordIdInternal.fromString(strRid, false);
     }
     if (id instanceof Element gremlinElement) {
       return createRecordId(gremlinElement.id());

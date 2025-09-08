@@ -25,7 +25,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -169,7 +169,7 @@ public abstract class RecordSerializerStringAbstract {
         break;
 
       case LINK:
-        if (iValue instanceof RecordId) {
+        if (iValue instanceof RecordIdInternal) {
           iBuffer.append(iValue.toString());
         } else {
           iBuffer.append(((Identifiable) iValue).getIdentity().toString());
@@ -383,7 +383,7 @@ public abstract class RecordSerializerStringAbstract {
     if (iValue.charAt(0) == RID.PREFIX)
     // RID
     {
-      return new RecordId(iValue);
+      return RecordIdInternal.fromString(iValue, false);
     }
 
     var integer = true;
@@ -526,7 +526,7 @@ public abstract class RecordSerializerStringAbstract {
         if (iValue instanceof RID) {
           return iValue.toString();
         } else if (iValue instanceof String) {
-          return new RecordId((String) iValue);
+          return RecordIdInternal.fromString((String) iValue, false);
         } else {
           return ((DBRecord) iValue).getIdentity().toString();
         }

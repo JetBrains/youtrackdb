@@ -51,7 +51,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -362,7 +362,7 @@ public class JSONSerializerJackson {
         // ignore the value
         parseValue(session, null, jsonParser, PropertyTypeInternal.STRING, null);
       } else if (!fieldName.isEmpty() && fieldName.charAt(0) == '@') {
-          throw new SerializationException(session, "Invalid property name: " + fieldName);
+        throw new SerializationException(session, "Invalid property name: " + fieldName);
       } else {
         parseProperty(session, recordMetaData.fieldTypes, record, jsonParser, fieldName);
       }
@@ -381,7 +381,7 @@ public class JSONSerializerJackson {
   ) throws IOException {
 
     var token = jsonParser.nextToken();
-    RecordId recordId = null;
+    RecordIdInternal recordId = null;
     var recordType = defaultRecordType;
     var className = defaultClassName;
     Map<String, String> fieldTypes = new HashMap<>();
@@ -426,7 +426,7 @@ public class JSONSerializerJackson {
             }
             var fieldValueAsString = jsonParser.getText();
             if (!fieldValueAsString.isEmpty()) {
-              recordId = new RecordId(fieldValueAsString);
+              recordId = RecordIdInternal.fromString(fieldValueAsString, false);
             }
             token = jsonParser.nextToken();
           }
@@ -1051,7 +1051,7 @@ public class JSONSerializerJackson {
       case VALUE_NULL -> null;
       case VALUE_STRING -> {
         yield switch (type) {
-          case LINK -> new RecordId(jsonParser.getText());
+          case LINK -> RecordIdInternal.fromString(jsonParser.getText(), false);
           case BINARY -> {
             var text = jsonParser.getText();
             if (!text.isEmpty() && text.length() <= 3) {
@@ -1064,7 +1064,7 @@ public class JSONSerializerJackson {
             var text = jsonParser.getText();
             if (!text.isEmpty() && text.charAt(0) == '#') {
               try {
-                yield new RecordId(text);
+                yield RecordIdInternal.fromString(text, false);
               } catch (IllegalArgumentException e) {
                 yield text;
               }
@@ -1186,7 +1186,7 @@ public class JSONSerializerJackson {
     while (jsonParser.nextToken() != JsonToken.END_OBJECT) {
       var fieldName = jsonParser.currentName();
       jsonParser.nextToken();
-      var value = new RecordId(jsonParser.getText());
+      var value = RecordIdInternal.fromString(jsonParser.getText(), false);
       map.put(fieldName, value);
     }
     return map;
@@ -1262,7 +1262,7 @@ public class JSONSerializerJackson {
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       var ridText = jsonParser.getText();
-      list.add(new RecordId(ridText));
+      list.add(RecordIdInternal.fromString(ridText, false));
     }
 
     return list;
@@ -1274,7 +1274,7 @@ public class JSONSerializerJackson {
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       var ridText = jsonParser.getText();
-      list.add(new RecordId(ridText));
+      list.add(RecordIdInternal.fromString(ridText, false));
     }
 
     return list;
@@ -1286,7 +1286,7 @@ public class JSONSerializerJackson {
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       var ridText = jsonParser.getText();
-      bag.add(new RecordId(ridText));
+      bag.add(RecordIdInternal.fromString(ridText, false));
     }
 
     return bag;
@@ -1332,7 +1332,7 @@ public class JSONSerializerJackson {
 
   public record RecordMetadata(
       byte recordType,
-      @Nullable RecordId recordId,
+      @Nullable RecordIdInternal recordId,
       @Nullable String className,
       Map<String, String> fieldTypes,
       boolean isEmbedded,

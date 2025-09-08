@@ -31,7 +31,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.QueryParsingException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.QueryRuntimeValueMulti;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -456,7 +456,7 @@ public class SQLFilterCondition {
       if (binaryEvaluation
           && iValue instanceof SQLFilterItemField
           && !entity.isDirty()
-          && !((RecordId) entity.getIdentity()).isTemporary()) {
+          && !((RecordIdInternal) entity.getIdentity()).isTemporary()) {
         final var bField = ((SQLFilterItemField) iValue).getBinaryField(session, entity);
         if (bField != null) {
           return bField;
@@ -563,10 +563,10 @@ public class SQLFilterCondition {
           result = new Object[]{l, getFloat(r)};
         } else if (r instanceof RID && l instanceof String && !oldL.equals(SQLHelper.NOT_NULL)) {
           // RIDS
-          result = new Object[]{new RecordId((String) l), r};
+          result = new Object[]{RecordIdInternal.fromString((String) l, false), r};
         } else if (l instanceof RID && r instanceof String && !oldR.equals(SQLHelper.NOT_NULL)) {
           // RIDS
-          result = new Object[]{l, new RecordId((String) r)};
+          result = new Object[]{l, RecordIdInternal.fromString((String) r, false)};
         }
       }
     } catch (Exception ignore) {

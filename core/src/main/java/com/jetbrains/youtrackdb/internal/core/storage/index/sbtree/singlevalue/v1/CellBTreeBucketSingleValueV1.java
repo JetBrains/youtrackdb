@@ -220,7 +220,8 @@ public final class CellBTreeBucketSingleValueV1<K> extends DurablePage {
       final int collectionId = getShortValue(entryPosition);
       final var collectionPosition = getLongValue(entryPosition + ShortSerializer.SHORT_SIZE);
 
-      return new SBTreeEntry<>(-1, -1, key, new RecordId(collectionId, collectionPosition));
+      return new SBTreeEntry<>(-1, -1, key,
+          new RecordId(collectionId, collectionPosition));
     } else {
       final var leftChild = getIntValue(entryPosition);
       entryPosition += IntegerSerializer.INT_SIZE;

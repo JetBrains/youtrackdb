@@ -11,7 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBagDelegate;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.SimpleMultiValueTracker;
 import it.unimi.dsi.fastutil.objects.ObjectIntPair;
 import java.util.ArrayList;
@@ -432,7 +432,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
   @Override
   public void onBeforeIdentityChange(Object source) {
-    var rid = (RecordId) source;
+    var rid = (RecordIdInternal) source;
     var newEntryModificationCounter = newEntries.remove(rid);
 
     if (newEntryModificationCounter != null) {
@@ -442,7 +442,7 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
 
   @Override
   public void onAfterIdentityChange(Object source) {
-    var rid = (RecordId) source;
+    var rid = (RecordIdInternal) source;
 
     var newEntryModificationCounter = newEntriesIdentityMap.remove(rid);
     if (newEntryModificationCounter != null) {

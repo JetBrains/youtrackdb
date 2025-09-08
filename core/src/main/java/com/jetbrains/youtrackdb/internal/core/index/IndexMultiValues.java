@@ -28,7 +28,7 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AscComparator;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.DescComparator;
 import com.jetbrains.youtrackdb.internal.core.index.iterator.PureTxMultiValueBetweenIndexBackwardSplititerator;
@@ -125,7 +125,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   @Override
   public IndexMultiValues put(FrontendTransaction transaction, Object key,
       final Identifiable singleValue) {
-    final var rid = (RecordId) singleValue.getIdentity();
+    final var rid = (RecordIdInternal) singleValue.getIdentity();
 
     if (!rid.isValidPosition()) {
       if (singleValue instanceof DBRecord) {

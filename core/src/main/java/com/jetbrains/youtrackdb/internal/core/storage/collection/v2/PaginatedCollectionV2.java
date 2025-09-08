@@ -635,7 +635,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         final var positionEntry =
             collectionPositionMap.get(collectionPosition, atomicOperation);
         if (positionEntry == null) {
-          throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+          throw new RecordNotFoundException(storageName,
+              new RecordId(id, collectionPosition));
         }
         return internalReadRecord(
             collectionPosition,
@@ -674,10 +675,12 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
         if (localPage.isDeleted(recordPosition)) {
           if (recordChunks.isEmpty()) {
-            throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+            throw new RecordNotFoundException(storageName,
+                new RecordId(id, collectionPosition));
           } else {
             throw new PaginatedCollectionException(storageName,
-                "Content of record " + new RecordId(id, collectionPosition) + " was broken", this);
+                "Content of record " + new RecordId(id, collectionPosition)
+                    + " was broken", this);
           }
         }
 
@@ -689,7 +692,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         if (firstEntry
             && content[content.length - LongSerializer.LONG_SIZE - ByteSerializer.BYTE_SIZE]
             == 0) {
-          throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+          throw new RecordNotFoundException(storageName,
+              new RecordId(id, collectionPosition));
         }
 
         recordChunks.add(content);
@@ -760,7 +764,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                     return false;
                   } else {
                     throw new PaginatedCollectionException(storageName,
-                        "Content of record " + new RecordId(id, collectionPosition) + " was broken",
+                        "Content of record " + new RecordId(id, collectionPosition)
+                            + " was broken",
                         this);
                   }
                 } else if (removedContentSize == 0) {
@@ -820,7 +825,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             final var positionEntry =
                 collectionPositionMap.get(collectionPosition, atomicOperation);
             if (positionEntry == null) {
-              throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+              throw new RecordNotFoundException(storageName,
+                  new RecordId(id, collectionPosition));
             }
 
             var oldContentSize = 0;
@@ -940,7 +946,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             final var positionEntry =
                 collectionPositionMap.get(collectionPosition, atomicOperation);
             if (positionEntry == null) {
-              throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+              throw new RecordNotFoundException(storageName,
+                  new RecordId(id, collectionPosition));
             }
 
             final var pageIndex = positionEntry.getPageIndex();

@@ -2,11 +2,11 @@ package com.jetbrains.youtrackdb.internal.server.token;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.ImmutableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Token;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.TokenException;
@@ -467,7 +467,7 @@ public class TokenHandlerImpl implements TokenHandler {
     final var payload = new YouTrackDBJwtPayload();
     payload.setAudience("YouTrackDBServer");
     payload.setDatabase("-");
-    payload.setUserRid(ImmutableRecordId.EMPTY_RECORD_ID);
+    payload.setUserRid(new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
 
     final var expiryMinutes = sessionInMills;
     final var currTime = System.currentTimeMillis();

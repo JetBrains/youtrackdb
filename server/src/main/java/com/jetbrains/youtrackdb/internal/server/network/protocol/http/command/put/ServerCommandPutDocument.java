@@ -20,8 +20,10 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.put;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
@@ -46,19 +48,19 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
     iRequest.getData().commandInfo = "Edit Document";
 
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
-      RecordId recordId;
+      RecordIdInternal recordId;
       if (urlParts.length > 2) {
         // EXTRACT RID
         final var parametersPos = urlParts[2].indexOf('?');
         final var rid =
             parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
-        recordId = new RecordId(rid);
+        recordId = RecordIdInternal.fromString(rid, false);
 
         if (!recordId.isValidPosition()) {
           throw new IllegalArgumentException("Invalid Record ID in request: " + recordId);
         }
       } else {
-        recordId = new RecordId();
+        recordId = new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
       }
 
       var pair =
@@ -81,7 +83,7 @@ public class ServerCommandPutDocument extends ServerCommandDocumentAbstract {
                 if (!txRecordId.isValidPosition()) {
                   var rid = content.get(EntityHelper.ATTRIBUTE_RID);
                   if (rid != null) {
-                    txRecordId = new RecordId(rid.toString());
+                    txRecordId = RecordIdInternal.fromString(rid.toString(), false);
                   }
                 }
 

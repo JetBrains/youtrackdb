@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -57,30 +58,30 @@ public class SQLRid extends SimpleNode {
   }
 
   @Nullable
-  public RecordId toRecordId(Result target, CommandContext ctx) {
+  public RecordIdInternal toRecordId(Result target, CommandContext ctx) {
     if (legacy || (expression == null && collection != null && position != null)) {
       return new RecordId(collection.value.intValue(), position.value.longValue());
     } else {
       var result = expression.execute(target, ctx);
       return switch (result) {
         case null -> null;
-        case Identifiable identifiable -> (RecordId) identifiable.getIdentity();
-        case String s -> new RecordId(s);
+        case Identifiable identifiable -> (RecordIdInternal) identifiable.getIdentity();
+        case String s -> RecordIdInternal.fromString(s, false);
         default -> null;
       };
     }
   }
 
   @Nullable
-  public RecordId toRecordId(Identifiable target, CommandContext ctx) {
+  public RecordIdInternal toRecordId(Identifiable target, CommandContext ctx) {
     if (legacy || (expression == null && collection != null && position != null)) {
       return new RecordId(collection.value.intValue(), position.value.longValue());
     } else {
       var result = expression.execute(target, ctx);
       return switch (result) {
         case null -> null;
-        case Identifiable identifiable -> (RecordId) identifiable.getIdentity();
-        case String s -> new RecordId(s);
+        case Identifiable identifiable -> (RecordIdInternal) identifiable.getIdentity();
+        case String s -> RecordIdInternal.fromString(s, false);
         default -> null;
       };
     }

@@ -53,7 +53,7 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
@@ -185,23 +185,23 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   void callbackHooks(final TYPE type, final RecordAbstract record);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadFirstRecordAndNextRidInCollection(
+  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadFirstRecordAndNextRidInCollection(
       int collectionId);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadLastRecordAndPreviousRidInCollection(
+  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadLastRecordAndPreviousRidInCollection(
       int collectionId);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndNextRidInCollection(
-      @Nonnull final RecordId recordId);
+  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndNextRidInCollection(
+      @Nonnull final RecordIdInternal recordId);
 
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordId> loadRecordAndPreviousRidInCollection(
-      @Nonnull final RecordId recordId);
+  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndPreviousRidInCollection(
+      @Nonnull final RecordIdInternal recordId);
 
   @Nullable
-  LoadRecordResult executeReadRecord(@Nonnull final RecordId rid, boolean fetchPreviousRid,
+  LoadRecordResult executeReadRecord(@Nonnull final RecordIdInternal rid, boolean fetchPreviousRid,
       boolean fetchNextRid, boolean throwIfNotFound);
 
   boolean executeExists(@Nonnull RID rid);

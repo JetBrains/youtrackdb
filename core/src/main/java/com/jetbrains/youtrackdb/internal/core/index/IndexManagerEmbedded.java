@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.util.MultiKey;
 import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -69,7 +69,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         acquireExclusiveLock(transaction);
         try {
           indexManagerIdentity =
-              new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
+              RecordIdInternal.fromString(
+                  session.getStorageInfo().getConfiguration().getIndexMgrRecordId(),
+                  false);
           var entity = (EntityImpl) session.loadEntity(indexManagerIdentity);
           load(transaction, entity);
         } finally {
