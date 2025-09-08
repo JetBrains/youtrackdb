@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
@@ -134,7 +135,7 @@ public class DatabaseRecordWalker {
   @FunctionalInterface
   public interface RecordIdVisitor {
 
-    boolean visit(RecordId recordId);
+    boolean visit(RecordIdInternal recordId);
   }
 
   @FunctionalInterface

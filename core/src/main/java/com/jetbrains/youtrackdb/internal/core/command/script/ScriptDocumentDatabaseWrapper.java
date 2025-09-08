@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
@@ -204,7 +204,7 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public <RET extends DBRecord> RET load(final String iRidAsString) {
-    return session.load(new RecordId(iRidAsString));
+    return session.load(RecordIdInternal.fromString(iRidAsString, false));
   }
 
   public Object setProperty(String iName, Object iValue) {

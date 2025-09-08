@@ -20,8 +20,10 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.patch;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
@@ -45,20 +47,21 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
       var result =
           db.computeInTx(
               transaction -> {
-                RecordId recordId;
+                RecordIdInternal recordId;
 
                 if (urlParts.length > 2) {
                   // EXTRACT RID
                   final var parametersPos = urlParts[2].indexOf('?');
                   final var rid =
                       parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
-                  recordId = new RecordId(rid);
+                  recordId = RecordIdInternal.fromString(rid, false);
 
                   if (!recordId.isValidPosition()) {
                     throw new IllegalArgumentException("Invalid Record ID in request: " + recordId);
                   }
                 } else {
-                  recordId = new RecordId();
+                  recordId = new RecordId(RID.COLLECTION_ID_INVALID,
+                      RID.COLLECTION_POS_INVALID);
                 }
 
                 // UNMARSHALL DOCUMENT WITH REQUEST CONTENT
@@ -76,7 +79,7 @@ public class ServerCommandPatchDocument extends ServerCommandDocumentAbstract {
                 if (!recordId.isValidPosition()) {
                   var rid = content.get(EntityHelper.ATTRIBUTE_RID);
                   if (rid != null) {
-                    recordId = new RecordId(rid.toString());
+                    recordId = RecordIdInternal.fromString(rid.toString(), false);
                   }
                 }
 

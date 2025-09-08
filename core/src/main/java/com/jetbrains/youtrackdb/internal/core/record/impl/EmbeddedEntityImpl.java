@@ -65,9 +65,4 @@ public class EmbeddedEntityImpl extends EntityImpl implements EmbeddedEntity {
   public void unload() {
     throw new UnsupportedOperationException("Cannot unload embedded entity");
   }
-
-  @Override
-  public EntityImpl reset() {
-    throw new UnsupportedOperationException("Cannot reset embedded entity");
-  }
 }

@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.auto;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.util.Iterator;
 import java.util.Map;
 import org.testng.Assert;
@@ -17,6 +16,7 @@ import org.testng.annotations.Test;
  */
 @Test
 public class MapIndexTest extends BaseDBTest {
+
   @BeforeClass
   public void setupSchema() {
     if (session.getMetadata().getSchema().existsClass("Mapper")) {
@@ -578,7 +578,7 @@ public class MapIndexTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    Entity loadedMapper = session.load(new RecordId(mapper.getIdentity()));
+    Entity loadedMapper = session.load(mapper.getIdentity());
     loadedMapper.<Map<String, Integer>>getProperty("intMap").put("key2", 40);
     session.rollback();
 

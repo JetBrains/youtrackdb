@@ -237,7 +237,8 @@ public final class BTreeMultiValueIndexEngine
     } else {
       return nullTree
           .iterateEntriesBetween(
-              new RecordId(0, 0), true, new RecordId(Short.MAX_VALUE, Long.MAX_VALUE), true,
+              new RecordId(0, 0), true,
+              new RecordId(Short.MAX_VALUE, Long.MAX_VALUE), true,
               true)
           .map(RawPair::second);
     }

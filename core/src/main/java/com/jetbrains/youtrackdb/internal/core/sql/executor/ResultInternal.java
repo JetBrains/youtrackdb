@@ -250,8 +250,7 @@ public class ResultInternal implements Result, BasicResultInternal {
 
       case ContextualRecordId contextualRecordId -> {
         addMetadata(contextualRecordId.getContext());
-        return new RecordId(contextualRecordId.getCollectionId(),
-            contextualRecordId.getCollectionPosition());
+        return new RecordId(contextualRecordId);
       }
 
       case Identifiable id -> {
@@ -983,8 +982,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     this.content = null;
 
     if (identifiable instanceof ContextualRecordId contextualRecordId) {
-      this.identifiable = new RecordId(contextualRecordId.getCollectionId(),
-          contextualRecordId.getCollectionPosition());
+      this.identifiable = new RecordId(contextualRecordId);
       addMetadata(contextualRecordId.getContext());
     } else {
       this.identifiable = identifiable;

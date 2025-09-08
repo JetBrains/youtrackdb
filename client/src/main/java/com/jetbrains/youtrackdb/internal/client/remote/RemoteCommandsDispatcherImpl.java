@@ -55,7 +55,7 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordCallback;
@@ -211,7 +211,7 @@ public class RemoteCommandsDispatcherImpl implements RemotePushHandler,
   public <T extends BinaryResponse> void asyncNetworkOperationNoRetry(
       DatabaseSessionRemote database, final BinaryAsyncRequest<T> request,
       int mode,
-      final RecordId recordId,
+      final RecordIdInternal recordId,
       final RecordCallback<T> callback,
       final String errorMessage) {
     asyncNetworkOperationRetry(database, request, mode, recordId, callback, errorMessage, 0);
@@ -220,7 +220,7 @@ public class RemoteCommandsDispatcherImpl implements RemotePushHandler,
   public <T extends BinaryResponse> void asyncNetworkOperationRetry(
       DatabaseSessionRemote database, final BinaryAsyncRequest<T> request,
       int mode,
-      final RecordId recordId,
+      final RecordIdInternal recordId,
       final RecordCallback<T> callback,
       final String errorMessage,
       int retry) {

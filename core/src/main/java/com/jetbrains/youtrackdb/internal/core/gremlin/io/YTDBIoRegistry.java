@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo.RecordIdGyroSerial
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo.YTDBVertexPropertyIdGyroSerializer;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.Map;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.io.AbstractIoRegistry;
@@ -31,7 +32,7 @@ public final class YTDBIoRegistry extends AbstractIoRegistry {
     register(GryoIo.class, ChangeableRecordId.class, RecordIdGyroSerializer.INSTANCE);
     register(GryoIo.class, YTDBVertexPropertyId.class, YTDBVertexPropertyIdGyroSerializer.INSTANCE);
 
-    register(GraphSONIo.class, RecordId.class, YTDBGraphSONV3.INSTANCE);
+    register(GraphSONIo.class, RecordIdInternal.class, YTDBGraphSONV3.INSTANCE);
     register(GryoIo.class, LinkBag.class, LinkBagGyroSerializer.INSTANCE);
   }
 
@@ -40,12 +41,12 @@ public final class YTDBIoRegistry extends AbstractIoRegistry {
   public static Object newYTdbId(final Object obj) {
     return switch (obj) {
       case null -> null;
-      case RecordId recordId -> recordId;
+      case RecordIdInternal recordId -> recordId;
 
       case Map<?, ?> map -> {
         var collectionId = ((Number) map.get(COLLECTION_ID)).intValue();
         var collectionPosition = ((Number) map.get(COLLECTION_POSITION)).longValue();
-        RecordId rid;
+        RecordIdInternal rid;
         if (collectionPosition < 0) {
           rid = new ChangeableRecordId(collectionId, collectionPosition);
         } else {

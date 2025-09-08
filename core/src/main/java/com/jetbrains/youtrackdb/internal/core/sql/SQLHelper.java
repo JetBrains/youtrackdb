@@ -32,7 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -273,10 +273,10 @@ public class SQLHelper {
         && iValue.charAt(iValue.length() - 1) == StringSerializerHelper.EMBEDDED_END) {
       // SUB-COMMAND
       throw new UnsupportedOperationException();
-    } else if (RecordId.isA(iValue))
+    } else if (RecordIdInternal.isA(iValue))
     // RID
     {
-      fieldValue = new RecordId(iValue.trim());
+      fieldValue = RecordIdInternal.fromString(iValue.trim(), false);
     } else {
 
       if (iValue.equalsIgnoreCase("null"))

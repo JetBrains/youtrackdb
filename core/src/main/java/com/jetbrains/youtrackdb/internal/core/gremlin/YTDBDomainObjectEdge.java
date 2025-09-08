@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBDomainObject;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.ArrayList;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -19,7 +19,7 @@ public class YTDBDomainObjectEdge implements Edge {
   private final @Nonnull YTDBDomainObject from;
   private final @Nonnull YTDBDomainObject to;
   private final @Nonnull String label;
-  private RecordId recordId;
+  private RecordIdInternal recordId;
 
   public YTDBDomainObjectEdge(@Nonnull YTDBGraph graph, @Nonnull YTDBDomainObject from,
       @Nonnull YTDBDomainObject ytdbDomainObject, @Nonnull String label) {
@@ -48,7 +48,7 @@ public class YTDBDomainObjectEdge implements Edge {
   @Override
   public Object id() {
     if (recordId == null) {
-      recordId = RecordId.tempRecordId();
+      recordId = RecordIdInternal.tempRecordId();
     }
 
     return recordId;

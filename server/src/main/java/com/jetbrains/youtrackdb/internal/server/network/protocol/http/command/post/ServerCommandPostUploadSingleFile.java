@@ -17,7 +17,7 @@ package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.p
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.JSONWriter;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
@@ -35,13 +35,13 @@ import java.util.HashMap;
  *
  */
 public class ServerCommandPostUploadSingleFile extends
-    HttpMultipartRequestCommand<String, RecordId> {
+    HttpMultipartRequestCommand<String, RecordIdInternal> {
 
   private static final String[] NAMES = {"POST|uploadSingleFile/*"};
 
   protected StringWriter buffer;
   protected JSONWriter writer;
-  protected RecordId fileRID;
+  protected RecordIdInternal fileRID;
   protected String fileDocument;
   protected String fileName;
   protected String fileType;
@@ -104,9 +104,6 @@ public class ServerCommandPostUploadSingleFile extends
         fileDocument = null;
         fileName = null;
         fileType = null;
-        if (fileRID != null) {
-          fileRID.reset();
-        }
         fileRID = null;
       }
     }
@@ -125,7 +122,7 @@ public class ServerCommandPostUploadSingleFile extends
 
   @Override
   protected void processFileContent(
-      HttpRequest iRequest, RecordId contentResult, HashMap<String, String> headers)
+      HttpRequest iRequest, RecordIdInternal contentResult, HashMap<String, String> headers)
       throws Exception {
     if (headers.containsKey(HttpUtils.MULTIPART_CONTENT_NAME)
         && headers.get(HttpUtils.MULTIPART_CONTENT_NAME).equals(getFileParamenterName())) {

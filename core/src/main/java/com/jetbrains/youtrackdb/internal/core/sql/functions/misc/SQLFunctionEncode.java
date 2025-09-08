@@ -21,7 +21,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
@@ -57,10 +57,10 @@ public class SQLFunctionEncode extends SQLFunctionAbstract {
     byte[] data = null;
     if (candidate instanceof byte[]) {
       data = (byte[]) candidate;
-    } else if (candidate instanceof RecordId) {
+    } else if (candidate instanceof RecordIdInternal) {
       try {
         var transaction = context.getDatabaseSession().getActiveTransaction();
-        final RecordAbstract rec = transaction.load(((RecordId) candidate));
+        final RecordAbstract rec = transaction.load(((RecordIdInternal) candidate));
         if (rec instanceof Blob) {
           data = rec.toStream();
         }

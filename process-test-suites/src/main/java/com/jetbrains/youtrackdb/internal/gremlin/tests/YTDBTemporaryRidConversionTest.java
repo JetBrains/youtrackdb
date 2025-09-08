@@ -5,7 +5,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.stream.IntStream;
 import org.apache.tinkerpop.gremlin.FeatureRequirement;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
@@ -52,7 +52,7 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
       for (var v : values) {
         Assert.assertTrue(v instanceof Vertex);
         var vertex = (Vertex) v;
-        var rid = (RecordId) vertex.id();
+        var rid = (RecordIdInternal) vertex.id();
         Assert.assertTrue(rid.isPersistent());
       }
       assertEquals(initialCount + 128, g.V().count().next().longValue());
@@ -122,7 +122,7 @@ public abstract class YTDBTemporaryRidConversionTest extends YTDBAbstractGremlin
     for (var property : properties) {
       var vertexProperty = (VertexProperty<?>) property;
       var propertyId = (YTDBVertexPropertyId) vertexProperty.id();
-      var rid = (RecordId) propertyId.rid();
+      var rid = (RecordIdInternal) propertyId.rid();
       Assert.assertTrue(rid.isPersistent());
     }
   }

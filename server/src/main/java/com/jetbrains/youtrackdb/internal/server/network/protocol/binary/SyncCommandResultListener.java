@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.fetch.FetchContext;
 import com.jetbrains.youtrackdb.internal.core.fetch.FetchHelper;
 import com.jetbrains.youtrackdb.internal.core.fetch.remote.RemoteFetchContext;
 import com.jetbrains.youtrackdb.internal.core.fetch.remote.RemoteFetchListener;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
@@ -101,7 +101,7 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
               String iFieldName,
               FetchContext iContext)
               throws FetchException {
-            if (!(iLinked instanceof RecordId)) {
+            if (!(iLinked instanceof RecordIdInternal)) {
               var transaction = db.getActiveTransaction();
               sendRecord(transaction.load(iLinked));
             }
@@ -116,7 +116,7 @@ public class SyncCommandResultListener extends AbstractCommandResultListener
               FetchContext iContext)
               throws FetchException {
 
-            if (!(iLinked instanceof RecordId)) {
+            if (!(iLinked instanceof RecordIdInternal)) {
               var transaction = db.getActiveTransaction();
               sendRecord(transaction.load(iLinked));
             }

@@ -12,7 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
@@ -1122,7 +1122,7 @@ public class SelectExecutionPlanner {
     String schemaRecordIdAsString;
     if (metadata.getName().equalsIgnoreCase("SCHEMA")) {
       schemaRecordIdAsString = db.getStorageInfo().getConfiguration().getSchemaRecordId();
-      var schemaRid = new RecordId(schemaRecordIdAsString);
+      var schemaRid = RecordIdInternal.fromString(schemaRecordIdAsString, false);
       plan.chain(new FetchFromRidsStep(Collections.singleton(schemaRid), ctx, profilingEnabled));
     } else if (metadata.getName().equalsIgnoreCase("INDEXES")) {
       plan.chain(new FetchFromIndexManagerStep(ctx, profilingEnabled));
@@ -1137,7 +1137,7 @@ public class SelectExecutionPlanner {
 
   private static void handleRidsAsTarget(
       SelectExecutionPlan plan, List<SQLRid> rids, CommandContext ctx, boolean profilingEnabled) {
-    List<RecordId> actualRids = new ArrayList<>();
+    List<RecordIdInternal> actualRids = new ArrayList<>();
     for (var rid : rids) {
       actualRids.add(rid.toRecordId((Result) null, ctx));
     }

@@ -46,6 +46,7 @@ import com.jetbrains.youtrackdb.internal.core.db.EntityFieldWalker;
 import com.jetbrains.youtrackdb.internal.core.db.tool.importer.ConverterData;
 import com.jetbrains.youtrackdb.internal.core.db.tool.importer.LinksRewriter;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.SimpleKeyIndexDefinition;
@@ -305,7 +306,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       do {
         jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
 
-        final var recordId = new RecordId(jsonReader.getValue());
+        final var recordId = RecordIdInternal.fromString(jsonReader.getValue(), false);
         brokenRids.add(recordId);
 
       } while (jsonReader.lastChar() != ']');
@@ -421,7 +422,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       }
     }
     jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
-
 
     listener.onMessage("OK");
   }
@@ -1198,9 +1198,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       // just in case they are not in the internal collection (possibly redundant logic)
       final var schemaRecordId =
-          new RecordId(session.getStorageInfo().getConfiguration().getSchemaRecordId());
+          RecordIdInternal.fromString(
+              session.getStorageInfo().getConfiguration().getSchemaRecordId(),
+              false);
       final var indexMgrRecordId =
-          new RecordId(session.getStorageInfo().getConfiguration().getIndexMgrRecordId());
+          RecordIdInternal.fromString(
+              session.getStorageInfo().getConfiguration().getIndexMgrRecordId(),
+              false);
 
       session.executeInTx(transaction -> {
         for (final var collectionName : session.getCollectionNames()) {
@@ -1223,7 +1227,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       });
 
       RID rid;
-      RID lastRid = new RecordId();
+      RID lastRid = new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
 
       long lastLapRecords = 0;
       var last = begin;

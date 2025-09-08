@@ -13,7 +13,7 @@ import com.jetbrains.youtrackdb.internal.common.util.Resettable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
@@ -98,7 +98,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
           Entity rec;
           if (iCurrentRecord instanceof Entity entity) {
             rec = entity;
-          } else if (iCurrentRecord instanceof RecordId) {
+          } else if (iCurrentRecord instanceof RecordIdInternal) {
             rec = db.getActiveTransaction().loadEntity(iCurrentRecord);
           } else {
             throw new CommandExecutionException("Unexpected type of record: " + iCurrentRecord);

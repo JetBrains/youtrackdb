@@ -29,7 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -1349,7 +1349,7 @@ public class CRUDTest extends BaseDBTest {
               .get("The Observer")
               .getIdentity()
               .isPersistent()
-              && ((RecordId) reloaded
+              && ((RecordIdInternal) reloaded
               .<Map<String, Identifiable>>getProperty("children")
               .get("The Observer")
               .getIdentity())
@@ -1494,7 +1494,7 @@ public class CRUDTest extends BaseDBTest {
               .get("The Observer")
               .getIdentity()
               .isPersistent()
-              && ((RecordId) reloaded
+              && ((RecordIdInternal) reloaded
               .<Map<String, Identifiable>>getProperty("children")
               .get("The Observer")
               .getIdentity())
@@ -2258,7 +2258,7 @@ public class CRUDTest extends BaseDBTest {
         loaded.getEntity("embeddedDocument").getProperty("testEmbeddedField"),
         "testEmbeddedValue");
     Assert.assertFalse(
-        ((RecordId) loaded.getEntity("embeddedDocument").getIdentity()).isValidPosition());
+        ((RecordIdInternal) loaded.getEntity("embeddedDocument").getIdentity()).isValidPosition());
 
     session.commit();
     session.close();

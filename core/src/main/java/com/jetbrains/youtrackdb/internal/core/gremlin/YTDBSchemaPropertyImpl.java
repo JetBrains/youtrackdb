@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaPropertyPToken;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyImpl;
 import java.util.Iterator;
@@ -20,7 +20,7 @@ public class YTDBSchemaPropertyImpl implements YTDBSchemaProperty {
   private SchemaPropertyImpl schemaProperty;
   private final @Nonnull YTDBGraphInternal graph;
 
-  private RecordId recordId;
+  private RecordIdInternal recordId;
   private @Nonnull String fullName;
 
   public YTDBSchemaPropertyImpl(@Nonnull SchemaPropertyImpl schemaProperty,
@@ -468,7 +468,7 @@ public class YTDBSchemaPropertyImpl implements YTDBSchemaProperty {
   @Override
   public RID id() {
     if (recordId == null) {
-      recordId = RecordId.tempRecordId();
+      recordId = RecordIdInternal.tempRecordId();
     }
 
     return recordId;

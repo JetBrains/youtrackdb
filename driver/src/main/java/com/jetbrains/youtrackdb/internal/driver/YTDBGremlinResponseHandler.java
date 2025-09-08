@@ -1,7 +1,8 @@
 package com.jetbrains.youtrackdb.internal.driver;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import java.util.Collection;
@@ -35,7 +36,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
 
   private static final Logger logger = LoggerFactory.getLogger(YTDBGremlinResponseHandler.class);
   private final ConcurrentMap<UUID, ResultQueue> pending;
-  private final ConcurrentMap<UUID, ConcurrentHashMap<RecordId, Set<RecordId>>> changeableRIDs = new ConcurrentHashMap<>();
+  private final ConcurrentMap<UUID, ConcurrentHashMap<RecordIdInternal, Set<ChangeableRecordId>>> changeableRIDs = new ConcurrentHashMap<>();
 
   public YTDBGremlinResponseHandler(final ConcurrentMap<UUID, ResultQueue> pending) {
     this.pending = pending;
@@ -94,7 +95,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
       var attributes = response.getStatus().getAttributes();
 
       var changeableRIDs = this.changeableRIDs.remove(response.getRequestId());
-      @SuppressWarnings("unchecked") var committedRIDs = (Map<RecordId, RecordId>) response.getResult()
+      @SuppressWarnings("unchecked") var committedRIDs = (Map<RecordIdInternal, RecordIdInternal>) response.getResult()
           .getMeta().get(
               RESULT_METADATA_COMMITTED_RIDS_KEY);
       if (changeableRIDs != null && committedRIDs != null) {
@@ -140,17 +141,17 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
         }
       }
       case DetachedElement<?> detachedElement -> {
-        RecordId rid;
+        RecordIdInternal rid;
         if (detachedElement instanceof VertexProperty<?> vertexProperty) {
           var vertexPropertyId = (YTDBVertexPropertyId) vertexProperty.id();
-          rid = (RecordId) vertexPropertyId.rid();
+          rid = (RecordIdInternal) vertexPropertyId.rid();
         } else {
-          rid = (RecordId) detachedElement.id();
+          rid = (RecordIdInternal) detachedElement.id();
         }
 
         rememberChangeableRid(response, rid);
       }
-      case RecordId rid -> {
+      case RecordIdInternal rid -> {
         if (rid.isNew()) {
           changeableRIDs.compute(response.getRequestId(), (uuid, rids) -> {
             if (rids == null) {
@@ -162,7 +163,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
                 ridSet = Collections.newSetFromMap(new IdentityHashMap<>());
               }
 
-              ridSet.add(rid);
+              ridSet.add((ChangeableRecordId) rid);
               return ridSet;
             });
 

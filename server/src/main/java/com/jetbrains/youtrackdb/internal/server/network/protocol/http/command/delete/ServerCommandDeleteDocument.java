@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.delete;
 
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -45,7 +45,7 @@ public class ServerCommandDeleteDocument extends ServerCommandDocumentAbstract {
       // PARSE PARAMETERS
       final var parametersPos = urlParts[2].indexOf('?');
       final var rid = parametersPos > -1 ? urlParts[2].substring(0, parametersPos) : urlParts[2];
-      final var recordId = new RecordId(rid);
+      final var recordId = RecordIdInternal.fromString(rid, false);
 
       if (!recordId.isValidPosition()) {
         throw new IllegalArgumentException("Invalid Record ID in request: " + urlParts[2]);

@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.ArrayList;
@@ -300,7 +300,7 @@ public final class SchemaProxy extends ProxedResource<SchemaShared> implements S
   }
 
   @Override
-  public RecordId getIdentity() {
+  public RecordIdInternal getIdentity() {
     return delegate.getIdentity();
   }
 

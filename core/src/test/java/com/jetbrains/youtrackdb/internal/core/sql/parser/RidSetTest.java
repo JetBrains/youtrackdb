@@ -127,7 +127,7 @@ public class RidSetTest extends ParserTestAbstract {
         Assert.assertTrue(iterator.hasNext());
         var next = iterator.next();
         Assert.assertNotNull(next);
-        //        Assert.assertEquals(new RecordId(collection, id), next);
+        //        Assert.assertEquals(new ImmutableRecordId(collection, id), next);
       }
     }
     System.out.println("elapsed: " + (System.currentTimeMillis() - begin));

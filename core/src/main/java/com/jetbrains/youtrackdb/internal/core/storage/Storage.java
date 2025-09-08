@@ -32,7 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabasePoolInternal;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
@@ -87,7 +87,7 @@ public interface Storage extends Backupable, StorageInfo {
   // CRUD OPERATIONS
   @Nonnull
   ReadRecordResult readRecord(
-      DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
+      DatabaseSessionInternal session, RecordIdInternal iRid, boolean fetchPreviousRid,
       boolean fetchNextRid);
 
   boolean recordExists(DatabaseSessionInternal session, RID rid);
@@ -158,7 +158,7 @@ public interface Storage extends Backupable, StorageInfo {
    */
   long getSize(DatabaseSessionInternal session);
 
-  AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+  AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordIdInternal identity,
       String fieldName, RID rid);
 
   /**

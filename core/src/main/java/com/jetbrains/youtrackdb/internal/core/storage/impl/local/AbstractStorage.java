@@ -73,7 +73,9 @@ import com.jetbrains.youtrackdb.internal.core.exception.InternalErrorException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidInstanceIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
@@ -1512,52 +1514,6 @@ public abstract class AbstractStorage
     }
   }
 
-  public final void createRecord(
-      final RecordId rid,
-      final byte[] content,
-      final int recordVersion,
-      final byte recordType,
-      final RecordCallback<Long> callback) {
-    try {
-
-      final var collection = doGetAndCheckCollection(rid.getCollectionId());
-      if (transaction.get() != null) {
-        final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-        doCreateRecord(
-            atomicOperation, rid, content, recordVersion, recordType, callback,
-            collection, null);
-        return;
-      }
-
-      stateLock.readLock().lock();
-      try {
-        checkOpennessAndMigration();
-
-        makeStorageDirty();
-
-        atomicOperationsManager.calculateInsideAtomicOperation(
-            null,
-            atomicOperation ->
-                doCreateRecord(
-                    atomicOperation,
-                    rid,
-                    content,
-                    recordVersion,
-                    recordType,
-                    callback,
-                    collection, null));
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
-    }
-  }
-
   @Nullable
   @Override
   public final RecordMetadata getRecordMetadata(DatabaseSessionInternal session,
@@ -1683,7 +1639,7 @@ public abstract class AbstractStorage
 
   @Override
   public @Nonnull ReadRecordResult readRecord(
-      DatabaseSessionInternal session, final RecordId rid, boolean fetchPreviousRid,
+      DatabaseSessionInternal session, final RecordIdInternal rid, boolean fetchPreviousRid,
       boolean fetchNextRid) {
     try {
       return readRecord(rid, fetchPreviousRid, fetchNextRid);
@@ -1810,7 +1766,13 @@ public abstract class AbstractStorage
                     final var ppos =
                         collection.allocatePosition(
                             rec.getRecordType(), atomicOperation);
-                    rid.setCollectionPosition(ppos.collectionPosition);
+                    if (rid instanceof ChangeableRecordId changeableRecordId) {
+                      changeableRecordId.setCollectionPosition(ppos.collectionPosition);
+                    } else {
+                      throw new DatabaseException(name,
+                          "Provided record is not new and its position cannot be changed");
+                    }
+
                     assert clientTx.assertIdentityChangedAfterCommit(oldRID, rid);
                   }
                 } else {
@@ -1831,7 +1793,8 @@ public abstract class AbstractStorage
                     }
                     if (ppos.collectionPosition != rid.getCollectionPosition()) {
                       throw new ConcurrentCreateException(session.getDatabaseName(),
-                          rid, new RecordId(rid.getCollectionId(), ppos.collectionPosition));
+                          rid,
+                          new RecordId(rid.getCollectionId(), ppos.collectionPosition));
                     }
                   } else if (recordStatus == RECORD_STATUS.PRESENT
                       || recordStatus == RECORD_STATUS.REMOVED) {
@@ -2016,13 +1979,20 @@ public abstract class AbstractStorage
 
                   if (rid.getCollectionPosition() != physicalPosition.collectionPosition) {
                     throw new ConcurrentCreateException(name,
-                        rid, new RecordId(collection.getId(), physicalPosition.collectionPosition));
+                        rid, new RecordId(collection.getId(),
+                        physicalPosition.collectionPosition));
                   }
                 }
                 positions.put(recordOperation, physicalPosition);
 
-                rid.setCollectionAndPosition(collection.getId(),
-                    physicalPosition.collectionPosition);
+                if (rid instanceof ChangeableRecordId changeableRecordId) {
+                  changeableRecordId.setCollectionAndPosition(collection.getId(),
+
+                      physicalPosition.collectionPosition);
+                } else {
+                  throw new DatabaseException(name,
+                      "Provided record is not new and its identity cannot be changed");
+                }
                 assert frontendTransaction.assertIdentityChangedAfterCommit(oldRID, rid);
               }
             }
@@ -3979,7 +3949,7 @@ public abstract class AbstractStorage
   }
 
   @Nonnull
-  private ReadRecordResult readRecord(final RecordId rid, boolean fetchPreviousRid,
+  private ReadRecordResult readRecord(final RecordIdInternal rid, boolean fetchPreviousRid,
       boolean fetchNextRid) {
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
@@ -4135,7 +4105,7 @@ public abstract class AbstractStorage
 
   private PhysicalPosition doCreateRecord(
       final AtomicOperation atomicOperation,
-      final RecordId rid,
+      final RecordIdInternal rid,
       @Nonnull final byte[] content,
       int recordVersion,
       final byte recordType,
@@ -4158,7 +4128,12 @@ public abstract class AbstractStorage
     try {
       ppos = collection.createRecord(content, recordVersion, recordType, allocated,
           atomicOperation);
-      rid.setCollectionPosition(ppos.collectionPosition);
+      if (rid instanceof ChangeableRecordId changeableRecordId) {
+        changeableRecordId.setCollectionPosition(ppos.collectionPosition);
+      } else {
+        throw new DatabaseException(name,
+            "Provided record is not new and its position can not be changed");
+      }
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error on creating record in collection: " + collection, e);
       throw DatabaseException.wrapException(
@@ -4180,7 +4155,7 @@ public abstract class AbstractStorage
 
   private int doUpdateRecord(
       final AtomicOperation atomicOperation,
-      final RecordId rid,
+      final RecordIdInternal rid,
       final boolean updateContent,
       byte[] content,
       final int version,
@@ -4228,7 +4203,7 @@ public abstract class AbstractStorage
 
   private void doDeleteRecord(
       final AtomicOperation atomicOperation,
-      final RecordId rid,
+      final RecordIdInternal rid,
       final int version,
       final StorageCollection collection) {
     collection.meters().delete().record();
@@ -4265,14 +4240,14 @@ public abstract class AbstractStorage
 
   @Nonnull
   private ReadRecordResult doReadRecord(
-      final StorageCollection collection, final RecordId rid, boolean fetchPreviousRid,
+      final StorageCollection collection, final RecordIdInternal rid, boolean fetchPreviousRid,
       boolean fetchNextRid) {
     collection.meters().read().record();
     try {
 
       final var buff = collection.readRecord(rid.getCollectionPosition());
-      RecordId prevRid = null;
-      RecordId nextRid = null;
+      RecordIdInternal prevRid = null;
+      RecordIdInternal nextRid = null;
 
       if (fetchNextRid) {
         var positions = collection.higherPositions(
@@ -5118,9 +5093,9 @@ public abstract class AbstractStorage
   }
 
   @SuppressWarnings("unused")
-  protected static Int2ObjectMap<List<RecordId>> getRidsGroupedByCollection(
-      final Collection<RecordId> rids) {
-    final var ridsPerCollection = new Int2ObjectOpenHashMap<List<RecordId>>(8);
+  protected static Int2ObjectMap<List<RecordIdInternal>> getRidsGroupedByCollection(
+      final Collection<RecordIdInternal> rids) {
+    final var ridsPerCollection = new Int2ObjectOpenHashMap<List<RecordIdInternal>>(8);
     for (final var rid : rids) {
       final var group =
           ridsPerCollection.computeIfAbsent(rid.getCollectionId(),

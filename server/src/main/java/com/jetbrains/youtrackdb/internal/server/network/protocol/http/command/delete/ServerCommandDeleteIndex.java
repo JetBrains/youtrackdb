@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.delete;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpUtils;
@@ -50,7 +50,8 @@ public class ServerCommandDeleteIndex extends ServerCommandDocumentAbstract {
       db.executeInTxInternal(transaction -> {
         final boolean found;
         if (urlParts.length > 4) {
-          found = index.remove(transaction, urlParts[3], new RecordId(urlParts[3]));
+          found = index.remove(transaction, urlParts[3],
+              RecordIdInternal.fromString(urlParts[3], false));
         } else {
           found = index.remove(transaction, urlParts[3]);
         }
