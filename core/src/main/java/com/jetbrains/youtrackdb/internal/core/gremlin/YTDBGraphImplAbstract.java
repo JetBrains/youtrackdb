@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.StreamUtils.asStrea
 
 import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -38,7 +39,6 @@ import org.apache.tinkerpop.gremlin.structure.Transaction.Status;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
-import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -251,8 +251,8 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
   @Override
   public String toString() {
-    return StringFactory.graphString(this,
-        configuration.getString(ConfigurationParameters.CONFIG_DB_NAME));
+    return YTDBGraph.class.getSimpleName() + "[" + configuration.getString(
+        ConfigurationParameters.CONFIG_DB_NAME) + "]";
   }
 
   public DatabaseSessionEmbedded getUnderlyingDatabaseSession() {

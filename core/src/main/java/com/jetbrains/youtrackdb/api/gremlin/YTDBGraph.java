@@ -10,6 +10,10 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import javax.annotation.Nonnull;
+import org.apache.commons.lang3.function.FailableConsumer;
+import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 
@@ -58,7 +62,45 @@ public interface YTDBGraph extends Graph {
 
 
   @Override
-  default GraphTraversalSource traversal() {
+  default YTDBGraphTraversalSource traversal() {
     return new YTDBGraphTraversalSource(this);
+  }
+
+  /// Start a new transaction if it is not yet started and executes passed in code in it.
+  ///
+  /// If a transaction is already started, executes passed in code in it. In case of exception,
+  /// rolls back the transaction and commits the changes if the transaction was started by this
+  /// method.
+  default <X extends Exception> void executeInTx(
+      @Nonnull FailableConsumer<YTDBGraphTraversalSource, X> code) throws X {
+    var tx = tx();
+    YTDBTransaction.executeInTX(code, (YTDBTransaction) tx);
+  }
+
+  /// Start a new transaction if it is not yet started and executes passed in code in it and then
+  /// returns the result of the code execution.
+  ///
+  /// If a transaction is already started, executes passed in code in it. In case of exception,
+  /// rolls back the transaction and commits the changes if the transaction was started by this
+  /// method.
+  default <X extends Exception, R> R computeInTx(
+      @Nonnull FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
+    var tx = tx();
+    return YTDBTransaction.computeInTx(code, (YTDBTransaction) tx);
+  }
+
+  /// Start a new transaction if it is not yet started and executes passed in code in it.
+  ///
+  /// If a transaction is already started, executes passed in code in it. In case of exception,
+  /// rolls back the transaction and commits the changes if the transaction was started by this
+  /// method.
+  ///
+  /// Unlike {@link #executeInTx(FailableConsumer)} also iterates over the returned
+  /// [YTDBGraphTraversal] triggering its execution.
+  default <X extends Exception> void autoExecuteInTx(
+      @Nonnull FailableFunction<YTDBGraphTraversalSource, YTDBGraphTraversal<?, ?>, X> code)
+      throws X {
+    var tx = tx();
+    YTDBTransaction.executeInTX(code, (YTDBTransaction) tx);
   }
 }

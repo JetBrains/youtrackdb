@@ -15,6 +15,7 @@ import org.junit.Test;
  *
  */
 public class LuceneRangeTest extends LuceneBaseTest {
+
   private long baseTime;
 
   @Before
@@ -77,13 +78,13 @@ public class LuceneRangeTest extends LuceneBaseTest {
     // range
     try (final var results =
         session.execute("SELECT FROM Person WHERE search_class('weight:[0.0 TO 1.1]') = true")) {
-      assertThat(results).hasSize(2);
+      assertThat(results.toList()).hasSize(2);
     }
 
     // single value
     try (final var results =
         session.execute("SELECT FROM Person WHERE search_class('weight:7.1') = true")) {
-      assertThat(results).hasSize(1);
+      assertThat(results.toList()).hasSize(1);
     }
     session.commit();
   }
@@ -111,13 +112,13 @@ public class LuceneRangeTest extends LuceneBaseTest {
     try (var results =
         session.execute("SELECT FROM Person WHERE search_class('age:[5 TO 6]') = true")) {
 
-      assertThat(results).hasSize(2);
+      assertThat(results.toList()).hasSize(2);
     }
 
     // single value
     try (var results = session.execute(
         "SELECT FROM Person WHERE search_class('age:5') = true")) {
-      assertThat(results).hasSize(1);
+      assertThat(results.toList()).hasSize(1);
     }
     session.commit();
   }
@@ -153,7 +154,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
                 + " TO "
                 + today
                 + "]')=true")) {
-      assertThat(results).hasSize(5);
+      assertThat(results.toList()).hasSize(5);
     }
     session.commit();
   }
@@ -187,7 +188,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
         session.execute(
             "SELECT * FROM Person WHERE search_class('age:[5 TO 6] name:robert  ')=true")) {
 
-      assertThat(results).hasSize(3);
+      assertThat(results.toList()).hasSize(3);
     }
 
     // date range
@@ -199,7 +200,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
                 + today
                 + "]')=true")) {
 
-      assertThat(results).hasSize(5);
+      assertThat(results.toList()).hasSize(5);
     }
 
     // age and date range with MUST
@@ -210,7 +211,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
                 + " TO "
                 + today
                 + "]')=true")) {
-      assertThat(results).hasSize(2);
+      assertThat(results.toList()).hasSize(2);
     }
   }
 

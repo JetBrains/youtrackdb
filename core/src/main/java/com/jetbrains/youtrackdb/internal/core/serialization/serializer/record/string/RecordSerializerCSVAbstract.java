@@ -39,7 +39,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
@@ -230,7 +229,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                     iName,
                     iSourceRecord,
                     linkAsString);
-            return new ChangeableRecordId();
+            return new RecordId();
           }
         } else {
           return null;
@@ -675,7 +674,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         iLinkedClass = StringSerializerHelper.getRecordClassName(session, item, iLinkedClass);
 
         if (iLinkedClass != null) {
-          var entity = new EntityImpl(session);
+          var entity = new EntityImpl(session, new RecordId());
           objectToAdd = fromString(session, item, entity, null);
           entity.setClassNameWithoutPropertiesPostProcessing(iLinkedClass.getName());
         } else
@@ -844,7 +843,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         StringSerializerHelper.smartSplit(value, StringSerializerHelper.RECORD_SEPARATOR);
     for (var item : items) {
       if (item.isEmpty()) {
-        coll.add(new ChangeableRecordId());
+        coll.add(new RecordId());
       } else {
         if (item.startsWith("#")) {
           coll.add(new RecordId(item));
@@ -869,7 +868,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         StringSerializerHelper.smartSplit(value, StringSerializerHelper.RECORD_SEPARATOR);
     for (var item : items) {
       if (item.isEmpty()) {
-        coll.add(new ChangeableRecordId());
+        coll.add(new RecordId());
       } else {
         if (item.startsWith("#")) {
           coll.add(new RecordId(item));

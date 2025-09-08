@@ -21,7 +21,7 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 @SuppressWarnings("unused")
-@GremlinDsl(traversalSource = "com.jetbrains.youtrack.db.api.gremlin.YTDBGraphTraversalSourceDSL")
+@GremlinDsl(traversalSource = "com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSourceDSL")
 public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> {
 
   default GraphTraversal<S, Vertex> addSchemaClass(String className) {

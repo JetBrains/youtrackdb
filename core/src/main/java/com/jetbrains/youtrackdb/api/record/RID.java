@@ -16,13 +16,15 @@
 
 package com.jetbrains.youtrackdb.api.record;
 
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+
 /**
- * Interface that represents a unique record id in a database.
- * Record id <b>cannot</b> be used outside the database
- * as its value can be changed during the database lifecycle (e.g., after database
- * migration).
+ * Interface that represents a unique record id in a database. Record id <b>cannot</b> be used
+ * outside the database as its value can be changed during the database lifecycle (e.g., after
+ * database migration).
  */
 public interface RID extends Identifiable {
+
   char PREFIX = '#';
   char SEPARATOR = ':';
   int COLLECTION_MAX = 32767;
@@ -36,4 +38,8 @@ public interface RID extends Identifiable {
   boolean isPersistent();
 
   boolean isNew();
+
+  static RID of(String sRid) {
+    return new RecordId(sRid);
+  }
 }

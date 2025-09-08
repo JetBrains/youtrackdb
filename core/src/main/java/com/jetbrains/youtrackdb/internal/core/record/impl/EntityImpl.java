@@ -134,22 +134,22 @@ public class EntityImpl extends RecordAbstract implements Entity {
   /**
    * Internal constructor used on unmarshalling.
    */
-  public EntityImpl(@Nonnull DatabaseSessionEmbedded session) {
-    super(session);
+  public EntityImpl(@Nonnull RecordId recordId, @Nonnull DatabaseSessionEmbedded session) {
+    super(recordId, session);
     assert session.assertIfNotActive();
+
     setup();
   }
 
   /**
    * Internal constructor used on unmarshalling.
    */
-  public EntityImpl(@Nonnull DatabaseSessionEmbedded database, RecordId rid) {
-    super(database);
+  public EntityImpl(@Nonnull DatabaseSessionEmbedded database,
+      RecordId rid) {
+    super(rid, database);
     assert assertIfAlreadyLoaded(rid);
 
     setup();
-
-    this.recordId.setCollectionAndPosition(rid.getCollectionId(), rid.getCollectionPosition());
   }
 
   /**
@@ -159,8 +159,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @param session    the session the instance will be attached to
    * @param iClassName Class name
    */
-  public EntityImpl(@Nonnull DatabaseSessionEmbedded session, final String iClassName) {
-    super(session);
+  public EntityImpl(@Nonnull RecordId recordId, @Nonnull DatabaseSessionEmbedded session,
+      final String iClassName) {
+    super(recordId, session);
 
     status = STATUS.LOADED;
     assert session.assertIfNotActive();
@@ -447,7 +448,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForBinding();
     if (!name.isEmpty() && name.charAt(0) == '@') {
-      var value = (RET) EntityHelper.getRecordAttribute(session, this, name);
+      var value = (RET) EntityHelper.getRecordAttribute(this, name);
       if (value != null) {
         return value;
       }

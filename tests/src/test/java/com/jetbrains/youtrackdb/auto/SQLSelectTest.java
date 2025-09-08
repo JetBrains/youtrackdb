@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -1493,7 +1492,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
       session.begin();
       var query = "select from PersonMultipleCollections where @rid > ? limit 2";
-      var resultset = executeQuery(query, new ChangeableRecordId());
+      var resultset = executeQuery(query, new RecordId());
 
       while (!resultset.isEmpty()) {
         final var last = resultset.getLast().getIdentity();

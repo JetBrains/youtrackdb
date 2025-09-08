@@ -10,14 +10,14 @@ import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 @Graph.OptIn(Graph.OptIn.SUITE_STRUCTURE_STANDARD)
 @Graph.OptIn(Graph.OptIn.SUITE_PROCESS_STANDARD)
 @GraphFactoryClass(YTDBGraphFactory.class)
-public class YTDBGraphImplSessionPool extends YTDBGraphImplAbstract {
+public class YTDBGraphEmbedded extends YTDBGraphImplAbstract {
   static {
-    registerOptimizationStrategies(YTDBGraphImplSessionPool.class);
+    registerOptimizationStrategies(YTDBGraphEmbedded.class);
   }
 
   private final SessionPool<DatabaseSession> sessionPool;
 
-  public YTDBGraphImplSessionPool(SessionPool<DatabaseSession> sessionPool,
+  public YTDBGraphEmbedded(SessionPool<DatabaseSession> sessionPool,
       Configuration configuration) {
     super(configuration);
     this.sessionPool = sessionPool;

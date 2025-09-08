@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -189,28 +190,28 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
 
     var query = session.query("select from Person where [name,tags] lucene 'Enrico'");
 
-    assertThat(query).hasSize(1);
+    assertThat(IteratorUtils.count(query)).isEqualTo(1);
 
     query = session.query("select from (select from Person where [name,tags] lucene 'Enrico')");
 
-    assertThat(query).hasSize(1);
+    assertThat(IteratorUtils.count(query)).isEqualTo(1);
 
     query = session.query("select from Person where [name,tags] lucene 'Jared'");
 
-    assertThat(query).hasSize(1);
+    assertThat(IteratorUtils.count(query)).isEqualTo(1);
 
     query = session.query("select from Person where [name,tags] lucene 'Funny'");
 
-    assertThat(query).hasSize(1);
+    assertThat(IteratorUtils.count(query)).isEqualTo(1);
 
     query = session.query("select from Person where [name,tags] lucene 'Geek'");
 
-    assertThat(query).hasSize(2);
+    assertThat(IteratorUtils.count(query)).isEqualTo(2);
 
     query = session.query(
         "select from Person where [name,tags] lucene '(name:Enrico AND tags:Geek)'");
 
-    assertThat(query).hasSize(1);
+    assertThat(IteratorUtils.count(query)).isEqualTo(1);
     session.commit();
   }
 
@@ -232,6 +233,6 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
 
     var search = session.query("SELECT from C1 WHERE p1 LUCENE \"tested\"");
 
-    assertThat(search).hasSize(1);
+    assertThat(IteratorUtils.count(search)).isEqualTo(1);
   }
 }

@@ -1,5 +1,6 @@
-package com.jetbrains.youtrackdb.internal.server.plugin.gremlin.process;
+package com.jetbrains.youtrackdb.internal.gremlin.suites;
 
+import com.jetbrains.youtrackdb.internal.gremlin.tests.YTDBTemporaryRidConversionTest;
 import org.apache.tinkerpop.gremlin.AbstractGremlinSuite;
 import org.apache.tinkerpop.gremlin.process.traversal.CoreTraversalTest;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalEngine.Type;

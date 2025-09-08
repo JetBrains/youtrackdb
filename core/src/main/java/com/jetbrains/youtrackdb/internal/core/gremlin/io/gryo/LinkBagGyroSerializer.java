@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.io.gryo;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.LinkBagStub;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import org.apache.tinkerpop.shaded.kryo.Kryo;
 import org.apache.tinkerpop.shaded.kryo.Serializer;
 import org.apache.tinkerpop.shaded.kryo.io.Input;
@@ -21,8 +21,10 @@ public class LinkBagGyroSerializer extends Serializer<LinkBag> {
     final var ids = input.readString().split(";");
 
     for (final var id : ids) {
-      bag.add(new RecordId(id));
+      var rid = ChangeableRecordId.deserialize(id);
+      bag.add(rid);
     }
+
     return bag;
   }
 

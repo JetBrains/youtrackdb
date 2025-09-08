@@ -60,4 +60,9 @@ public class YouTrackDBImpl extends YouTrackDBAbstract<Result, DatabaseSession> 
   public void close() {
     YTDBGraphFactory.unregisterYTDBInstance(this, super::close);
   }
+
+  @Override
+  public String toString() {
+    return "youtrackdb:" + internal.getBasePath();
+  }
 }
