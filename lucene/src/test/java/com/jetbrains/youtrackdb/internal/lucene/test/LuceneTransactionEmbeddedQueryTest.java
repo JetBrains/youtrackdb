@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.lucene.test;
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.lucene.tests.LuceneBaseTest;
 import java.util.Collection;
@@ -231,9 +231,9 @@ public class LuceneTransactionEmbeddedQueryTest extends LuceneBaseTest {
 
     var iterator = coll.iterator();
     var i = 0;
-    RecordId rid = null;
+    RecordIdInternal rid = null;
     while (iterator.hasNext()) {
-      rid = (RecordId) iterator.next();
+      rid = (RecordIdInternal) iterator.next();
       i++;
     }
 

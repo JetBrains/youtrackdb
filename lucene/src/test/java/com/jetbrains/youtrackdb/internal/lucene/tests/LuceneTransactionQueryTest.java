@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.List;
@@ -244,9 +244,9 @@ public class LuceneTransactionQueryTest extends LuceneBaseTest {
 
     var iterator = coll.iterator();
     var i = 0;
-    RecordId rid = null;
+    RecordIdInternal rid = null;
     while (iterator.hasNext()) {
-      rid = (RecordId) iterator.next();
+      rid = (RecordIdInternal) iterator.next();
       i++;
     }
 

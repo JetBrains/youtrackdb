@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.api.record.Blob;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrackdb.internal.core.record.impl.StatefullEdgeEntityImpl;
@@ -46,7 +46,7 @@ public class RecordFactoryManager {
 
   public interface RecordFactory {
 
-    DBRecord newRecord(RecordId rid, DatabaseSessionEmbedded database);
+    DBRecord newRecord(RecordIdInternal rid, DatabaseSessionEmbedded database);
   }
 
   public RecordFactoryManager() {
@@ -76,7 +76,7 @@ public class RecordFactoryManager {
     return name;
   }
 
-  public DBRecord newInstance(RecordId rid, DatabaseSessionEmbedded database) {
+  public DBRecord newInstance(RecordIdInternal rid, DatabaseSessionEmbedded database) {
     try {
       return getFactory(database.getRecordType()).newRecord(rid, database);
     } catch (Exception e) {
@@ -85,7 +85,7 @@ public class RecordFactoryManager {
   }
 
   public RecordAbstract newInstance(
-      final byte iRecordType, RecordId rid, DatabaseSessionEmbedded database) {
+      final byte iRecordType, RecordIdInternal rid, DatabaseSessionEmbedded database) {
     try {
       return (RecordAbstract) getFactory(iRecordType).newRecord(rid, database);
     } catch (Exception e) {

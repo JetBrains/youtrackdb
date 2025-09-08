@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.RetryQueryException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.type.IdentityWrapper;
 import java.util.LinkedHashMap;
@@ -78,7 +78,7 @@ public class Function extends IdentityWrapper {
    *
    * @param iRid RID of the function to load
    */
-  public Function(DatabaseSessionEmbedded session, final RecordId iRid) {
+  public Function(DatabaseSessionEmbedded session, final RecordIdInternal iRid) {
     super((EntityImpl) session.getActiveTransaction().loadEntity(iRid));
     var transaction = session.getActiveTransaction();
     var entity = transaction.loadEntity(iRid);

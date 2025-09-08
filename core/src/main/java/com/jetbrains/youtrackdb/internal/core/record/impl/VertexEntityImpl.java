@@ -19,7 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -37,10 +37,11 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   public static final byte RECORD_TYPE = 'v';
 
   public VertexEntityImpl(DatabaseSessionEmbedded database, RID rid) {
-    super(database, (RecordId) rid);
+    super(database, (RecordIdInternal) rid);
   }
 
-  public VertexEntityImpl(RecordId recordId, DatabaseSessionEmbedded session, String klass) {
+  public VertexEntityImpl(RecordIdInternal recordId, DatabaseSessionEmbedded session,
+      String klass) {
     super(recordId, session, klass);
     if (!getImmutableSchemaClass(session).isVertexType()) {
       throw new IllegalArgumentException(getSchemaClassName() + " is not a vertex class");

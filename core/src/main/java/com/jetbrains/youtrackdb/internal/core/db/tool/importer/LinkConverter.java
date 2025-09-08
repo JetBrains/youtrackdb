@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool.importer;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 
 /**
  *
@@ -33,7 +33,7 @@ public final class LinkConverter implements ValuesConverter<Identifiable> {
               "select value from " + DatabaseImport.EXPORT_IMPORT_CLASS_NAME + " where key = ?",
               rid.toString())) {
         if (resultSet.hasNext()) {
-          return new RecordId(resultSet.next().<String>getProperty("value"));
+          return RecordIdInternal.fromString(resultSet.next().getProperty("value"), false);
         }
         return value;
       }

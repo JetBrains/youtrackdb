@@ -69,18 +69,4 @@ public interface EntitySerializer {
    */
   String[] getFieldNames(DatabaseSessionInternal session, EntityImpl reference,
       BytesContainer iBytes, boolean embedded);
-
-  boolean isSerializingClassNameByDefault();
-
-  <RET> RET deserializeFieldTyped(
-      DatabaseSessionEmbedded session, BytesContainer record,
-      String iFieldName,
-      boolean isEmbedded,
-      ImmutableSchema schema,
-      PropertyEncryption encryption);
-
-  void deserializeDebug(
-      DatabaseSessionEmbedded db, BytesContainer bytes,
-      RecordSerializationDebug debugInfo,
-      ImmutableSchema schema);
 }

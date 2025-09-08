@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -124,18 +124,18 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyLinkBagIndexDefinition("testCollectionClass", "fTwo"));
 
     var ridBag = new LinkBag(session);
-    ridBag.add(new RecordId("#1:10"));
-    ridBag.add(new RecordId("#1:11"));
-    ridBag.add(new RecordId("#1:11"));
+    ridBag.add(RecordIdInternal.fromString("#1:10", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
 
     final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
         ridBag);
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:10")));
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:11")));
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:11")));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:10", false)));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:11", false)));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:11", false)));
 
     Assert.assertEquals(result, expectedResult);
   }
@@ -240,18 +240,18 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyIndexDefinition("testCollectionClass", "fOne", PropertyTypeInternal.INTEGER));
 
     var ridBag = new LinkBag(session);
-    ridBag.add(new RecordId("#1:10"));
-    ridBag.add(new RecordId("#1:11"));
-    ridBag.add(new RecordId("#1:11"));
+    ridBag.add(RecordIdInternal.fromString("#1:10", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
 
     final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(),
         Arrays.asList(ridBag, 12));
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
-    expectedResult.add(new CompositeKey(new RecordId("#1:10"), 12));
-    expectedResult.add(new CompositeKey(new RecordId("#1:11"), 12));
-    expectedResult.add(new CompositeKey(new RecordId("#1:11"), 12));
+    expectedResult.add(new CompositeKey(RecordIdInternal.fromString("#1:10", false), 12));
+    expectedResult.add(new CompositeKey(RecordIdInternal.fromString("#1:11", false), 12));
+    expectedResult.add(new CompositeKey(RecordIdInternal.fromString("#1:11", false), 12));
 
     Assert.assertEquals(result, expectedResult);
   }
@@ -294,18 +294,18 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.STRING));
 
     var ridBag = new LinkBag(session);
-    ridBag.add(new RecordId("#1:10"));
-    ridBag.add(new RecordId("#1:11"));
-    ridBag.add(new RecordId("#1:11"));
+    ridBag.add(RecordIdInternal.fromString("#1:10", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
 
     final var result = compositeIndexDefinition.createValue(session.getActiveTransaction(), 12,
         ridBag, "test");
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:10"), "test"));
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:11"), "test"));
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:11"), "test"));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:10", false), "test"));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:11", false), "test"));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:11", false), "test"));
 
     Assert.assertEquals(result, expectedResult);
   }
@@ -881,9 +881,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var document = (EntityImpl) session.newEntity();
 
     final var ridBag = new LinkBag(session);
-    ridBag.add(new RecordId("#1:10"));
-    ridBag.add(new RecordId("#1:11"));
-    ridBag.add(new RecordId("#1:11"));
+    ridBag.add(RecordIdInternal.fromString("#1:10", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
 
     document.setProperty("fOne", 12);
     document.setProperty("fTwo", ridBag);
@@ -901,9 +901,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:10")));
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:11")));
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:11")));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:10", false)));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:11", false)));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:11", false)));
 
     Assert.assertEquals(result, expectedResult);
     session.rollback();
@@ -942,9 +942,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
   public void testDocumentToIndexRidBagValueSuccessfulTwo() {
     session.begin();
     final var ridBag = new LinkBag(session);
-    ridBag.add(new RecordId("#1:10"));
-    ridBag.add(new RecordId("#1:11"));
-    ridBag.add(new RecordId("#1:11"));
+    ridBag.add(RecordIdInternal.fromString("#1:10", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
 
     final var document = (EntityImpl) session.newEntity();
 
@@ -964,9 +964,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
-    expectedResult.add(new CompositeKey(new RecordId("#1:10"), 12));
-    expectedResult.add(new CompositeKey(new RecordId("#1:11"), 12));
-    expectedResult.add(new CompositeKey(new RecordId("#1:11"), 12));
+    expectedResult.add(new CompositeKey(RecordIdInternal.fromString("#1:10", false), 12));
+    expectedResult.add(new CompositeKey(RecordIdInternal.fromString("#1:11", false), 12));
+    expectedResult.add(new CompositeKey(RecordIdInternal.fromString("#1:11", false), 12));
 
     Assert.assertEquals(result, expectedResult);
     session.rollback();
@@ -1010,9 +1010,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     final var document = (EntityImpl) session.newEntity();
 
     final var ridBag = new LinkBag(session);
-    ridBag.add(new RecordId("#1:10"));
-    ridBag.add(new RecordId("#1:11"));
-    ridBag.add(new RecordId("#1:11"));
+    ridBag.add(RecordIdInternal.fromString("#1:10", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
+    ridBag.add(RecordIdInternal.fromString("#1:11", false));
 
     document.setProperty("fOne", 12);
     document.setProperty("fTwo", ridBag);
@@ -1033,9 +1033,9 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var expectedResult = new ArrayList<CompositeKey>();
 
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:10"), "test"));
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:11"), "test"));
-    expectedResult.add(new CompositeKey(12, new RecordId("#1:11"), "test"));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:10", false), "test"));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:11", false), "test"));
+    expectedResult.add(new CompositeKey(12, RecordIdInternal.fromString("#1:11", false), "test"));
 
     Assert.assertEquals(result, expectedResult);
     session.rollback();
@@ -1479,13 +1479,14 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
     final var ridBag = new LinkBag(session);
+
     ridBag.enableTracking(null);
-    ridBag.add(new RecordId("#10:0"));
-    ridBag.add(new RecordId("#10:1"));
-    ridBag.add(new RecordId("#10:0"));
-    ridBag.add(new RecordId("#10:2"));
-    ridBag.remove(new RecordId("#10:0"));
-    ridBag.remove(new RecordId("#10:1"));
+    ridBag.add(RecordIdInternal.fromString("#10:0", false));
+    ridBag.add(RecordIdInternal.fromString("#10:1", false));
+    ridBag.add(RecordIdInternal.fromString("#10:0", false));
+    ridBag.add(RecordIdInternal.fromString("#10:2", false));
+    ridBag.remove(RecordIdInternal.fromString("#10:0", false));
+    ridBag.remove(RecordIdInternal.fromString("#10:1", false));
 
     var keysToAdd = new Object2IntOpenHashMap<CompositeKey>();
     keysToAdd.defaultReturnValue(-1);
@@ -1503,8 +1504,10 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     Assert.assertEquals(0, keysToRemove.size());
     Assert.assertEquals(2, keysToAdd.size());
 
-    Assert.assertTrue(keysToAdd.containsKey(new CompositeKey(2, new RecordId("#10:0"), 3)));
-    Assert.assertTrue(keysToAdd.containsKey(new CompositeKey(2, new RecordId("#10:2"), 3)));
+    Assert.assertTrue(
+        keysToAdd.containsKey(new CompositeKey(2, RecordIdInternal.fromString("#10:0", false), 3)));
+    Assert.assertTrue(
+        keysToAdd.containsKey(new CompositeKey(2, RecordIdInternal.fromString("#10:2", false), 3)));
   }
 
   @Test
@@ -1569,15 +1572,15 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
 
     final var ridBag = new LinkBag(session);
 
-    ridBag.add(new RecordId("#10:1"));
-    ridBag.add(new RecordId("#10:2"));
-    ridBag.add(new RecordId("#10:3"));
-    ridBag.remove(new RecordId("#10:2"));
+    ridBag.add(RecordIdInternal.fromString("#10:1", false));
+    ridBag.add(RecordIdInternal.fromString("#10:2", false));
+    ridBag.add(RecordIdInternal.fromString("#10:3", false));
+    ridBag.remove(RecordIdInternal.fromString("#10:2", false));
     ridBag.disableTracking(null);
     ridBag.enableTracking(null);
 
-    ridBag.add(new RecordId("#10:4"));
-    ridBag.remove(new RecordId("#10:1"));
+    ridBag.add(RecordIdInternal.fromString("#10:4", false));
+    ridBag.remove(RecordIdInternal.fromString("#10:1", false));
 
     var keysToAdd = new Object2IntOpenHashMap<CompositeKey>();
     keysToAdd.defaultReturnValue(-1);
@@ -1595,8 +1598,11 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     Assert.assertEquals(1, keysToRemove.size());
     Assert.assertEquals(1, keysToAdd.size());
 
-    Assert.assertTrue(keysToAdd.containsKey(new CompositeKey(2, new RecordId("#10:4"), 3)));
-    Assert.assertTrue(keysToRemove.containsKey(new CompositeKey(2, new RecordId("#10:1"), 3)));
+    Assert.assertTrue(
+        keysToAdd.containsKey(new CompositeKey(2, RecordIdInternal.fromString("#10:4", false), 3)));
+    Assert.assertTrue(
+        keysToRemove.containsKey(
+            new CompositeKey(2, RecordIdInternal.fromString("#10:1", false), 3)));
   }
 
   @Test

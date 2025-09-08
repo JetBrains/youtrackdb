@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -117,7 +118,9 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                             + " where key = ?",
                         rid.toString())) {
                   if (resultSet.hasNext()) {
-                    return new RecordId(resultSet.next().<String>getProperty("value"));
+                    return RecordIdInternal.fromString(
+                        resultSet.next().<String>getProperty("value"),
+                        false);
                   }
                   //noinspection ReturnOfNull
                   return null;
@@ -657,7 +660,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     for (final var collectionName : collectionNames1) {
       // CHECK IF THE COLLECTION IS INCLUDED
       final var collectionId1 = sessionOne.getCollectionIdByName(collectionName);
-      final var rid1 = new RecordId(collectionId1);
+      RecordIdInternal rid1 = null;
 
       var physicalPositions = sessionOne.getStorage()
           .ceilingPhysicalPositions(sessionOne, collectionId1, new PhysicalPosition(0),
@@ -675,13 +678,15 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           try {
             recordsCounter++;
 
-            final var entity1 = new EntityImpl(sessionOne, new RecordId());
-            final var entity2 = new EntityImpl(sessionTwo, new RecordId());
+            final var entity1 = new EntityImpl(sessionOne,
+                new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
+            final var entity2 = new EntityImpl(sessionTwo,
+                new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
 
             final var position = physicalPosition.collectionPosition;
-            rid1.setCollectionPosition(position);
+            rid1 = new RecordId(collectionId1, position);
 
-            final RecordId rid2;
+            final RecordIdInternal rid2;
             if (ridMapper == null) {
               rid2 = rid1;
             } else {
@@ -861,8 +866,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   }
 
   private static boolean skipRecord(
-      RecordId rid1,
-      RecordId rid2,
+      RecordIdInternal rid1,
+      RecordIdInternal rid2,
       StorageConfiguration configuration1,
       StorageConfiguration configuration2,
       String storageType1,
@@ -870,12 +875,12 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     if (rid1.getCollectionId() == 0) {
       return true;
     }
-    if (rid1.equals(new RecordId(configuration1.getIndexMgrRecordId()))
-        || rid2.equals(new RecordId(configuration2.getIndexMgrRecordId()))) {
+    if (rid1.equals(RecordIdInternal.fromString(configuration1.getIndexMgrRecordId(), false))
+        || rid2.equals(RecordIdInternal.fromString(configuration2.getIndexMgrRecordId(), false))) {
       return true;
     }
-    if (rid1.equals(new RecordId(configuration1.getSchemaRecordId()))
-        || rid2.equals(new RecordId(configuration2.getSchemaRecordId()))) {
+    if (rid1.equals(RecordIdInternal.fromString(configuration1.getSchemaRecordId(), false))
+        || rid2.equals(RecordIdInternal.fromString(configuration2.getSchemaRecordId(), false))) {
       return true;
     }
     if ((rid1.getCollectionId() == 0 && rid1.getCollectionPosition() == 0)
@@ -893,10 +898,6 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
   public void setCompareEntriesForAutomaticIndexes(boolean compareEntriesForAutomaticIndexes) {
     this.compareEntriesForAutomaticIndexes = compareEntriesForAutomaticIndexes;
-  }
-
-  public void setAutoDetectExportImportMap(boolean autoDetectExportImportMap) {
-    this.autoDetectExportImportMap = autoDetectExportImportMap;
   }
 
   private static void convertSchemaDoc(final EntityImpl entity) {

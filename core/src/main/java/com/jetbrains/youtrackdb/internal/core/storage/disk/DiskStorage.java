@@ -53,7 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.engine.local.EngineLocalPaginated;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidInstanceIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidStorageEncryptionKeyException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
@@ -1987,7 +1987,7 @@ public class DiskStorage extends AbstractStorage {
 
   @Override
   public @Nonnull ReadRecordResult readRecord(
-      DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
+      DatabaseSessionInternal session, RecordIdInternal iRid, boolean fetchPreviousRid,
       boolean fetchNextRid) {
 
     try {
@@ -2003,7 +2003,8 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session,
+      RecordIdInternal identity,
       String fieldName, RID rid) {
     throw new UnsupportedOperationException();
   }

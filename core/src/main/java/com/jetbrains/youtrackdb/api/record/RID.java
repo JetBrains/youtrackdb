@@ -17,6 +17,7 @@
 package com.jetbrains.youtrackdb.api.record;
 
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 
 /**
  * Interface that represents a unique record id in a database. Record id <b>cannot</b> be used
@@ -40,6 +41,10 @@ public interface RID extends Identifiable {
   boolean isNew();
 
   static RID of(String sRid) {
-    return new RecordId(sRid);
+    return RecordIdInternal.fromString(sRid, false);
+  }
+
+  static RID of(int collectionId, long collectionPosition) {
+    return new RecordId(collectionId, collectionPosition);
   }
 }

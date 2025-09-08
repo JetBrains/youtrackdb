@@ -16,8 +16,8 @@ import javax.annotation.Nullable;
  *
  */
 public final class ImportConvertersFactory {
-
   public static final RID BROKEN_LINK = new RecordId(-1, -42);
+
   public static final ImportConvertersFactory INSTANCE = new ImportConvertersFactory();
 
   @Nullable

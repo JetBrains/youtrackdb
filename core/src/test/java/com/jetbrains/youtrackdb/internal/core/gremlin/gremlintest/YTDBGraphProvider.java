@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexPropertyImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -109,7 +110,7 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
 
     if (id instanceof String stringId) {
       try {
-        return new RecordId(stringId);
+        return RecordIdInternal.fromString(stringId, false);
       } catch (IllegalArgumentException e) {
         //skip
       }

@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
@@ -100,7 +100,8 @@ public class DirectMemoryStorage extends AbstractStorage {
   }
 
   @Override
-  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+  public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session,
+      RecordIdInternal identity,
       String fieldName, RID rid) {
     throw new UnsupportedOperationException();
   }

@@ -207,9 +207,6 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
       forEachEntry(
           stream,
           entry -> {
-            final var rid =
-                new RecordId(entry.first.targetCollection, entry.first.targetPosition);
-
             final var treeValue = entry.second;
             size.increment(treeValue);
             return true;

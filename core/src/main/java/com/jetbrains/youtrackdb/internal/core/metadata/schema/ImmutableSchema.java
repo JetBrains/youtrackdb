@@ -19,14 +19,13 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.GlobalProperty;
 import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
@@ -54,7 +53,7 @@ public class ImmutableSchema implements SchemaInternal {
   private final IntSet blogCollections;
 
   public final int version;
-  private final RID identity;
+  private final RecordIdInternal identity;
   private final List<GlobalProperty> properties;
   private final CollectionSelectionFactory collectionSelectionFactory;
   private final Map<String, IndexDefinition> indexes;
@@ -258,8 +257,8 @@ public class ImmutableSchema implements SchemaInternal {
   }
 
   @Override
-  public RecordId getIdentity() {
-    return new RecordId(identity);
+  public RecordIdInternal getIdentity() {
+    return identity;
   }
 
   @Override

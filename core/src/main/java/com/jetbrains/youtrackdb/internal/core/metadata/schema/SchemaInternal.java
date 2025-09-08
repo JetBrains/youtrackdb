@@ -4,7 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -28,5 +28,5 @@ public interface SchemaInternal extends Schema {
 
   SchemaClassInternal getClassInternal(String iClassName);
 
-  RecordId getIdentity();
+  RecordIdInternal getIdentity();
 }

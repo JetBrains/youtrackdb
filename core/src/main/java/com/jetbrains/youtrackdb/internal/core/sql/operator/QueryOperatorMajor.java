@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
@@ -73,12 +73,14 @@ public class QueryOperatorMajor extends QueryOperatorEqualityNotNulls {
     if (iLeft instanceof SQLFilterItemField
         && EntityHelper.ATTRIBUTE_RID.equals(((SQLFilterItemField) iLeft).getRoot(session))) {
       if (iRight instanceof RID) {
-        return new RecordId(((RecordId) iRight).next());
+        return RecordIdInternal.fromString(((RecordIdInternal) iRight).next(), false);
       } else {
         if (iRight instanceof SQLFilterItemParameter
             && ((SQLFilterItemParameter) iRight).getValue(null, null, null) instanceof RID) {
-          return new RecordId(
-              ((RecordId) ((SQLFilterItemParameter) iRight).getValue(null, null, null)).next());
+          return RecordIdInternal.fromString(
+              ((RecordIdInternal) ((SQLFilterItemParameter) iRight).getValue(null, null,
+                  null)).next(),
+              false);
         }
       }
     }

@@ -25,7 +25,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.method.misc.AbstractSQLMethod;
@@ -95,10 +95,10 @@ public class SQLMethodExclude extends AbstractSQLMethod {
       Object[] iParams) {
     var db = iContext.getDatabaseSession();
     if (iThis != null) {
-      if (iThis instanceof RecordId) {
+      if (iThis instanceof RecordIdInternal) {
         try {
           var transaction = db.getActiveTransaction();
-          iThis = transaction.load(((RecordId) iThis));
+          iThis = transaction.load(((RecordIdInternal) iThis));
         } catch (RecordNotFoundException rnf) {
           return null;
         }

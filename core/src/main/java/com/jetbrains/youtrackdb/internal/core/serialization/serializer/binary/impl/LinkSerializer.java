@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerial
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
@@ -71,12 +72,13 @@ public class LinkSerializer implements BinarySerializer<RID> {
   }
 
   @Override
-  public RecordId deserialize(BinarySerializerFactory serializerFactory, final byte[] stream,
+  public RecordIdInternal deserialize(BinarySerializerFactory serializerFactory,
+      final byte[] stream,
       final int startPosition) {
     return staticDeserialize(stream, startPosition);
   }
 
-  public static RecordId staticDeserialize(final byte[] stream,
+  public static RecordIdInternal staticDeserialize(final byte[] stream,
       final int startPosition) {
     return new RecordId(
         bytes2short(stream, startPosition),
@@ -112,7 +114,8 @@ public class LinkSerializer implements BinarySerializer<RID> {
   }
 
   @Override
-  public RecordId deserializeNativeObject(BinarySerializerFactory serializerFactory, byte[] stream,
+  public RecordIdInternal deserializeNativeObject(BinarySerializerFactory serializerFactory,
+      byte[] stream,
       int startPosition) {
     final int collectionId = ShortSerializer.INSTANCE.deserializeNative(stream, startPosition);
     // Wrong implementation but needed for binary compatibility should be used deserializeNative
@@ -166,7 +169,8 @@ public class LinkSerializer implements BinarySerializer<RID> {
     final var stream = new byte[LongSerializer.LONG_SIZE];
     buffer.get(stream);
     // Wrong implementation but needed for binary compatibility
-    final long collectionPosition = LongSerializer.INSTANCE.deserialize(serializerFactory, stream, 0);
+    final long collectionPosition = LongSerializer.INSTANCE.deserialize(serializerFactory, stream,
+        0);
 
     return new RecordId(collectionId, collectionPosition);
   }
@@ -180,7 +184,8 @@ public class LinkSerializer implements BinarySerializer<RID> {
     final var stream = new byte[LongSerializer.LONG_SIZE];
     buffer.get(offset, stream);
     // Wrong implementation but needed for binary compatibility
-    final long collectionPosition = LongSerializer.INSTANCE.deserialize(serializerFactory, stream, 0);
+    final long collectionPosition = LongSerializer.INSTANCE.deserialize(serializerFactory, stream,
+        0);
 
     return new RecordId(collectionId, collectionPosition);
   }

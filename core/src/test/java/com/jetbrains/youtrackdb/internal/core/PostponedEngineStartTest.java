@@ -32,7 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
 import com.jetbrains.youtrackdb.internal.core.engine.EngineAbstract;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
@@ -283,7 +283,7 @@ public class PostponedEngineStartTest {
 
         @Override
         public @Nonnull ReadRecordResult readRecord(
-            DatabaseSessionInternal session, RecordId iRid, boolean fetchPreviousRid,
+            DatabaseSessionInternal session, RecordIdInternal iRid, boolean fetchPreviousRid,
             boolean fetchNextRid) {
           return null;
         }
@@ -402,7 +402,8 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session, RecordId identity,
+        public AbsoluteChange getLinkBagCounter(DatabaseSessionInternal session,
+            RecordIdInternal identity,
             String fieldName, RID rid) {
           return null;
         }

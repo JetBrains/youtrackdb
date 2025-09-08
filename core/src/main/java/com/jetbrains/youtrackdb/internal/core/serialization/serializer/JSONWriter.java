@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterat
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.io.IOException;
@@ -92,9 +92,9 @@ public class JSONWriter {
       }
 
     } else if (iValue instanceof Identifiable linked) {
-      if (((RecordId) linked.getIdentity()).isValidPosition()) {
+      if (((RecordIdInternal) linked.getIdentity()).isValidPosition()) {
         buffer.append('\"');
-        ((RecordId) linked.getIdentity()).toString(buffer);
+        ((RecordIdInternal) linked.getIdentity()).toString(buffer);
         buffer.append('\"');
       } else {
         if (iFormat != null && iFormat.contains("shallow")) {

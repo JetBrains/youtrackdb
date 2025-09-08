@@ -44,6 +44,7 @@ import org.testng.annotations.Test;
 @Test
 @SuppressWarnings("unchecked")
 public class SQLSelectTest extends AbstractSelectTest {
+
   @BeforeClass
   public void init() {
     generateCompanyData();
@@ -1492,7 +1493,8 @@ public class SQLSelectTest extends AbstractSelectTest {
 
       session.begin();
       var query = "select from PersonMultipleCollections where @rid > ? limit 2";
-      var resultset = executeQuery(query, new RecordId());
+      var resultset = executeQuery(query,
+          new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
 
       while (!resultset.isEmpty()) {
         final var last = resultset.getLast().getIdentity();

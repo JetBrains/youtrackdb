@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.g
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpUtils;
@@ -50,7 +50,7 @@ public class ServerCommandGetDocumentByClass extends ServerCommandAuthenticatedD
       }
       final var rid = db.getCollectionIdByName(urlParts[2]) + ":" + urlParts[3];
       try {
-        rec = db.load(new RecordId(rid));
+        rec = db.load(RecordIdInternal.fromString(rid, false));
       } catch (RecordNotFoundException e) {
         iResponse.send(
             HttpUtils.STATUS_NOTFOUND_CODE,

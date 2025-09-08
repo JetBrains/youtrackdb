@@ -31,7 +31,7 @@ import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
@@ -78,7 +78,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   private final Map<String, GlobalPropertyImpl> propertiesByNameType = new HashMap<>();
   private IntOpenHashSet blobCollections = new IntOpenHashSet();
   private volatile int version = 0;
-  private volatile RecordId identity;
+  private volatile RecordIdInternal identity;
   protected volatile ImmutableSchema snapshot;
 
   private final ReentrantLock snapshotLock = new ReentrantLock();
@@ -354,8 +354,8 @@ public abstract class SchemaShared implements CloseableInStorage {
     try {
       session.executeInTx(
           transaction -> {
-            identity = new RecordId(
-                session.getStorageInfo().getConfiguration().getSchemaRecordId());
+            identity = RecordIdInternal.fromString(
+                session.getStorageInfo().getConfiguration().getSchemaRecordId(), false);
 
             EntityImpl entity = session.load(identity);
             fromStream(session, entity);
@@ -631,7 +631,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       List<Entity> globalProperties = session.newEmbeddedList();
       for (var globalProperty : properties) {
         if (globalProperty != null) {
-          globalProperties.add(((GlobalPropertyImpl) globalProperty).toEntity(session));
+          globalProperties.add(globalProperty.toEntity(session));
         }
       }
       entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
@@ -677,7 +677,8 @@ public abstract class SchemaShared implements CloseableInStorage {
 
     lock.writeLock().lock();
     try {
-      identity = new RecordId(session.getStorageInfo().getConfiguration().getSchemaRecordId());
+      identity = RecordIdInternal.fromString(
+          session.getStorageInfo().getConfiguration().getSchemaRecordId(), false);
       if (!identity.isValidPosition()) {
         throw new SchemaNotCreatedException(session.getDatabaseName(),
             "Schema is not created and cannot be loaded");
@@ -715,7 +716,7 @@ public abstract class SchemaShared implements CloseableInStorage {
     return version;
   }
 
-  public RecordId getIdentity() {
+  public RecordIdInternal getIdentity() {
     acquireSchemaReadLock();
     try {
       return identity;

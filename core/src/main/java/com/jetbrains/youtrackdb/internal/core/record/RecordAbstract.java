@@ -33,7 +33,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.SerializableStream;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
@@ -53,7 +53,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public static final String DEFAULT_FORMAT = "rid,version,class,type,keepTypes";
 
   @Nonnull
-  protected final RecordId recordId;
+  protected final RecordIdInternal recordId;
   protected int recordVersion = 0;
 
   protected byte[] source;
@@ -71,12 +71,14 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public RecordOperation txEntry;
   public boolean processingInCallback = false;
 
-  public RecordAbstract(@Nonnull RecordId recordId, @Nonnull DatabaseSessionEmbedded session) {
+  public RecordAbstract(@Nonnull RecordIdInternal recordId,
+      @Nonnull DatabaseSessionEmbedded session) {
     this.recordId = recordId;
     this.session = session;
   }
 
-  public RecordAbstract(@Nonnull RecordId recordId, @Nonnull DatabaseSessionEmbedded session,
+  public RecordAbstract(@Nonnull RecordIdInternal recordId,
+      @Nonnull DatabaseSessionEmbedded session,
       final byte[] source) {
     this.source = source;
     size = source.length;
@@ -91,7 +93,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   @Nonnull
-  public final RecordId getIdentity() {
+  public final RecordIdInternal getIdentity() {
     return recordId;
   }
 
@@ -102,21 +104,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   public boolean sourceIsParsedByProperties() {
     return status == STATUS.LOADED && source == null;
-  }
-
-  /**
-   * Resets the record to be reused. The record is fresh like just created.
-   */
-  public RecordAbstract reset() {
-    status = STATUS.LOADED;
-    recordVersion = 0;
-    size = 0;
-
-    source = null;
-    recordId.reset();
-
-    setDirty();
-    return this;
   }
 
   @Override
@@ -399,15 +386,11 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public RecordAbstract fill(
-      @Nonnull final RID rid, final int version, final byte[] buffer, boolean dirty) {
-    assert assertIfAlreadyLoaded(rid);
+      final int version, final byte[] buffer, boolean dirty) {
     var session = getSession();
-
     if (this.dirty > 0) {
       throw new DatabaseException(session.getDatabaseName(), "Cannot call fill() on dirty records");
     }
-
-    recordId.setCollectionAndPosition(rid.getCollectionId(), rid.getCollectionPosition());
 
     recordVersion = version;
     status = STATUS.LOADED;
@@ -443,22 +426,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     }
 
     return true;
-  }
-
-  public final RecordAbstract setIdentity(final int collectionId, final long collectionPosition) {
-    assert assertIfAlreadyLoaded(new RecordId(collectionId, collectionPosition));
-
-    recordId.setCollectionAndPosition(collectionId, collectionPosition);
-    return this;
-  }
-
-  public final RecordAbstract setIdentity(RID recordId) {
-    assert assertIfAlreadyLoaded(recordId);
-
-    this.recordId.setCollectionAndPosition(recordId.getCollectionId(),
-        recordId.getCollectionPosition());
-
-    return this;
   }
 
 

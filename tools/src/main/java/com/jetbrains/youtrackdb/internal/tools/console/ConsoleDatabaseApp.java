@@ -555,7 +555,8 @@ public class ConsoleDatabaseApp extends ConsoleApplication
           "TOT_REQS",
           conn.get("totalRequests"));
 
-      resultSet.add(new RawPair<>(new RecordId(), row));
+      resultSet.add(new RawPair<>(
+          new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID), row));
     }
 
     resultSet.sort((o1, o2) -> {

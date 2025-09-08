@@ -28,7 +28,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
@@ -183,9 +183,9 @@ public class FetchHelper {
 
           final var nextLevel = isEmbedded ? iLevelFromRoot : iLevelFromRoot + 1;
 
-          if (fieldValue instanceof RecordId) {
+          if (fieldValue instanceof RecordIdInternal) {
             var transaction = db.getActiveTransaction();
-            fieldValue = transaction.load(((RecordId) fieldValue));
+            fieldValue = transaction.load(((RecordIdInternal) fieldValue));
           }
 
           fetchRidMap(db,
@@ -974,7 +974,7 @@ public class FetchHelper {
       final FetchListener iListener,
       final FetchContext iContext,
       final FormatSettings settings) {
-    if (fieldValue instanceof RID && !((RecordId) fieldValue).isValidPosition()) {
+    if (fieldValue instanceof RID && !((RecordIdInternal) fieldValue).isValidPosition()) {
       // RID NULL: TREAT AS "NULL" VALUE
       iContext.onBeforeStandardField(fieldValue, fieldName, iRootRecord, null);
       iListener.parseLinked(db, iRootRecord, fieldValue, iUserObject, fieldName, iContext);
@@ -983,7 +983,7 @@ public class FetchHelper {
     }
 
     final var fieldDepthLevel = parsedRecords.getInt(fieldValue.getIdentity());
-    if (!((RecordId) fieldValue.getIdentity()).isValidPosition()
+    if (!((RecordIdInternal) fieldValue.getIdentity()).isValidPosition()
         || (fieldDepthLevel > -1 && fieldDepthLevel == iLevelFromRoot)) {
       removeParsedFromMap(parsedRecords, fieldValue);
       var transaction = db.getActiveTransaction();

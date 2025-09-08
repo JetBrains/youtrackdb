@@ -35,7 +35,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSeria
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.math.BigDecimal;
@@ -1264,7 +1264,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
 
             case STRING: {
               return readOptimizedLink(fieldValue1, false)
-                  .compareTo(new RecordId(readString(fieldValue2)));
+                  .compareTo(RecordIdInternal.fromString(readString(fieldValue2), false));
             }
           }
           break;

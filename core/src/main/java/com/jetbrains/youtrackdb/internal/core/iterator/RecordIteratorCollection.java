@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -36,7 +36,7 @@ public class RecordIteratorCollection<REC extends RecordAbstract> implements Ite
 
   private RecordAbstract nextRecord;
   private RecordAbstract currentRecord;
-  private RecordId nextNextRID;
+  private RecordIdInternal nextNextRID;
   private final int collectionId;
 
   @Nonnull
