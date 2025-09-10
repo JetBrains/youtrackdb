@@ -23,14 +23,15 @@ public class YTDBGraphQueryBuilder {
 
   private final boolean vertexStep;
 
-  // we maintain a two-level collection of the requested classes:
-  // the outer level is for each hasLabel step, the inner level is for each requested
-  // class/label within hasLabel step.
-  // all labels within a single step are combined using UNION semantics, e.g. hasLabel("A", "B")
-  // will match all vertices with label A or B. hasLabel steps themselves are combined using
-  // INTERSECT semantics, e.g. hasLabel("A").hasLabel("B") matches all vertices with both labels
-  // A and B. Note, that this only makes sense when A and B have a parent-child relationship, i.e.
-  // A is a subclass of B or B is a subclass of A. Otherwise, the result will be empty.
+  /// A two-level collection of the requested classes. The outer level is for each `hasLabel` step,
+  /// the inner level is for each requested class/label within the `hasLabel` step.
+  ///
+  /// All labels within a single step are combined using UNION semantics, e.g., `hasLabel("A", "B")`
+  /// will match all vertices with labels `A` or `B.` `hasLabel` steps themselves are combined using
+  /// INTERSECT semantics, e.g., `hasLabel("A").hasLabel("B")` matches all vertices with both labels
+  /// `A` and `B.` Note, that this only makes sense when `A` and `B` have a parent-child
+  /// relationship, i.e. `A` is a subclass of `B` or `B` is a subclass of `A.` Otherwise, the result
+  /// will be empty.
   private final Set<Set<String>> requestedClasses = new HashSet<>();
 
   private final List<Param> params = new ArrayList<>();
