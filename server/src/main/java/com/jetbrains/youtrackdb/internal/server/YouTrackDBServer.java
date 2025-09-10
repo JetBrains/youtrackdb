@@ -63,7 +63,6 @@ import com.jetbrains.youtrackdb.internal.server.network.ServerSocketFactory;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocolData;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpSessionManager;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPlugin;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginInfo;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginManager;
@@ -124,7 +123,7 @@ public class YouTrackDBServer {
   private YTDBInternalProxy databases;
 
   private final Set<String> dbNamesCache = ConcurrentHashMap.newKeySet();
-  private final ReentrantLock dbCreationLock = new ReentrantLock();
+  private final ReentrantLock dbNamesCacheLock = new ReentrantLock();
 
   public YouTrackDBServer() {
     this(!YouTrackDBEnginesManager.instance().isInsideWebContainer());
@@ -428,28 +427,6 @@ public class YouTrackDBServer {
       }
 
       running = true;
-
-      var httpAddress = "localhost:2480";
-      var ssl = false;
-      for (var listener : networkListeners) {
-        if (listener.getProtocolType().getName().equals(NetworkProtocolHttpDb.class.getName())) {
-          httpAddress = listener.getListeningAddress(true);
-          ssl = listener.getSocketFactory().isEncrypted();
-        }
-      }
-      String proto;
-      if (ssl) {
-        proto = "https";
-      } else {
-        proto = "http";
-      }
-
-      LogManager.instance()
-          .info(
-              this,
-              "YouTrackDB Studio available at $ANSI{blue %s://%s/studio/index.html}",
-              proto,
-              httpAddress);
       LogManager.instance()
           .info(
               this,
@@ -1123,12 +1100,12 @@ public class YouTrackDBServer {
 
     @Override
     public void create(String name, String user, String password, DatabaseType type) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.create(name, user, password, type);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
 
     }
@@ -1136,12 +1113,12 @@ public class YouTrackDBServer {
     @Override
     public void create(String name, String user, String password, DatabaseType type,
         YouTrackDBConfig config) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.create(name, user, password, type, config);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
 
     }
@@ -1158,12 +1135,12 @@ public class YouTrackDBServer {
 
     @Override
     public void drop(String name, String user, String password) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.drop(name, user, password);
         dbNamesCache.remove(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
 
     }
@@ -1212,24 +1189,24 @@ public class YouTrackDBServer {
     @Override
     public void restore(String name, String user, String password, String path,
         YouTrackDBConfig config) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.restore(name, user, password, path, config);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
     }
 
     @Override
     public void restore(String name, String user, String password, String path,
         @Nullable String expectedUUID, YouTrackDBConfig config) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.restore(name, user, password, path, expectedUUID, config);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
     }
 
@@ -1237,12 +1214,12 @@ public class YouTrackDBServer {
     public void restore(String name, Supplier<Iterator<String>> ibuFilesSupplier,
         Function<String, InputStream> ibuInputStreamSupplier, @Nullable String expectedUUID,
         YouTrackDBConfig config) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.restore(name, ibuFilesSupplier, ibuInputStreamSupplier, expectedUUID, config);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
     }
 
@@ -1317,12 +1294,12 @@ public class YouTrackDBServer {
     @Override
     public void create(String name, String user, String password, DatabaseType type,
         YouTrackDBConfig config, DatabaseTask<Void> createOps) {
-      dbCreationLock.lock();
+      dbNamesCacheLock.lock();
       try {
         internal.create(name, user, password, type, config, createOps);
         dbNamesCache.add(name);
       } finally {
-        dbCreationLock.unlock();
+        dbNamesCacheLock.unlock();
       }
     }
 

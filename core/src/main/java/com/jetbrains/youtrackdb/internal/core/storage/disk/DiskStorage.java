@@ -75,6 +75,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.OverlappingFileLockException;
@@ -844,18 +845,51 @@ public class DiskStorage extends AbstractStorage {
     var dbUUIDString = uuid.toString();
     final var fileLockPath = backupDirectory.resolve(dbUUIDString + "-" + BACKUP_LOCK);
     try (final var lockChannel = FileChannel.open(fileLockPath, StandardOpenOption.CREATE,
-        StandardOpenOption.WRITE)) {
+        StandardOpenOption.WRITE, StandardOpenOption.READ)) {
       try (var ignored = lockChannel.lock()) {
+        var currentTimeMillis = System.currentTimeMillis();
+
+        var timeStampBuffer = ByteBuffer.allocate(Long.BYTES);
+        if (lockChannel.size() == Long.BYTES) {
+          IOUtils.readByteBuffer(timeStampBuffer, lockChannel);
+          timeStampBuffer.rewind();
+
+          var lastBackupMillis = timeStampBuffer.getLong();
+          var minimalBackupTime = TimeUnit.MILLISECONDS.convert(
+              configuration.getContextConfiguration()
+                  .getValueAsInteger(GlobalConfiguration.STORAGE_BACKUP_MINIMUM_GAP_INTERVAL),
+              TimeUnit.SECONDS);
+          if (currentTimeMillis - lastBackupMillis < minimalBackupTime) {
+            Thread.sleep(minimalBackupTime);
+          }
+        } else if (lockChannel.size() > 0) {
+          lockChannel.truncate(0);
+          lockChannel.force(true);
+
+          var minimalBackupTime = TimeUnit.SECONDS.convert(configuration.getContextConfiguration()
+                  .getValueAsInteger(GlobalConfiguration.STORAGE_BACKUP_MINIMUM_GAP_INTERVAL),
+              TimeUnit.MILLISECONDS);
+          Thread.sleep(minimalBackupTime);
+        }
+
         backup(
             new IBULocalFileNamesSupplier(backupDirectory, name, dbUUIDString),
             new IBULocalFileInputStreamSupplier(backupDirectory, name),
             new IBULocalFileOutputStreamSupplier(backupDirectory, name),
             new IBULocalFileRemover(backupDirectory, name));
+
+        timeStampBuffer.rewind();
+        timeStampBuffer.putLong(System.currentTimeMillis());
+        IOUtils.writeByteBuffer(timeStampBuffer, lockChannel, 0);
+        lockChannel.force(true);
       } catch (OverlappingFileLockException ofle) {
         LogManager.instance().error(this, "Can not lock file '%s'."
                 + " File likely already locked by another process that performs database backup.",
             ofle, fileLockPath, ofle);
         throw ofle;
+      } catch (InterruptedException e) {
+        throw BaseException.wrapException(new DatabaseException(name, "Backup was interrupted"), e,
+            name);
       }
     } catch (IOException e) {
       throw BaseException.wrapException(
@@ -1468,7 +1502,6 @@ public class DiskStorage extends AbstractStorage {
       try {
         for (var ibuFile : ibuFiles) {
           var tmpIBUFile = tmpDirectory.resolve(ibuFile);
-
 
           var isFullBackup = false;
           try (var copyStream = Files.newOutputStream(tmpIBUFile)) {

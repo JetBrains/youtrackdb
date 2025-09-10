@@ -821,6 +821,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
               e,
               basePath.toString());
         }
+
+        embedded.callOnCreateListeners();
       } else {
         throw new DatabaseException(basePath.toString(),
             "Cannot create new database '" + name + "' because it already exists");

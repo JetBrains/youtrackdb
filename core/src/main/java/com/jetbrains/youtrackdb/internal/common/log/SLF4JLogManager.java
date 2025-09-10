@@ -22,7 +22,6 @@ import org.slf4j.event.Level;
  */
 public abstract class SLF4JLogManager {
   private final ConcurrentHashMap<String, Logger> loggersCache = new ConcurrentHashMap<>();
-  protected static final String DEFAULT_LOG = "com.jetbrains.youtrack.db";
 
   /**
    * Loges a message if provided level of logging is enabled.
