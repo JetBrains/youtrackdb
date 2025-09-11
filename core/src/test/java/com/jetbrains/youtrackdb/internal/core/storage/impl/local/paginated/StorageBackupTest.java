@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -23,6 +22,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Random;
 import java.util.UUID;
 import org.apache.commons.configuration2.BaseConfiguration;
+import org.apache.commons.io.FileUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,11 +38,11 @@ public class StorageBackupTest {
 
   @Test
   public void testBrokenFullBackup() throws Exception {
-    FileUtils.deleteRecursively(new File(testDirectory));
+    FileUtils.deleteDirectory(new File(testDirectory));
     final var dbName = StorageBackupTest.class.getSimpleName();
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
     Assert.assertTrue(backupDir.mkdirs());
 
     String backupFileName;
@@ -101,11 +101,11 @@ public class StorageBackupTest {
 
   @Test
   public void testBrokenIncrementalBackup() throws Exception {
-    FileUtils.deleteRecursively(new File(testDirectory));
+    FileUtils.deleteDirectory(new File(testDirectory));
     final var dbName = StorageBackupTest.class.getSimpleName();
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
     Assert.assertTrue(backupDir.mkdirs());
 
     String backupFileName;
@@ -170,11 +170,11 @@ public class StorageBackupTest {
   @Test
   public void testRemoveFullBackupAndLeaveTwoIncrementalBackups() throws Exception {
     //Create three backups and remove full backup, ensure that the error is thrown during restore.
-    FileUtils.deleteRecursively(new File(testDirectory));
+    FileUtils.deleteDirectory(new File(testDirectory));
     final var dbName = StorageBackupTest.class.getSimpleName();
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
     Assert.assertTrue(backupDir.mkdirs());
 
     var random = new Random();
@@ -213,11 +213,11 @@ public class StorageBackupTest {
   @Test
   public void testRemoveIncrementalBackupAndFullAndIncrementalBackups() throws Exception {
     //Create three backups and remove the first incremental backup, ensure that the error is thrown during restore.
-    FileUtils.deleteRecursively(new File(testDirectory));
+    FileUtils.deleteDirectory(new File(testDirectory));
     final var dbName = StorageBackupTest.class.getSimpleName();
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
     Assert.assertTrue(backupDir.mkdirs());
 
     var random = new Random();
@@ -256,11 +256,11 @@ public class StorageBackupTest {
 
   @Test
   public void testBackupWithoutSequenceIndex() throws Exception {
-    FileUtils.deleteRecursively(new File(testDirectory));
+    FileUtils.deleteDirectory(new File(testDirectory));
     final var dbName = StorageBackupTest.class.getSimpleName();
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
     Assert.assertTrue(backupDir.mkdirs());
 
     var random = new Random();
@@ -299,14 +299,14 @@ public class StorageBackupTest {
   }
 
   @Test
-  public void testTwoDBsMakeBackupToTheSameDir() {
-    FileUtils.deleteRecursively(new File(testDirectory));
+  public void testTwoDBsMakeBackupToTheSameDir() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
 
     final var dbName1 = StorageBackupTest.class.getSimpleName() + "1";
     final var dbName2 = StorageBackupTest.class.getSimpleName() + "2";
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
     Assert.assertTrue(backupDir.mkdirs());
 
     var random = new Random();
@@ -372,8 +372,56 @@ public class StorageBackupTest {
   }
 
   @Test
-  public void testSingeThreadFullBackup() {
-    FileUtils.deleteRecursively(new File(testDirectory));
+  public void testCreateBackupRenamedDatabaseCreateTwoMoreBackups() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
+    final var dbName = StorageBackupTest.class.getSimpleName();
+
+    final var backupDir = new File(testDirectory, "backupDir");
+    FileUtils.deleteDirectory(backupDir);
+    Assert.assertTrue(backupDir.mkdirs());
+
+    var random = new Random();
+
+    try (var youTrackDB = YourTracks.instance(testDirectory)) {
+      youTrackDB.create(dbName, DatabaseType.DISK, "admin", "admin", "admin");
+
+      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
+        generateChunkOfData(graph, random);
+        graph.backup(backupDir.toPath());
+      }
+    }
+
+    var newDbName = "new" + dbName;
+    var newDBDirectory = new File(testDirectory, newDbName);
+    FileUtils.moveDirectory(new File(new File(testDirectory), dbName), newDBDirectory);
+
+    try (var youTrackDB = YourTracks.instance(testDirectory)) {
+      try (var graph = youTrackDB.openGraph(newDbName, "admin", "admin")) {
+        generateChunkOfData(graph, random);
+        graph.backup(backupDir.toPath());
+
+        generateChunkOfData(graph, random);
+        graph.backup(backupDir.toPath());
+      }
+    }
+
+    final var backupDbName = StorageBackupTest.class.getSimpleName() + "BackUp";
+    try (var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory)) {
+      youTrackDB.restore(backupDbName, backupDir.getAbsolutePath());
+
+      final var compare =
+          new DatabaseCompare(
+              (DatabaseSessionEmbedded) youTrackDB.open(newDbName, "admin", "admin"),
+              (DatabaseSessionEmbedded) youTrackDB.open(backupDbName, "admin", "admin"),
+              System.out::println);
+
+      Assert.assertTrue(compare.compare());
+    }
+  }
+
+  @Test
+  public void testSingeThreadFullBackup() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
     final var dbName = StorageBackupTest.class.getSimpleName();
 
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
@@ -405,7 +453,7 @@ public class StorageBackupTest {
     }
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
 
     if (!backupDir.exists()) {
       Assert.assertTrue(backupDir.mkdirs());
@@ -441,12 +489,12 @@ public class StorageBackupTest {
 
     youTrackDB.close();
 
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
   }
 
   @Test
-  public void testSingeThreadIncrementalBackup() {
-    FileUtils.deleteRecursively(new File(testDirectory));
+  public void testSingeThreadIncrementalBackup() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
 
     var youTrackDB = (YouTrackDBImpl) YourTracks.instance(testDirectory);
 
@@ -479,7 +527,7 @@ public class StorageBackupTest {
     }
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
 
     if (!backupDir.exists()) {
       Assert.assertTrue(backupDir.mkdirs());
@@ -535,12 +583,12 @@ public class StorageBackupTest {
 
     youTrackDB.close();
 
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
   }
 
   @Test
-  public void testSingeThreadIncrementalBackupEncryption() {
-    FileUtils.deleteRecursively(new File(testDirectory));
+  public void testSingeThreadIncrementalBackupEncryption() throws Exception {
+    FileUtils.deleteDirectory(new File(testDirectory));
     final var config = new BaseConfiguration();
     config.setProperty(GlobalConfiguration.STORAGE_ENCRYPTION_KEY.getKey(),
         "T1JJRU5UREJfSVNfQ09PTA==");
@@ -576,7 +624,7 @@ public class StorageBackupTest {
     }
 
     final var backupDir = new File(testDirectory, "backupDir");
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
 
     if (!backupDir.exists()) {
       Assert.assertTrue(backupDir.mkdirs());
@@ -638,7 +686,7 @@ public class StorageBackupTest {
 
     youTrackDB.close();
 
-    FileUtils.deleteRecursively(backupDir);
+    FileUtils.deleteDirectory(backupDir);
   }
 
   private static void generateChunkOfData(YTDBGraph graph, Random random) {
@@ -648,7 +696,7 @@ public class StorageBackupTest {
         random.nextBytes(data);
         final var num = random.nextInt();
 
-        g.addV("BrokenClass").
+        g.addV("BackupClass").
             property("num", num, "data", data).
             iterate();
       });

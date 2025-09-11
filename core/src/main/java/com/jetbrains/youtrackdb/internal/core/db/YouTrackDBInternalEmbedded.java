@@ -756,6 +756,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     createStorage(name, null, null, DatabaseType.DISK, (YouTrackDBConfigImpl) config,
         (storage, embedded) -> {
           storage.restoreFromBackup(Path.of(path), expectedUUID);
+          embedded.getSharedContext().getSchema().reload(embedded);
+          embedded.getSharedContext().getIndexManager().reload(embedded);
         });
   }
 
@@ -766,6 +768,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
     createStorage(name, null, null, DatabaseType.DISK, (YouTrackDBConfigImpl) config,
         (storage, embedded) -> {
           storage.restoreFromBackup(ibuFilesSupplier, ibuInputStreamSupplier, expectedUUID);
+          embedded.getSharedContext().getSchema().reload(embedded);
+          embedded.getSharedContext().getIndexManager().reload(embedded);
         });
   }
 
