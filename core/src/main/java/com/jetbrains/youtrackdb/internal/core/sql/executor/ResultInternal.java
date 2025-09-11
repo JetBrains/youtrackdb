@@ -14,7 +14,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
@@ -1448,6 +1448,6 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   private static String encode(String s) {
-    return IOUtils.encodeJsonString(s);
+    return YTDBIOUtils.encodeJsonString(s);
   }
 }

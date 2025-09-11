@@ -29,7 +29,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
@@ -280,7 +280,7 @@ public enum PropertyTypeInternal {
           return new Date(number.longValue());
         }
         case String s -> {
-          if (IOUtils.isLong(value.toString())) {
+          if (YTDBIOUtils.isLong(value.toString())) {
             return new Date(Long.parseLong(value.toString()));
           }
           try {

@@ -4712,9 +4712,9 @@ public abstract class AbstractStorage
       Function<String, OutputStream> ibuOutputStreamSupplier,
       Consumer<String> ibuFileRemover);
 
-  public abstract void backup(final Path backupDirectory);
+  public abstract String backup(final Path backupDirectory);
 
-  public abstract void backup(final Supplier<Iterator<String>> ibuFilesSupplier,
+  public abstract String backup(final Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       final Consumer<String> ibuFileRemover);

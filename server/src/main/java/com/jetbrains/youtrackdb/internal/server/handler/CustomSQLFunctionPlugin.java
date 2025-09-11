@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.server.handler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.CustomSQLFunctionFactory;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
@@ -50,7 +50,7 @@ public class CustomSQLFunctionPlugin extends ServerPluginAbstract {
                         "Custom SQL functions configuration file not found"));
 
     try {
-      var configurationContent = IOUtils.readFileAsString(configFile);
+      var configurationContent = YTDBIOUtils.readFileAsString(configFile);
       configurationContent = removeComments(configurationContent);
       var objectMapper = new ObjectMapper();
       var typeReference = objectMapper.getTypeFactory()

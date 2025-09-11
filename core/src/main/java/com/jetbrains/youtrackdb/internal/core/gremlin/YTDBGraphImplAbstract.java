@@ -22,6 +22,7 @@ import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -302,9 +303,16 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   }
 
   @Override
-  public void backup(Path path) {
+  public String backup(Path path) {
     try (var session = acquireSession()) {
-      session.backup(path);
+      return session.backup(path);
+    }
+  }
+
+  @Override
+  public UUID uuid() {
+    try (var session = acquireSession()) {
+      return session.uuid();
     }
   }
 

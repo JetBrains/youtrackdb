@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.server.handler;
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -128,7 +128,7 @@ public class AutomaticBackupTest {
     Assert.assertFalse(new File(tempDirectory + "/config/automatic-backup.json").exists());
 
     var jsonConfig =
-        IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
+        YTDBIOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
     var tx = db.begin();
     var doc = ((EntityImpl) tx.newEntity());
     doc.updateFromJSON(jsonConfig);
@@ -142,7 +142,7 @@ public class AutomaticBackupTest {
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 5000)));
 
-    IOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
+    YTDBIOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
 
     final var aBackup = new AutomaticBackup();
 
@@ -177,7 +177,7 @@ public class AutomaticBackupTest {
     Assert.assertFalse(new File(tempDirectory + "/config/automatic-backup.json").exists());
 
     var jsonConfig =
-        IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
+        YTDBIOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
 
     var tx = db.begin();
     var doc = ((EntityImpl) tx.newEntity());
@@ -192,7 +192,7 @@ public class AutomaticBackupTest {
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 
-    IOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
+    YTDBIOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
 
     final var aBackup = new AutomaticBackup();
 
@@ -261,7 +261,7 @@ public class AutomaticBackupTest {
       MBeanRegistrationException {
 
     var jsonConfig =
-        IOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
+        YTDBIOUtils.readStreamAsString(getClass().getResourceAsStream("automatic-backup.json"));
 
     var tx = db.begin();
     var doc = ((EntityImpl) tx.newEntity());
@@ -276,7 +276,7 @@ public class AutomaticBackupTest {
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 
-    IOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
+    YTDBIOUtils.writeFile(new File(tempDirectory + "/config/automatic-backup.json"), doc.toJSON());
 
     final var aBackup = new AutomaticBackup();
 

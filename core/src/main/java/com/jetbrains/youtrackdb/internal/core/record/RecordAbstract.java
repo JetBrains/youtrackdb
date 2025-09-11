@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
@@ -229,7 +229,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
   public final <RET extends DBRecord> RET updateFromJSON(final InputStream iContentResult)
       throws IOException {
     final var out = new ByteArrayOutputStream();
-    IOUtils.copyStream(iContentResult, out);
+    YTDBIOUtils.copyStream(iContentResult, out);
     JSONSerializerJackson.INSTANCE.fromString(getSession(), out.toString(), this);
     return (RET) this;
   }

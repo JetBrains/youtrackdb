@@ -30,7 +30,7 @@ import com.jetbrains.youtrackdb.api.exception.TransactionException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.ContextVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -635,7 +635,7 @@ public class CommandExecutorScript extends CommandExecutorAbstract
       checkIsRecordResultSet(lastResult);
     } else if (iValue.startsWith("\"") && iValue.endsWith("\"")
         || iValue.startsWith("'") && iValue.endsWith("'")) {
-      lastResult = new ContextVariableResolver(context).parse(IOUtils.getStringContent(iValue));
+      lastResult = new ContextVariableResolver(context).parse(YTDBIOUtils.getStringContent(iValue));
       checkIsRecordResultSet(lastResult);
     } else if (iValue.startsWith("(") && iValue.endsWith(")")) {
       lastResult = executeCommand(iValue, db);
@@ -672,17 +672,18 @@ public class CommandExecutorScript extends CommandExecutorAbstract
 
   private void executeConsoleLog(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.log ".length()).trim();
-    LogManager.instance().info(this, "%s", getValue(IOUtils.wrapStringContent(value, '\''), db));
+    LogManager.instance()
+        .info(this, "%s", getValue(YTDBIOUtils.wrapStringContent(value, '\''), db));
   }
 
   private void executeConsoleOutput(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.output ".length()).trim();
-    System.out.println(getValue(IOUtils.wrapStringContent(value, '\''), db));
+    System.out.println(getValue(YTDBIOUtils.wrapStringContent(value, '\''), db));
   }
 
   private void executeConsoleError(final String lastCommand, final DatabaseSessionEmbedded db) {
     final var value = lastCommand.substring("console.error ".length()).trim();
-    System.err.println(getValue(IOUtils.wrapStringContent(value, '\''), db));
+    System.err.println(getValue(YTDBIOUtils.wrapStringContent(value, '\''), db));
   }
 
   @Nullable

@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -152,7 +152,7 @@ public class LuceneAutomaticBackupRestoreTest {
     }
 
     var jsonConfig =
-        IOUtils.readStreamAsString(
+        YTDBIOUtils.readStreamAsString(
             getClass().getClassLoader().getResourceAsStream("automatic-backup.json"));
 
     var map = JSONSerializerJackson.INSTANCE.mapFromJson(jsonConfig);
@@ -167,7 +167,7 @@ public class LuceneAutomaticBackupRestoreTest {
         "firstTime",
         new SimpleDateFormat("HH:mm:ss").format(new Date(System.currentTimeMillis() + 2000)));
 
-    IOUtils.writeFile(new File(tempFolder, "config/automatic-backup.json"),
+    YTDBIOUtils.writeFile(new File(tempFolder, "config/automatic-backup.json"),
         JSONSerializerJackson.INSTANCE.mapToJson(map));
 
     final var aBackup = new AutomaticBackup();

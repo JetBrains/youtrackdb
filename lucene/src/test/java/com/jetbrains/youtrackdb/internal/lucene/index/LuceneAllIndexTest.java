@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.lucene.index;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.lucene.test.BaseLuceneTest;
 import java.io.IOException;
@@ -25,7 +25,8 @@ public class LuceneAllIndexTest extends BaseLuceneTest {
     System.setProperty("youtrackdb.test.env", "ci");
 
     var fromStream =
-        IOUtils.readStreamAsString(ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql"));
+        YTDBIOUtils.readStreamAsString(
+            ClassLoader.getSystemResourceAsStream("testLuceneIndex.sql"));
     session.computeScript("sql", fromStream).close();
     session.setProperty("CUSTOM", "strictSql=false");
 

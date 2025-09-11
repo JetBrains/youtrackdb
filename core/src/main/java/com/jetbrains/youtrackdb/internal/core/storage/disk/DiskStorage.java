@@ -29,7 +29,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -831,7 +831,7 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public void backup(final Path backupDirectory) {
+  public String backup(final Path backupDirectory) {
     checkBackupIsNotPerformedInStorageDir(backupDirectory);
     try {
       if (!Files.exists(backupDirectory)) {
@@ -851,7 +851,7 @@ public class DiskStorage extends AbstractStorage {
 
         var timeStampBuffer = ByteBuffer.allocate(Long.BYTES);
         if (lockChannel.size() == Long.BYTES) {
-          IOUtils.readByteBuffer(timeStampBuffer, lockChannel);
+          YTDBIOUtils.readByteBuffer(timeStampBuffer, lockChannel);
           timeStampBuffer.rewind();
 
           var lastBackupMillis = timeStampBuffer.getLong();
@@ -872,7 +872,7 @@ public class DiskStorage extends AbstractStorage {
           Thread.sleep(minimalBackupTime);
         }
 
-        backup(
+        var newIbuFileName = backup(
             new IBULocalFileNamesSupplier(backupDirectory, name, dbUUIDString),
             new IBULocalFileInputStreamSupplier(backupDirectory, name),
             new IBULocalFileOutputStreamSupplier(backupDirectory, name),
@@ -880,8 +880,10 @@ public class DiskStorage extends AbstractStorage {
 
         timeStampBuffer.rewind();
         timeStampBuffer.putLong(System.currentTimeMillis());
-        IOUtils.writeByteBuffer(timeStampBuffer, lockChannel, 0);
+        YTDBIOUtils.writeByteBuffer(timeStampBuffer, lockChannel, 0);
         lockChannel.force(true);
+
+        return newIbuFileName;
       } catch (OverlappingFileLockException ofle) {
         LogManager.instance().error(this, "Can not lock file '%s'."
                 + " File likely already locked by another process that performs database backup.",
@@ -899,12 +901,13 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
+  public String backup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       Consumer<String> ibuFileRemover) {
     checkOpennessAndMigration();
 
+    String ibuNextFile;
     stateLock.readLock().lock();
     try {
       checkOpennessAndMigration();
@@ -937,7 +940,6 @@ public class DiskStorage extends AbstractStorage {
             }
           }
 
-          String ibuNextFile;
           int nextFileIndex;
           LogSequenceNumber fromLsn = null;
 
@@ -975,6 +977,8 @@ public class DiskStorage extends AbstractStorage {
     } finally {
       stateLock.readLock().unlock();
     }
+
+    return ibuNextFile;
   }
 
   private static void writeBackupMetadata(XXHashOutputStream xxHashStream, UUID uuid,
@@ -1342,7 +1346,7 @@ public class DiskStorage extends AbstractStorage {
 
   private static byte[] restoreIv(final ZipInputStream zipInputStream) throws IOException {
     final var iv = new byte[16];
-    IOUtils.readFully(zipInputStream, iv, 0, iv.length);
+    YTDBIOUtils.readFully(zipInputStream, iv, 0, iv.length);
 
     return iv;
   }
@@ -1427,8 +1431,9 @@ public class DiskStorage extends AbstractStorage {
           }
 
           var fileName = path.getFileName();
-          return fileName.toString().endsWith(IBU_EXTENSION) && (expectedUUID == null
-              || fileName.startsWith(
+          var strFileName = fileName.toString();
+          return strFileName.endsWith(IBU_EXTENSION) && (expectedUUID == null
+              || strFileName.startsWith(
               expectedUUID));
         }).map(path -> path.getFileName().toString()).toList().iterator();
       } catch (IOException e) {
@@ -1498,7 +1503,6 @@ public class DiskStorage extends AbstractStorage {
 
       UUID metadataUUID = null;
       LogSequenceNumber lastLsn = null;
-      var metadataList = new ArrayList<BackupMetadata>();
       try {
         for (var ibuFile : ibuFiles) {
           var tmpIBUFile = tmpDirectory.resolve(ibuFile);
@@ -1508,7 +1512,6 @@ public class DiskStorage extends AbstractStorage {
             try (var bufferedCopyStream = new BufferedOutputStream(copyStream)) {
               var backupMetadata = validateFileAndFetchBackupMetadata(ibuFile,
                   uuidExpectedInBackup, ibuInputStreamSupplier, bufferedCopyStream);
-              metadataList.add(backupMetadata);
               if (backupMetadata == null) {
                 throw new DatabaseException(name, "Backup unit file " + ibuFile
                     + " contains invalid content, restore from this backup is impossible.");
@@ -1519,17 +1522,20 @@ public class DiskStorage extends AbstractStorage {
                 throw new DatabaseException(name, "Backup unit files from different databases "
                     + "cannot be restored in the same database.");
               }
-              if (isFullBackup && backupMetadata.startLsn == null) {
-                throw new DatabaseException(name,
-                    "There are two full backups in the backup, restore is impossible. ");
+
+              if (lastLsn != null) {
+                if (backupMetadata.startLsn == null) {
+                  throw new DatabaseException(name,
+                      "There are two full backups in the backup, restore is impossible. ");
+                }
+
+                if (!backupMetadata.startLsn.equals(lastLsn)) {
+                  throw new DatabaseException(
+                      "Backup files are not contiguous, some changes are missing, restore is impossible.");
+                }
               }
 
               isFullBackup = backupMetadata.startLsn == null;
-
-              if (lastLsn != null && !backupMetadata.startLsn.equals(lastLsn)) {
-                throw new DatabaseException(
-                    "Backup files are not contiguous, some changes are missing, restore is impossible.");
-              }
               lastLsn = backupMetadata.endLsn;
             }
           }
@@ -1712,7 +1718,7 @@ public class DiskStorage extends AbstractStorage {
       }
 
       final var binaryFileId = new byte[LongSerializer.LONG_SIZE];
-      IOUtils.readFully(zipInputStream, binaryFileId, 0, binaryFileId.length);
+      YTDBIOUtils.readFully(zipInputStream, binaryFileId, 0, binaryFileId.length);
 
       final var expectedFileId = LongSerializer.deserializeLiteral(binaryFileId, 0);
       long fileId;
@@ -1944,7 +1950,6 @@ public class DiskStorage extends AbstractStorage {
       super.close();
     }
   }
-
 
   private static final class IBUFileNamesComparator implements Comparator<String> {
 

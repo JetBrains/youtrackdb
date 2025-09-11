@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import java.util.Collections;
@@ -52,7 +52,7 @@ public abstract class DatabaseTool<S extends BasicDatabaseSession<?, ?>> impleme
           parseSetting(o, Collections.EMPTY_LIST);
         } else {
           final var option = o.substring(0, sep);
-          final var value = IOUtils.getStringContent(o.substring(sep + 1));
+          final var value = YTDBIOUtils.getStringContent(o.substring(sep + 1));
           final var items = StringSerializerHelper.smartSplit(value, ' ');
           parseSetting(option, items);
         }

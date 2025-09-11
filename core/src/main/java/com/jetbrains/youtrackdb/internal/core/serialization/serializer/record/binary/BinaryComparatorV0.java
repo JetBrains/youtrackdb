@@ -30,7 +30,7 @@ import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.re
 import static com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.HelperClasses.stringFromBytes;
 
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
@@ -541,7 +541,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
             case STRING: {
               final var value2AsString = readString(fieldValue2);
 
-              if (IOUtils.isLong(value2AsString)) {
+              if (YTDBIOUtils.isLong(value2AsString)) {
                 final var value2 = Long.parseLong(value2AsString);
                 return value1 == value2;
               }
@@ -1093,7 +1093,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
             case STRING: {
               final var value2AsString = readString(fieldValue2);
 
-              if (IOUtils.isLong(value2AsString)) {
+              if (YTDBIOUtils.isLong(value2AsString)) {
                 final var value2 = Long.parseLong(value2AsString);
                 return Long.compare(value1, value2);
               }
@@ -1158,7 +1158,7 @@ public class BinaryComparatorV0 implements BinaryComparator {
             case STRING: {
               final var value2AsString = readString(fieldValue2);
 
-              if (IOUtils.isLong(value2AsString)) {
+              if (YTDBIOUtils.isLong(value2AsString)) {
                 final var value2 = Long.parseLong(value2AsString);
                 return Long.compare(value1, value2);
               }

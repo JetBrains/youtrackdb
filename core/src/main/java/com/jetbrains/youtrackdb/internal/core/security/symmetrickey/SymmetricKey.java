@@ -20,7 +20,7 @@ package com.jetbrains.youtrackdb.internal.core.security.symmetrickey;
 
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
@@ -272,7 +272,7 @@ public class SymmetricKey {
     String base64Key = null;
 
     try {
-      base64Key = IOUtils.readStreamAsString(is);
+      base64Key = YTDBIOUtils.readStreamAsString(is);
     } catch (Exception ex) {
       throw BaseException.wrapException(
           new SecurityException("SymmetricKey.fromStream() Exception: " + ex.getMessage()), ex,

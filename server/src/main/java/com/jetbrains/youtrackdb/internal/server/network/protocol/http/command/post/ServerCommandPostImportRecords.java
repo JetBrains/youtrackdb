@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post;
 
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
@@ -77,7 +77,7 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
         }
 
         final var columns = StringSerializerHelper.smartSplit(header, separator);
-        columns.replaceAll(IOUtils::getStringContent);
+        columns.replaceAll(YTDBIOUtils::getStringContent);
 
         var imported = 0;
         var errors = 0;
@@ -115,7 +115,7 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
               if (cellValue.length() >= 2
                   && cellValue.charAt(0) == stringDelimiter
                   && cellValue.charAt(cellValue.length() - 1) == stringDelimiter) {
-                value = IOUtils.getStringContent(cellValue);
+                value = YTDBIOUtils.getStringContent(cellValue);
               } else {
                 try {
                   value = numberFormat.parse(cellValue);

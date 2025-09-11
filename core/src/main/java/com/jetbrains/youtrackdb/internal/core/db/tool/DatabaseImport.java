@@ -34,7 +34,7 @@ import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
@@ -641,7 +641,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                 jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
 
                 final var clsName =
-                    IOUtils.getStringContent(StringUtils.trim(jsonReader.getValue()));
+                    YTDBIOUtils.getStringContent(StringUtils.trim(jsonReader.getValue()));
 
                 if (SchemaClass.VERTEX_CLASS_NAME.equals(clsName)) {
                   isVertex = true;

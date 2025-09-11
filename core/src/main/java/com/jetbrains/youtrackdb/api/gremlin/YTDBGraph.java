@@ -2,15 +2,15 @@ package com.jetbrains.youtrackdb.api.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
@@ -58,7 +58,8 @@ public interface YTDBGraph extends Graph {
   /// otherwise only changes after the last backup in the same folder will be copied.
   ///
   /// @param path Path to the backup folder.
-  void backup(Path path);
+  /// @return The name of the last backup file.
+  String backup(Path path);
 
 
   @Override
@@ -103,4 +104,15 @@ public interface YTDBGraph extends Graph {
     var tx = tx();
     YTDBTransaction.executeInTX(code, (YTDBTransaction) tx);
   }
+
+  /// Returns [UUID] generated during the creation of the database. Each DB instance his unique
+  /// [UUID] identifier.
+  ///
+  /// It is used during generation of backups and also to identify the same replicas of the database
+  /// on different hosts.
+  UUID uuid();
+
+  /// Closes current graph instance and release acquired resources.
+  @Override
+  void close();
 }

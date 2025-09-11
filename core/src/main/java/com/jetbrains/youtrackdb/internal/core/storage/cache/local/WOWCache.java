@@ -33,7 +33,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
@@ -2229,13 +2229,13 @@ public final class WOWCache extends AbstractWriteCache
   private static NameFileIdEntry readNextNameIdEntryV1(FileChannel nameIdMapHolder) throws IOException {
     try {
       var buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var nameSize = buffer.getInt();
       buffer = ByteBuffer.allocate(nameSize + LongSerializer.LONG_SIZE);
 
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var name = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
@@ -2251,7 +2251,7 @@ public final class WOWCache extends AbstractWriteCache
   private static NameFileIdEntry readNextNameIdEntryV2(FileChannel nameIdMapHolder) throws IOException {
     try {
       var buffer = ByteBuffer.allocate(2 * IntegerSerializer.INT_SIZE);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var fileId = buffer.getInt();
@@ -2259,19 +2259,19 @@ public final class WOWCache extends AbstractWriteCache
 
       buffer = ByteBuffer.allocate(nameSize);
 
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var name = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
 
       buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var fileNameSize = buffer.getInt();
 
       buffer = ByteBuffer.allocate(fileNameSize);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var fileName = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
@@ -2290,7 +2290,7 @@ public final class WOWCache extends AbstractWriteCache
       final var recordSizeLen = 4;
 
       var buffer = ByteBuffer.allocate(xxHashLen + recordSizeLen);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var storedXxHash = buffer.getLong();
@@ -2310,7 +2310,7 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       buffer = ByteBuffer.allocate(recordLen);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
+      YTDBIOUtils.readByteBuffer(buffer, nameIdMapHolder);
       buffer.rewind();
 
       final var xxHash = DiskStorage.XX_HASH_64.hash(buffer, 0, recordLen,
@@ -2386,7 +2386,7 @@ public final class WOWCache extends AbstractWriteCache
 
     serializedRecord.position(0);
 
-    IOUtils.writeByteBuffer(serializedRecord, nameIdMapHolder, nameIdMapHolder.size());
+    YTDBIOUtils.writeByteBuffer(serializedRecord, nameIdMapHolder, nameIdMapHolder.size());
     //noinspection ResultOfMethodCallIgnored
     nameIdMapHolder.write(serializedRecord);
 

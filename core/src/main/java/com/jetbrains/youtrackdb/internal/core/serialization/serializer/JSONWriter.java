@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -208,7 +208,7 @@ public class JSONWriter {
 
   public static Object encode(final Object iValue) {
     if (iValue instanceof String) {
-      return IOUtils.encodeJsonString((String) iValue);
+      return YTDBIOUtils.encodeJsonString((String) iValue);
     } else {
       return iValue;
     }

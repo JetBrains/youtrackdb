@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -230,7 +230,7 @@ public class EntityHelper {
             // MULTI VALUE
             final var values = new Object[indexParts.size()];
             for (var i = 0; i < indexParts.size(); ++i) {
-              final var iFieldName1 = IOUtils.getStringContent(indexParts.get(i));
+              final var iFieldName1 = YTDBIOUtils.getStringContent(indexParts.get(i));
               values[i] = ((EntityImpl) record).getProperty(iFieldName1);
             }
             value = values;
@@ -264,7 +264,7 @@ public class EntityHelper {
                 RecordSerializerStringAbstract.getTypeValue(session, indexCondition.get(1));
 
             if (conditionFieldValue instanceof String) {
-              conditionFieldValue = IOUtils.getStringContent(conditionFieldValue);
+              conditionFieldValue = YTDBIOUtils.getStringContent(conditionFieldValue);
             }
 
             final var fieldValue = getFieldValue(session, currentRecord, conditionFieldName);
@@ -306,12 +306,12 @@ public class EntityHelper {
             final var values = new Object[indexParts.size()];
             if (value instanceof Map<?, ?> map) {
               for (var i = 0; i < indexParts.size(); ++i) {
-                values[i] = map.get(IOUtils.getStringContent(indexParts.get(i)));
+                values[i] = map.get(YTDBIOUtils.getStringContent(indexParts.get(i)));
               }
             } else {
               var result = (Result) value;
               for (var i = 0; i < indexParts.size(); ++i) {
-                values[i] = result.getProperty(IOUtils.getStringContent(indexParts.get(i)));
+                values[i] = result.getProperty(YTDBIOUtils.getStringContent(indexParts.get(i)));
               }
             }
             value = values;
@@ -357,7 +357,7 @@ public class EntityHelper {
                 RecordSerializerStringAbstract.getTypeValue(session, indexCondition.get(1));
 
             if (conditionFieldValue instanceof String) {
-              conditionFieldValue = IOUtils.getStringContent(conditionFieldValue);
+              conditionFieldValue = YTDBIOUtils.getStringContent(conditionFieldValue);
             }
 
             Object fieldValue = null;
@@ -510,7 +510,7 @@ public class EntityHelper {
                 RecordSerializerStringAbstract.getTypeValue(session, indexCondition.get(1));
 
             if (conditionFieldValue instanceof String) {
-              conditionFieldValue = IOUtils.getStringContent(conditionFieldValue);
+              conditionFieldValue = YTDBIOUtils.getStringContent(conditionFieldValue);
             }
 
             value = filterItem(session, conditionFieldName, conditionFieldValue, value);
@@ -646,7 +646,7 @@ public class EntityHelper {
     Object index = indexPart;
     if (indexPart.indexOf(',') == -1
         && (indexPart.charAt(0) == '"' || indexPart.charAt(0) == '\'')) {
-      index = IOUtils.getStringContent(indexPart);
+      index = YTDBIOUtils.getStringContent(indexPart);
     } else if (indexPart.charAt(0) == '$') {
       final var ctxValue = iContext.getVariable(indexPart);
       if (ctxValue == null) {
@@ -946,12 +946,13 @@ public class EntityHelper {
         result = currentValue.toString().charAt(Integer.parseInt(args.getFirst()));
       } else if (function.startsWith("INDEXOF(")) {
         if (args.size() == 1) {
-          result = currentValue.toString().indexOf(IOUtils.getStringContent(args.getFirst()));
+          result = currentValue.toString().indexOf(YTDBIOUtils.getStringContent(args.getFirst()));
         } else {
           result =
               currentValue
                   .toString()
-                  .indexOf(IOUtils.getStringContent(args.get(0)), Integer.parseInt(args.get(1)));
+                  .indexOf(YTDBIOUtils.getStringContent(args.get(0)),
+                      Integer.parseInt(args.get(1)));
         }
       } else if (function.startsWith("SUBSTRING(")) {
         if (args.size() == 1) {
@@ -963,17 +964,17 @@ public class EntityHelper {
                   .substring(Integer.parseInt(args.get(0)), Integer.parseInt(args.get(1)));
         }
       } else if (function.startsWith("APPEND(")) {
-        result = currentValue + IOUtils.getStringContent(args.getFirst());
+        result = currentValue + YTDBIOUtils.getStringContent(args.getFirst());
       } else if (function.startsWith("PREFIX(")) {
-        result = IOUtils.getStringContent(args.getFirst()) + currentValue;
+        result = YTDBIOUtils.getStringContent(args.getFirst()) + currentValue;
       } else if (function.startsWith("FORMAT(")) {
         if (currentValue instanceof Date) {
           var formatter = new SimpleDateFormat(
-              IOUtils.getStringContent(args.getFirst()));
+              YTDBIOUtils.getStringContent(args.getFirst()));
           formatter.setTimeZone(DateHelper.getDatabaseTimeZone(iContext.getDatabaseSession()));
           result = formatter.format(currentValue);
         } else {
-          result = String.format(IOUtils.getStringContent(args.getFirst()), currentValue);
+          result = String.format(YTDBIOUtils.getStringContent(args.getFirst()), currentValue);
         }
       } else if (function.startsWith("LEFT(")) {
         final var len = Integer.parseInt(args.getFirst());

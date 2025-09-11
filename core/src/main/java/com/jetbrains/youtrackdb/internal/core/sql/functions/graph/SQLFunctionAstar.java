@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -134,7 +134,7 @@ public class SQLFunctionAstar extends SQLFunctionHeuristicPathFinderAbstract {
       throw new IllegalArgumentException("The destinationVertex must be a vertex record");
     }
 
-    paramWeightFieldName = IOUtils.getStringContent(iParams[2]);
+    paramWeightFieldName = YTDBIOUtils.getStringContent(iParams[2]);
 
     if (iParams.length > 3) {
       bindAdditionalParams(iParams[3], context);

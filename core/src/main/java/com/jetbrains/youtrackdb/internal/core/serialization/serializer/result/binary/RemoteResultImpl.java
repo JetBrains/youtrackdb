@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.api.remote.query.RemoteResult;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -658,6 +658,6 @@ public final class RemoteResultImpl implements RemoteResult, BasicResultInternal
   }
 
   private static String encode(String s) {
-    return IOUtils.encodeJsonString(s);
+    return YTDBIOUtils.encodeJsonString(s);
   }
 }

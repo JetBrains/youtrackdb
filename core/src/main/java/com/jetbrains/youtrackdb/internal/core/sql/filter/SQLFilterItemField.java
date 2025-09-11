@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -93,7 +93,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
 
   public SQLFilterItemField(DatabaseSessionInternal db, final String iName,
       final SchemaClass iClass) {
-    this.name = IOUtils.getStringContent(iName);
+    this.name = YTDBIOUtils.getStringContent(iName);
     collate = getCollateForField(db, iClass, name);
     if (iClass != null) {
       collatePreset = true;
@@ -191,10 +191,10 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
   public void setRoot(DatabaseSessionEmbedded session, final BaseParser iQueryToParse,
       final String iRoot) {
     if (isStringLiteral(iRoot)) {
-      this.stringValue = IOUtils.getStringContent(iRoot);
+      this.stringValue = YTDBIOUtils.getStringContent(iRoot);
     }
     // TODO support all the basic types
-    this.name = IOUtils.getStringContent(iRoot);
+    this.name = YTDBIOUtils.getStringContent(iRoot);
   }
 
   private static boolean isStringLiteral(String iRoot) {

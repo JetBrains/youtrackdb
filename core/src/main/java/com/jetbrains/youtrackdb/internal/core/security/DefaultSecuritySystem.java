@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.security;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -917,7 +917,7 @@ public class DefaultSecuritySystem implements SecuritySystem {
         }
 
         var f = new File(configFile);
-        IOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configEntity));
+        YTDBIOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configEntity));
       }
     } catch (Exception ex) {
       configEntity.put(section, oldSection);

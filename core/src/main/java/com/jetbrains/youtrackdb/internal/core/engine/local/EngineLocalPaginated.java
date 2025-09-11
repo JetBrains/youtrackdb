@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.Cl
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.jnr.Native;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -175,7 +175,7 @@ public class EngineLocalPaginated extends EngineAbstract {
 
   @Override
   public String getNameFromPath(String dbPath) {
-    return IOUtils.getRelativePathIfAny(dbPath, null);
+    return YTDBIOUtils.getRelativePathIfAny(dbPath, null);
   }
 
   @Override

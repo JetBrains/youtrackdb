@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.StringParser;
 import com.jetbrains.youtrackdb.internal.common.types.Binary;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -91,7 +91,7 @@ public abstract class StringSerializerHelper {
     switch (iType) {
       case STRING:
         if (iValue instanceof String s) {
-          return decode(IOUtils.getStringContent(s));
+          return decode(YTDBIOUtils.getStringContent(s));
         }
         return iValue.toString();
 
@@ -99,7 +99,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Integer) {
           return iValue;
         }
-        final var valueString = IOUtils.getStringContent(iValue);
+        final var valueString = YTDBIOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -110,7 +110,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Boolean) {
           return iValue;
         }
-        final var valueString = IOUtils.getStringContent(iValue);
+        final var valueString = YTDBIOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -121,7 +121,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof BigDecimal) {
           return iValue;
         }
-        final var valueString = IOUtils.getStringContent(iValue);
+        final var valueString = YTDBIOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -132,7 +132,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Float) {
           return iValue;
         }
-        final var valueString = IOUtils.getStringContent(iValue);
+        final var valueString = YTDBIOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -143,7 +143,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Long) {
           return iValue;
         }
-        final var valueString = IOUtils.getStringContent(iValue);
+        final var valueString = YTDBIOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -154,7 +154,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Double) {
           return iValue;
         }
-        final var valueString = IOUtils.getStringContent(iValue);
+        final var valueString = YTDBIOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -165,7 +165,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Short) {
           return iValue;
         }
-        final var valueString = IOUtils.getStringContent(iValue);
+        final var valueString = YTDBIOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -176,7 +176,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Byte) {
           return iValue;
         }
-        final var valueString = IOUtils.getStringContent(iValue);
+        final var valueString = YTDBIOUtils.getStringContent(iValue);
         if (valueString.isEmpty()) {
           return null;
         }
@@ -191,7 +191,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof Date) {
           return iValue;
         }
-        return new Date(Long.parseLong(IOUtils.getStringContent(iValue)));
+        return new Date(Long.parseLong(YTDBIOUtils.getStringContent(iValue)));
 
       case LINK:
         if (iValue instanceof RID) {
@@ -1343,7 +1343,7 @@ public abstract class StringSerializerHelper {
   @Deprecated
   public static String getStringContent(final Object iValue) {
     // MOVED
-    return IOUtils.getStringContent(iValue);
+    return YTDBIOUtils.getStringContent(iValue);
   }
 
   /**

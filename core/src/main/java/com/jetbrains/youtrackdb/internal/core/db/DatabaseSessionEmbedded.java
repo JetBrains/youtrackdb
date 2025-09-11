@@ -67,7 +67,7 @@ import com.jetbrains.youtrackdb.api.transaction.TxBiFunction;
 import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
@@ -166,6 +166,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -464,7 +465,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       throw new IllegalArgumentException("attribute is null");
     }
 
-    final var stringValue = IOUtils.getStringContent(iValue != null ? iValue.toString() : null);
+    final var stringValue = YTDBIOUtils.getStringContent(iValue != null ? iValue.toString() : null);
     final var storage = this.storage;
     switch (iAttribute) {
       case DATEFORMAT:
@@ -1866,6 +1867,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     callbackHooks(RecordHook.TYPE.READ, identifiable);
   }
 
+
+  public UUID uuid() {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    return storage.getUuid();
+  }
+
   @Override
   public boolean beforeReadOperations(RecordAbstract identifiable) {
     assert assertIfNotActive();
@@ -1981,7 +1990,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       throw new IllegalArgumentException("attribute is null");
     }
 
-    final var stringValue = IOUtils.getStringContent(value != null ? value.toString() : null);
+    final var stringValue = YTDBIOUtils.getStringContent(value != null ? value.toString() : null);
     final var storage = this.storage;
 
     if (attribute == ATTRIBUTES_INTERNAL.VALIDATION) {
@@ -2475,7 +2484,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public void backup(final Path path) {
+  public String backup(final Path path) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -2483,7 +2492,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkSecurity(Rule.ResourceGeneric.DATABASE, "backup", Role.PERMISSION_EXECUTE);
 
-    storage.backup(path);
+    return storage.backup(path);
   }
 
   @Override

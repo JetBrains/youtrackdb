@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.server.handler;
 
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
 import com.jetbrains.youtrackdb.internal.common.parser.VariableParser;
@@ -290,7 +290,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
     if (f.exists()) {
       // READ THE FILE
       try {
-        final var configurationContent = IOUtils.readFileAsString(f);
+        final var configurationContent = YTDBIOUtils.readFileAsString(f);
         configuration = JSONSerializerJackson.INSTANCE.mapFromJson(configurationContent);
       } catch (IOException e) {
         throw BaseException.wrapException(
@@ -306,7 +306,7 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
       try {
         f.getParentFile().mkdirs();
         f.createNewFile();
-        IOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configuration));
+        YTDBIOUtils.writeFile(f, JSONSerializerJackson.INSTANCE.mapToJson(configuration));
 
         LogManager.instance()
             .info(this, "Automatic Backup: migrated configuration to file '%s'", f);
@@ -333,10 +333,10 @@ public class AutomaticBackup extends ServerPluginAbstract implements ServerPlugi
           return;
         }
       } else if (settingName.equalsIgnoreCase("delay")) {
-        delay = IOUtils.getTimeAsMillisecs(settingValue);
+        delay = YTDBIOUtils.getTimeAsMillisecs(settingValue);
       } else if (settingName.equalsIgnoreCase("firstTime")) {
         try {
-          firstTime = IOUtils.getTodayWithTime(settingValueAsString);
+          firstTime = YTDBIOUtils.getTodayWithTime(settingValueAsString);
           if (firstTime.before(new Date())) {
             var cal = Calendar.getInstance();
             cal.setTime(firstTime);

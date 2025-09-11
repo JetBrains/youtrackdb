@@ -94,13 +94,13 @@ public class DirectMemoryStorage extends AbstractStorage {
   }
 
   @Override
-  public void backup(Path backupDirectory) {
+  public String backup(Path backupDirectory) {
     throw new UnsupportedOperationException("Backup is not supported for memory storage");
   }
 
 
   @Override
-  public void backup(Supplier<Iterator<String>> ibuFilesSupplier,
+  public String backup(Supplier<Iterator<String>> ibuFilesSupplier,
       Function<String, InputStream> ibuInputStreamSupplier,
       Function<String, OutputStream> ibuOutputStreamSupplier,
       Consumer<String> ibuFileRemover) {

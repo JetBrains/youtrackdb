@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.get;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
@@ -158,7 +158,7 @@ public class ServerCommandGetStaticContent extends ServerCommandConfigurableAbst
         var bytesOutput = new ByteArrayOutputStream();
         var stream = new GZIPOutputStream(bytesOutput, 16384);
         try {
-          IOUtils.copyStream(staticContent.is, stream);
+          YTDBIOUtils.copyStream(staticContent.is, stream);
           stream.finish();
           var compressedBytes = bytesOutput.toByteArray();
           iResponse.sendStream(

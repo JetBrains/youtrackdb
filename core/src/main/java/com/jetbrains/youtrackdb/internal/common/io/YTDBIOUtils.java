@@ -45,7 +45,7 @@ import java.util.Date;
 import java.util.Locale;
 import javax.annotation.Nullable;
 
-public class IOUtils {
+public class YTDBIOUtils {
 
   public static final long SECOND = 1000;
   public static final long MINUTE = SECOND * 60;
@@ -476,7 +476,7 @@ public class IOUtils {
     } catch (IOException | UnsupportedOperationException e) {
       LogManager.instance()
           .error(
-              IOUtils.class,
+              YTDBIOUtils.class,
               "Error during calculation file system "
                   + "block size, falling back to default one - 4K",
               e);

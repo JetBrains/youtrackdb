@@ -17,7 +17,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.method.misc;
 
 import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import javax.annotation.Nullable;
 
@@ -40,7 +40,7 @@ public class SQLMethodIndexOf extends AbstractSQLMethod {
       CommandContext iContext,
       Object ioResult,
       Object[] iParams) {
-    final var toFind = IOUtils.getStringContent(iParams[0].toString());
+    final var toFind = YTDBIOUtils.getStringContent(iParams[0].toString());
     var startIndex = iParams.length > 1 ? Integer.parseInt(iParams[1].toString()) : 0;
 
     return iThis != null ? iThis.toString().indexOf(toFind, startIndex) : null;

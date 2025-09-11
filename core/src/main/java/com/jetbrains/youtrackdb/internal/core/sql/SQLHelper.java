@@ -25,7 +25,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -128,7 +128,7 @@ public class SQLHelper {
         && iValue.charAt(iValue.length() - 1) == '\"')
     // STRING
     {
-      fieldValue = IOUtils.getStringContent(iValue);
+      fieldValue = YTDBIOUtils.getStringContent(iValue);
     } else if (iValue.charAt(0) == StringSerializerHelper.LIST_BEGIN
         && iValue.charAt(iValue.length() - 1) == StringSerializerHelper.LIST_END) {
       // COLLECTION/ARRAY
@@ -449,7 +449,7 @@ public class SQLHelper {
       case String string -> {
         final var s = string.trim();
         if (iRecord != null & !s.isEmpty()
-            && !IOUtils.isStringContent(iObject)
+            && !YTDBIOUtils.isStringContent(iObject)
             && !Character.isDigit(s.charAt(0)))
         // INTERPRETS IT
         {

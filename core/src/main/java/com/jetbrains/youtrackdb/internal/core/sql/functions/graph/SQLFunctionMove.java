@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
-import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.common.io.YTDBIOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -58,7 +58,7 @@ public abstract class SQLFunctionMove extends SQLFunctionConfigurableAbstract {
           MultiValue.array(
               iParameters,
               String.class,
-              IOUtils::getStringContent);
+              YTDBIOUtils::getStringContent);
     } else {
       labels = null;
     }
