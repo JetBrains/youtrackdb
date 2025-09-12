@@ -28,6 +28,16 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
   }
 
   @Override
+  public boolean hasProperty(String key) {
+    return YTDBVertexInternal.super.hasProperty(key);
+  }
+
+  @Override
+  public boolean removeProperty(String key) {
+    return YTDBVertexInternal.super.removeProperty(key);
+  }
+
+  @Override
   public <V> Iterator<VertexProperty<V>> properties(final String... propertyKeys) {
     Iterator<? extends Property<V>> properties = super.properties(
         propertyKeys);

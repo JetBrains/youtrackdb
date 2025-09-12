@@ -22,6 +22,14 @@ import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 public interface YTDBVertexInternal extends YTDBVertex {
 
   List<String> INTERNAL_FIELDS = Arrays.asList("@rid", "@class");
+  String META_PREFIX = "_meta_";
+
+  static boolean shouldIgnoreProperty(String key) {
+    return key == null ||
+        key.isEmpty() ||
+        INTERNAL_FIELDS.contains(key) ||
+        key.startsWith(META_PREFIX);
+  }
 
   @Override
   default Iterator<Vertex> vertices(final Direction direction, final String... labels) {
@@ -39,21 +47,46 @@ public interface YTDBVertexInternal extends YTDBVertex {
 
   @Override
   default <V> VertexProperty<V> property(String key) {
-    var graph = (YTDBGraphInternal) graph();
-    graph.tx().readWrite();
-    if (key == null || key.isEmpty()) {
+    ((YTDBGraphInternal) graph()).tx().readWrite();
+
+    if (shouldIgnoreProperty(key)) {
       return VertexProperty.empty();
     }
 
     var entity = getRawEntity();
-    if (entity.hasProperty(key) && !INTERNAL_FIELDS.contains(key) &&
-        !key.startsWith("_meta_")) {
+    if (entity.hasProperty(key)) {
       return new YTDBVertexPropertyImpl<>(key, entity.getProperty(key), this);
+    } else {
+      return VertexProperty.empty();
     }
-
-    return VertexProperty.empty();
   }
 
+  @Override
+  default boolean hasProperty(String key) {
+    ((YTDBGraphInternal) graph()).tx().readWrite();
+
+    if (shouldIgnoreProperty(key)) {
+      return false;
+    }
+
+    return getRawEntity().hasProperty(key);
+  }
+
+  @Override
+  default boolean removeProperty(String key) {
+    ((YTDBGraphInternal) graph()).tx().readWrite();
+
+    if (shouldIgnoreProperty(key)) {
+      return false;
+    }
+    final var entity = getRawEntity();
+    if (entity.hasProperty(key)) {
+      entity.removeProperty(key);
+      return true;
+    } else {
+      return false;
+    }
+  }
 
   @Override
   default <V> VertexProperty<V> property(

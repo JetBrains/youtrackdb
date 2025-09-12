@@ -74,6 +74,26 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     return propertyStream.iterator();
   }
 
+  @Override
+  public boolean hasProperty(String key) {
+    var graph = (YTDBGraphInternal) graph();
+    graph.tx().readWrite();
+    if (!hasMetadataDocument()) {
+      return false;
+    }
+    return getMetadataEntity().hasProperty(key);
+  }
+
+  @Override
+  public boolean removeProperty(String key) {
+    var graph = (YTDBGraphInternal) graph();
+    graph.tx().readWrite();
+    if (!hasMetadataDocument()) {
+      return false;
+    }
+    return getMetadataEntity().removeProperty(key);
+  }
+
   private boolean hasMetadataDocument() {
     return element.getRawEntity().getProperty(metadataKey()) != null;
   }

@@ -121,6 +121,32 @@ public abstract class YTDBElementImpl implements YTDBElement {
     return Property.empty();
   }
 
+  @Override
+  public boolean hasProperty(String key) {
+    graph.tx().readWrite();
+
+    if (key == null || key.isEmpty()) {
+      return false;
+    }
+    return getRawEntity().hasProperty(key);
+  }
+
+  @Override
+  public boolean removeProperty(String key) {
+    graph.tx().readWrite();
+
+    if (key == null || key.isEmpty()) {
+      return false;
+    }
+    final var entity = getRawEntity();
+    if (entity.hasProperty(key)) {
+      entity.removeProperty(key);
+      return true;
+    } else {
+      return false;
+    }
+  }
+
   public void property(Object... keyValues) {
     ElementHelper.legalPropertyKeyValueArray(keyValues);
 
