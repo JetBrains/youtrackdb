@@ -55,11 +55,6 @@
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-tools</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-lucene</artifactId>
       <version>${project.version}</version>
     </dependency>
@@ -80,41 +75,6 @@
   </dependencies>
   <build>
     <plugins>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <version>1.6.0</version>
-        <executions>
-          <execution>
-            <id>build-db</id>
-            <phase>prepare-package</phase>
-            <goals>
-              <goal>exec</goal>
-            </goals>
-            <configuration>
-              <executable>${java.home}/bin/java</executable>
-              <workingDirectory>${project.basedir}</workingDirectory>
-              <arguments>
-                <argument>-Xmx${heapSize}</argument>
-                <argument>-Dyoutrackdb.linkcollection.embeddedToBtreeThreshold=10000000</argument>
-                <argument>-Dyoutrackdb.memory.directMemory.preallocate=false</argument>
-                <argument>-classpath</argument>
-                <classpath/>
-                <argument>com.jetbrains.youtrackdb.internal.tools.console.ConsoleDatabaseApp
-                </argument>
-                <argument>connect embedded:${basedir}/target/databases/ root root;</argument>
-                <argument>create database demodb disk users (admin identified by 'admin' role admin, reader identified by 'reader' role reader, writer identified by 'writer' role writer);</argument>
-                <argument>use demodb admin admin;</argument>
-                <argument>LOAD SCRIPT ${basedir}/src/main/resources/demodb-1-schema.osql;</argument>
-                <argument>LOAD SCRIPT ${basedir}/src/main/resources/demodb-2.osql;</argument>
-                <argument>LOAD SCRIPT ${basedir}/src/main/resources/demodb-3.osql;</argument>
-                <argument>LOAD SCRIPT ${basedir}/src/main/resources/demodb-4.osql;</argument>
-                <argument>LOAD SCRIPT ${basedir}/src/main/resources/demodb-5.osql;</argument>
-              </arguments>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>

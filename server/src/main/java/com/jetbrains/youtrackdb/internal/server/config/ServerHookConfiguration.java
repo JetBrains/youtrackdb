@@ -17,19 +17,22 @@
  *
  *
  */
+package com.jetbrains.youtrackdb.internal.server.config;
 
-package com.jetbrains.youtrackdb.internal.common.console;
+import jakarta.xml.bind.annotation.XmlAttribute;
+import jakarta.xml.bind.annotation.XmlElementRef;
+import jakarta.xml.bind.annotation.XmlElementWrapper;
+import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlType;
 
-import java.io.IOException;
+@XmlRootElement(name = "hook")
+@XmlType(propOrder = {"parameters", "clazz"})
+public class ServerHookConfiguration {
 
-public interface ConsoleReader {
+  @XmlAttribute(name = "class", required = true)
+  public String clazz;
 
-  int FALLBACK_CONSOLE_WIDTH = 150;
-
-  String readLine() throws IOException;
-
-
-  String readPassword() throws IOException;
-
-  int getConsoleWidth();
+  @XmlElementWrapper
+  @XmlElementRef(type = ServerParameterConfiguration.class)
+  public ServerParameterConfiguration[] parameters;
 }

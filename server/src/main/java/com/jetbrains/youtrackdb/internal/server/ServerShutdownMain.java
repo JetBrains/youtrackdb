@@ -25,8 +25,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelBinaryProtocol;
 import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.NetworkProtocolException;
+import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.server.network.ServerNetworkListener;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerConfiguration;
 import java.io.IOException;
 import java.util.Arrays;
 

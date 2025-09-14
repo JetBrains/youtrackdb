@@ -21,11 +21,11 @@ package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.g
 
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
+import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpUtils;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.ServerCommandAuthenticatedServerAbstract;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerConfiguration;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;

@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command;
 
+import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpResponse;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpUtils;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerConfiguration;
 import java.io.IOException;
 import javax.annotation.Nullable;
 

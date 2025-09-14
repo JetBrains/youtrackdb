@@ -17,19 +17,27 @@
  *
  *
  */
+package com.jetbrains.youtrackdb.internal.server.config;
 
-package com.jetbrains.youtrackdb.internal.common.console;
+import jakarta.xml.bind.annotation.XmlAttribute;
+import jakarta.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlType;
 
-import java.io.IOException;
+@XmlRootElement(name = "entry")
+@XmlType(propOrder = {"value", "name"})
+public class ServerEntryConfiguration {
 
-public interface ConsoleReader {
+  @XmlAttribute
+  public String name;
 
-  int FALLBACK_CONSOLE_WIDTH = 150;
+  @XmlAttribute
+  public String value;
 
-  String readLine() throws IOException;
+  public ServerEntryConfiguration() {
+  }
 
-
-  String readPassword() throws IOException;
-
-  int getConsoleWidth();
+  public ServerEntryConfiguration(final String iName, final String iValue) {
+    name = iName;
+    value = iValue;
+  }
 }

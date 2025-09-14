@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.server.plugin;
 
 import com.jetbrains.youtrackdb.internal.server.ClientConnection;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import javax.annotation.Nullable;
 
 /**

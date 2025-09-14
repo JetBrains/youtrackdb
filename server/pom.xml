@@ -49,11 +49,6 @@ nse, Version 2.0 (the "License");
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>
-      <artifactId>youtrackdb-tools</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-core</artifactId>
       <version>${project.version}</version>
       <type>test-jar</type>
@@ -120,6 +115,21 @@ nse, Version 2.0 (the "License");
       <artifactId>youtrackdb-process-test-suites</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.xml.bind</groupId>
+      <artifactId>jakarta.xml.bind-api</artifactId>
+      <version>3.0.1</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.glassfish.jaxb</groupId>
+      <artifactId>jaxb-core</artifactId>
+      <version>3.0.2</version>
     </dependency>
   </dependencies>
 

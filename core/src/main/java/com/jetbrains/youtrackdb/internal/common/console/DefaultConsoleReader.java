@@ -84,9 +84,6 @@ public class DefaultConsoleReader implements ConsoleReader {
     }
   }
 
-  @Override
-  public void setConsole(ConsoleApplication console) {
-  }
 
   @Override
   public int getConsoleWidth() {

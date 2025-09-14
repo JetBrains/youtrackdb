@@ -22,8 +22,8 @@ package com.jetbrains.youtrackdb.internal.server.plugin;
 import com.jetbrains.youtrackdb.internal.common.util.Service;
 import com.jetbrains.youtrackdb.internal.server.ClientConnection;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocol;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
 
 /**
  * Server handler interface. Used when configured in the server configuration.

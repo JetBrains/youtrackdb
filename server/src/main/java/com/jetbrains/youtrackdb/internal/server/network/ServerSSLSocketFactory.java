@@ -18,7 +18,7 @@ package com.jetbrains.youtrackdb.internal.server.network;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;

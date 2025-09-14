@@ -28,10 +28,10 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSer
 import com.jetbrains.youtrackdb.internal.enterprise.channel.SocketChannel;
 import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.NetworkProtocolException;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
+import com.jetbrains.youtrackdb.internal.server.config.ServerCommandConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerParameterConfiguration;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.ServerCommand;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerCommandConfiguration;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.net.BindException;

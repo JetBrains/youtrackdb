@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post;
 
+import com.jetbrains.youtrackdb.internal.server.config.ServerCommandConfiguration;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpGraphResponse;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpResponse;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerCommandConfiguration;
 
 public class ServerCommandPostCommandGraph extends ServerCommandPostCommand {
 

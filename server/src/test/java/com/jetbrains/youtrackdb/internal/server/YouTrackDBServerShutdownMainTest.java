@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.server.config.ServerConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerNetworkConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerNetworkListenerConfiguration;
+import com.jetbrains.youtrackdb.internal.server.config.ServerNetworkProtocolConfiguration;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerConfiguration;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerNetworkConfiguration;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerNetworkListenerConfiguration;
-import com.jetbrains.youtrackdb.internal.tools.config.ServerNetworkProtocolConfiguration;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
