@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;

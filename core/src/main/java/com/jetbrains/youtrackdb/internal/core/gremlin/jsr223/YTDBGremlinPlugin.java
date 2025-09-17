@@ -6,16 +6,16 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBDemoGraphFactory;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBDomainObject;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBDomainVertex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBStatefulEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
+import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.YTDBOutToken;
+import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.YTDBPToken;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
@@ -47,9 +47,9 @@ public class YTDBGremlinPlugin extends AbstractGremlinPlugin {
                   YTDBGraphTraversal.class,
                   YTDBSchemaClass.class,
                   YTDBSchemaProperty.class,
-                  YTDBDomainObject.class,
-                  YTDBDomainObjectPToken.class,
-                  YTDBDomainObjectObjectOutToken.class,
+                  YTDBDomainVertex.class,
+                  YTDBPToken.class,
+                  YTDBOutToken.class,
                   YTDBIoRegistry.class,
                   DatabaseType.class,
                   RID.class

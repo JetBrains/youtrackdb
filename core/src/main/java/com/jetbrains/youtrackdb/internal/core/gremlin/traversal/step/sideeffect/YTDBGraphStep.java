@@ -2,13 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect
 
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBSchemaClassImpl;
+import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -148,8 +149,8 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
         var session = tx.getDatabaseSession();
 
         return IteratorUtils.map(
-            session.getSharedContext().getSchema().getClasses(session).iterator(),
-            schemaClass -> new YTDBSchemaClassImpl(schemaClass, graph));
+            SchemaManager.getSchemaClassEntities(session),
+            schemaClassEntity -> new YTDBSchemaClassImpl(graph, schemaClassEntity));
       }
     }
 

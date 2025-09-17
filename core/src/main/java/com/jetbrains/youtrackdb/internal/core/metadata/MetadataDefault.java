@@ -39,6 +39,9 @@ import javax.annotation.Nullable;
 public class MetadataDefault implements MetadataInternal {
 
   public static final String COLLECTION_INTERNAL_NAME = "internal";
+  public static final String COLLECTION_NAME_SCHEMA_PROPERTY = "$schemaPropertyInternal";
+  public static final String COLLECTION_NAME_GLOBAL_PROPERTY = "$globalPropertyInternal";
+
   protected int schemaCollectionId;
 
   protected SchemaProxy schema;
@@ -124,7 +127,7 @@ public class MetadataDefault implements MetadataInternal {
   public SharedContext init(SharedContext shared) {
     schemaCollectionId = database.getCollectionIdByName(COLLECTION_INTERNAL_NAME);
 
-    schema = new SchemaProxy(shared.getSchema(), database);
+    schema = new SchemaProxy(shared.getSchemaManager(), database);
     security = new SecurityProxy(shared.getSecurity(), database);
     functionLibrary = new FunctionLibraryProxy(shared.getFunctionLibrary(), database);
     sequenceLibrary = new SequenceLibraryProxy(shared.getSequenceLibrary(), database);

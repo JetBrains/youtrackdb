@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
 import java.util.Locale;
 import org.junit.After;
@@ -46,8 +45,7 @@ public class DatabaseMetadataUpdateListenerTest {
         new MetadataUpdateListener() {
 
           @Override
-          public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName,
-              SchemaShared schema) {
+          public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName) {
             schemaCount++;
             assertNotNull(schema);
           }

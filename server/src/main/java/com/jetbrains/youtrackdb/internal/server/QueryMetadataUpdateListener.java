@@ -4,15 +4,13 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 
 class QueryMetadataUpdateListener implements MetadataUpdateListener {
 
   private boolean updated = false;
 
   @Override
-  public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName,
-      SchemaShared schema) {
+  public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName) {
     updated = true;
   }
 

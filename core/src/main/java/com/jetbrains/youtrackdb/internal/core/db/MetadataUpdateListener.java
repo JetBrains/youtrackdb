@@ -2,11 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 
 public interface MetadataUpdateListener {
-
-  void onSchemaUpdate(DatabaseSessionInternal session, String databaseName, SchemaShared schema);
+  void onSchemaUpdate(DatabaseSessionInternal session, String databaseName);
 
   void onSequenceLibraryUpdate(DatabaseSessionInternal session, String databaseName);
 

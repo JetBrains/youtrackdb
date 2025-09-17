@@ -28,7 +28,6 @@ import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -207,7 +206,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       if (val == 0) {
         session
             .getSharedContext()
-            .getSchema()
+            .getSchemaManager()
             .forceSnapshot();
         session.getMetadata().forceClearThreadLocalSchemaSnapshot();
 

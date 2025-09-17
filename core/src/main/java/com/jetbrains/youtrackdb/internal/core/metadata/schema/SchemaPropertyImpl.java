@@ -54,7 +54,6 @@ import javax.annotation.Nullable;
  * Contains the description of a persistent class property.
  */
 public abstract class SchemaPropertyImpl {
-
   private static final Pattern DOUBLE_SLASH_PATTERN = Pattern.compile("\\\\");
   private static final Pattern QUOTATION_PATTERN = Pattern.compile("\"");
   protected final SchemaClassImpl owner;
@@ -96,15 +95,6 @@ public abstract class SchemaPropertyImpl {
     acquireSchemaReadLock();
     try {
       return owner.getName() + "." + globalRef.getName();
-    } finally {
-      releaseSchemaReadLock();
-    }
-  }
-
-  public String getFullNameQuoted(DatabaseSessionInternal session) {
-    acquireSchemaReadLock();
-    try {
-      return "`" + owner.getName() + "`.`" + globalRef.getName() + "`";
     } finally {
       releaseSchemaReadLock();
     }
@@ -444,7 +434,7 @@ public abstract class SchemaPropertyImpl {
     switch (attribute) {
       case LINKEDCLASS:
         setLinkedClass(session,
-            session.getSharedContext().getSchema().getClass(stringValue));
+            session.getSharedContext().getSchemaManager().getClass(stringValue));
         break;
       case LINKEDTYPE:
         if (stringValue == null) {

@@ -27,6 +27,4 @@ public interface SchemaInternal extends Schema {
   CollectionSelectionFactory getCollectionSelectionFactory();
 
   SchemaClassInternal getClassInternal(String iClassName);
-
-  RecordIdInternal getIdentity();
 }

@@ -8443,13 +8443,13 @@ SQLAlterClassStatement AlterClassStatement():
 	(
 
 		(
-			<NAME> { jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.NAME; }
+			<NAME> { jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.NAME; }
 			jjtn000.identifierValue = Identifier()
 		)
 		|
 		(
 			<SUPERCLASSES> {
-				jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.SUPERCLASSES;
+				jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.SUPERCLASSES;
 				jjtn000.identifierListValue = new ArrayList<SQLIdentifier>();
 			}
 			(
@@ -8466,7 +8466,7 @@ SQLAlterClassStatement AlterClassStatement():
 		)
 		|
 		(
-			<STRICT_MODE> { jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.STRICT_MODE; }
+			<STRICT_MODE> { jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.STRICT_MODE; }
 			(
 				(
 					<TRUE> { jjtn000.booleanValue = true; }
@@ -8479,14 +8479,14 @@ SQLAlterClassStatement AlterClassStatement():
 		)
 		|
 		(
-			<CUSTOM> { jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.CUSTOM; }
+			<CUSTOM> { jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.CUSTOM; }
 			jjtn000.customKey = Identifier()
 			<EQ>
 			jjtn000.customValue = Expression()
 		)
 		|
 		(
-			<ABSTRACT> { jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.ABSTRACT; }
+			<ABSTRACT> { jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.ABSTRACT; }
 			(
 				(
 					<TRUE> { jjtn000.booleanValue = true; }
@@ -8499,7 +8499,7 @@ SQLAlterClassStatement AlterClassStatement():
 		)
 		|
 		(
-			<DESCRIPTION> { jjtn000.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.DESCRIPTION; }
+			<DESCRIPTION> { jjtn000.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.DESCRIPTION; }
 			(
 				jjtn000.identifierValue = Identifier()
 				|

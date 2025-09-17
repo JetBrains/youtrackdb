@@ -1,16 +1,16 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
-import static com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClassOutToken.declaredProperty;
-import static com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClassOutToken.superClass;
-import static com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClassPToken.abstractClass;
-import static com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClassPToken.name;
-import static com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClassPToken.strictMode;
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassOutToken.declaredProperty;
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassOutToken.superClass;
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken.abstractClass;
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken.name;
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken.strictMode;
 
-import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaPropertyPToken;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
+import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.YTDBOutToken;
+import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.YTDBPToken;
+import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaPropertyPToken;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl.SkipAsAnonymousMethod;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
@@ -110,7 +110,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   @SkipAsAnonymousMethod
-  default <E2> GraphTraversal<S, E2> values(final YTDBDomainObjectPToken<?>... pTokens) {
+  default <E2> GraphTraversal<S, E2> values(final YTDBPToken<?>... pTokens) {
     var propertyKeys = new String[pTokens.length];
 
     for (var i = 0; i < pTokens.length; i++) {
@@ -122,7 +122,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   @SkipAsAnonymousMethod
-  default GraphTraversal<S, E> property(final YTDBDomainObjectPToken<?> pToken, final Object value,
+  default GraphTraversal<S, E> property(final YTDBPToken<?> pToken, final Object value,
       final Object... pTokenValues) {
     var firstKey = pToken.name();
     if (pTokenValues != null && pTokenValues.length > 0) {
@@ -131,7 +131,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
       }
 
       for (var i = 0; i < pTokenValues.length; i = i + 2) {
-        if (!(pTokenValues[i] instanceof YTDBDomainObjectPToken<?> domainObjectPToken)) {
+        if (!(pTokenValues[i] instanceof YTDBPToken<?> domainObjectPToken)) {
           throw new IllegalArgumentException("The provided key/value "
               + "array must have a YTDBDomainObjectPToken on even array indices");
         }
@@ -144,7 +144,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   @SkipAsAnonymousMethod
-  default GraphTraversal<S, E> has(final YTDBDomainObjectPToken<?> pToken,
+  default GraphTraversal<S, E> has(final YTDBPToken<?> pToken,
       final P<?> predicate) {
     var propertyKey = pToken.name();
 
@@ -153,7 +153,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   @SkipAsAnonymousMethod
-  default GraphTraversal<S, Edge> addE(final YTDBDomainObjectObjectOutToken<?> out) {
+  default GraphTraversal<S, Edge> addE(final YTDBOutToken<?> out) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.addE(out.name());
   }

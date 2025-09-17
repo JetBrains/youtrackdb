@@ -59,6 +59,7 @@ import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
@@ -102,7 +103,10 @@ import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaGlobalPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -1028,11 +1032,54 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     rid.setCollectionId(collectionId);
 
-    var entity = new EntityImpl(this, rid);
+    var entity = new EntityImpl(rid, this);
     entity.setInternalStatus(RecordElement.STATUS.LOADED);
 
     var tx = (FrontendTransactionImpl) currentTx;
     tx.addRecordOperation(entity, RecordOperation.CREATED);
+
+    return entity;
+  }
+
+  public SchemaPropertyEntity newSchemaPropertyEntity(final String name, final PropertyType type) {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    var collectionId = getCollectionIdByName(MetadataDefault.COLLECTION_NAME_SCHEMA_PROPERTY);
+    var rid = new ChangeableRecordId();
+
+    rid.setCollectionId(collectionId);
+
+    var entity = new SchemaPropertyEntity(rid, this);
+    entity.setInternalStatus(RecordElement.STATUS.LOADED);
+
+    var tx = (FrontendTransactionImpl) currentTx;
+    tx.addRecordOperation(entity, RecordOperation.CREATED);
+
+    entity.setName(name);
+    entity.setPropertyType(type);
+
+    return entity;
+  }
+
+  public SchemaGlobalPropertyEntity newSchemaGlobalPropertyEntity(final String name,
+      final PropertyTypeInternal type) {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    var collectionId = getCollectionIdByName(MetadataDefault.COLLECTION_NAME_GLOBAL_PROPERTY);
+    var rid = new ChangeableRecordId();
+
+    rid.setCollectionId(collectionId);
+
+    var entity = new SchemaGlobalPropertyEntity(rid, this);
+    entity.setInternalStatus(RecordElement.STATUS.LOADED);
+
+    var tx = (FrontendTransactionImpl) currentTx;
+    tx.addRecordOperation(entity, RecordOperation.CREATED);
+
+    entity.setName(name);
+    entity.setType(type);
 
     return entity;
   }
@@ -1802,6 +1849,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           sharedContext.getSecurity().incrementVersion(this);
         }
       }
+
+      if (entity instanceof SchemaPropertyEntity schemaPropertyEntity) {
+        SchemaManager.onSchemaPropertyAfterUpdate(this, schemaPropertyEntity);
+      }
     }
 
     callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
@@ -1930,9 +1981,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           var schemaId = metadata.getSchemaInternal().getIdentity();
 
           if (record.getIdentity().equals(schemaId)) {
-            var schema = sharedContext.getSchema();
             for (var listener : sharedContext.browseListeners()) {
-              listener.onSchemaUpdate(this, getDatabaseName(), schema);
+              listener.onSchemaUpdate(this, getDatabaseName());
             }
           }
         }

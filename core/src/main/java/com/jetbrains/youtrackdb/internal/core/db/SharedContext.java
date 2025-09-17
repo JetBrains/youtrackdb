@@ -11,8 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHook;
@@ -219,7 +218,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   }
 
 
-  public SchemaShared getSchema() {
+  public SchemaManager getSchemaManager() {
     return schema;
   }
 

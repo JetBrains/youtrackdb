@@ -95,7 +95,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
   private YTDBVertex createVertexWithClass(DatabaseSessionEmbedded sessionEmbedded, String label) {
     executeSchemaCode(session -> {
-      var schema = session.getSharedContext().getSchema();
+      var schema = session.getSharedContext().getSchemaManager();
       var vertexClass = schema.getClass(label);
 
       if (vertexClass == null) {

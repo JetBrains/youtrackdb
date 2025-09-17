@@ -52,18 +52,10 @@ public class ImmutableSchema implements SchemaInternal {
   private final Map<String, SchemaClassInternal> classes;
   private final IntSet blogCollections;
 
-  public final int version;
-  private final RecordIdInternal identity;
   private final List<GlobalProperty> properties;
-  private final CollectionSelectionFactory collectionSelectionFactory;
   private final Map<String, IndexDefinition> indexes;
 
-  public ImmutableSchema(@Nonnull SchemaShared schemaShared,
-      @Nonnull DatabaseSessionInternal session) {
-    version = schemaShared.getVersion();
-    identity = schemaShared.getIdentity();
-    collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
-
+  public ImmutableSchema( @Nonnull DatabaseSessionInternal session) {
     collectionsToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(session).size() * 3);
     classes = new HashMap<>(schemaShared.getClasses(session).size());
 
@@ -249,16 +241,6 @@ public class ImmutableSchema implements SchemaInternal {
     }
 
     return indexDefinition;
-  }
-
-  @Override
-  public int getVersion() {
-    return version;
-  }
-
-  @Override
-  public RecordIdInternal getIdentity() {
-    return identity;
   }
 
   @Override

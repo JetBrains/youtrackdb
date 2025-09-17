@@ -99,7 +99,7 @@ public class ImmutableSchemaProperty implements SchemaPropertyInternal {
     max = property.getMax();
     defaultValue = property.getDefaultValue();
     regexp = property.getRegexp();
-    customProperties = new HashMap<String, String>();
+    customProperties = new HashMap<>();
 
     for (var key : property.getCustomKeys()) {
       customProperties.put(key, property.getCustom(key));

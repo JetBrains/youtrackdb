@@ -70,7 +70,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
@@ -93,7 +93,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.collections4.IterableUtils;
@@ -112,7 +111,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public static final String RESULT_PROPERTY_TYPES = "$propertyTypes";
   private int propertiesCount;
 
-  private Map<String, EntityEntry> properties;
+  protected Map<String, EntityEntry> properties;
 
   private boolean lazyLoad = true;
   protected WeakReference<RecordElement> owner = null;
@@ -141,16 +140,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     setup();
   }
 
-  /**
-   * Internal constructor used on unmarshalling.
-   */
-  public EntityImpl(@Nonnull DatabaseSessionEmbedded database,
-      RecordIdInternal rid) {
-    super(rid, database);
-    assert assertIfAlreadyLoaded(rid);
-
-    setup();
-  }
 
   /**
    * Creates a new instance in memory of the specified class.
@@ -1056,7 +1045,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
-    final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
+    final var c = SchemaManager.checkPropertyNameIfValid(propertyName);
     if (allowMetadata && propertyName.charAt(0) == '@') {
       return;
     }
@@ -1347,7 +1336,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     preprocessRemovedValue(oldValue);
-    value = preprocessAssignedValue(name, value, propertyType);
+    value = preprocessAssignedValue(value, propertyType);
 
     if (oldType != propertyType) {
       entry.type = propertyType;
@@ -1397,7 +1386,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     propertiesCount++;
     properties.put(name, entry);
 
-    value = preprocessAssignedValue(name, value, propertyType);
+    value = preprocessAssignedValue(value, propertyType);
 
     if (propertyType == null) {
       assert value == null;
@@ -1411,8 +1400,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  private Object preprocessAssignedValue(String name, Object value,
-      PropertyTypeInternal propertyType) {
+  private Object preprocessAssignedValue(Object value,  PropertyTypeInternal propertyType) {
     switch (value) {
       case EntityImpl entity -> {
         if (propertyType == PropertyTypeInternal.EMBEDDED) {
@@ -3331,6 +3319,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return;
     }
 
+    customValidationRules();
+
     final var immutableSchemaClass = getImmutableSchemaClass(session);
     if (immutableSchemaClass != null) {
       if (immutableSchemaClass.isStrictMode()) {
@@ -3352,6 +3342,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
         validateProperty(session, immutableSchema, this, (ImmutableSchemaProperty) p);
       }
     }
+  }
+
+  protected void customValidationRules() throws ValidationException {
   }
 
   protected String toString(Set<DBRecord> inspected) {
@@ -3475,7 +3468,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Nullable
   public SchemaImmutableClass getImmutableSchemaClass(
       @Nonnull DatabaseSessionInternal session) {
-    if (this.session != null && this.session != session) {
+    if (this.session != session) {
       throw new DatabaseException("The entity is bounded to another session");
     }
 
@@ -3725,9 +3718,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private void setup() {
-    if (session != null) {
-      recordSerializer = session.getSerializer();
-    }
+    recordSerializer = session.getSerializer();
 
     if (recordSerializer == null) {
       recordSerializer = session.getSerializer();
@@ -3843,25 +3834,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     //noinspection unchecked
     return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
-  }
-
-  public List<Entry<String, EntityEntry>> getFilteredEntries() {
-    checkForBinding();
-    checkForProperties();
-
-    if (properties == null) {
-      return Collections.emptyList();
-    } else {
-      if (propertyAccess == null) {
-        return properties.entrySet().stream()
-            .filter((x) -> x.getValue().exists())
-            .collect(Collectors.toList());
-      } else {
-        return properties.entrySet().stream()
-            .filter((x) -> x.getValue().exists() && propertyAccess.isReadable(x.getKey()))
-            .collect(Collectors.toList());
-      }
-    }
   }
 
   private void fetchSchema() {

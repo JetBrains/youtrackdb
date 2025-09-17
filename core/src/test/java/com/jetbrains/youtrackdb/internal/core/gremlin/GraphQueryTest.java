@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
-import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import java.util.List;
 import java.util.function.Function;

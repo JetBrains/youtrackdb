@@ -121,7 +121,6 @@ public interface Schema {
   @Nonnull
   IndexDefinition getIndexDefinition(String indexName);
 
-  int getVersion();
 
   @Nullable
   SchemaClass getClassByCollectionId(int collectionId);

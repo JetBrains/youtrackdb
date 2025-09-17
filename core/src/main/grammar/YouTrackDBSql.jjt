@@ -3700,13 +3700,13 @@ SQLAlterClassStatement AlterClassStatement():
 	(
 
 		(
-			<NAME> { jjtThis.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.NAME; }
+			<NAME> { jjtThis.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.NAME; }
 			jjtThis.identifierValue = Identifier()
 		)
 		|
 		(
 			<SUPERCLASSES> {
-				jjtThis.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.SUPERCLASSES;
+				jjtThis.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.SUPERCLASSES;
 				jjtThis.identifierListValue = new ArrayList<SQLIdentifier>();
 			}
 			(
@@ -3723,7 +3723,7 @@ SQLAlterClassStatement AlterClassStatement():
 		)
 		|
 		(
-			<STRICT_MODE> { jjtThis.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.STRICT_MODE; }
+			<STRICT_MODE> { jjtThis.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.STRICT_MODE; }
 			(
 				(
 					<TRUE> { jjtThis.booleanValue = true; }
@@ -3736,14 +3736,14 @@ SQLAlterClassStatement AlterClassStatement():
 		)
 		|
 		(
-			<CUSTOM> { jjtThis.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.CUSTOM; }
+			<CUSTOM> { jjtThis.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.CUSTOM; }
 			jjtThis.customKey = Identifier()
 			<EQ>
 			jjtThis.customValue = Expression()
 		)
 		|
 		(
-			<ABSTRACT> { jjtThis.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.ABSTRACT; }
+			<ABSTRACT> { jjtThis.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.ABSTRACT; }
 			(
 				(
 					<TRUE> { jjtThis.booleanValue = true; }
@@ -3756,7 +3756,7 @@ SQLAlterClassStatement AlterClassStatement():
 		)
 		|
 		(
-			<DESCRIPTION> { jjtThis.property = com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES.DESCRIPTION; }
+			<DESCRIPTION> { jjtThis.property = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES.DESCRIPTION; }
 			(
 				jjtThis.identifierValue = Identifier()
 				|

@@ -30,15 +30,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public sealed interface RecordIdInternal extends RID permits ChangeableRecordId, ContextualRecordId,
     RecordId {
-
-  AtomicLong TEMP_ID_GENERATOR = new AtomicLong(0);
-
   static String generateString(final int iCollectionId, final long iPosition) {
     return String.valueOf(PREFIX) + iCollectionId + SEPARATOR + iPosition;
   }
@@ -207,9 +203,4 @@ public sealed interface RecordIdInternal extends RID permits ChangeableRecordId,
 
     return new RecordId(collection, pos);
   }
-
-  static RecordIdInternal tempRecordId() {
-    return new RecordId(COLLECTION_ID_INVALID, TEMP_ID_GENERATOR.decrementAndGet());
-  }
-
 }
