@@ -6,7 +6,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.TraversalEngine.Type;
 import org.junit.runners.model.InitializationError;
 import org.junit.runners.model.RunnerBuilder;
 
-public class YTDBProcessRemoteSuite extends AbstractGremlinSuite {
+public class YTDBProcessSuite extends AbstractGremlinSuite {
 
   private static final Class<?>[] onlyRemoteTests = new Class<?>[]{
       YTDBTemporaryRidConversionTest.Traversals.class,
@@ -17,14 +17,13 @@ public class YTDBProcessRemoteSuite extends AbstractGremlinSuite {
   static {
 
     testsToExecute = new Class<?>[onlyRemoteTests.length
-        + YTDBProcessEmbeddedSuite.testsToExecute.length];
+        + YTDBProcessSuiteEmbedded.testsToExecute.length];
     System.arraycopy(onlyRemoteTests, 0, testsToExecute, 0, onlyRemoteTests.length);
-    System.arraycopy(YTDBProcessEmbeddedSuite.testsToExecute, 0, testsToExecute,
-        onlyRemoteTests.length, YTDBProcessEmbeddedSuite.testsToExecute.length);
+    System.arraycopy(YTDBProcessSuiteEmbedded.testsToExecute, 0, testsToExecute,
+        onlyRemoteTests.length, YTDBProcessSuiteEmbedded.testsToExecute.length);
   }
 
-
-  public YTDBProcessRemoteSuite(Class<?> klass, RunnerBuilder builder) throws InitializationError {
+  public YTDBProcessSuite(Class<?> klass, RunnerBuilder builder) throws InitializationError {
     super(klass, builder, testsToExecute, null, true, Type.STANDARD);
   }
 }
