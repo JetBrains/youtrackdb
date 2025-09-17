@@ -5,6 +5,8 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
 import com.jetbrains.youtrackdb.api.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl.PropertyValidationMode;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -103,7 +105,8 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     metadata.removeProperty(key);
 
     if (metadata.getPropertyNames().isEmpty()) {
-      element.getRawEntity().removeProperty(metadataKey());
+      ((EntityImpl) element.getRawEntity())
+          .removePropertyInternal(metadataKey(), PropertyValidationMode.ALLOW_METADATA);
     }
   }
 
@@ -117,8 +120,9 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
       var tx = session.getActiveTransaction();
 
       metadata = tx.newEmbeddedEntity();
-      var vertexEntity = element.getRawEntity();
-      vertexEntity.setProperty(metadataKey(), metadata);
+      var vertexEntity = ((EntityImpl) element.getRawEntity());
+      vertexEntity.setPropertyInternal(metadataKey(), metadata, null, null,
+          PropertyValidationMode.ALLOW_METADATA);
     }
 
     return metadata;
@@ -127,11 +131,12 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
   @Override
   public void remove() {
     super.remove();
-    element.getRawEntity().removeProperty(metadataKey());
+    ((EntityImpl) element.getRawEntity())
+        .removePropertyInternal(metadataKey(), PropertyValidationMode.ALLOW_METADATA);
   }
 
   private String metadataKey() {
-    return "_meta_" + key;
+    return "~meta_" + key;
   }
 
   @SuppressWarnings("EqualsDoesntCheckParameterClass")

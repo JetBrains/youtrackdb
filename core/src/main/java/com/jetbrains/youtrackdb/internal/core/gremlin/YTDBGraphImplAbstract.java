@@ -83,7 +83,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
     var label = ElementHelper.getLabelValue(keyValues).orElse(Vertex.DEFAULT_LABEL);
     var vertex = createVertexWithClass(tx.getDatabaseSession(), label);
-    ((YTDBElementImpl) vertex).property(keyValues);
+    ElementHelper.attachProperties(vertex, keyValues);
 
     return vertex;
   }

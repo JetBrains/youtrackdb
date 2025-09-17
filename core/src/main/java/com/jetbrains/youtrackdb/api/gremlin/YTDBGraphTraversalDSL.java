@@ -8,15 +8,18 @@ import static com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClass
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
+import com.jetbrains.youtrackdb.api.gremlin.service.YTDBRemovePropertyService;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaPropertyPToken;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl.SkipAsAnonymousMethod;
+import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -156,5 +159,18 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, Edge> addE(final YTDBDomainObjectObjectOutToken<?> out) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.addE(out.name());
+  }
+
+  /// Removes one or several {@link Property}s from an element.
+  @SkipAsAnonymousMethod
+  default GraphTraversal<S, E> removeProperty(String name) {
+    if (name == null || name.isBlank()) {
+      throw new IllegalArgumentException("The provided name must not be null or blank");
+    }
+
+    return call(
+        YTDBRemovePropertyService.NAME,
+        Map.of(YTDBRemovePropertyService.PROPERTY, name)
+    );
   }
 }
