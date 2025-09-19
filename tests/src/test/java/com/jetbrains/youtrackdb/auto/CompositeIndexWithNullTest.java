@@ -1,9 +1,8 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Map;
 import org.testng.Assert;
@@ -15,7 +14,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
   public void testPointQuery() {
     final Schema schema = session.getMetadata().getSchema();
-    var clazz = (SchemaClassInternal) schema.createClass(
+    var clazz = schema.createClass(
         "compositeIndexNullPointQueryClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
     clazz.createProperty("prop2", PropertyType.INTEGER);

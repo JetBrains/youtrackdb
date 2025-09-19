@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import com.jetbrains.youtrackdb.api.record.Direction;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -61,7 +61,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
     // In the last case we return related property names.
 
     if (schemaClass.isVertexType()) {
-      var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+      var immutableSchema = session.getMetadata().getImmutableSchema(session);
 
       return VertexEntityImpl.getAllPossibleEdgePropertyNames(
           immutableSchema,
@@ -90,7 +90,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
         var result = new ArrayList<String>(labels.length);
 
         for (var label : labels) {
-          var property = (SchemaPropertyInternal) schemaClass.getProperty(label);
+          var property = schemaClass.getProperty(label);
           if (property != null && property.getTypeInternal().isLink()) {
             result.add(label);
           }
@@ -101,7 +101,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
         var result = new ArrayList<String>(labels.length);
 
         for (var label : labels) {
-          var property = (SchemaPropertyInternal) schemaClass.getProperty(label);
+          var property = schemaClass.getProperty(label);
 
           if (property != null && property.getTypeInternal().isLink()) {
             var systemPropertyName = EntityImpl.getOppositeLinkBagPropertyName(label);
@@ -127,7 +127,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
 
     //if an entity is vertex, we collect property names that are references of lightweight edges,
     // so we return only properties that directly reference opposite vertices.
-    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    var immutableSchema = session.getMetadata().getImmutableSchema(session);
     return VertexEntityImpl.getAllPossibleEdgePropertyNames(
         immutableSchema,
         direction, EdgeType.LIGHTWEIGHT, labels);

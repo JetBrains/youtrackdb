@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.api.record;
 
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.Set;
 
 /**

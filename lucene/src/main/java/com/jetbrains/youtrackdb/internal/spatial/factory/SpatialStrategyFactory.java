@@ -39,7 +39,7 @@ public class SpatialStrategyFactory {
       IndexDefinition indexDefinition) {
 
     var aClass =
-        session.getMetadata().getImmutableSchemaSnapshot().getClass(indexDefinition.getClassName());
+        session.getMetadata().getImmutableSchema(session).getClass(indexDefinition.getClassName());
 
     var property = aClass.getProperty(indexDefinition.getProperties().get(0));
 

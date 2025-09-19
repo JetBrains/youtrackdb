@@ -17,19 +17,19 @@
  *
  *
  */
-package com.jetbrains.youtrackdb.api.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.record.Edge;
+import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface Schema {
-
-  int countClasses();
-
+public interface Schema extends ImmutableSchema {
   @Nonnull
   SchemaClass createClass(String iClassName);
 
@@ -87,47 +87,34 @@ public interface Schema {
 
   void dropClass(String iClassName);
 
-  boolean existsClass(String iClassName);
-
-  @Nullable
-  SchemaClass getClass(Class<?> iClass);
-
-  /**
-   * Returns the SchemaClass instance by class name.
-   *
-   * <p>If the class is not configured and the database has an entity manager with the requested
-   * class as registered, then creates a schema class for it at the fly.
-   *
-   * <p>If the database nor the entity manager have not registered class with specified name,
-   * returns null.
-   *
-   * @param iClassName Name of the class to retrieve
-   * @return class instance or null if class with given name is not configured.
-   */
-  SchemaClass getClass(String iClassName);
-
   SchemaClass getOrCreateClass(String iClassName);
 
   SchemaClass getOrCreateClass(String iClassName, SchemaClass iSuperClass);
 
   SchemaClass getOrCreateClass(String iClassName, SchemaClass... superClasses);
 
-  Collection<SchemaClass> getClasses();
+  GlobalProperty createGlobalProperty(String name, PropertyType type, Integer id);
 
-  Collection<String> getIndexes();
-
-  boolean indexExists(String indexName);
 
   @Nonnull
-  IndexDefinition getIndexDefinition(String indexName);
+  SchemaClass createClass(@Nonnull String className, int collections,
+      @Nonnull SchemaClass... superClasses);
 
+  SchemaClass createClass(String iClassName, SchemaClass iSuperClass, int[] iCollectionIds);
+
+  SchemaClass createClass(String className, int[] collectionIds, SchemaClass... superClasses);
 
   @Nullable
+  @Override
+  SchemaClass getClass(Class<?> iClass);
+
+  @Override
+  SchemaClass getClass(String iClassName);
+
+  @Override
+  Iterator<SchemaClass> getClasses();
+
+  @Nullable
+  @Override
   SchemaClass getClassByCollectionId(int collectionId);
-
-  GlobalProperty getGlobalPropertyById(int id);
-
-  List<GlobalProperty> getGlobalProperties();
-
-  GlobalProperty createGlobalProperty(String name, PropertyType type, Integer id);
 }

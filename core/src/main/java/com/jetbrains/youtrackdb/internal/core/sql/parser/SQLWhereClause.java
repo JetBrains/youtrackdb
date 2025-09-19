@@ -14,7 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
@@ -80,7 +80,7 @@ public class SQLWhereClause extends SimpleNode {
    * @return an estimation of the number of records of this class returned applying this filter, 0
    * if and only if sure that no records are returned
    */
-  public long estimate(SchemaClassInternal schemaClass, long threshold, CommandContext ctx) {
+  public long estimate(SchemaClass schemaClass, long threshold, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     var count = schemaClass.count(session);
     if (count > 1) {
@@ -196,7 +196,7 @@ public class SQLWhereClause extends SimpleNode {
     return result;
   }
 
-  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClass schemaClass) {
     if (this.baseExpression == null) {
       return Collections.emptyList();
     }

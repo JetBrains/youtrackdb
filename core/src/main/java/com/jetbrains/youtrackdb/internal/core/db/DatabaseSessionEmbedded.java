@@ -60,8 +60,6 @@ import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxBiFunction;
@@ -102,10 +100,10 @@ import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaGlobalPropertyEntity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryptionNone;
@@ -932,23 +930,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return config;
   }
 
-
-  @Override
-  public void addBlobCollection(final String iCollectionName, final Object... iParameters) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    int id;
-    if (!existsCollection(iCollectionName)) {
-      id = addCollection(iCollectionName, iParameters);
-    } else {
-      id = getCollectionIdByName(iCollectionName);
-    }
-    getMetadata().getSchema().addBlobCollection(id);
-  }
-
   @Override
   public Blob newBlob(byte[] bytes) {
     assert assertIfNotActive();
@@ -995,7 +976,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    var cls = getMetadata().getImmutableSchema(this).getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");
     }
@@ -1086,7 +1067,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
-    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    var cls = getMetadata().getImmutableSchema(this).getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");
     }
@@ -1132,7 +1113,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     outEntity = (EntityImpl) toVertex;
     inEntity = (EntityImpl) inVertex;
 
-    Schema schema = getMetadata().getImmutableSchemaSnapshot();
+    var schema = getMetadata().getImmutableSchema(this);
     final var edgeType = schema.getClass(className);
 
     if (edgeType == null) {
@@ -1190,7 +1171,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
+    var cl = getMetadata().getImmutableSchema(this).getClass(type);
     if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(type + " is not a regular edge class");
     }
@@ -1209,7 +1190,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(type);
+    var cl = getMetadata().getImmutableSchema(this).getClass(type);
     if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(type + " is not a lightweight edge class");
     }
@@ -1605,7 +1586,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var cl = getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+    var cl = getMetadata().getImmutableSchema(this).getClass(iClassName);
 
     if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(iClassName + " is not an edge class");
@@ -1631,7 +1612,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    var cls = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+    var cls = getMetadata().getImmutableSchema(this).getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");
     }
@@ -1849,10 +1830,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           sharedContext.getSecurity().incrementVersion(this);
         }
       }
-
-      if (entity instanceof SchemaPropertyEntity schemaPropertyEntity) {
-        SchemaManager.onSchemaPropertyAfterUpdate(this, schemaPropertyEntity);
-      }
     }
 
     callbackHooks(TYPE.AFTER_UPDATE, recordAbstract);
@@ -1978,9 +1955,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
             }
           }
         } else {
-          var schemaId = metadata.getSchemaInternal().getIdentity();
-
-          if (record.getIdentity().equals(schemaId)) {
+          if (currentTx.isSchemaChanged()) {
             for (var listener : sharedContext.browseListeners()) {
               listener.onSchemaUpdate(this, getDatabaseName());
             }
@@ -2065,7 +2040,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var collectionId = record.getIdentity().getCollectionId();
     if (collectionId == RID.COLLECTION_ID_INVALID) {
       // COMPUTE THE COLLECTION ID
-      SchemaClassInternal schemaClass = null;
+      SchemaClass schemaClass = null;
       if (record instanceof EntityImpl) {
         schemaClass = ((EntityImpl) record).getImmutableSchemaClass(this);
       }
@@ -2262,25 +2237,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkSecurity(resourceGeneric, iOperation, iResourcesSpecific);
   }
 
-  @Override
-  public int addCollection(final String iCollectionName, final Object... iParameters) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    return storage.addCollection(this, iCollectionName, iParameters);
-  }
-
-  @Override
-  public int addCollection(final String iCollectionName, final int iRequestedId) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    return storage.addCollection(this, iCollectionName, iRequestedId);
-  }
 
   @Override
   public RecordConflictStrategy getConflictStrategy() {
@@ -2400,74 +2356,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       throw new IllegalArgumentException("Collection '" + iCollectionName + "' was not found");
     }
     return storage.count(this, collectionId);
-  }
-
-  @Override
-  public boolean dropCollection(final String iCollectionName) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    final var collectionId = getCollectionIdByName(iCollectionName);
-    var schema = metadata.getSchema();
-
-    var clazz = schema.getClassByCollectionId(collectionId);
-    if (clazz != null) {
-      throw new DatabaseException(this,
-          "Cannot drop collection '" + getCollectionNameById(collectionId)
-              + "' because it is mapped to class '" + clazz.getName() + "'");
-    }
-    if (schema.getBlobCollections().contains(collectionId)) {
-      schema.removeBlobCollection(iCollectionName);
-    }
-
-    localCache.freeCollection(collectionId);
-    return dropCollectionInternal(iCollectionName);
-  }
-
-  private boolean dropCollectionInternal(final String iCollectionName) {
-    assert assertIfNotActive();
-    return storage.dropCollection(this, iCollectionName);
-  }
-
-  @Override
-  public boolean dropCollection(final int collectionId) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    checkSecurity(
-        Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_DELETE,
-        getCollectionNameById(collectionId));
-
-    var schema = metadata.getSchema();
-    final var clazz = schema.getClassByCollectionId(collectionId);
-    if (clazz != null) {
-      throw new DatabaseException(this,
-          "Cannot drop collection '" + getCollectionNameById(collectionId)
-              + "' because it is mapped to class '" + clazz.getName() + "'");
-    }
-
-    localCache.freeCollection(collectionId);
-    if (schema.getBlobCollections().contains(collectionId)) {
-      schema.removeBlobCollection(getCollectionNameById(collectionId));
-    }
-
-    final var collectionName = getCollectionNameById(collectionId);
-    if (collectionName == null) {
-      return false;
-    }
-
-    final var iteratorCollection = browseCollection(collectionName);
-    if (iteratorCollection == null) {
-      return false;
-    }
-
-    executeInTxBatches(iteratorCollection, (session, record) -> delete(record));
-
-    return dropCollectionInternal(collectionId);
   }
 
   @Override
@@ -2760,12 +2648,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       count += truncateCollectionInternal(collectionName);
     }
     return count;
-  }
-
-  @Override
-  public void truncateClass(String name) {
-    assert assertIfNotActive();
-    truncateClass(name, true);
   }
 
   @Override
@@ -3474,26 +3356,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return componentsFactory.binarySerializerFactory;
   }
 
-  @Override
-  public void setPrefetchRecords(boolean prefetchRecords) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    this.prefetchRecords = prefetchRecords;
-  }
-
-  @Override
-  public boolean isPrefetchRecords() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    return prefetchRecords;
-  }
-
 
   @Override
   public int assignAndCheckCollection(DBRecord record) {
@@ -3504,7 +3366,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     var rid = (RecordIdInternal) record.getIdentity();
-    SchemaClassInternal schemaClass = null;
+    SchemaClass schemaClass = null;
     // if collection id is not set yet try to find it out
     if (rid.getCollectionId() <= RID.COLLECTION_ID_INVALID) {
       if (record instanceof EntityImpl entity) {
@@ -3709,7 +3571,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
     checkOpenedAsRemoteSession();
 
-    if (getMetadata().getImmutableSchemaSnapshot().getClass(className) == null) {
+    if (getMetadata().getImmutableSchema(this).getClass(className) == null) {
       throw new IllegalArgumentException(
           "Class '" + className + "' not found in current database");
     }
@@ -3726,7 +3588,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenedAsRemoteSession();
 
     checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, clz.getName());
-    return new RecordIteratorClass(this, (SchemaClassInternal) clz,
+    return new RecordIteratorClass(this, clz,
         true, true);
   }
 
@@ -3773,7 +3635,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     final var cls =
-        (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+        (SchemaClassSnapshot) getMetadata().getImmutableSchema(this).getClass(iClassName);
     if (cls == null) {
       throw new IllegalArgumentException("Class not found in database");
     }
@@ -3781,7 +3643,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return countClass(cls, iPolymorphic);
   }
 
-  private long countClass(final SchemaImmutableClass cls, final boolean iPolymorphic) {
+  private long countClass(final SchemaClassSnapshot cls, final boolean iPolymorphic) {
     assert assertIfNotActive();
 
     checkOpenness();
@@ -3957,12 +3819,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
 
   @Override
-  public CurrentStorageComponentsFactory getStorageVersions() {
-    assert assertIfNotActive();
-    return componentsFactory;
-  }
-
-  @Override
   public RecordSerializer getSerializer() {
     assert assertIfNotActive();
     return serializer;
@@ -3977,23 +3833,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void setSerializer(RecordSerializer serializer) {
     assert assertIfNotActive();
     this.serializer = serializer;
-  }
-
-  @Override
-  public void resetInitialization() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-    checkOpenedAsRemoteSession();
-
-    for (var h : hooks) {
-      h.onUnregister();
-    }
-
-    hooks.clear();
-    close();
-
-    initialized = false;
   }
 
   @Override
@@ -4066,7 +3905,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     final var collectionIdClass =
-        metadata.getImmutableSchemaSnapshot().getClassByCollectionId(rid.getCollectionId());
+        metadata.getImmutableSchema(this).getClassByCollectionId(rid.getCollectionId());
     if (recordClass == null && collectionIdClass != null
         || collectionIdClass == null && recordClass != null
         || (recordClass != null && !recordClass.equals(collectionIdClass))) {
@@ -4114,7 +3953,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenedAsRemoteSession();
 
     var clazz =
-        (SchemaImmutableClass) getMetadata().getImmutableSchemaSnapshot().getClass(iClassName);
+        (SchemaClassSnapshot) getMetadata().getImmutableSchema(this).getClass(iClassName);
 
     return new EdgeImpl(this, from, to, clazz);
   }
@@ -4172,22 +4011,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     return activeQueries.get(id);
-  }
-
-  @Override
-  public boolean isCollectionEdge(int collection) {
-    assert assertIfNotActive();
-
-    var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collection);
-    return clazz != null && clazz.isEdgeType();
-  }
-
-  @Override
-  public boolean isCollectionVertex(int collection) {
-    assert assertIfNotActive();
-
-    var clazz = getMetadata().getImmutableSchemaSnapshot().getClassByCollectionId(collection);
-    return clazz != null && clazz.isVertexType();
   }
 
 

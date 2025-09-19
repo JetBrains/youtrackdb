@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.concur.NeedRetryException;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence.SEQUENCE_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -56,7 +55,7 @@ public class SequenceLibraryImpl {
     try {
       sequences.clear();
 
-      if (session.getMetadata().getImmutableSchemaSnapshot().existsClass(DBSequence.CLASS_NAME)) {
+      if (session.getMetadata().getImmutableSchema(session).existsClass(DBSequence.CLASS_NAME)) {
         session.executeInTx(tx -> {
           try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
             while (result.hasNext()) {
@@ -198,7 +197,7 @@ public class SequenceLibraryImpl {
       return;
     }
 
-    final var sequenceClass = (SchemaClassInternal) session.getMetadata().getSchema()
+    final var sequenceClass = session.getMetadata().getSchema()
         .createClass(DBSequence.CLASS_NAME);
     DBSequence.initClass(sequenceClass);
   }

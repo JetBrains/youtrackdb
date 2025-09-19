@@ -13,10 +13,10 @@
  */
 package com.jetbrains.youtrackdb.internal.security.auditing;
 
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
 import java.util.Map;

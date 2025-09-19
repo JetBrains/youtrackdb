@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemField;
@@ -87,7 +87,7 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
           ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemName(0);
       if (fieldName != null) {
         if (iRecord.isEntity()) {
-          SchemaImmutableClass result;
+          SchemaClassSnapshot result;
           var entity = iRecord.asEntity();
           result = ((EntityImpl) entity).getImmutableSchemaClass(session);
           var property =

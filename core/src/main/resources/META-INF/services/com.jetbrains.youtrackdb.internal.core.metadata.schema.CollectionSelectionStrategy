@@ -17,5 +17,3 @@
 #
 
 com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.RoundRobinCollectionSelectionStrategy
-com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.DefaultCollectionSelectionStrategy
-com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.BalancedCollectionSelectionStrategy

@@ -4,7 +4,6 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import org.junit.Test;
@@ -41,7 +40,7 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
         .filter(oClass -> !oClass.getName().startsWith("OSecurity")) //
         .forEach(
             oClass -> {
-              if (((SchemaClassInternal) oClass).count(session) > 0) {
+              if (oClass.count(session) > 0) {
                 session.execute("truncate class " + oClass.getName() + " POLYMORPHIC UNSAFE")
                     .close();
               }

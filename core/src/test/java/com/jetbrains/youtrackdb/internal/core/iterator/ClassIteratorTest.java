@@ -1,9 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.Assert;
@@ -51,7 +50,7 @@ public class ClassIteratorTest extends DbTestBase {
 
   @Test
   public void testDescendentOrderIteratorWithMultipleCollections() throws Exception {
-    var personClass = (SchemaClassInternal) session.getMetadata().getSchema().getClass("Person");
+    var personClass = session.getMetadata().getSchema().getClass("Person");
 
     // empty old collection but keep it attached
     personClass.truncate();

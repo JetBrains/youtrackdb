@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -80,7 +80,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public Identifiable getFromLink() {
     var db = getSession();
-    var schema = db.getMetadata().getImmutableSchemaSnapshot();
+    var schema = db.getMetadata().getImmutableSchema(session);
 
     var result = getLinkPropertyInternal(DIRECTION_OUT);
     if (result == null) {
@@ -114,7 +114,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public Identifiable getToLink() {
     checkForBinding();
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schema = session.getMetadata().getImmutableSchema(session);
     var result = getLinkPropertyInternal(DIRECTION_IN);
     if (result == null) {
       return null;

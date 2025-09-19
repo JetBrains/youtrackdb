@@ -96,7 +96,7 @@ public class SQLFilterCondition {
     }
 
     var r = evaluate(iCurrentRecord, iCurrentResult, right, iContext, binaryEvaluation);
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schema = session.getMetadata().getImmutableSchema(session);
 
     if (binaryEvaluation && l instanceof BinaryField) {
       if (r != null && !(r instanceof BinaryField)) {

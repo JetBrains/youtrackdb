@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.StringParser;
 import com.jetbrains.youtrackdb.internal.common.types.Binary;
@@ -1329,7 +1329,7 @@ public abstract class StringSerializerHelper {
             iValue, StringSerializerHelper.CLASS_SEPARATOR.charAt(0), 0, -1);
     if (classSeparatorPos > -1) {
       final var className = iValue.substring(0, classSeparatorPos);
-      iLinkedClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+      iLinkedClass = session.getMetadata().getImmutableSchema(session).getClass(className);
     }
     return iLinkedClass;
   }

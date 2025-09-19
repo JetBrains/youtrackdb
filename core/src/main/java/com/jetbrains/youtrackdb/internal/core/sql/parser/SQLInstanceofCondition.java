@@ -6,10 +6,10 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
@@ -52,7 +52,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     if (!(record instanceof EntityImpl entity)) {
       return false;
     }
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     result = entity.getImmutableSchemaClass(session);
     SchemaClass clazz = result;
     if (clazz == null) {
@@ -82,7 +82,7 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
     if (!(record instanceof EntityImpl entity)) {
       return false;
     }
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     if (entity != null) {
       result = entity.getImmutableSchemaClass(session);
     }

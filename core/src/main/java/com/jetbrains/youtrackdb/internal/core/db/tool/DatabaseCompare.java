@@ -21,14 +21,13 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -166,8 +165,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   }
 
   private void compareSchema() {
-    Schema schema1 = sessionOne.getMetadata().getImmutableSchemaSnapshot();
-    Schema schema2 = sessionTwo.getMetadata().getImmutableSchemaSnapshot();
+    Schema schema1 = sessionOne.getMetadata().getImmutableSchema(session);
+    Schema schema2 = sessionTwo.getMetadata().getImmutableSchema(session);
 
     var ok = true;
     for (var clazz : schema1.getClasses()) {
@@ -192,8 +191,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
       }
 
-      if (!((SchemaClassInternal) clazz).getClassIndexes()
-          .equals(((SchemaClassInternal) clazz2).getClassIndexes())) {
+      if (!clazz.getClassIndexes()
+          .equals(clazz2.getClassIndexes())) {
         listener.onMessage(
             "\n- ERR: Class definition for "
                 + clazz.getName()

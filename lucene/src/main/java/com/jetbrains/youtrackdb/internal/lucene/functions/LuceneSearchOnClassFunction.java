@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -170,7 +170,7 @@ public class LuceneSearchOnClassFunction extends LuceneSearchFunctionTemplate {
   }
 
   @Nullable
-  private static LuceneFullTextIndex searchForIndex(SchemaClassInternal schemaClass) {
+  private static LuceneFullTextIndex searchForIndex(SchemaClass schemaClass) {
     var indices =
         schemaClass.getIndexesInternal()
             .stream()

@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.server.token;
 
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Token;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.jwt.JwtPayload;
@@ -92,7 +92,7 @@ public class JsonWebToken implements
     var userRid = payload.getUserRid();
     EntityImpl result;
     result = session.load(userRid);
-    SchemaImmutableClass res;
+    SchemaClassSnapshot res;
 
     res = result.getImmutableSchemaClass(session);
     if (!res.isUser()) {

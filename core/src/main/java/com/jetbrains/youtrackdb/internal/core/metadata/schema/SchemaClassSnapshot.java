@@ -21,12 +21,11 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.RoundRobinCollectionSelectionStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityPolicy;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
@@ -39,13 +38,14 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class SchemaImmutableClass implements SchemaClassInternal {
+public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   /**
    * use SchemaClass.EDGE_CLASS_NAME instead
@@ -63,11 +63,9 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private final boolean isAbstract;
   private final boolean strictMode;
   private final String name;
-  private final String streamAbleName;
-  private final Map<String, SchemaPropertyInternal> properties;
-  private Map<String, SchemaProperty> allPropertiesMap;
-  private Collection<SchemaProperty> allProperties;
-  private final CollectionSelectionStrategy collectionSelection;
+  private final Map<String, ImmutableSchemaProperty> properties;
+  private Map<String, ImmutableSchemaProperty> allPropertiesMap;
+  private Collection<ImmutableSchemaProperty> allProperties;
   private final int[] collectionIds;
   private final int[] polymorphicCollectionIds;
   private final Collection<String> baseClassesNames;
@@ -76,11 +74,11 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private final Map<String, String> customFields;
   private final String description;
 
-  private final ImmutableSchema schema;
+  private final SchemaSnapshot schema;
   // do not do it volatile it is already SAFE TO USE IT in MT mode.
-  private final List<SchemaImmutableClass> superClasses;
+  private final List<ImmutableSchemaClass> superClasses;
   // do not do it volatile it is already SAFE TO USE IT in MT mode.
-  private Collection<SchemaImmutableClass> subclasses;
+  private Collection<ImmutableSchemaClass> subclasses;
   private boolean isVertexType;
   private boolean isEdgeType;
   private boolean function;
@@ -92,12 +90,12 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   private HashSet<Index> indexes;
 
   @Nonnull
-  private final SchemaClassImpl original;
+  private final SchemaClassShared original;
 
 
-  public SchemaImmutableClass(@Nonnull DatabaseSessionInternal session,
-      @Nonnull final SchemaClassImpl oClass,
-      final ImmutableSchema schema) {
+  public SchemaClassSnapshot(@Nonnull DatabaseSessionInternal session,
+      @Nonnull final SchemaClassShared oClass,
+      final SchemaSnapshot schema) {
 
     isAbstract = oClass.isAbstract();
     strictMode = oClass.isStrictMode();
@@ -107,8 +105,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     superClasses = new ArrayList<>(superClassesNames.size());
 
     name = oClass.getName();
-    streamAbleName = oClass.getStreamableName();
-    collectionSelection = oClass.getCollectionSelection();
     collectionIds = oClass.getCollectionIds();
     polymorphicCollectionIds = oClass.getPolymorphicCollectionIds();
 
@@ -120,7 +116,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     properties = new HashMap<>();
     for (var p : oClass.declaredProperties()) {
       properties.put(p.getName(),
-          new ImmutableSchemaProperty(session, p, this));
+          new SchemaPropertySnapshot(session, p, this));
     }
 
     Map<String, String> customFields = new HashMap<>();
@@ -138,14 +134,15 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     if (!inited) {
       initSuperClasses(session);
 
-      final Collection<SchemaProperty> allProperties = new ArrayList<>();
-      final Map<String, SchemaProperty> allPropsMap = new HashMap<>(20);
+      final Collection<ImmutableSchemaProperty> allProperties = new ArrayList<>();
+      final Map<String, ImmutableSchemaProperty> allPropsMap = new HashMap<>(20);
       for (var i = superClasses.size() - 1; i >= 0; i--) {
-        allProperties.addAll(superClasses.get(i).allProperties);
-        allPropsMap.putAll(superClasses.get(i).allPropertiesMap);
+        allProperties.addAll(((SchemaClassSnapshot) superClasses.get(i)).allProperties);
+        allPropsMap.putAll(((SchemaClassSnapshot) superClasses.get(i)).allPropertiesMap);
       }
       allProperties.addAll(properties.values());
-      for (SchemaProperty p : properties.values()) {
+
+      for (var p : properties.values()) {
         final var propName = p.getName();
 
         if (!allPropsMap.containsKey(propName)) {
@@ -180,23 +177,13 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClass setAbstract(boolean iAbstract) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public boolean isStrictMode() {
     return strictMode;
   }
 
   @Override
-  public void setStrictMode(boolean iMode) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public List<SchemaClass> getSuperClasses() {
-    return Collections.unmodifiableList(superClasses);
+  public Iterator<ImmutableSchemaClass> getSuperClasses() {
+    return superClasses.iterator();
   }
 
   @Override
@@ -205,23 +192,8 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public List<String> getSuperClassesNames() {
-    return superClassesNames;
-  }
-
-  @Override
-  public SchemaClass setSuperClasses(List<? extends SchemaClass> classes) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaClass addSuperClass(SchemaClass superClass) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void removeSuperClass(SchemaClass superClass) {
-    throw new UnsupportedOperationException();
+  public Iterator<String> getSuperClassesNames() {
+    return superClassesNames.iterator();
   }
 
   @Override
@@ -230,37 +202,22 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClass setName(String iName) {
-    throw new UnsupportedOperationException();
+  public Iterator<ImmutableSchemaProperty> getDeclaredProperties() {
+    return properties.values().iterator();
   }
 
   @Override
-  public String getStreamableName() {
-    return streamAbleName;
+  public Iterator<ImmutableSchemaProperty> getProperties() {
+    return allProperties.iterator();
   }
 
   @Override
-  public Collection<SchemaProperty> getDeclaredProperties() {
-    return Collections.unmodifiableCollection(properties.values());
-  }
-
-  @Override
-  public Collection<SchemaProperty> getProperties() {
-    return allProperties;
-  }
-
-  @Override
-  public Map<String, SchemaProperty> getPropertiesMap() {
+  public Map<String, ImmutableSchemaProperty> getPropertiesMap() {
     return allPropertiesMap;
   }
 
   @Override
-  public SchemaProperty getProperty(String propertyName) {
-    return getPropertyInternal(propertyName);
-  }
-
-  @Override
-  public SchemaPropertyInternal getPropertyInternal(String propertyName) {
+  public ImmutableSchemaProperty getProperty(String propertyName) {
     var p = properties.get(propertyName);
 
     if (p != null) {
@@ -268,36 +225,10 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     }
 
     for (var i = 0; i < superClasses.size() && p == null; i++) {
-      p = superClasses.get(i).getPropertyInternal(propertyName);
+      p = superClasses.get(i).getProperty(propertyName);
     }
 
     return p;
-  }
-
-  @Override
-  public SchemaProperty createProperty(String iPropertyName,
-      PropertyType iType) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaProperty createProperty(String iPropertyName,
-      PropertyType iType,
-      SchemaClass iLinkedClass) {
-    throw new UnsupportedOperationException();
-  }
-
-
-  @Override
-  public SchemaProperty createProperty(String iPropertyName,
-      PropertyType iType,
-      PropertyType iLinkedType) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void dropProperty(String iPropertyName) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -319,7 +250,8 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
   @Override
   public int getCollectionForNewInstance(final EntityImpl entity) {
-    return collectionSelection.getCollection(entity.getBoundedToSession(), this, entity);
+    return RoundRobinCollectionSelectionStrategy.INSTANCE.getCollection(
+        entity.getBoundedToSession(), this, entity);
   }
 
 
@@ -328,38 +260,39 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     return collectionIds;
   }
 
-
-  @Override
-  public CollectionSelectionStrategy getCollectionSelection() {
-    return collectionSelection;
-  }
-
   @Override
   public int[] getPolymorphicCollectionIds() {
     return Arrays.copyOf(polymorphicCollectionIds, polymorphicCollectionIds.length);
   }
 
-  public ImmutableSchema getSchema() {
+  public SchemaSnapshot getSchema() {
     return schema;
   }
 
   @Override
-  public Collection<SchemaClass> getSubclasses() {
+  public Iterator<ImmutableSchemaClass> getSubclasses() {
     initBaseClasses();
-    return new ArrayList<>(subclasses);
+    return subclasses.iterator();
   }
 
   @Override
-  public Collection<SchemaClass> getAllSubclasses() {
+  public Iterator<ImmutableSchemaClass> getAllSubclasses() {
     initBaseClasses();
 
-    final Set<SchemaClass> set = new HashSet<>(getSubclasses());
+    final Set<ImmutableSchemaClass> set = new HashSet<>();
+    var subclasses = getSubclasses();
 
+    while (subclasses.hasNext()) {
+      set.add(subclasses.next());
+      0
+    }
+
+    subclasses = getSubclasses();
     for (var c : subclasses) {
       set.addAll(c.getAllSubclasses());
     }
 
-    return set;
+    return set.iterator();
   }
 
   @Override
@@ -394,17 +327,14 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     if (isPolymorphic) {
       return session
           .countCollectionElements(
-              SchemaClassImpl.readableCollections(session, polymorphicCollectionIds, name));
+              SchemaClassShared.readableCollections(session, polymorphicCollectionIds, name));
     }
 
     return session
-        .countCollectionElements(SchemaClassImpl.readableCollections(session, collectionIds, name));
+        .countCollectionElements(
+            SchemaClassShared.readableCollections(session, collectionIds, name));
   }
 
-  @Override
-  public void truncate() {
-    throw new UnsupportedOperationException();
-  }
 
   @Override
   public boolean isSubClassOf(final String iClassName) {
@@ -426,7 +356,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public boolean isSubClassOf(final SchemaClass clazz) {
+  public boolean isSubClassOf(final ImmutableSchemaClass clazz) {
     if (clazz == null) {
       return false;
     }
@@ -443,7 +373,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public boolean isSuperClassOf(SchemaClass clazz) {
+  public boolean isSuperClassOf(ImmutableSchemaClass clazz) {
     return clazz != null && clazz.isSubClassOf(this);
   }
 
@@ -451,12 +381,6 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   public String getDescription() {
     return description;
   }
-
-  @Override
-  public SchemaClass setDescription(String iDescription) {
-    throw new UnsupportedOperationException();
-  }
-
 
   public Object get(ATTRIBUTES iAttribute) {
     if (iAttribute == null) {
@@ -644,7 +568,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     initSuperClasses(session);
 
     getClassIndexes(session, indexes);
-    for (SchemaClassInternal superClass : superClasses) {
+    for (var superClass : superClasses) {
       superClass.getIndexesInternal(session, indexes);
     }
   }
@@ -723,7 +647,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
     if (superClassesNames != null && superClassesNames.size() != superClasses.size()) {
       superClasses.clear();
       for (var superClassName : superClassesNames) {
-        var superClass = (SchemaImmutableClass) schema.getClass(superClassName);
+        var superClass = (SchemaClassSnapshot) schema.getClass(superClassName);
         superClass.init(session);
         superClasses.add(superClass);
       }
@@ -732,10 +656,10 @@ public class SchemaImmutableClass implements SchemaClassInternal {
 
   private void initBaseClasses() {
     if (subclasses == null) {
-      final List<SchemaImmutableClass> result = new ArrayList<>(
+      final List<SchemaClassSnapshot> result = new ArrayList<>(
           baseClassesNames.size());
       for (var clsName : baseClassesNames) {
-        result.add((SchemaImmutableClass) schema.getClass(clsName));
+        result.add((SchemaClassSnapshot) schema.getClass(clsName));
       }
 
       subclasses = result;
@@ -773,7 +697,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
   }
 
   @Override
-  public SchemaClassImpl getImplementation() {
+  public SchemaClassShared getImplementation() {
     return original;
   }
 
@@ -788,7 +712,7 @@ public class SchemaImmutableClass implements SchemaClassInternal {
       return true;
     }
 
-    if (obj instanceof SchemaClassInternal schemaClass) {
+    if (obj instanceof SchemaClass schemaClass) {
       return schemaClass.getBoundToSession() == null && name.equals(schemaClass.getName());
     }
 

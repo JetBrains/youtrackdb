@@ -3,12 +3,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -56,7 +54,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
 
   private void executeInternal(CommandContext ctx, ResultInternal result) {
     var session = ctx.getDatabaseSession();
-    var clazz = (SchemaClassInternal) session.getMetadata().getSchema()
+    var clazz = session.getMetadata().getSchema()
         .getClass(className.getStringValue());
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
@@ -104,7 +102,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
     }
 
     for (var attr : attributes) {
-      var val = attr.setOnProperty((SchemaPropertyInternal) internalProp, ctx);
+      var val = attr.setOnProperty(internalProp, ctx);
       result.setProperty(attr.settingName.getStringValue(), val);
     }
   }

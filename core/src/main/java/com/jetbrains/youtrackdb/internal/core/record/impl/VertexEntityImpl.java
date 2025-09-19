@@ -10,8 +10,8 @@ import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -295,7 +295,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   private Iterable<EdgeInternal> getEdgesInternal(Direction direction,
       String[] labels) {
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schema = session.getMetadata().getImmutableSchema(session);
     labels = resolveAliases(session, schema, labels);
 
     Collection<String> propertyNames = null;

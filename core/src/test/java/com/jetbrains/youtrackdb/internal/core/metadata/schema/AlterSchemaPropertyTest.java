@@ -7,7 +7,6 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;

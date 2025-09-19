@@ -22,14 +22,13 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -1381,9 +1380,9 @@ public class IndexTest extends BaseDBTest {
     if (!session.getMetadata().getSchema().existsClass("PreservingIdentityInIndexTxEdge")) {
       session.createEdgeClass("PreservingIdentityInIndexTxEdge");
     }
-    var fieldClass = (SchemaClassInternal) session.getClass("PreservingIdentityInIndexTxChild");
+    var fieldClass = session.getClass("PreservingIdentityInIndexTxChild");
     if (fieldClass == null) {
-      fieldClass = (SchemaClassInternal) session.createVertexClass(
+      fieldClass = session.createVertexClass(
           "PreservingIdentityInIndexTxChild");
       fieldClass.createProperty("name", PropertyType.STRING);
       fieldClass.createProperty("in_field", PropertyType.LINK);
@@ -1417,7 +1416,7 @@ public class IndexTest extends BaseDBTest {
     }
 
     {
-      fieldClass = (SchemaClassInternal) session.getClass("PreservingIdentityInIndexTxChild");
+      fieldClass = session.getClass("PreservingIdentityInIndexTxChild");
       var index = fieldClass.getClassIndex(session, "nameParentIndex");
       var key = new CompositeKey(parent2.getIdentity(), "pokus2");
 

@@ -4,8 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import org.junit.Assert;
@@ -50,7 +50,7 @@ public class ClassTest extends BaseMemoryInternalDatabase {
     assertEquals("DescriptionTest-class-description", oClass.getDescription());
     assertEquals("DescriptionTest-property-description", property.getDescription());
 
-    oClass = session.getMetadata().getImmutableSchemaSnapshot().getClass("DescriptionTest");
+    oClass = session.getMetadata().getImmutableSchema(session).getClass("DescriptionTest");
     property = oClass.getProperty("property");
     assertEquals("DescriptionTest-class-description", oClass.getDescription());
     assertEquals("DescriptionTest-property-description", property.getDescription());

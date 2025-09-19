@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.engine.local.EngineLocalPaginated;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.JSONWriter;
@@ -146,7 +146,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       for (var cls : session.getMetadata().getSchema().getClasses()) {
         if (!exportedNames.contains(cls.getName())) {
           try {
-            exportClass(session, json, (SchemaClassInternal) cls);
+            exportClass(session, json, (SchemaClass) cls);
             exportedNames.add(cls.getName());
           } catch (Exception e) {
             LogManager.instance().error(this, "Error on exporting class '" + cls + "'", e);
@@ -292,7 +292,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
   }
 
   protected void exportClass(
-      final DatabaseSessionInternal session, final JSONWriter json, final SchemaClassInternal cls)
+      final DatabaseSessionInternal session, final JSONWriter json, final SchemaClass cls)
       throws IOException {
     json.beginObject(2, true, null);
     json.writeAttribute(session, 3, true, "name", cls.getName());

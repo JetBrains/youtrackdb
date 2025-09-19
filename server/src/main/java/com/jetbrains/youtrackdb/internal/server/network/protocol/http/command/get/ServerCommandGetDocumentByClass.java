@@ -45,7 +45,7 @@ public class ServerCommandGetDocumentByClass extends ServerCommandAuthenticatedD
 
     final DBRecord rec;
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
-      if (db.getMetadata().getImmutableSchemaSnapshot().getClass(urlParts[2]) == null) {
+      if (db.getMetadata().getImmutableSchema(session).getClass(urlParts[2]) == null) {
         throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
       }
       final var rid = db.getCollectionIdByName(urlParts[2]) + ":" + urlParts[3];

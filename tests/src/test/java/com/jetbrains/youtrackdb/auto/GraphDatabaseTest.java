@@ -20,8 +20,7 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.util.Collection;
@@ -79,9 +78,9 @@ public class GraphDatabaseTest extends BaseDBTest {
   }
 
   public void testNotDuplicatedIndexTxChanges() throws IOException {
-    var oc = (SchemaClassInternal) session.createVertexClass("vertexA");
+    var oc = session.createVertexClass("vertexA");
     if (oc == null) {
-      oc = (SchemaClassInternal) session.createVertexClass("vertexA");
+      oc = session.createVertexClass("vertexA");
     }
 
     if (!oc.existsProperty("name")) {

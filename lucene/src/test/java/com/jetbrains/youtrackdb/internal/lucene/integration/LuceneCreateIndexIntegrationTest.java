@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.lucene.integration;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBRemoteImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.util.List;
 import org.junit.After;

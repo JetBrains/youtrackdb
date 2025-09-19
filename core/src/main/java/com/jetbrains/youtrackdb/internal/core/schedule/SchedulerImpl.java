@@ -21,13 +21,12 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.schedule.Scheduler.STATUS;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -160,11 +159,11 @@ public class SchedulerImpl {
   public static void create(DatabaseSessionInternal database) {
     if (database
         .getMetadata()
-        .getImmutableSchemaSnapshot()
+        .getImmutableSchema(session)
         .existsClass(ScheduledEvent.CLASS_NAME)) {
       return;
     }
-    var f = (SchemaClassInternal) database.getMetadata().getSchema()
+    var f = database.getMetadata().getSchema()
         .createClass(ScheduledEvent.CLASS_NAME);
 
     f.createProperty(ScheduledEvent.PROP_NAME, PropertyTypeInternal.STRING,

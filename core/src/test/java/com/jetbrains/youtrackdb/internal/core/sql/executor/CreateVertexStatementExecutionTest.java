@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionPlanPrintUtils.printExecutionPlan;
 
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.Assert;

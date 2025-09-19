@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -14,8 +13,7 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
 
   @Test
   public void testDataNotMatchSchema() {
-    var klass =
-        (SchemaClassInternal) session.getMetadata()
+    var klass = session.getMetadata()
             .getSchema()
             .createClass("Test", session.getMetadata().getSchema().getClass("V"));
     session.begin();

@@ -16,7 +16,7 @@
 
 package com.jetbrains.youtrackdb.internal.lucene;
 
-import static com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE.FULLTEXT;
+import static com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE.FULLTEXT;
 
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.api.record.RID;

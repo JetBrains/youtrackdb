@@ -20,7 +20,6 @@ import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -39,7 +38,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -87,7 +87,7 @@ public class EntitySerializerDelta {
 
   protected static void serializeClass(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     if (entity != null) {
       result = entity.getImmutableSchemaClass(session);
     }
@@ -114,7 +114,7 @@ public class EntitySerializerDelta {
   private static void serialize(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
     serializeClass(session, entity, bytes);
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     if (entity != null) {
       result = entity.getImmutableSchemaClass(session);
     }
@@ -566,7 +566,7 @@ public class EntitySerializerDelta {
   public static void serializeDelta(DatabaseSessionInternal session, BytesContainer bytes,
       EntityImpl entity) {
     serializeClass(session, entity, bytes);
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     if (entity != null) {
       result = entity.getImmutableSchemaClass(session);
     }

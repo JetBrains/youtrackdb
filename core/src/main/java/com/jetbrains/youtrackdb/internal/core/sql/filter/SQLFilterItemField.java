@@ -25,13 +25,13 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
@@ -137,7 +137,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     final var v = stringValue == null ? iRecord.getProperty(name) : stringValue;
     if (!collatePreset && iRecord.isEntity()) {
       var entity = (EntityImpl) iRecord.asEntity();
-      SchemaImmutableClass result = null;
+      SchemaClassSnapshot result = null;
       result = entity.getImmutableSchemaClass(session);
       SchemaClass schemaClass = result;
       if (schemaClass != null) {
@@ -169,7 +169,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     var serializer = RecordSerializerBinary.INSTANCE.getSerializer(version);
 
     // check for embedded objects, they have invalid ID and they are serialized with class name
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     if (rec != null) {
       result = rec.getImmutableSchemaClass(session);
     }
@@ -178,7 +178,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
         result,
         name,
         rec.isEmbedded(),
-        session.getMetadata().getImmutableSchemaSnapshot(), encryption);
+        session.getMetadata().getImmutableSchema(session), encryption);
   }
 
   public String getRoot(DatabaseSession session) {

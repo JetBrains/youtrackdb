@@ -23,20 +23,20 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import java.util.HashSet;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInternal {
   @Nonnull
-  private final SchemaImmutableClass lightweightEdgeType;
+  private final SchemaClassSnapshot lightweightEdgeType;
 
   public EdgeImpl(@Nonnull DatabaseSessionInternal session,
       @Nullable Vertex out, @Nullable Vertex in,
-      @Nonnull SchemaImmutableClass lightweightEdgeType) {
+      @Nonnull SchemaClassSnapshot lightweightEdgeType) {
     super(session, out, in, lightweightEdgeType.getName());
     this.lightweightEdgeType = lightweightEdgeType;
   }

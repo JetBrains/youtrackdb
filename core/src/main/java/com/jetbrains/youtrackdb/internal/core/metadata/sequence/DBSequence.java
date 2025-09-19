@@ -32,7 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SequenceException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Objects;
 import java.util.Random;
@@ -397,7 +397,7 @@ public abstract class DBSequence {
         "Sequence type not found in entity");
   }
 
-  public static void initClass(SchemaClassInternal sequenceClass) {
+  public static void initClass(SchemaClass sequenceClass) {
     sequenceClass.createProperty(DBSequence.FIELD_START, PropertyTypeInternal.LONG,
         (PropertyTypeInternal) null, true);
     sequenceClass.createProperty(DBSequence.FIELD_INCREMENT, PropertyTypeInternal.INTEGER,

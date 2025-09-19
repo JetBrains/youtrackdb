@@ -20,8 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -46,11 +46,11 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
   }
 
   public RecordIteratorClass(@Nonnull final DatabaseSessionInternal session,
-      @Nonnull final SchemaClassInternal targetClass,
+      @Nonnull final SchemaClass targetClass,
       final boolean polymorphic, boolean forwardDirection) {
     var collectionIds = polymorphic ? targetClass.getPolymorphicCollectionIds()
         : targetClass.getCollectionIds();
-    collectionIds = SchemaClassImpl.readableCollections(session, collectionIds,
+    collectionIds = SchemaClassShared.readableCollections(session, collectionIds,
         targetClass.getName());
 
     iterator = new RecordIteratorCollections<>(session, collectionIds, forwardDirection);
@@ -66,9 +66,9 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
     return iterator.next();
   }
 
-  private static SchemaClassInternal getSchemaClassInternal(DatabaseSessionInternal session,
+  private static SchemaClass getSchemaClassInternal(DatabaseSessionInternal session,
       String className) {
-    var targetClass = (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
+    var targetClass = session.getMetadata().getImmutableSchema(session)
         .getClass(className);
     if (targetClass == null) {
       throw new IllegalArgumentException(

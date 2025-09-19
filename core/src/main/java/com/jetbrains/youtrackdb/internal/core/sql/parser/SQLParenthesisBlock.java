@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
@@ -69,7 +69,7 @@ public class SQLParenthesisBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClass schemaClass) {
     return subElement.flatten(ctx, schemaClass);
   }
 

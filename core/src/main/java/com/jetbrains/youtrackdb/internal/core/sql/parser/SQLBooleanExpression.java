@@ -4,10 +4,9 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
@@ -262,7 +261,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
     return null;
   }
 
-  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClass schemaClass) {
     return Collections.singletonList(encapsulateInAndBlock(this));
   }
 
@@ -335,7 +334,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   public abstract boolean isCacheable(DatabaseSessionEmbedded session);
 
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
-      SchemaClassInternal clazz) {
+      SchemaClass clazz) {
     return this;
   }
 
@@ -362,7 +361,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   /// the same condition as this expression.
   ///
   /// If there is more than a single property used in the expression, `null` will be returned.
-  /// Always call [#flatten(CommandContext, SchemaClassInternal)] to avoid such a situation.
+  /// Always call [#flatten(CommandContext, SchemaClass)] to avoid such a situation.
   @Nullable
   public abstract String getRelatedIndexPropertyName();
 

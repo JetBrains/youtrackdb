@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Test;
 

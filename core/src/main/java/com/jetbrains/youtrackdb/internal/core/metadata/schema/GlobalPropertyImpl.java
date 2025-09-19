@@ -21,7 +21,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.schema.GlobalProperty;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import javax.annotation.Nonnull;

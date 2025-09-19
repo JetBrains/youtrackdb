@@ -20,11 +20,11 @@
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItem;
@@ -120,7 +120,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
                   - 1;
           if (pos > -1) {
             // FOUND <CLASS>.<FIELD>
-            SchemaImmutableClass result = null;
+            SchemaClassSnapshot result = null;
             if (targeEntity != null) {
               result = targeEntity.getImmutableSchemaClass(session);
             }

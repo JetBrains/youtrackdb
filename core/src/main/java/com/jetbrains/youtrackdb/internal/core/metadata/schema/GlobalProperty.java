@@ -18,8 +18,9 @@
  *
  */
 
-package com.jetbrains.youtrackdb.api.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import javax.annotation.Nonnull;
 
 public interface GlobalProperty {

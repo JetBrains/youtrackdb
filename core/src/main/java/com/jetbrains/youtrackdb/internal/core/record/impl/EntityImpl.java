@@ -43,11 +43,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.GlobalProperty;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
@@ -66,11 +62,15 @@ import com.jetbrains.youtrackdb.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.GlobalProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertySnapshot;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
@@ -116,9 +116,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private boolean lazyLoad = true;
   protected WeakReference<RecordElement> owner = null;
 
-  private ImmutableSchema schema;
+  private SchemaSnapshot schema;
   private String className;
-  private SchemaImmutableClass immutableClazz;
+  private SchemaClassSnapshot immutableClazz;
 
   @Nullable
   private ArrayList<BTreeBasedLinkBag> linkBagsToDelete;
@@ -1045,7 +1045,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
-    final var c = SchemaManager.checkPropertyNameIfValid(propertyName);
+    final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
     if (allowMetadata && propertyName.charAt(0) == '@') {
       return;
     }
@@ -1508,8 +1508,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateProperty(
-      DatabaseSessionInternal session, ImmutableSchema schema, EntityImpl iRecord,
-      ImmutableSchemaProperty p)
+      DatabaseSessionInternal session, SchemaSnapshot schema, EntityImpl iRecord,
+      SchemaPropertySnapshot p)
       throws ValidationException {
     iRecord.checkForBinding();
 
@@ -1788,7 +1788,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLinkCollection(
-      DatabaseSessionInternal db, ImmutableSchema schema,
+      DatabaseSessionInternal db, SchemaSnapshot schema,
       final SchemaProperty property,
       Iterable<Object> values,
       EntityEntry value) {
@@ -1845,7 +1845,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLink(
-      ImmutableSchema schema, @Nonnull DatabaseSessionInternal session, final SchemaProperty p,
+      SchemaSnapshot schema, @Nonnull DatabaseSessionInternal session, final SchemaProperty p,
       final Object propertyValue, boolean allowNull) {
     if (propertyValue == null) {
       if (allowNull) {
@@ -3227,7 +3227,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return;
     }
 
-    final var _clazz = session.getMetadata().getImmutableSchemaSnapshot()
+    final var _clazz = session.getMetadata().getImmutableSchema(session)
         .getClass(iClassName);
     if (_clazz != null) {
       className = _clazz.getName();
@@ -3277,17 +3277,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     var metadata = session.getMetadata();
 
-    var schemaSnapshot = metadata.getImmutableSchemaSnapshot();
-    this.immutableClazz = (SchemaImmutableClass) schemaSnapshot.getClass(className);
+    var schemaSnapshot = metadata.getImmutableSchema(session);
+    this.immutableClazz = (SchemaClassSnapshot) schemaSnapshot.getClass(className);
 
     if (this.immutableClazz != null) {
       this.immutableSchemaVersion = schemaSnapshot.getVersion();
       this.schema = schemaSnapshot;
     } else {
       metadata.getSchema().getOrCreateClass(className);
-      schemaSnapshot = metadata.getImmutableSchemaSnapshot();
+      schemaSnapshot = metadata.getImmutableSchema(session);
 
-      this.immutableClazz = (SchemaImmutableClass) schemaSnapshot.getClass(className);
+      this.immutableClazz = (SchemaClassSnapshot) schemaSnapshot.getClass(className);
       this.immutableSchemaVersion = schemaSnapshot.getVersion();
       this.schema = schemaSnapshot;
     }
@@ -3337,9 +3337,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
       }
 
-      final var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+      final var immutableSchema = session.getMetadata().getImmutableSchema(session);
       for (var p : immutableSchemaClass.getProperties()) {
-        validateProperty(session, immutableSchema, this, (ImmutableSchemaProperty) p);
+        validateProperty(session, immutableSchema, this, (SchemaPropertySnapshot) p);
       }
     }
   }
@@ -3443,7 +3443,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForBinding();
     if (schema == null) {
       var metadata = session.getMetadata();
-      schema = metadata.getImmutableSchemaSnapshot();
+      schema = metadata.getImmutableSchema(session);
     }
     var prop = schema.getGlobalPropertyById(id);
     if (prop == null) {
@@ -3454,25 +3454,25 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
 
       var metadata = session.getMetadata();
-      if (metadata.getImmutableSchemaSnapshot() != null) {
+      if (metadata.getImmutableSchema(session) != null) {
         metadata.clearThreadLocalSchemaSnapshot();
       }
       metadata.reload();
       metadata.makeThreadLocalSchemaSnapshot();
-      schema = metadata.getImmutableSchemaSnapshot();
+      schema = metadata.getImmutableSchema(session);
       prop = schema.getGlobalPropertyById(id);
     }
     return prop;
   }
 
   @Nullable
-  public SchemaImmutableClass getImmutableSchemaClass(
+  public SchemaClassSnapshot getImmutableSchemaClass(
       @Nonnull DatabaseSessionInternal session) {
     if (this.session != session) {
       throw new DatabaseException("The entity is bounded to another session");
     }
 
-    var immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    var immutableSchema = session.getMetadata().getImmutableSchema(session);
     if (immutableClazz == null) {
       if (className == null) {
         fetchClassName(session);
@@ -3484,7 +3484,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
         //noinspection deprecation
         immutableSchemaVersion = immutableSchema.getVersion();
-        immutableClazz = (SchemaImmutableClass) immutableSchema.getClass(className);
+        immutableClazz = (SchemaClassSnapshot) immutableSchema.getClass(className);
       }
     } else if (immutableSchemaVersion != immutableSchema.getVersion()) {
       immutableClazz = null;
@@ -3839,13 +3839,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private void fetchSchema() {
     if (schema == null) {
       var metadata = session.getMetadata();
-      schema = metadata.getImmutableSchemaSnapshot();
+      schema = metadata.getImmutableSchema(session);
     }
   }
 
   private void fetchClassName(DatabaseSessionInternal session) {
     if (recordId.getCollectionId() >= 0) {
-      final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
+      final Schema schema = session.getMetadata().getImmutableSchema(session);
       if (schema != null) {
         var clazz = schema.getClassByCollectionId(recordId.getCollectionId());
         if (clazz != null) {
@@ -3994,7 +3994,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       fetchClassName(session);
     }
 
-    final Schema immutableSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    final Schema immutableSchema = session.getMetadata().getImmutableSchema(session);
     if (immutableSchema == null) {
       return;
     }
@@ -4002,13 +4002,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (immutableClazz == null) {
       //noinspection deprecation
       immutableSchemaVersion = immutableSchema.getVersion();
-      immutableClazz = (SchemaImmutableClass) immutableSchema.getClass(className);
+      immutableClazz = (SchemaClassSnapshot) immutableSchema.getClass(className);
     } else {
       //noinspection deprecation
       if (immutableSchemaVersion < immutableSchema.getVersion()) {
         //noinspection deprecation
         immutableSchemaVersion = immutableSchema.getVersion();
-        immutableClazz = (SchemaImmutableClass) immutableSchema.getClass(className);
+        immutableClazz = (SchemaClassSnapshot) immutableSchema.getClass(className);
       }
     }
   }
@@ -4048,7 +4048,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return (RET) value;
   }
 
-  public ImmutableSchema getImmutableSchema() {
+  public SchemaSnapshot getImmutableSchema() {
     return schema;
   }
 

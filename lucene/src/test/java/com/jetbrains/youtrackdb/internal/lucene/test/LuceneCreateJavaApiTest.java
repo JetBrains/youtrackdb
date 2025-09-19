@@ -21,10 +21,9 @@ package com.jetbrains.youtrackdb.internal.lucene.test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
 import java.util.Map;
@@ -159,7 +158,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
     Assert.assertEquals(expectedCount, result.stream().count());
   }
 
-  private void checkCreatedEmbeddedMapIndex(final SchemaClassInternal clazz,
+  private void checkCreatedEmbeddedMapIndex(final SchemaClass clazz,
       final String expectedAlgorithm) {
     final var index = clazz.getIndexesInternal().iterator().next();
     System.out.println(
@@ -178,9 +177,9 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
         index.getDefinition().getTypes()[0]);
   }
 
-  private SchemaClassInternal createEmbeddedMapIndex() {
+  private SchemaClass createEmbeddedMapIndex() {
     var schema = session.getMetadata().getSchema();
-    var song = schema.getClassInternal(SONG_CLASS);
+    var song = schema.getClass(SONG_CLASS);
     song.createProperty("String" + PropertyType.EMBEDDEDMAP.name(),
         PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);
@@ -194,9 +193,9 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
     return song;
   }
 
-  private SchemaClassInternal createEmbeddedMapIndexSimple() {
+  private SchemaClass createEmbeddedMapIndexSimple() {
     var schema = session.getMetadata().getSchema();
-    var song = schema.getClassInternal(SONG_CLASS);
+    var song = schema.getClass(SONG_CLASS);
     song.createProperty("String" + PropertyType.EMBEDDEDMAP.name(),
         PropertyType.EMBEDDEDMAP,
         PropertyType.STRING);

@@ -43,7 +43,6 @@ import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
@@ -52,13 +51,12 @@ import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
-import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
@@ -84,15 +82,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface DatabaseSessionInternal extends DatabaseSession {
-
-  /**
-   * Internal. Returns the factory that defines a set of components that current database should use
-   * to be compatible to current version of storage. So if you open a database create with old
-   * version of YouTrackDB it defines a components that should be used to provide backward
-   * compatibility with that version of database.
-   */
-  CurrentStorageComponentsFactory getStorageVersions();
-
   /**
    * Returns the current user logged into the database.
    */
@@ -150,13 +139,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   boolean isActiveOnCurrentThread();
 
-  /**
-   * Adds a new collection for store blobs.
-   *
-   * @param iCollectionName Collection name
-   * @param iParameters     Additional parameters to pass to the factories
-   */
-  void addBlobCollection(String iCollectionName, Object... iParameters);
 
   int begin(FrontendTransactionImpl tx);
 
@@ -218,10 +200,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   DatabaseSession setCustom(final String name, final Object iValue);
 
-  void setPrefetchRecords(boolean prefetchRecords);
-
-  boolean isPrefetchRecords();
-
   @Nullable
   default ResultSet getActiveQuery(String id) {
     throw new UnsupportedOperationException();
@@ -259,10 +237,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   void internalCommit(@Nonnull FrontendTransactionImpl transaction);
 
-  boolean isCollectionVertex(int collection);
-
-  boolean isCollectionEdge(int collection);
-
   void deleteInternal(@Nonnull RecordAbstract record);
 
   void internalClose(boolean recycle);
@@ -280,8 +254,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   default void endExclusiveMetadataChange() {
   }
-
-  void truncateClass(String name);
 
   long truncateClass(String name, boolean polimorfic);
 
@@ -478,8 +450,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * Set user for current database instance.
    */
   void setUser(SecurityUser user);
-
-  void resetInitialization();
 
   /**
    * Internal method. Don't call it directly unless you're building an internal component.
@@ -688,28 +658,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @return Total number of entities contained in the specified collection
    */
   long countCollectionElements(String iCollectionName);
-
-  /**
-   * Adds a new collection.
-   *
-   * @param iCollectionName Collection name
-   * @param iParameters     Additional parameters to pass to the factories
-   * @return Collection id
-   */
-  int addCollection(String iCollectionName, Object... iParameters);
-
-  boolean dropCollection(final String iCollectionName);
-
-  boolean dropCollection(final int collectionId);
-
-  /**
-   * Adds a new collection.
-   *
-   * @param iCollectionName Collection name
-   * @param iRequestedId    requested id of the collection
-   * @return Collection id
-   */
-  int addCollection(String iCollectionName, int iRequestedId);
 
   MetadataInternal getMetadata();
 
@@ -1131,16 +1079,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     execute(query, args).close();
   }
 
-  /**
-   * retrieves a class from the schema
-   *
-   * @param className The class name
-   * @return The object representing the class in the schema. Null if the class does not exist.
-   */
-  default SchemaClassInternal getClassInternal(String className) {
-    var schema = getMetadata().getSchemaInternal();
-    return schema.getClassInternal(className);
-  }
 
   /**
    * creates a new vertex class (a class that extends V)

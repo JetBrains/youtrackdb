@@ -3,8 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import javax.annotation.Nullable;
 
 public class ClassIndexFinder implements IndexFinder {
@@ -18,7 +17,7 @@ public class ClassIndexFinder implements IndexFinder {
 
   private static class PrePath {
 
-    SchemaClassInternal cl;
+    SchemaClass cl;
     @Nullable
     IndexCandidate chain;
     boolean valid;
@@ -31,16 +30,16 @@ public class ClassIndexFinder implements IndexFinder {
     var cand =
         new PrePath() {
           {
-            this.cl = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot()
+            this.cl = ctx.getDatabaseSession().getMetadata().getImmutableSchema(session)
                 .getClassInternal(ClassIndexFinder.this.clazz);
             valid = true;
             last = lastP;
           }
         };
     for (var ele : rawPath) {
-      var prop = (SchemaPropertyInternal) cand.cl.getProperty(ele);
+      var prop = cand.cl.getProperty(ele);
       if (prop != null) {
-        var linkedClass = (SchemaClassInternal) prop.getLinkedClass();
+        var linkedClass = prop.getLinkedClass();
         var indexes = prop.getAllIndexesInternal();
         if (PropertyTypeInternal.convertFromPublicType(prop.getType()).isLink()
             && linkedClass != null) {
@@ -87,7 +86,7 @@ public class ClassIndexFinder implements IndexFinder {
     var cand = pre.chain;
     var last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = cl.getProperty(last);
     if (prop != null) {
       var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
@@ -119,7 +118,7 @@ public class ClassIndexFinder implements IndexFinder {
     var cand = pre.chain;
     var last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = cl.getProperty(last);
     if (prop != null) {
       if (prop.getType() == PropertyType.EMBEDDEDMAP) {
         var indexes = prop.getAllIndexesInternal();
@@ -157,7 +156,7 @@ public class ClassIndexFinder implements IndexFinder {
     var cand = pre.chain;
     var last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = cl.getProperty(last);
     if (prop != null) {
       var indexes = prop.getAllIndexesInternal();
       for (var index : indexes) {
@@ -189,7 +188,7 @@ public class ClassIndexFinder implements IndexFinder {
     var cand = pre.chain;
     var last = pre.last;
 
-    var prop = (SchemaPropertyInternal) cl.getProperty(last);
+    var prop = cl.getProperty(last);
     if (prop != null) {
       if (prop.getType() == PropertyType.EMBEDDEDMAP) {
         var indexes = prop.getAllIndexesInternal();

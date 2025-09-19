@@ -17,8 +17,8 @@
 package com.jetbrains.youtrackdb.internal.lucene.operator;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.IndexSearchResult;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
@@ -34,7 +34,7 @@ public class LuceneOperatorUtil {
 
   @Nullable
   public static IndexSearchResult buildOIndexSearchResult(
-      SchemaClassInternal iSchemaClass,
+      SchemaClass iSchemaClass,
       SQLFilterCondition iCondition,
       List<IndexSearchResult> iIndexSearchResults,
       CommandContext context) {
@@ -103,7 +103,7 @@ public class LuceneOperatorUtil {
   }
 
   public static boolean checkIndexExistence(
-      DatabaseSessionInternal session, final SchemaClassInternal iSchemaClass,
+      DatabaseSessionEmbedded session, final SchemaClass iSchemaClass,
       final IndexSearchResult result) {
     if (!iSchemaClass.areIndexed(session, result.fields())) {
       return false;
@@ -111,7 +111,7 @@ public class LuceneOperatorUtil {
 
     if (result.lastField.isLong()) {
       final var fieldCount = result.lastField.getItemCount();
-      var cls = (SchemaClassInternal) iSchemaClass.getProperty(
+      var cls = iSchemaClass.getProperty(
           result.lastField.getItemName(0)).getLinkedClass();
 
       for (var i = 1; i < fieldCount; i++) {
@@ -119,7 +119,7 @@ public class LuceneOperatorUtil {
           return false;
         }
 
-        cls = (SchemaClassInternal) cls.getProperty(result.lastField.getItemName(i))
+        cls = cls.getProperty(result.lastField.getItemName(i))
             .getLinkedClass();
       }
     }

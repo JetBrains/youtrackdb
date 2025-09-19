@@ -6,8 +6,6 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import java.util.Collections;
 import java.util.List;
@@ -26,7 +24,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     var cClass = oSchema.createClass("javaC", aClass, bClass);
     testClassCreationBranch(aClass, bClass, cClass);
     testClassCreationBranch(aClass, bClass, cClass);
-    oSchema = session.getMetadata().getImmutableSchemaSnapshot();
+    oSchema = session.getMetadata().getImmutableSchema(session);
     aClass = oSchema.getClass("javaA");
     bClass = oSchema.getClass("javaB");
     cClass = oSchema.getClass("javaC");

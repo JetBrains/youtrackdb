@@ -73,7 +73,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
         this.className = statement.getTarget().getItem().getIdentifier().getStringValue();
         if (!session
             .getMetadata()
-            .getImmutableSchemaSnapshot()
+            .getImmutableSchema(session)
             .existsClass(className)) {
           throw new CommandExecutionException(session,
               "Class " + className + " not found in the schema: " + query);
@@ -197,7 +197,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
         return false;
       } else if (!(className.equalsIgnoreCase(recordClassName))) {
         var recordClass =
-            session.getMetadata().getImmutableSchemaSnapshot().getClass(recordClassName);
+            session.getMetadata().getImmutableSchema(session).getClass(recordClassName);
         if (recordClass == null) {
           return false;
         }

@@ -23,13 +23,12 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Collections;
@@ -72,7 +71,7 @@ public class FunctionLibraryImpl {
     functions.clear();
 
     // LOAD ALL THE FUNCTIONS IN MEMORY
-    if (session.getMetadata().getImmutableSchemaSnapshot().existsClass("OFunction")) {
+    if (session.getMetadata().getImmutableSchema(session).existsClass("OFunction")) {
       session.executeInTx(tx -> {
         try (var result = tx.query("select from OFunction order by name")) {
           while (result.hasNext()) {
@@ -164,8 +163,8 @@ public class FunctionLibraryImpl {
 
   protected static void init(final DatabaseSessionInternal session) {
     if (session.getMetadata().getSchema().existsClass("OFunction")) {
-      var f = session.getMetadata().getSchema().getClassInternal("OFunction");
-      var prop = f.getPropertyInternal("name");
+      var f = session.getMetadata().getSchema().getClass("OFunction");
+      var prop = f.getProperty("name");
 
       if (prop.getAllIndexes().isEmpty()) {
         prop.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
@@ -173,7 +172,7 @@ public class FunctionLibraryImpl {
       return;
     }
 
-    var f = (SchemaClassInternal) session.getMetadata().getSchema().createClass("OFunction");
+    var f = session.getMetadata().getSchema().createClass("OFunction");
     var prop = f.createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
         true);
     prop.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);

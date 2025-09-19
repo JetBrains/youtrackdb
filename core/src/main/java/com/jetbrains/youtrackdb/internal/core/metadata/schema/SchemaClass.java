@@ -17,50 +17,21 @@
  *
  *
  */
-package com.jetbrains.youtrackdb.api.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
-import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Schema class
  */
-public interface SchemaClass {
-  String EDGE_CLASS_NAME = "E";
-  String VERTEX_CLASS_NAME = "V";
-
-  enum ATTRIBUTES {
-    NAME,
-    SUPERCLASSES,
-    STRICT_MODE,
-    CUSTOM,
-    ABSTRACT,
-    DESCRIPTION
-  }
-
-  enum INDEX_TYPE {
-    UNIQUE,
-    NOTUNIQUE,
-    FULLTEXT,
-    SPATIAL
-  }
-
-  boolean isAbstract();
-
+public interface SchemaClass extends ImmutableSchemaClass {
   SchemaClass setAbstract(boolean iAbstract);
 
-  boolean isStrictMode();
-
   void setStrictMode(boolean iMode);
-
-  boolean hasSuperClasses();
-
-  List<String> getSuperClassesNames();
-
-  List<SchemaClass> getSuperClasses();
 
   SchemaClass setSuperClasses(List<? extends SchemaClass> classes);
 
@@ -68,21 +39,9 @@ public interface SchemaClass {
 
   void removeSuperClass(SchemaClass superClass);
 
-  String getName();
-
   SchemaClass setName(String iName);
 
-  String getDescription();
-
   SchemaClass setDescription(String iDescription);
-
-  Collection<SchemaProperty> getDeclaredProperties();
-
-  Collection<SchemaProperty> getProperties();
-
-  Map<String, SchemaProperty> getPropertiesMap();
-
-  SchemaProperty getProperty(String iPropertyName);
 
   SchemaProperty createProperty(String iPropertyName, PropertyType iType);
 
@@ -113,50 +72,6 @@ public interface SchemaClass {
 
   void dropProperty(String iPropertyName);
 
-  boolean existsProperty(String iPropertyName);
-
-  int[] getCollectionIds();
-
-  int[] getPolymorphicCollectionIds();
-
-  /**
-   * @return all the subclasses (one level hierarchy only)
-   */
-  Collection<SchemaClass> getSubclasses();
-
-  /**
-   * @return all the subclass hierarchy
-   */
-  Collection<SchemaClass> getAllSubclasses();
-
-  /**
-   * @return all recursively collected super classes
-   */
-  Collection<SchemaClass> getAllSuperClasses();
-
-  /**
-   * Tells if the current instance extends the passed schema class (iClass).
-   *
-   * @return true if the current instance extends the passed schema class (iClass).
-   * @see #isSuperClassOf(SchemaClass)
-   */
-  boolean isSubClassOf(String iClassName);
-
-  /**
-   * Returns true if the current instance extends the passed schema class (iClass).
-   *
-   * @return true if the current instance extends the passed schema class (iClass).
-   * @see #isSuperClassOf(SchemaClass)
-   */
-  boolean isSubClassOf(SchemaClass iClass);
-
-  /**
-   * Returns true if the passed schema class (iClass) extends the current instance.
-   *
-   * @return Returns true if the passed schema class extends the current instance.
-   * @see #isSubClassOf(SchemaClass)
-   */
-  boolean isSuperClassOf(SchemaClass iClass);
 
   /**
    * Creates database index that is based on passed in field names. Given index will be added into
@@ -232,17 +147,6 @@ public interface SchemaClass {
       Map<String, Object> metadata,
       String... fields);
 
-  /**
-   * @return true if this class represents a subclass of an edge class (E)
-   */
-  boolean isEdgeType();
-
-  /**
-   * @return true if this class represents a subclass of a vertex class (V)
-   */
-  boolean isVertexType();
-
-  String getCustom(String iName);
 
   SchemaClass setCustom(String iName, String iValue);
 
@@ -250,9 +154,44 @@ public interface SchemaClass {
 
   void clearCustom();
 
-  Set<String> getCustomKeys();
+  SchemaProperty createProperty(
+      final String iPropertyName,
+      final PropertyTypeInternal iType,
+      final PropertyTypeInternal iLinkedType,
+      final boolean unsafe);
 
-  boolean hasCollectionId(int collectionId);
+  SchemaProperty createProperty(
+      final String iPropertyName,
+      final PropertyTypeInternal iType,
+      final SchemaClass iLinkedClass,
+      final boolean unsafe);
 
-  boolean hasPolymorphicCollectionId(int collectionId);
+  void truncate();
+
+
+  SchemaClass set(final ATTRIBUTES attribute, final Object value);
+
+  @Override
+  Iterator<SchemaClass> getSuperClasses();
+
+  @Override
+  Iterator<SchemaProperty> getDeclaredProperties();
+
+  @Override
+  Iterator<SchemaProperty> getProperties();
+
+  @Override
+  Map<String, SchemaProperty> getPropertiesMap();
+
+  @Override
+  Iterator<SchemaClass> getSubclasses();
+
+  @Override
+  Iterator<SchemaClass> getAllSuperClasses();
+
+  @Override
+  SchemaProperty getProperty(String propertyName);
+
+  @Override
+  Iterator<SchemaClass> getAllSubclasses();
 }

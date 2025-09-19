@@ -24,10 +24,10 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
 import javax.annotation.Nullable;
@@ -49,7 +49,7 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
       final Object iRight,
       CommandContext iContext) {
     var session = iContext.getDatabaseSession();
-    final Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
+    final Schema schema = session.getMetadata().getImmutableSchema(session);
 
     final var baseClassName = iRight.toString();
     final var baseClass = schema.getClass(baseClassName);
@@ -64,7 +64,7 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
       var transaction = iContext.getDatabaseSession().getActiveTransaction();
       var record = transaction.load(((Identifiable) iLeft));
       if (record instanceof EntityImpl) {
-        SchemaImmutableClass result = null;
+        SchemaClassSnapshot result = null;
         if (record != null) {
           result = ((EntityImpl) record).getImmutableSchemaClass(session);
         }

@@ -22,9 +22,6 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.YTIOException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
@@ -33,6 +30,9 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
@@ -458,7 +458,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage("\nExporting schema...");
 
     jsonGenerator.writeObjectFieldStart("schema");
-    final Schema schema = (session.getMetadata()).getImmutableSchemaSnapshot();
+    final Schema schema = (session.getMetadata()).getImmutableSchema(session);
     //noinspection deprecation
     jsonGenerator.writeNumberField("version", schema.getVersion());
     jsonGenerator.writeArrayFieldStart("blob-collections");

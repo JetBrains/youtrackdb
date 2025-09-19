@@ -8,8 +8,6 @@ import static org.testng.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
@@ -21,7 +19,8 @@ import com.jetbrains.youtrackdb.internal.core.index.PropertyLinkBagIndexDefiniti
 import com.jetbrains.youtrackdb.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyMapIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -36,8 +35,9 @@ import org.testng.annotations.Test;
 
 @Test
 public class ClassIndexTest extends BaseDBTest {
-  private SchemaClassInternal oClass;
-  private SchemaClassInternal oSuperClass;
+
+  private SchemaClass oClass;
+  private SchemaClass oSuperClass;
 
   @Override
   @BeforeClass
@@ -46,8 +46,8 @@ public class ClassIndexTest extends BaseDBTest {
 
     final Schema schema = session.getMetadata().getSchemaInternal();
 
-    oClass = (SchemaClassInternal) schema.createClass("ClassIndexTestClass");
-    oSuperClass = (SchemaClassInternal) schema.createClass("ClassIndexTestSuperClass");
+    oClass = schema.createClass("ClassIndexTestClass");
+    oSuperClass = schema.createClass("ClassIndexTestSuperClass");
 
     oClass.createProperty("fOne", PropertyType.INTEGER);
     oClass.createProperty("fTwo", PropertyType.STRING);
@@ -2108,7 +2108,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testGetIndexesWithoutParent() {
-    final var inClass = (SchemaClassInternal) session.getMetadata().getSchema()
+    final var inClass = session.getMetadata().getSchema()
         .createClass("ClassIndexInTest");
     inClass.createProperty("fOne", PropertyType.INTEGER);
 

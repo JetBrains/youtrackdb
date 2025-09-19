@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;

@@ -28,9 +28,9 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.GlobalProperty;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.GlobalProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
@@ -47,9 +47,9 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
@@ -206,7 +206,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final SchemaClass iClass,
       final String iFieldName,
       boolean embedded,
-      ImmutableSchema schema,
+      SchemaSnapshot schema,
       PropertyEncryption encryption) {
 
     if (embedded) {
@@ -386,9 +386,9 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final EntityImpl entity,
       Set<Entry<String, EntityEntry>> fields,
       final Map<String, SchemaProperty> props,
-      ImmutableSchema schema,
+      SchemaSnapshot schema,
       PropertyEncryption encryption) {
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     if (entity != null) {
       result = entity.getImmutableSchemaClass(session);
     }
@@ -476,7 +476,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes,
       final SchemaClass clazz,
-      ImmutableSchema schema,
+      SchemaSnapshot schema,
       PropertyEncryption encryption) {
     // allocate space for header length
 
@@ -497,11 +497,11 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
 
   public void serializeWithClassName(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
-    ImmutableSchema schema = null;
+    SchemaSnapshot schema = null;
     if (entity != null) {
       schema = entity.getImmutableSchema();
     }
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     if (entity != null) {
       result = entity.getImmutableSchemaClass(session);
     }
@@ -518,7 +518,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   @Override
   public void serialize(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
-    ImmutableSchema schema = null;
+    SchemaSnapshot schema = null;
     if (entity != null) {
       schema = entity.getImmutableSchema();
     }
@@ -531,7 +531,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   protected <RET> RET deserializeFieldTypedLoopAndReturn(
       DatabaseSessionEmbedded session, BytesContainer bytes,
       String iFieldName,
-      final ImmutableSchema schema,
+      final SchemaSnapshot schema,
       PropertyEncryption encryption) {
     final var field = iFieldName.getBytes();
 
@@ -605,7 +605,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   protected int writeEmbeddedMap(
       DatabaseSessionInternal session, BytesContainer bytes,
       Map<Object, Object> map,
-      ImmutableSchema schema,
+      SchemaSnapshot schema,
       PropertyEncryption encryption) {
     final var fullPos = VarIntSerializer.write(bytes, map.size());
     for (var entry : map.entrySet()) {
@@ -659,7 +659,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
   }
 
   protected List<MapRecordInfo> getPositionsFromEmbeddedMap(
-      DatabaseSessionEmbedded session, final BytesContainer bytes, ImmutableSchema schema) {
+      DatabaseSessionEmbedded session, final BytesContainer bytes, SchemaSnapshot schema) {
     List<MapRecordInfo> retList = new ArrayList<>();
 
     var numberOfElements = VarIntSerializer.readAsInteger(bytes);
@@ -866,7 +866,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     while (!(entity instanceof EntityImpl) && entity != null) {
       entity = entity.getOwner();
     }
-    ImmutableSchema schema = null;
+    SchemaSnapshot schema = null;
     if (entity != null) {
       schema = ((EntityImpl) entity).getImmutableSchema();
     }
@@ -878,7 +878,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final PropertyTypeInternal type,
       final RecordElement owner,
       boolean justRunThrough,
-      ImmutableSchema schema) {
+      SchemaSnapshot schema) {
     if (type == null) {
       throw new DatabaseException(session.getDatabaseName(), "Invalid type value: null");
     }
@@ -1007,7 +1007,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       Object value,
       final PropertyTypeInternal type,
       final PropertyTypeInternal linkedType,
-      ImmutableSchema schema,
+      SchemaSnapshot schema,
       PropertyEncryption encryption) {
     var pointer = 0;
     switch (type) {
@@ -1122,7 +1122,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       DatabaseSessionInternal session, final BytesContainer bytes,
       final Collection<?> value,
       final PropertyTypeInternal linkedType,
-      ImmutableSchema schema,
+      SchemaSnapshot schema,
       PropertyEncryption encryption) {
     final var pos = VarIntSerializer.write(bytes, value.size());
     writeOType(bytes, bytes.alloc(1),

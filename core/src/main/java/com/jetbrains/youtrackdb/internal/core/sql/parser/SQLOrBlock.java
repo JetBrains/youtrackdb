@@ -4,10 +4,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
@@ -165,7 +164,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClassInternal schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClass schemaClass) {
     List<SQLAndBlock> result = new ArrayList<>();
 
     for (var sub : subBlocks) {
@@ -273,7 +272,7 @@ public class SQLOrBlock extends SQLBooleanExpression {
 
   @Override
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
-      SchemaClassInternal clazz) {
+      SchemaClass clazz) {
     for (var exp : subBlocks) {
       exp.rewriteIndexChainsAsSubqueries(ctx, clazz);
     }

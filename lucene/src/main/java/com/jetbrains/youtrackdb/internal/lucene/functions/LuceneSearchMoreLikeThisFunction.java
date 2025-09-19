@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.IndexableSQLFunction;
@@ -270,7 +270,7 @@ public class LuceneSearchMoreLikeThisFunction extends SQLFunctionAbstract
   }
 
   @Nullable
-  private static LuceneFullTextIndex searchForIndex(SchemaClassInternal schemaClass) {
+  private static LuceneFullTextIndex searchForIndex(SchemaClass schemaClass) {
     var indices = schemaClass.getIndexesInternal().stream()
         .filter(idx -> idx instanceof LuceneFullTextIndex)
         .map(idx -> (LuceneFullTextIndex) idx)

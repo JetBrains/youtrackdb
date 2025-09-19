@@ -4,14 +4,15 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHook;
@@ -65,7 +66,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
                 .getConfiguration()
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.DB_STRING_CAHCE_SIZE));
-    schema = new SchemaEmbedded();
+    schema = new SchemaShared();
     security = youtrackDB.getSecuritySystem().newSecurity(storage.getName());
     indexManager = new IndexManagerEmbedded(storage);
     functionLibrary = new FunctionLibraryImpl();
@@ -106,7 +107,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     lock.lock();
     try {
       database.executeInTx(transaction -> {
-        schema.load(database);
         schema.forceSnapshot();
         indexManager.load(database);
         // The Immutable snapshot should be after index and schema that require and before
@@ -128,7 +128,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     lock.lock();
     try {
       stringCache.close();
-      schema.close();
       security.close();
       indexManager.close();
       functionLibrary.close();
@@ -148,7 +147,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   public void reload(DatabaseSessionInternal database) {
     lock.lock();
     try {
-      schema.reload(database);
       indexManager.reload(database);
       // The Immutable snapshot should be after index and schema that require and before everything
       // else that use it
@@ -217,11 +215,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     }
   }
 
-
-  public SchemaManager getSchemaManager() {
-    return schema;
-  }
-
   public SecurityInternal getSecurity() {
     return security;
   }
@@ -272,6 +265,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   public IndexManagerEmbedded getIndexManager() {
     return indexManager;
+  }
+
+  public SchemaShared getSchema() {
+    return schema;
   }
 
   public synchronized <T> T getResource(final String name, final Callable<T> factory) {

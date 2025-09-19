@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.lucene.tests;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;

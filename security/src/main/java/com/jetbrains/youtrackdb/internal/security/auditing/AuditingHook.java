@@ -20,13 +20,13 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.RecordHookAbstract;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.common.parser.VariableParser;
 import com.jetbrains.youtrackdb.internal.common.parser.VariableParserListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
@@ -279,7 +279,7 @@ public class AuditingHook extends RecordHookAbstract implements SessionListener 
 
     var session = iRecord.getBoundedToSession();
     if (iRecord instanceof EntityImpl entity) {
-      SchemaImmutableClass clazz = null;
+      SchemaClassSnapshot clazz = null;
       clazz = entity.getImmutableSchemaClass((DatabaseSessionInternal) session);
 
       if (clazz.isUser() &&

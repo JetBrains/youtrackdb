@@ -7,10 +7,8 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrackdb.internal.common.util.Collections;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -36,9 +34,8 @@ public class SQLDropPropertyStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
 
-    final var session = (DatabaseSessionEmbedded) ctx.getDatabaseSession();
-    final var sourceClass =
-        (SchemaClassInternal) session.getMetadata().getSchema()
+    final var session = ctx.getDatabaseSession();
+    final var sourceClass = session.getMetadata().getSchema()
             .getClass(className.getStringValue());
     if (sourceClass == null) {
       throw new CommandExecutionException(session, "Source class '" + className + "' not found");

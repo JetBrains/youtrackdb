@@ -4,11 +4,11 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
@@ -111,7 +111,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
   }
 
   protected static SchemaClass loadClassFromSchema(String className, CommandContext ctx) {
-    var clazz = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot()
+    var clazz = ctx.getDatabaseSession().getMetadata().getImmutableSchema(session)
         .getClass(className);
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

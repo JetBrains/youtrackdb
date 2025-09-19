@@ -21,9 +21,9 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -60,7 +60,7 @@ public class IndexDefinitionFactory {
       var type = types.getFirst();
       var field = fieldNames.getFirst();
       final var fieldName =
-          SchemaClassImpl.decodeClassName(
+          SchemaClassShared.decodeClassName(
               adjustFieldName(oClass, extractFieldName(field)));
       if (collates != null) {
         collate = collates.getFirst();
@@ -132,7 +132,7 @@ public class IndexDefinitionFactory {
 
       var field = fieldsToIndex.get(i);
       final var fieldName =
-          SchemaClassImpl.decodeClassName(
+          SchemaClassShared.decodeClassName(
               adjustFieldName(oClass, extractFieldName(field)));
       var property = oClass.getProperty(fieldName);
       if (property != null) {

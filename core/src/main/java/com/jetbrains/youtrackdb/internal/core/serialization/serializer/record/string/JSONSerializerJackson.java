@@ -36,8 +36,6 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
@@ -54,6 +52,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -268,7 +268,7 @@ public class JSONSerializerJackson {
               record = session.newInstance();
             }
           } else {
-            var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+            var schemaSnapshot = session.getMetadata().getImmutableSchema(session);
             var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
             if (schemaClass == null) {
               throw new SerializationException(session,
@@ -313,7 +313,7 @@ public class JSONSerializerJackson {
                 "Record class name mismatch: " + className + " != " + null);
           }
 
-          var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+          var schemaSnapshot = session.getMetadata().getImmutableSchema(session);
           var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
 
           if (schemaClass == null) {
@@ -515,7 +515,7 @@ public class JSONSerializerJackson {
       return null;
     }
 
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schema = session.getMetadata().getImmutableSchema(session);
     SchemaClass schemaClass = null;
     if (className == null && defaultClassName == null && recordId != null) {
       schemaClass = schema.getClassByCollectionId(recordId.getCollectionId());
@@ -553,7 +553,7 @@ public class JSONSerializerJackson {
       if (className == null) {
         embeddedValue = asValue && recordId == null;
       } else {
-        var cls = session.getMetadata().getImmutableSchemaSnapshot().getClass(className);
+        var cls = session.getMetadata().getImmutableSchema(session).getClass(className);
         if (cls != null) {
           embeddedValue = cls.isAbstract();
         } else {

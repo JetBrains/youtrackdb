@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.api.record.Blob;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.util.PatternConst;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
@@ -73,7 +73,7 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
               (Blob) response,
               fileName);
         } else if (response instanceof EntityImpl) {
-          SchemaImmutableClass result = null;
+          SchemaClassSnapshot result = null;
           if (response != null) {
             result = ((EntityImpl) response).getImmutableSchemaClass(session);
           }

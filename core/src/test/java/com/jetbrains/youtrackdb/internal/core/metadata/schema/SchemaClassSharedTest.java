@@ -9,15 +9,13 @@ import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.util.Map;
 import org.junit.Test;
 
-public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
+public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   /**
    * If class was not abstract and we call {@code setAbstract(false)} collections should not be
@@ -55,7 +53,7 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
   public void testCreateNoLinkedClass() {
     final Schema oSchema = session.getMetadata().getSchema();
 
-    var oClass = (SchemaClassInternal) oSchema.createClass("Test21");
+    var oClass = oSchema.createClass("Test21");
     oClass.createProperty("some", PropertyType.LINKLIST, (SchemaClass) null);
     oClass.createProperty("some2", PropertyTypeInternal.LINKLIST, (SchemaClass) null, true);
 
@@ -517,10 +515,10 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
   public void testCreateVertexLinkProperty() {
     final Schema oSchema = session.getMetadata().getSchema();
     var vertexClass =
-        oSchema.createVertexClass("MyVertex" + SchemaClassImplTest.class.getSimpleName());
+        oSchema.createVertexClass("MyVertex" + SchemaClassSharedTest.class.getSimpleName());
 
     var edgeClass =
-        oSchema.createEdgeClass("MyEdge" + SchemaClassImplTest.class.getSimpleName());
+        oSchema.createEdgeClass("MyEdge" + SchemaClassSharedTest.class.getSimpleName());
 
     // creating edge
     session.executeInTx(tx -> {

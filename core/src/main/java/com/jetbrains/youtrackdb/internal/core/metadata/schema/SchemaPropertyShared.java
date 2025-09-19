@@ -24,8 +24,9 @@ import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.common.comparator.CaseInsentiveComparator;
 import com.jetbrains.youtrackdb.internal.common.util.Collections;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
@@ -41,6 +42,7 @@ import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -48,38 +50,25 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
  * Contains the description of a persistent class property.
  */
-public abstract class SchemaPropertyImpl {
+public final class SchemaPropertyShared {
   private static final Pattern DOUBLE_SLASH_PATTERN = Pattern.compile("\\\\");
   private static final Pattern QUOTATION_PATTERN = Pattern.compile("\"");
-  protected final SchemaClassImpl owner;
-  protected PropertyTypeInternal linkedType;
-  protected SchemaClassImpl linkedClass;
-  private transient String linkedClassName;
 
-  protected String description;
-  protected boolean mandatory;
-  protected boolean notNull = false;
-  protected String min;
-  protected String max;
-  protected String defaultValue;
-  protected String regexp;
-  protected boolean readonly;
-  protected Map<String, String> customFields;
-  protected Collate collate = new DefaultCollate();
-  protected GlobalPropertyImpl globalRef;
+  @Nonnull
+  private final SchemaClassShared owner;
+  @Nonnull
+  private final SchemaPropertyEntity schemaPropertyEntity;
 
-  public SchemaPropertyImpl(final SchemaClassImpl owner) {
+  public SchemaPropertyShared(@Nonnull final SchemaClassShared owner,
+      @Nonnull final SchemaPropertyEntity schemaPropertyEntity) {
     this.owner = owner;
-  }
-
-  public SchemaPropertyImpl(SchemaClassImpl oClassImpl, GlobalPropertyImpl global) {
-    this(oClassImpl);
-    this.globalRef = global;
+    this.schemaPropertyEntity = schemaPropertyEntity;
   }
 
   public String getName() {
@@ -232,7 +221,7 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public SchemaClassImpl getOwnerClass() {
+  public SchemaClassShared getOwnerClass() {
     return owner;
   }
 
@@ -240,7 +229,7 @@ public abstract class SchemaPropertyImpl {
    * Returns the linked class in lazy mode because while unmarshalling the class could be not loaded
    * yet.
    */
-  public SchemaClassImpl getLinkedClass(DatabaseSessionInternal session) {
+  public SchemaClassShared getLinkedClass(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
     try {
       if (linkedClass == null && linkedClassName != null) {
@@ -501,7 +490,7 @@ public abstract class SchemaPropertyImpl {
     }
   }
 
-  public abstract void setLinkedClass(DatabaseSessionInternal session, SchemaClassImpl oClass);
+  public abstract void setLinkedClass(DatabaseSessionInternal session, SchemaClassShared oClass);
 
   public abstract void setLinkedType(DatabaseSessionInternal session, PropertyTypeInternal type);
 
@@ -717,8 +706,8 @@ public abstract class SchemaPropertyImpl {
     owner.releaseSchemaReadLock();
   }
 
-  public void acquireSchemaWriteLock(DatabaseSessionInternal session) {
-    owner.acquireSchemaWriteLock(session);
+  public void acquireSchemaWriteLock() {
+    owner.acquireSchemaWriteLock();
   }
 
   public void releaseSchemaWriteLock(DatabaseSessionInternal session) {
@@ -757,5 +746,499 @@ public abstract class SchemaPropertyImpl {
 
   public Integer getId() {
     return globalRef.getId();
+  }
+
+  @Override
+  public void setType(DatabaseSessionInternal session, final PropertyTypeInternal type) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setTypeInternal(session, type);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+    owner.fireDatabaseMigration(session, globalRef.getName(),
+        PropertyTypeInternal.convertFromPublicType(globalRef.getType()));
+  }
+
+  /**
+   * Change the type. It checks for compatibility between the change of type.
+   */
+  protected void setTypeInternal(DatabaseSessionInternal session,
+      final PropertyTypeInternal iType) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      if (iType == PropertyTypeInternal.convertFromPublicType(globalRef.getType()))
+      // NO CHANGES
+      {
+        return;
+      }
+
+      if (!iType.getCastable()
+          .contains(PropertyTypeInternal.convertFromPublicType(globalRef.getType()))) {
+        throw new IllegalArgumentException(
+            "Cannot change property type from " + globalRef.getType() + " to " + iType);
+      }
+
+      this.globalRef = owner.owner.findOrCreateGlobalProperty(this.globalRef.getName(), iType);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setName(DatabaseSessionInternal session, final String name) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setNameInternal(session, name);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setNameInternal(DatabaseSessionInternal session, final String name) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    var oldName = this.globalRef.getName();
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      owner.renameProperty(oldName, name);
+      this.globalRef = owner.owner.findOrCreateGlobalProperty(name,
+          PropertyTypeInternal.convertFromPublicType(this.globalRef.getType()));
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+    owner.firePropertyNameMigration(session, oldName, name,
+        PropertyTypeInternal.convertFromPublicType(this.globalRef.getType()));
+  }
+
+  @Override
+  public void setDescription(DatabaseSessionInternal session,
+      final String iDescription) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setDescriptionInternal(session, iDescription);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setDescriptionInternal(DatabaseSessionInternal session,
+      final String iDescription) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      this.description = iDescription;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setCollate(DatabaseSessionEmbedded session, String collate) {
+    if (collate == null) {
+      collate = DefaultCollate.NAME;
+    }
+
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setCollateInternal(session, collate);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setCollateInternal(DatabaseSessionEmbedded session, String iCollate) {
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      final var oldCollate = this.collate;
+
+      if (iCollate == null) {
+        iCollate = DefaultCollate.NAME;
+      }
+
+      collate = SQLEngine.getCollate(iCollate);
+
+      if ((this.collate != null && !this.collate.equals(oldCollate))
+          || (this.collate == null && oldCollate != null)) {
+        final var indexes = owner.getClassIndexesInternal(session);
+        final List<Index> indexesToRecreate = new ArrayList<>();
+
+        for (var index : indexes) {
+          var definition = index.getDefinition();
+
+          final var fields = definition.getProperties();
+          if (fields.contains(getName())) {
+            indexesToRecreate.add(index);
+          }
+        }
+
+        if (!indexesToRecreate.isEmpty()) {
+          LogManager.instance()
+              .info(
+                  this,
+                  "Collate value was changed, following indexes will be rebuilt %s",
+                  indexesToRecreate);
+
+          final var indexManager = session.getSharedContext()
+              .getIndexManager();
+          for (var indexToRecreate : indexesToRecreate) {
+            final var indexMetadata = session.computeInTxInternal(transaction ->
+                indexToRecreate
+                    .loadMetadata(transaction, indexToRecreate.getConfiguration(session)));
+
+            final var fields = indexMetadata.getIndexDefinition().getProperties();
+            final var fieldsToIndex = fields.toArray(new String[0]);
+
+            indexManager.dropIndex(session, indexMetadata.getName());
+            owner.createIndex(session,
+                indexMetadata.getName(),
+                indexMetadata.getType(),
+                null,
+                indexToRecreate.getMetadata(),
+                indexMetadata.getAlgorithm(), fieldsToIndex);
+          }
+        }
+      }
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void clearCustom(DatabaseSessionInternal session) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      clearCustomInternal(session);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void clearCustomInternal(DatabaseSessionInternal session) {
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      customFields = null;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setCustom(DatabaseSessionInternal session, final String name,
+      final String value) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setCustomInternal(session, name, value);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setCustomInternal(DatabaseSessionInternal session, final String iName,
+      final String iValue) {
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      if (customFields == null) {
+        customFields = new HashMap<>();
+      }
+      if (iValue == null || "null".equalsIgnoreCase(iValue)) {
+        customFields.remove(iName);
+      } else {
+        customFields.put(iName, iValue);
+      }
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setRegexp(DatabaseSessionInternal session, final String regexp) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setRegexpInternal(session, regexp);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setRegexpInternal(DatabaseSessionInternal session, final String regexp) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      this.regexp = regexp;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setLinkedClass(DatabaseSessionInternal session,
+      final SchemaClassShared linkedClass) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    checkSupportLinkedClass(PropertyTypeInternal.convertFromPublicType(getType()));
+
+    acquireSchemaWriteLock();
+    try {
+      setLinkedClassInternal(session, linkedClass);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setLinkedClassInternal(DatabaseSessionInternal session,
+      final SchemaClassShared iLinkedClass) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      this.linkedClass = iLinkedClass;
+
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setLinkedType(DatabaseSessionInternal session,
+      final PropertyTypeInternal linkedType) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    checkLinkTypeSupport(PropertyTypeInternal.convertFromPublicType(getType()));
+
+    acquireSchemaWriteLock();
+    try {
+      setLinkedTypeInternal(session, linkedType);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setLinkedTypeInternal(DatabaseSessionInternal session,
+      final PropertyTypeInternal iLinkedType) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+      this.linkedType = iLinkedType;
+
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setNotNull(DatabaseSessionInternal session, final boolean isNotNull) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setNotNullInternal(session, isNotNull);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setNotNullInternal(DatabaseSessionInternal session, final boolean isNotNull) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      notNull = isNotNull;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setDefaultValue(DatabaseSessionInternal session,
+      final String defaultValue) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setDefaultValueInternal(session, defaultValue);
+    } catch (Exception e) {
+      LogManager.instance().error(this, "Error on setting default value", e);
+      throw e;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setDefaultValueInternal(DatabaseSessionInternal session,
+      final String defaultValue) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      this.defaultValue = defaultValue;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setMax(DatabaseSessionInternal session, final String max) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    checkCorrectLimitValue(session, max);
+
+    acquireSchemaWriteLock();
+    try {
+      setMaxInternal(session, max);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  private void checkCorrectLimitValue(DatabaseSessionInternal session, final String value) {
+    if (value != null) {
+      if (this.getType().equals(PropertyType.STRING)
+          || this.getType().equals(PropertyType.LINKBAG)
+          || this.getType().equals(PropertyType.BINARY)
+          || this.getType().equals(PropertyType.EMBEDDEDLIST)
+          || this.getType().equals(PropertyType.EMBEDDEDSET)
+          || this.getType().equals(PropertyType.LINKLIST)
+          || this.getType().equals(PropertyType.LINKSET)
+          || this.getType().equals(PropertyType.LINKBAG)
+          || this.getType().equals(PropertyType.EMBEDDEDMAP)
+          || this.getType().equals(PropertyType.LINKMAP)) {
+        PropertyTypeInternal.convert(session, value, Integer.class);
+      } else if (this.getType().equals(PropertyType.DATE)
+          || this.getType().equals(PropertyType.BYTE)
+          || this.getType().equals(PropertyType.SHORT)
+          || this.getType().equals(PropertyType.INTEGER)
+          || this.getType().equals(PropertyType.LONG)
+          || this.getType().equals(PropertyType.FLOAT)
+          || this.getType().equals(PropertyType.DOUBLE)
+          || this.getType().equals(PropertyType.DECIMAL)
+          || this.getType().equals(PropertyType.DATETIME)) {
+        PropertyTypeInternal.convert(session, value,
+            PropertyTypeInternal.convertFromPublicType(this.getType()).getDefaultJavaType());
+      }
+    }
+  }
+
+  protected void setMaxInternal(DatabaseSessionInternal sesisson, final String max) {
+    sesisson.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(sesisson);
+
+      checkForDateFormat(sesisson, max);
+      this.max = max;
+    } finally {
+      releaseSchemaWriteLock(sesisson);
+    }
+  }
+
+  @Override
+  public void setMin(DatabaseSessionInternal session, final String min) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    checkCorrectLimitValue(session, min);
+
+    acquireSchemaWriteLock();
+    try {
+      setMinInternal(session, min);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setMinInternal(DatabaseSessionInternal session, final String min) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      checkForDateFormat(session, min);
+      this.min = min;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setReadonly(DatabaseSessionInternal session, final boolean isReadonly) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setReadonlyInternal(session, isReadonly);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setReadonlyInternal(DatabaseSessionInternal session, final boolean isReadonly) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      this.readonly = isReadonly;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setMandatory(DatabaseSessionInternal session,
+      final boolean isMandatory) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setMandatoryInternal(session, isMandatory);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setMandatoryInternal(DatabaseSessionInternal session,
+      final boolean isMandatory) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+      this.mandatory = isMandatory;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
   }
 }

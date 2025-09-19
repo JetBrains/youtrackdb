@@ -30,10 +30,6 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
@@ -53,8 +49,11 @@ import com.jetbrains.youtrackdb.internal.core.index.SimpleKeyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
@@ -223,7 +222,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         }
       }
 
-      var beforeImportSchemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+      var beforeImportSchemaSnapshot = session.getMetadata().getImmutableSchema(session);
 
       var collectionsImported = false;
       while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
@@ -445,7 +444,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           && !dbClass.isSuperClassOf(
           identity) /*&& !dbClass.isSuperClassOf(oSecurityPolicy)*/) {
         classesToDrop.put(className, dbClass);
-        indexNames.addAll(((SchemaClassInternal) dbClass).getIndexes());
+        indexNames.addAll(dbClass.getIndexes());
       }
     }
 
@@ -720,7 +719,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
         if (propertiesRaw != null) {
           for (var propRaw : propertiesRaw) {
-            importProperty((SchemaClassInternal) cls, propRaw);
+            importProperty(cls, propRaw);
           }
         }
 
@@ -766,7 +765,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     }
   }
 
-  private void importProperty(final SchemaClassInternal iClass, Map<String, ?> propRaw) {
+  private void importProperty(final SchemaClass iClass, Map<String, ?> propRaw) {
 
     final var propName = (String) propRaw.get("name");
 
@@ -866,7 +865,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         name = null;
       }
 
-      name = SchemaClassImpl.decodeClassName(name);
+      name = SchemaClassShared.decodeClassName(name);
 
       if (exporterVersion <= 13 && name != null &&
           (name.equals("index") || name.equals("manindex") || name.equals("default"))) {

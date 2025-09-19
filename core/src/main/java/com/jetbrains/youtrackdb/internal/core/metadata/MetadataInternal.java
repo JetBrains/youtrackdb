@@ -16,13 +16,12 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -50,24 +49,11 @@ public interface MetadataInternal extends Metadata {
 
   void forceClearThreadLocalSchemaSnapshot();
 
-  ImmutableSchema getImmutableSchemaSnapshot();
-
-  SchemaInternal getSchemaInternal();
-
-  @Deprecated
-  void load();
-
-  @Deprecated
-  void create() throws IOException;
+  ImmutableSchema getImmutableSchema(DatabaseSessionEmbedded session);
 
   /**
    * Reloads the internal objects.
    */
   void reload();
 
-  /**
-   * Closes internal objects
-   */
-  @Deprecated
-  void close();
 }

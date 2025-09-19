@@ -15,7 +15,6 @@ package com.jetbrains.youtrackdb.internal.security.auditing;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
@@ -23,8 +22,9 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassProxy;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
 import com.jetbrains.youtrackdb.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrackdb.internal.core.security.AuditingService;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
@@ -281,7 +281,7 @@ public class DefaultAuditing
   }
 
   @Override
-  public void onCreateClass(DatabaseSessionEmbedded session, SchemaClassImpl iClass) {
+  public void onCreateClass(DatabaseSessionEmbedded session, SchemaClassShared iClass) {
     final var oAuditingHook = hooks.get(session.getDatabaseName());
 
     if (oAuditingHook != null) {
@@ -290,7 +290,7 @@ public class DefaultAuditing
   }
 
   @Override
-  public void onDropClass(DatabaseSessionEmbedded session, SchemaClassImpl iClass) {
+  public void onDropClass(DatabaseSessionEmbedded session, SchemaClassShared iClass) {
     final var oAuditingHook = hooks.get(session.getDatabaseName());
 
     if (oAuditingHook != null) {

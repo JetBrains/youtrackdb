@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -107,7 +107,7 @@ public class SecurityEngine {
     var clazz =
         session
             .getMetadata()
-            .getImmutableSchemaSnapshot()
+            .getImmutableSchema(session)
             .getClass(resource.getClassName());
     var propertyName = resource.getPropertyName();
     var roles = session.getCurrentUser().getRoles();
@@ -142,7 +142,7 @@ public class SecurityEngine {
     var clazz =
         session
             .getMetadata()
-            .getImmutableSchemaSnapshot()
+            .getImmutableSchema(session)
             .getClass(resource.getClassName());
     if (clazz == null) {
       return SQLBooleanExpression.TRUE;

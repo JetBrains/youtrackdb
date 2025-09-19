@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.api.record;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;

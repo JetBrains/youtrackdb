@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.EntitySerializer;
 import com.jetbrains.youtrackdb.internal.core.sql.IndexSearchResult;
@@ -61,7 +61,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
 
   @Override
   public IndexSearchResult getOIndexSearchResult(
-      SchemaClassInternal iSchemaClass,
+      SchemaClass iSchemaClass,
       SQLFilterCondition iCondition,
       List<IndexSearchResult> iIndexSearchResults,
       CommandContext context) {
@@ -216,7 +216,7 @@ public class LuceneTextOperator extends QueryTargetOperator {
           var fieldChain = chained.getFieldChain();
           var oClass = cls;
           for (var i = 0; i < fieldChain.getItemCount() - 1; i++) {
-            oClass = (SchemaClassInternal) oClass.getProperty(fieldChain.getItemName(i))
+            oClass = oClass.getProperty(fieldChain.getItemName(i))
                 .getLinkedClass();
           }
           if (oClass != null) {

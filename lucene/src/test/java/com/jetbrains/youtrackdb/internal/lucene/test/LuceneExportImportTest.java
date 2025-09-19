@@ -18,14 +18,14 @@
 
 package com.jetbrains.youtrackdb.internal.lucene.test;
 
-import static com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE.FULLTEXT;
+import static com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE.FULLTEXT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.lucene.LuceneIndexFactory;
 import java.io.FileInputStream;

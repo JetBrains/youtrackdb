@@ -1,32 +1,20 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema;
 
-import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbstract;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassEntity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
-import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.lang3.ArrayUtils;
-import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
 public class YTDBSchemaClassImpl extends
     YTDBDomainVertexSchemaAbstract<SchemaClassEntity> implements

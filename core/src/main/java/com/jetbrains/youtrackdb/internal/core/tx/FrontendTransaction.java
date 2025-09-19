@@ -40,6 +40,8 @@ import javax.annotation.Nullable;
 
 public interface FrontendTransaction extends Transaction {
 
+  boolean isSchemaChanged();
+
   enum TXSTATUS {
     INVALID,
     BEGUN,

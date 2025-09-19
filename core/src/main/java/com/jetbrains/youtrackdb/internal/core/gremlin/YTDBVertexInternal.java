@@ -100,7 +100,7 @@ public interface YTDBVertexInternal extends YTDBVertex {
 
     var session = tx.getDatabaseSession();
 
-    var edgeClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
+    var edgeClass = session.getMetadata().getImmutableSchema(session).getClass(label);
     if (edgeClass == null) {
       try (var copy = session.copy()) {
         var schemaCopy = copy.getSchema();

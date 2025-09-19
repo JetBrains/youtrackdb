@@ -4,7 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Map;
 import java.util.Objects;
@@ -41,7 +41,7 @@ public class SQLFromClause extends SimpleNode {
   }
 
   @Nullable
-  public SchemaClassInternal getSchemaClass(DatabaseSessionEmbedded session) {
+  public SchemaClass getSchemaClass(DatabaseSessionEmbedded session) {
     if (item != null) {
       return item.getSchemaClass(session);
     }

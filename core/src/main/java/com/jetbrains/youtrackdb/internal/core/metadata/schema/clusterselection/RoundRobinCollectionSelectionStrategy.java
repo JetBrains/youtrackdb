@@ -15,7 +15,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.CollectionSelectionStrategy;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.concurrent.ThreadLocalRandom;
@@ -24,14 +25,18 @@ import java.util.concurrent.ThreadLocalRandom;
  * Returns the collection selecting by round robin algorithm.
  */
 public class RoundRobinCollectionSelectionStrategy implements CollectionSelectionStrategy {
+
+  public static final RoundRobinCollectionSelectionStrategy INSTANCE = new RoundRobinCollectionSelectionStrategy();
+
   public static final String NAME = "round-robin";
 
-  public int getCollection(DatabaseSession session, final SchemaClass iClass,
+  public int getCollection(DatabaseSession session, final ImmutableSchemaClass iClass,
       final EntityImpl entity) {
     return getCollection(session, iClass, iClass.getCollectionIds(), entity);
   }
 
-  public int getCollection(DatabaseSession session, final SchemaClass clazz, final int[] collections,
+  public int getCollection(DatabaseSession session, final ImmutableSchemaClass clazz,
+      final int[] collections,
       final EntityImpl entity) {
     if (collections.length == 1)
     // ONLY ONE: RETURN THE FIRST ONE

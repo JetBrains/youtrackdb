@@ -25,7 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibrary;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryProxy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProxy;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Security;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityProxy;
@@ -39,6 +39,8 @@ import javax.annotation.Nullable;
 public class MetadataDefault implements MetadataInternal {
 
   public static final String COLLECTION_INTERNAL_NAME = "internal";
+
+  public static final String COLLECTION_NAME_SCHEMA_CLASS = "$schemaClassInternal";
   public static final String COLLECTION_NAME_SCHEMA_PROPERTY = "$schemaPropertyInternal";
   public static final String COLLECTION_NAME_GLOBAL_PROPERTY = "$globalPropertyInternal";
 
@@ -50,7 +52,7 @@ public class MetadataDefault implements MetadataInternal {
   protected SchedulerProxy scheduler;
   protected SequenceLibraryProxy sequenceLibrary;
 
-  private ImmutableSchema immutableSchema = null;
+  private SchemaSnapshot schemaSnapshot = null;
   private int immutableCount = 0;
   private DatabaseSessionEmbedded database;
 
@@ -73,16 +75,12 @@ public class MetadataDefault implements MetadataInternal {
     return schema;
   }
 
-  @Override
-  public SchemaInternal getSchemaInternal() {
-    return schema;
-  }
 
   @Override
   public void makeThreadLocalSchemaSnapshot() {
     if (this.immutableCount == 0) {
       if (schema != null) {
-        this.immutableSchema = schema.makeSnapshot();
+        this.schemaSnapshot = schema.makeSnapshot();
       }
     }
     this.immutableCount++;
@@ -92,14 +90,14 @@ public class MetadataDefault implements MetadataInternal {
   public void clearThreadLocalSchemaSnapshot() {
     this.immutableCount--;
     if (this.immutableCount == 0) {
-      this.immutableSchema = null;
+      this.schemaSnapshot = null;
     }
   }
 
   @Override
   public void forceClearThreadLocalSchemaSnapshot() {
     if (this.immutableCount == 0) {
-      this.immutableSchema = null;
+      this.schemaSnapshot = null;
     } else {
       throw new IllegalStateException("Attempted to force clear local schema snapshot for thread " +
           Thread.currentThread().getName() + " but the snapshot usage count is not zero: "
@@ -109,14 +107,20 @@ public class MetadataDefault implements MetadataInternal {
 
   @Nullable
   @Override
-  public ImmutableSchema getImmutableSchemaSnapshot() {
-    if (immutableSchema == null) {
+  public ImmutableSchema getImmutableSchema(DatabaseSessionEmbedded session) {
+    var currentTransaction = session.getTransactionInternal();
+    if (currentTransaction.isSchemaChanged()) {
+      return schema;
+    }
+
+    if (schemaSnapshot == null) {
       if (schema == null) {
         return null;
       }
       return schema.makeSnapshot();
     }
-    return immutableSchema;
+
+    return schemaSnapshot;
   }
 
   public Security getSecurity() {
@@ -127,7 +131,7 @@ public class MetadataDefault implements MetadataInternal {
   public SharedContext init(SharedContext shared) {
     schemaCollectionId = database.getCollectionIdByName(COLLECTION_INTERNAL_NAME);
 
-    schema = new SchemaProxy(shared.getSchemaManager(), database);
+    schema = new SchemaProxy(shared.getSchema(), database);
     security = new SecurityProxy(shared.getSecurity(), database);
     functionLibrary = new FunctionLibraryProxy(shared.getFunctionLibrary(), database);
     sequenceLibrary = new SequenceLibraryProxy(shared.getSequenceLibrary(), database);

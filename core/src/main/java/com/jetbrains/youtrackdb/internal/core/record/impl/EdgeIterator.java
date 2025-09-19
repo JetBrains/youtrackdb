@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 
@@ -70,11 +70,11 @@ public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal
     final EdgeInternal edge;
     if (entity.isVertex()) {
       // DIRECT VERTEX, CREATE DUMMY EDGE
-      SchemaImmutableClass clazz = null;
+      SchemaClassSnapshot clazz = null;
       if (connection.getValue() != null) {
         clazz =
-            (SchemaImmutableClass)
-                session.getMetadata().getImmutableSchemaSnapshot().getClass(connection.getValue());
+            (SchemaClassSnapshot)
+                session.getMetadata().getImmutableSchema(session).getClass(connection.getValue());
       }
       if (connection.getKey() == Direction.OUT) {
         edge =

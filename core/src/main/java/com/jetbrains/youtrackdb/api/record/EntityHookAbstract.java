@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.api.record;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import javax.annotation.Nonnull;
 
@@ -148,7 +148,7 @@ public abstract class EntityHookAbstract implements RecordHook {
       return true;
     }
 
-    SchemaImmutableClass result = null;
+    SchemaClassSnapshot result = null;
     if (entity != null) {
       result = ((EntityImpl) entity).getImmutableSchemaClass(
           (DatabaseSessionInternal) entity.getBoundedToSession());

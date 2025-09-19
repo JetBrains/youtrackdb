@@ -7,11 +7,10 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Collection;
@@ -402,7 +401,7 @@ public class SQLBaseIdentifier extends SimpleNode {
     return true;
   }
 
-  public boolean isIndexChain(SchemaClassInternal clazz) {
+  public boolean isIndexChain(SchemaClass clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
       var prop = clazz.getPropertyInternal(
           suffix.getIdentifier().getStringValue());

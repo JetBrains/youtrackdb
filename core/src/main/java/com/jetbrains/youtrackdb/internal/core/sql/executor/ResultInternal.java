@@ -866,7 +866,7 @@ public class ResultInternal implements Result, BasicResultInternal {
 
     checkSessionForRecords();
 
-    var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+    var schemaSnapshot = session.getMetadata().getImmutableSchema(session);
     var blobCollections = schemaSnapshot.getBlobCollections();
     return blobCollections.contains(identifiable.getIdentity().getCollectionId());
   }
@@ -1052,7 +1052,7 @@ public class ResultInternal implements Result, BasicResultInternal {
       default -> {
         checkSessionForRecords();
 
-        var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+        var schemaSnapshot = session.getMetadata().getImmutableSchema(session);
         var cls = schemaSnapshot.getClassByCollectionId(
             identifiable.getIdentity().getCollectionId());
 
@@ -1075,7 +1075,7 @@ public class ResultInternal implements Result, BasicResultInternal {
       default -> {
         checkSessionForRecords();
 
-        var schemaSnapshot = session.getMetadata().getImmutableSchemaSnapshot();
+        var schemaSnapshot = session.getMetadata().getImmutableSchema(session);
         var cls = schemaSnapshot.getClassByCollectionId(
             identifiable.getIdentity().getCollectionId());
 

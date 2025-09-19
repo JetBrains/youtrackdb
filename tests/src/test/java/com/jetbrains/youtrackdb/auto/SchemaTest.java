@@ -20,11 +20,9 @@ import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Locale;
@@ -372,8 +370,7 @@ public class SchemaTest extends BaseDBTest {
 
   @Test
   public void testRenameClass() {
-
-    var oClass = (SchemaClassInternal) session.getMetadata().getSchema()
+    var oClass = session.getMetadata().getSchema()
         .createClass("RenameClassTest");
 
     session.begin();
@@ -527,7 +524,7 @@ public class SchemaTest extends BaseDBTest {
     }
     session.commit();
 
-    var schema = (SchemaInternal) session.getSchema();
+    var schema = session.getSchema();
     var clazz = schema.getClassInternal(className);
     var idx = clazz.getIndexesInternal();
 

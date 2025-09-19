@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.map;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import java.util.List;
@@ -50,7 +50,7 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
 
   private boolean filterClass(String klass) {
     var session = getDatabaseSession();
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schema = session.getMetadata().getImmutableSchema(session);
     assert schema != null;
 
     var schemaClass = schema.getClass(klass);

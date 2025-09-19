@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -84,7 +84,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphN
     var edgeClass =
         session
             .getMetadata()
-            .getImmutableSchemaSnapshot()
+            .getImmutableSchema(session)
             .getClassInternal(edgeClassName);
     if (edgeClass == null) {
       return null;

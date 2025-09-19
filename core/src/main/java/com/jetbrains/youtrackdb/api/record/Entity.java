@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkMap;
 import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.Date;

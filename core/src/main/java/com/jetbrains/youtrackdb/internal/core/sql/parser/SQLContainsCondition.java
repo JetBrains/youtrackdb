@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
@@ -298,7 +298,7 @@ public final class SQLContainsCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public List<SQLAndBlock> flatten(CommandContext ctx, @Nullable SchemaClassInternal schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, @Nullable SchemaClass schemaClass) {
     var session = ctx.getDatabaseSession();
 
     //usage of indexes for the case when the graph navigation function is used

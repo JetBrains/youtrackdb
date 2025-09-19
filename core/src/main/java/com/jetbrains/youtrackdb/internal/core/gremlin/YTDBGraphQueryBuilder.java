@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -130,7 +130,7 @@ public class YTDBGraphQueryBuilder {
 
   @Nullable
   public YTDBGraphBaseQuery build(DatabaseSessionEmbedded session) {
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var schema = session.getMetadata().getImmutableSchema(session);
     assert schema != null;
 
     final var classes = buildClassList(new HierarchyAnalyzer(schema));
@@ -270,10 +270,10 @@ public class YTDBGraphQueryBuilder {
 
   private static class HierarchyAnalyzer {
 
-    private final ImmutableSchema schema;
+    private final SchemaSnapshot schema;
     private final Map<String, Set<String>> superClassesCache = new HashMap<>();
 
-    private HierarchyAnalyzer(ImmutableSchema schema) {
+    private HierarchyAnalyzer(SchemaSnapshot schema) {
       this.schema = schema;
     }
 

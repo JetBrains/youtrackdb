@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import static com.jetbrains.youtrackdb.api.schema.SchemaClass.EDGE_CLASS_NAME;
-import static com.jetbrains.youtrackdb.api.schema.SchemaClass.VERTEX_CLASS_NAME;
+import static com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.EDGE_CLASS_NAME;
+import static com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.VERTEX_CLASS_NAME;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
@@ -29,17 +29,15 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass.ATTRIBUTES;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.RoundRobinCollectionSelectionStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -60,54 +58,30 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
  * Schema Class implementation.
  */
 @SuppressWarnings("unchecked")
-public abstract class SchemaClassImpl {
+public final class SchemaClassShared {
 
-  protected static final int NOT_EXISTENT_COLLECTION_ID = -1;
   private static final Pattern PATTERN = Pattern.compile(",\\s*");
-  protected final SchemaShared owner;
-  protected final Map<String, SchemaPropertyImpl> properties = new HashMap<>();
-  protected int defaultCollectionId = NOT_EXISTENT_COLLECTION_ID;
-  protected String name;
-  protected String description;
-  protected int[] collectionIds;
-  protected List<SchemaClassImpl> superClasses = new ArrayList<>();
-  protected int[] polymorphicCollectionIds;
-  protected List<SchemaClassImpl> subclasses;
-  protected float overSize = 0f;
-  protected boolean strictMode = false; // @SINCE v1.0rc8
-  protected boolean abstractClass = false; // @SINCE v1.2.0
-  protected Map<String, String> customFields;
-  protected final CollectionSelectionStrategy collectionSelection = new RoundRobinCollectionSelectionStrategy();
-  protected volatile int hashCode;
+  @Nonnull
+  private final SchemaShared owner;
+  @Nonnull
+  private final SchemaClassEntity schemaClassEntity;
 
-  protected SchemaClassImpl(final SchemaShared iOwner, final String iName,
-      final int[] iCollectionIds) {
-    this(iOwner, iName);
-    setCollectionIds(iCollectionIds);
-    defaultCollectionId = iCollectionIds[0];
-    if (defaultCollectionId == NOT_EXISTENT_COLLECTION_ID) {
-      abstractClass = true;
-    }
-
-    if (abstractClass) {
-      setPolymorphicCollectionIds(CommonConst.EMPTY_INT_ARRAY);
-    } else {
-      setPolymorphicCollectionIds(iCollectionIds);
-    }
+  public SchemaClassShared(@Nonnull final SchemaShared owner,
+      @Nonnull SchemaClassEntity schemaClassEntity) {
+    this.owner = owner;
+    this.schemaClassEntity = schemaClassEntity;
   }
 
-  /**
-   * Constructor used in unmarshalling.
-   */
-  protected SchemaClassImpl(final SchemaShared iOwner, final String iName) {
-    name = iName;
-    owner = iOwner;
+  @Nonnull
+  public SchemaClassEntity getSchemaClassEntity() {
+    return schemaClassEntity;
   }
 
   public static int[] readableCollections(
@@ -146,15 +120,6 @@ public abstract class SchemaClassImpl {
   }
 
 
-  public CollectionSelectionStrategy getCollectionSelection() {
-    acquireSchemaReadLock();
-    try {
-      return collectionSelection;
-    } finally {
-      releaseSchemaReadLock();
-    }
-  }
-
   @Nullable
   public String getCustom(final String iName) {
     acquireSchemaReadLock();
@@ -185,9 +150,6 @@ public abstract class SchemaClassImpl {
   public void removeCustom(DatabaseSessionInternal session, final String name) {
     setCustom(session, name, null);
   }
-
-  public abstract void setCustom(DatabaseSessionInternal session, final String name,
-      final String value);
 
   public Set<String> getCustomKeys() {
     acquireSchemaReadLock();
@@ -231,7 +193,7 @@ public abstract class SchemaClassImpl {
   }
 
 
-  public List<SchemaClassImpl> getSuperClasses() {
+  public List<SchemaClassShared> getSuperClasses() {
     acquireSchemaReadLock();
     try {
       return Collections.unmodifiableList(superClasses);
@@ -267,7 +229,7 @@ public abstract class SchemaClassImpl {
       classNames = Collections.EMPTY_LIST;
     }
 
-    final List<SchemaClassImpl> classes = new ArrayList<>(classNames.size());
+    final List<SchemaClassShared> classes = new ArrayList<>(classNames.size());
     for (var className : classNames) {
       classes.add(owner.getClass(decodeClassName(className)));
     }
@@ -275,13 +237,6 @@ public abstract class SchemaClassImpl {
     setSuperClasses(session, classes);
   }
 
-  public abstract void setSuperClasses(DatabaseSessionInternal session,
-      List<SchemaClassImpl> classes);
-
-  protected abstract void setSuperClassesInternal(
-      DatabaseSessionInternal session,
-      final List<SchemaClassImpl> classes,
-      boolean validateIndexes);
 
   public long getSize(DatabaseSessionInternal session) {
     acquireSchemaReadLock();
@@ -307,16 +262,8 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public String getStreamableName() {
-    acquireSchemaReadLock();
-    try {
-      return name;
-    } finally {
-      releaseSchemaReadLock();
-    }
-  }
 
-  public Collection<SchemaPropertyImpl> declaredProperties() {
+  public Collection<SchemaPropertyShared> declaredProperties() {
     acquireSchemaReadLock();
     try {
       return Collections.unmodifiableCollection(properties.values());
@@ -325,13 +272,13 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public Map<String, SchemaPropertyImpl> propertiesMap(DatabaseSessionInternal session) {
+  public Map<String, SchemaPropertyShared> propertiesMap(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA,
         Role.PERMISSION_READ);
 
     acquireSchemaReadLock();
     try {
-      final Map<String, SchemaPropertyImpl> props = new HashMap<>(20);
+      final Map<String, SchemaPropertyShared> props = new HashMap<>(20);
       propertiesMap(props);
       return props;
     } finally {
@@ -339,7 +286,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  private void propertiesMap(Map<String, SchemaPropertyImpl> propertiesMap) {
+  private void propertiesMap(Map<String, SchemaPropertyShared> propertiesMap) {
     for (var p : properties.values()) {
       var propName = p.getName();
       if (!propertiesMap.containsKey(propName)) {
@@ -351,10 +298,10 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public Collection<SchemaPropertyImpl> properties() {
+  public Collection<SchemaPropertyShared> properties() {
     acquireSchemaReadLock();
     try {
-      final Collection<SchemaPropertyImpl> props = new ArrayList<>();
+      final Collection<SchemaPropertyShared> props = new ArrayList<>();
       properties(props);
       return props;
     } finally {
@@ -362,7 +309,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  private void properties(Collection<SchemaPropertyImpl> properties) {
+  private void properties(Collection<SchemaPropertyShared> properties) {
     properties.addAll(this.properties.values());
     for (var superClass : superClasses) {
       superClass.properties(properties);
@@ -370,7 +317,7 @@ public abstract class SchemaClassImpl {
   }
 
   public void getIndexedProperties(DatabaseSessionInternal session,
-      Collection<SchemaPropertyImpl> indexedProperties) {
+      Collection<SchemaPropertyShared> indexedProperties) {
     for (var p : properties.values()) {
       if (areIndexed(session, p.getName())) {
         indexedProperties.add(p);
@@ -381,13 +328,13 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public Collection<SchemaPropertyImpl> getIndexedProperties(DatabaseSessionInternal session) {
+  public Collection<SchemaPropertyShared> getIndexedProperties(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA,
         Role.PERMISSION_READ);
 
     acquireSchemaReadLock();
     try {
-      Collection<SchemaPropertyImpl> indexedProps = new HashSet<>();
+      Collection<SchemaPropertyShared> indexedProps = new HashSet<>();
       getIndexedProperties(session, indexedProps);
       return indexedProps;
     } finally {
@@ -395,11 +342,11 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public SchemaPropertyImpl getProperty(String propertyName) {
+  public SchemaPropertyShared getProperty(String propertyName) {
     return getPropertyInternal(propertyName);
   }
 
-  public SchemaPropertyImpl getPropertyInternal(String propertyName) {
+  public SchemaPropertyShared getPropertyInternal(String propertyName) {
     acquireSchemaReadLock();
     try {
       var p = properties.get(propertyName);
@@ -418,16 +365,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public SchemaPropertyImpl getDeclaredPropertyInternal(String propertyName) {
-    acquireSchemaReadLock();
-    try {
-      return properties.get(propertyName);
-    } finally {
-      releaseSchemaReadLock();
-    }
-  }
-
-  public SchemaPropertyImpl createProperty(DatabaseSessionInternal session,
+  public SchemaPropertyShared createProperty(DatabaseSessionInternal session,
       final String iPropertyName,
       final PropertyTypeInternal iType) {
     return addProperty(session, iPropertyName, iType, null, null,
@@ -435,32 +373,32 @@ public abstract class SchemaClassImpl {
   }
 
 
-  public SchemaPropertyImpl createProperty(
+  public SchemaPropertyShared createProperty(
       DatabaseSessionInternal session, final String iPropertyName, final PropertyTypeInternal iType,
-      final SchemaClassImpl iLinkedClass) {
+      final SchemaClassShared iLinkedClass) {
     return addProperty(session, iPropertyName, iType, null,
         iLinkedClass,
         false);
   }
 
-  public SchemaPropertyImpl createProperty(
+  public SchemaPropertyShared createProperty(
       DatabaseSessionInternal session, final String iPropertyName,
       final PropertyTypeInternal iType,
-      final SchemaClassImpl iLinkedClass,
+      final SchemaClassShared iLinkedClass,
       final boolean unsafe) {
     return addProperty(session, iPropertyName, iType, null,
         iLinkedClass,
         unsafe);
   }
 
-  public SchemaPropertyImpl createProperty(
+  public SchemaPropertyShared createProperty(
       DatabaseSessionInternal session, final String iPropertyName, final PropertyTypeInternal iType,
       final PropertyTypeInternal iLinkedType) {
     return addProperty(session, iPropertyName, iType, iLinkedType, null,
         false);
   }
 
-  public SchemaPropertyImpl createProperty(
+  public SchemaPropertyShared createProperty(
       DatabaseSessionInternal session, final String iPropertyName,
       final PropertyTypeInternal iType,
       final PropertyTypeInternal iLinkedType,
@@ -469,7 +407,7 @@ public abstract class SchemaClassImpl {
         unsafe);
   }
 
-  public SchemaPropertyImpl createProperty(DatabaseSessionInternal session,
+  public SchemaPropertyShared createProperty(DatabaseSessionInternal session,
       final String iPropertyName,
       final PropertyType iType) {
     return createProperty(session, iPropertyName,
@@ -477,24 +415,24 @@ public abstract class SchemaClassImpl {
   }
 
 
-  public SchemaPropertyImpl createProperty(
+  public SchemaPropertyShared createProperty(
       DatabaseSessionInternal session, final String iPropertyName, final PropertyType iType,
-      final SchemaClassImpl iLinkedClass) {
+      final SchemaClassShared iLinkedClass) {
     return createProperty(session, iPropertyName,
         PropertyTypeInternal.convertFromPublicType(iType), iLinkedClass);
   }
 
-  public SchemaPropertyImpl createProperty(
+  public SchemaPropertyShared createProperty(
       DatabaseSessionInternal session, final String iPropertyName,
       final PropertyType iType,
-      final SchemaClassImpl iLinkedClass,
+      final SchemaClassShared iLinkedClass,
       final boolean unsafe) {
     return createProperty(session, iPropertyName,
         PropertyTypeInternal.convertFromPublicType(iType), iLinkedClass,
         unsafe);
   }
 
-  public SchemaPropertyImpl createProperty(
+  public SchemaPropertyShared createProperty(
       DatabaseSessionInternal session, final String iPropertyName, final PropertyType iType,
       final PropertyType iLinkedType) {
     return createProperty(session, iPropertyName,
@@ -502,7 +440,7 @@ public abstract class SchemaClassImpl {
         PropertyTypeInternal.convertFromPublicType(iLinkedType));
   }
 
-  public SchemaPropertyImpl createProperty(
+  public SchemaPropertyShared createProperty(
       DatabaseSessionInternal session, final String iPropertyName,
       final PropertyType iType,
       final PropertyType iLinkedType,
@@ -532,128 +470,6 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public abstract void addSuperClass(DatabaseSessionInternal session, SchemaClassImpl superClass);
-
-  public abstract void removeSuperClass(DatabaseSessionInternal session,
-      SchemaClassImpl superClass);
-
-  public void fromStream(DatabaseSessionInternal session, EntityImpl entity) {
-    subclasses = null;
-    superClasses.clear();
-
-    name = entity.getProperty("name");
-    if (entity.hasProperty("description")) {
-      description = entity.getProperty("description");
-    } else {
-      description = null;
-    }
-    defaultCollectionId = entity.getProperty("defaultCollectionId");
-    if (entity.hasProperty("strictMode")) {
-      strictMode = entity.getProperty("strictMode");
-    } else {
-      strictMode = false;
-    }
-
-    if (entity.hasProperty("abstract")) {
-      abstractClass = entity.getProperty("abstract");
-    } else {
-      abstractClass = false;
-    }
-
-    if (entity.getProperty("overSize") != null) {
-      overSize = entity.getProperty("overSize");
-    } else {
-      overSize = 0f;
-    }
-
-    final var cc = entity.getProperty("collectionIds");
-    if (cc instanceof Collection<?>) {
-      final Collection<Integer> coll = entity.getProperty("collectionIds");
-      collectionIds = new int[coll.size()];
-      var i = 0;
-      for (final var item : coll) {
-        collectionIds[i++] = item;
-      }
-    } else {
-      collectionIds = (int[]) cc;
-    }
-    Arrays.sort(collectionIds);
-
-    if (collectionIds.length == 1 && collectionIds[0] == -1) {
-      setPolymorphicCollectionIds(CommonConst.EMPTY_INT_ARRAY);
-    } else {
-      setPolymorphicCollectionIds(collectionIds);
-    }
-
-    // READ PROPERTIES
-    SchemaPropertyImpl prop;
-
-    final Map<String, SchemaPropertyImpl> newProperties = new HashMap<>();
-    final Collection<EntityImpl> storedProperties = entity.getProperty("properties");
-
-    if (storedProperties != null) {
-      for (var p : storedProperties) {
-        String name = p.getProperty("name");
-        // To lower case ?
-        if (properties.containsKey(name)) {
-          prop = properties.get(name);
-          prop.fromStream(p);
-        } else {
-          prop = createPropertyInstance();
-          prop.fromStream(p);
-        }
-
-        newProperties.put(prop.getName(), prop);
-      }
-    }
-
-    properties.clear();
-    properties.putAll(newProperties);
-    customFields = entity.getProperty("customFields");
-  }
-
-  protected abstract SchemaPropertyImpl createPropertyInstance();
-
-  public Entity toStream(DatabaseSessionInternal session) {
-    var entity = session.newEmbeddedEntity();
-    entity.setProperty("name", name);
-    entity.setProperty("description", description);
-    entity.setProperty("defaultCollectionId", defaultCollectionId);
-    entity.newEmbeddedList("collectionIds", collectionIds);
-    entity.setProperty("overSize", overSize);
-    entity.setProperty("strictMode", strictMode);
-    entity.setProperty("abstract", abstractClass);
-
-    var props = session.newEmbeddedSet(properties.size());
-    for (final var p : properties.values()) {
-      props.add(p.toStream(session));
-    }
-    entity.setProperty("properties", props);
-
-    if (superClasses.isEmpty()) {
-      // Single super class is deprecated!
-      entity.setProperty("superClass", null, PropertyType.STRING);
-      entity.setProperty("superClasses", null, PropertyType.EMBEDDEDLIST);
-    } else {
-      // Single super class is deprecated!
-      entity.setProperty("superClass", superClasses.getFirst().getName(),
-          PropertyType.STRING);
-      List<String> superClassesNames = session.newEmbeddedList(superClasses.size());
-      for (var superClass : superClasses) {
-        superClassesNames.add(superClass.getName());
-      }
-      entity.setProperty("superClasses", superClassesNames, PropertyType.EMBEDDEDLIST);
-    }
-
-    entity.setProperty(
-        "customFields",
-        customFields != null && !customFields.isEmpty() ? session.newEmbeddedMap(customFields)
-            : null,
-        PropertyType.EMBEDDEDMAP);
-
-    return entity;
-  }
-
 
   public int[] getCollectionIds() {
     acquireSchemaReadLock();
@@ -673,10 +489,6 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  private void setPolymorphicCollectionIds(final int[] iCollectionIds) {
-    var set = new IntRBTreeSet(iCollectionIds);
-    polymorphicCollectionIds = set.toIntArray();
-  }
 
   public void renameProperty(final String iOldName, final String iNewName) {
     var p = properties.remove(iOldName);
@@ -685,12 +497,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  protected static void truncateCollectionInternal(
-      final String collectionName, final DatabaseSessionInternal database) {
-    database.truncateCollection(collectionName);
-  }
-
-  public Collection<SchemaClassImpl> getSubclasses() {
+  public Collection<SchemaClassShared> getSubclasses() {
     acquireSchemaReadLock();
     try {
       if (subclasses == null || subclasses.isEmpty()) {
@@ -703,10 +510,10 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  public Collection<SchemaClassImpl> getAllSubclasses() {
+  public Collection<SchemaClassShared> getAllSubclasses() {
     acquireSchemaReadLock();
     try {
-      final Set<SchemaClassImpl> set = new HashSet<>();
+      final Set<SchemaClassShared> set = new HashSet<>();
       if (subclasses != null) {
         set.addAll(subclasses);
 
@@ -721,16 +528,16 @@ public abstract class SchemaClassImpl {
   }
 
   @Deprecated
-  public Collection<SchemaClassImpl> getBaseClasses() {
+  public Collection<SchemaClassShared> getBaseClasses() {
     return getSubclasses();
   }
 
   @Deprecated
-  public Collection<SchemaClassImpl> getAllBaseClasses() {
+  public Collection<SchemaClassShared> getAllBaseClasses() {
     return getAllSubclasses();
   }
 
-  private void getAllSuperClasses(Set<SchemaClassImpl> set) {
+  private void getAllSuperClasses(Set<SchemaClassShared> set) {
     set.addAll(superClasses);
     for (var superClass : superClasses) {
       superClass.getAllSuperClasses(set);
@@ -738,7 +545,7 @@ public abstract class SchemaClassImpl {
   }
 
   public abstract void removeBaseClassInternal(DatabaseSessionInternal session,
-      final SchemaClassImpl baseClass);
+      final SchemaClassShared baseClass);
 
   public boolean isAbstract() {
     acquireSchemaReadLock();
@@ -771,7 +578,7 @@ public abstract class SchemaClassImpl {
     if (obj == null || getClass() != obj.getClass()) {
       return false;
     }
-    var other = (SchemaClassImpl) obj;
+    var other = (SchemaClassShared) obj;
 
     return Objects.equals(name, other.name);
   }
@@ -838,7 +645,7 @@ public abstract class SchemaClassImpl {
    * @param clazz to check
    * @return true if the current instance extends the passed schema class (iClass)
    */
-  public boolean isSubClassOf(final SchemaClassImpl clazz) {
+  public boolean isSubClassOf(final SchemaClassShared clazz) {
     acquireSchemaReadLock();
     try {
       if (clazz == null) {
@@ -864,7 +671,7 @@ public abstract class SchemaClassImpl {
    * @param clazz to check
    * @return Returns true if the passed schema class extends the current instance
    */
-  public boolean isSuperClassOf(final SchemaClassImpl clazz) {
+  public boolean isSuperClassOf(final SchemaClassShared clazz) {
     return clazz != null && clazz.isSubClassOf(this);
   }
 
@@ -944,18 +751,6 @@ public abstract class SchemaClassImpl {
         break;
     }
   }
-
-  public abstract void clearCustom(DatabaseSessionInternal session);
-
-  public abstract void setDescription(DatabaseSessionInternal session,
-      String iDescription);
-
-  public abstract void setName(DatabaseSessionInternal session, String iName);
-
-  public abstract void setStrictMode(DatabaseSessionInternal session, boolean iMode);
-
-  public abstract void setAbstract(DatabaseSessionInternal session, boolean iAbstract);
-
 
   private static String removeQuotes(String s) {
     s = s.trim();
@@ -1220,22 +1015,15 @@ public abstract class SchemaClassImpl {
     owner.releaseSchemaReadLock();
   }
 
-  public void acquireSchemaWriteLock(DatabaseSessionInternal session) {
-    owner.acquireSchemaWriteLock(session);
+  public void acquireSchemaWriteLock() {
+    owner.acquireSchemaWriteLock();
   }
 
-  public void releaseSchemaWriteLock(DatabaseSessionInternal session) {
-    releaseSchemaWriteLock(session, true);
+
+  public void releaseSchemaWriteLock() {
+    owner.releaseSchemaWriteLock();
   }
 
-  public void releaseSchemaWriteLock(DatabaseSessionInternal session, final boolean iSave) {
-    calculateHashCode();
-    owner.releaseSchemaWriteLock(session, iSave);
-  }
-
-  public void checkEmbedded(DatabaseSessionInternal session) {
-    owner.checkEmbedded(session);
-  }
 
   public void fireDatabaseMigration(
       final DatabaseSessionInternal database, final String propertyName,
@@ -1302,7 +1090,7 @@ public abstract class SchemaClassImpl {
       final DatabaseSessionInternal session,
       final String propertyName,
       final PropertyTypeInternal type,
-      SchemaClassImpl linkedClass) {
+      SchemaClassShared linkedClass) {
     final var strictSQL = session.getStorageInfo().getConfiguration().isStrictSql();
 
     final var builder = new StringBuilder(256);
@@ -1352,7 +1140,7 @@ public abstract class SchemaClassImpl {
 
   protected void checkAllLikedObjects(
       DatabaseSessionInternal db, String propertyName, PropertyTypeInternal type,
-      SchemaClassImpl linkedClass) {
+      SchemaClassShared linkedClass) {
     final var builder = new StringBuilder(256);
     builder.append("select from ");
     builder.append(getEscapedName(name, true));
@@ -1413,7 +1201,7 @@ public abstract class SchemaClassImpl {
   }
 
   protected static boolean matchesType(DatabaseSessionInternal db, Object x,
-      SchemaClassImpl linkedClass) {
+      SchemaClassShared linkedClass) {
     if (x instanceof Result) {
       x = ((Result) x).asEntity();
     }
@@ -1475,19 +1263,19 @@ public abstract class SchemaClassImpl {
         .setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, newName);
   }
 
-  protected abstract SchemaPropertyImpl addProperty(
+  protected abstract SchemaPropertyShared addProperty(
       DatabaseSessionInternal session, final String propertyName,
       final PropertyTypeInternal type,
       final PropertyTypeInternal linkedType,
-      final SchemaClassImpl linkedClass,
+      final SchemaClassShared linkedClass,
       final boolean unsafe);
 
   public abstract void dropProperty(DatabaseSessionInternal session, String iPropertyName);
 
-  public Collection<SchemaClassImpl> getAllSuperClasses() {
+  public Collection<SchemaClassShared> getAllSuperClasses() {
     acquireSchemaReadLock();
     try {
-      Set<SchemaClassImpl> ret = new HashSet<>();
+      Set<SchemaClassShared> ret = new HashSet<>();
       getAllSuperClasses(ret);
       return ret;
     } finally {
@@ -1513,7 +1301,7 @@ public abstract class SchemaClassImpl {
    */
   public void addBaseClass(
       DatabaseSessionInternal session,
-      final SchemaClassImpl iBaseClass,
+      final SchemaClassShared iBaseClass,
       boolean validateIndexes) {
     checkRecursion(session, iBaseClass);
 
@@ -1530,7 +1318,7 @@ public abstract class SchemaClassImpl {
   }
 
   protected void checkParametersConflict(DatabaseSessionInternal session,
-      final SchemaClassImpl baseClass) {
+      final SchemaClassShared baseClass) {
     final var baseClassProperties = baseClass.properties();
     for (var property : baseClassProperties) {
       var thisProperty = getProperty(property.getName());
@@ -1549,15 +1337,15 @@ public abstract class SchemaClassImpl {
   }
 
   public static void checkParametersConflict(DatabaseSessionInternal db,
-      List<SchemaClassImpl> classes) {
-    final Map<String, SchemaPropertyImpl> comulative = new HashMap<>();
-    final Map<String, SchemaPropertyImpl> properties = new HashMap<>();
+      List<SchemaClassShared> classes) {
+    final Map<String, SchemaPropertyShared> comulative = new HashMap<>();
+    final Map<String, SchemaPropertyShared> properties = new HashMap<>();
 
     for (var superClass : classes) {
       if (superClass == null) {
         continue;
       }
-      SchemaClassImpl impl;
+      SchemaClassShared impl;
       impl = superClass;
       impl.propertiesMap(properties);
       for (var entry : properties.entrySet()) {
@@ -1580,7 +1368,7 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  private void checkRecursion(DatabaseSessionInternal session, final SchemaClassImpl baseClass) {
+  private void checkRecursion(DatabaseSessionInternal session, final SchemaClassShared baseClass) {
     if (isSubClassOf(baseClass)) {
       throw new SchemaException(session.getDatabaseName(),
           "Cannot add base class '" + baseClass.getName() + "', because of recursion");
@@ -1588,7 +1376,7 @@ public abstract class SchemaClassImpl {
   }
 
   protected void removePolymorphicCollectionIds(DatabaseSessionInternal session,
-      final SchemaClassImpl iBaseClass) {
+      final SchemaClassShared iBaseClass) {
     for (final var collectionId : iBaseClass.polymorphicCollectionIds) {
       removePolymorphicCollectionId(session, collectionId);
     }
@@ -1644,7 +1432,7 @@ public abstract class SchemaClassImpl {
    */
   protected void addPolymorphicCollectionIds(
       DatabaseSessionInternal session,
-      final SchemaClassImpl iBaseClass,
+      final SchemaClassShared iBaseClass,
       boolean validateIndexes
   ) {
     var collections = new IntRBTreeSet(polymorphicCollectionIds);
@@ -1671,7 +1459,7 @@ public abstract class SchemaClassImpl {
 
   private void addPolymorphicCollectionIdsWithInheritance(
       DatabaseSessionInternal session,
-      final SchemaClassImpl iBaseClass,
+      final SchemaClassShared iBaseClass,
       boolean validateIndexes) {
     addPolymorphicCollectionIds(session, iBaseClass, validateIndexes);
     for (var superClass : superClasses) {
@@ -1679,10 +1467,6 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  protected void setCollectionIds(final int[] iCollectionIds) {
-    collectionIds = iCollectionIds;
-    Arrays.sort(collectionIds);
-  }
 
   @Nullable
   public static String decodeClassName(String s) {
@@ -1694,5 +1478,577 @@ public abstract class SchemaClassImpl {
       return s.substring(1, s.length() - 1);
     }
     return s;
+  }
+
+
+  @Override
+  public SchemaPropertyShared addProperty(
+      DatabaseSessionInternal session, final String propertyName,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
+      final SchemaClassShared linkedClass,
+      final boolean unsafe) {
+    if (type == null) {
+      throw new SchemaException(session.getDatabaseName(), "Property type not defined.");
+    }
+
+    if (propertyName == null || propertyName.isEmpty()) {
+      throw new SchemaException(session.getDatabaseName(), "Property name is null or empty");
+    }
+
+    validatePropertyName(propertyName);
+    if (session.getTransactionInternal().isActive()) {
+      throw new SchemaException(session.getDatabaseName(),
+          "Cannot create property '" + propertyName + "' inside a transaction");
+    }
+
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    if (linkedType != null) {
+      SchemaPropertyShared.checkLinkTypeSupport(type);
+    }
+
+    if (linkedClass != null) {
+      SchemaPropertyShared.checkSupportLinkedClass(type);
+    }
+
+    acquireSchemaWriteLock();
+    try {
+      return addPropertyInternal(session, propertyName, type,
+          linkedType, linkedClass, unsafe);
+
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setCustom(DatabaseSessionInternal session, final String name,
+      final String value) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setCustomInternal(session, name, value);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void clearCustom(DatabaseSessionInternal session) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      clearCustomInternal(session);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void clearCustomInternal(DatabaseSessionInternal session) {
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      customFields = null;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void removeBaseClassInternal(DatabaseSessionInternal session,
+      final SchemaClassShared baseClass) {
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      if (subclasses == null) {
+        return;
+      }
+
+      if (subclasses.remove(baseClass)) {
+        removePolymorphicCollectionIds(session, baseClass);
+      }
+
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void addSuperClass(DatabaseSessionInternal session,
+      final SchemaClassShared superClass) {
+
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    checkParametersConflict(session, superClass);
+    addSuperClassInternal(session, superClass);
+  }
+
+  public void addSuperClassInternal(DatabaseSessionInternal session,
+      final SchemaClassShared superClass) {
+
+    acquireSchemaWriteLock();
+    try {
+
+      if (superClass.getName().equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+          superClass.getName().equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Cannot add the class '"
+                + superClass.getName()
+                + "' as superclass of the class '"
+                + this.getName()
+                + "'. Addition of graph classes is not allowed");
+      }
+
+      // CHECK THE USER HAS UPDATE PRIVILEGE AGAINST EXTENDING CLASS
+      final var user = session.getCurrentUser();
+      if (user != null) {
+        user.allow(session, Rule.ResourceGeneric.CLASS, superClass.getName(),
+            Role.PERMISSION_UPDATE);
+      }
+
+      if (superClasses.contains(superClass)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Class: '"
+                + this.getName()
+                + "' already has the class '"
+                + superClass.getName()
+                + "' as superclass");
+      }
+
+      superClass.addBaseClass(session, this, true);
+      superClasses.add(superClass);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void removeSuperClass(DatabaseSessionInternal session, SchemaClassShared superClass) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock();
+    try {
+      removeSuperClassInternal(session, superClass);
+
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void removeSuperClassInternal(DatabaseSessionInternal session,
+      final SchemaClassShared superClass) {
+    acquireSchemaWriteLock();
+    try {
+      if (superClass.getName().equals(SchemaClassProxy.VERTEX_CLASS_NAME) ||
+          superClass.getName().equals(SchemaClassProxy.EDGE_CLASS_NAME)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Cannot remove the class '"
+                + superClass.getName()
+                + "' as superclass of the class '"
+                + this.getName()
+                + "'. Removal of graph classes is not allowed");
+      }
+
+      final SchemaClassShared cls;
+      cls = superClass;
+
+      if (superClasses.contains(cls)) {
+        cls.removeBaseClassInternal(session, this);
+
+        superClasses.remove(superClass);
+      }
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setSuperClasses(DatabaseSessionInternal session,
+      final List<SchemaClassShared> classes) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    if (classes != null) {
+      List<SchemaClassShared> toCheck = new ArrayList<>(classes);
+      toCheck.add(this);
+      checkParametersConflict(session, toCheck);
+    }
+    acquireSchemaWriteLock();
+    try {
+      setSuperClassesInternal(session, classes, true);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+
+  @Override
+  protected void setSuperClassesInternal(DatabaseSessionInternal session,
+      final List<SchemaClassShared> classes, boolean validateIndexes) {
+    if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType()) {
+      if (!classes.contains(owner.getClass(SchemaClass.EDGE_CLASS_NAME))) {
+        throw new IllegalArgumentException(
+            "Edge class must have super class " + SchemaClass.EDGE_CLASS_NAME
+                + ", its removal is not allowed.");
+      }
+    }
+    if (!name.equals(SchemaClass.VERTEX_CLASS_NAME) && isVertexType()) {
+      if (!classes.contains(owner.getClass(SchemaClass.VERTEX_CLASS_NAME))) {
+        throw new IllegalArgumentException(
+            "Vertex class must have super class " + SchemaClass.VERTEX_CLASS_NAME
+                + ", its removal is not allowed.");
+      }
+    }
+
+    List<SchemaClassShared> newSuperClasses = new ArrayList<>();
+    SchemaClassShared cls;
+    for (var superClass : classes) {
+      cls = superClass;
+      if (newSuperClasses.contains(cls)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Duplicated superclass '" + cls.getName() + "'");
+      }
+
+      newSuperClasses.add(cls);
+    }
+
+    List<SchemaClassShared> toAddList = new ArrayList<>(newSuperClasses);
+    toAddList.removeAll(superClasses);
+    List<SchemaClassShared> toRemoveList = new ArrayList<>(superClasses);
+    toRemoveList.removeAll(newSuperClasses);
+
+    for (var toRemove : toRemoveList) {
+      toRemove.removeBaseClassInternal(session, this);
+    }
+    for (var addTo : toAddList) {
+      addTo.addBaseClass(session, this, validateIndexes);
+    }
+    superClasses.clear();
+    superClasses.addAll(newSuperClasses);
+  }
+
+  @Override
+  public void setName(DatabaseSessionInternal session, final String name) {
+    if (getName().equals(name)) {
+      return;
+    }
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    final var wrongCharacter = SchemaShared.checkClassNameIfValid(name);
+    var oClass = session.getMetadata().getSchema().getClass(name);
+    if (oClass != null) {
+      var error =
+          String.format(
+              "Cannot rename class %s to %s. A Class with name %s exists", this.name, name, name);
+      throw new SchemaException(session.getDatabaseName(), error);
+    }
+    //noinspection ConstantValue
+    if (wrongCharacter != null) {
+      throw new SchemaException(session.getDatabaseName(),
+          "Invalid class name found. Character '"
+              + wrongCharacter
+              + "' cannot be used in class name '"
+              + name
+              + "'");
+    }
+    acquireSchemaWriteLock();
+    try {
+      setNameInternal(session, name);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setNameInternal(DatabaseSessionInternal session, final String name) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock();
+    try {
+      final var oldName = this.name;
+      owner.changeClassName(session, this.name, name, this);
+      this.name = name;
+      renameCollection(session, oldName, this.name);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+
+  public SchemaPropertyShared addPropertyInternal(
+      DatabaseSessionInternal session, final String name,
+      final PropertyTypeInternal type,
+      final PropertyTypeInternal linkedType,
+      final SchemaClassShared linkedClass,
+      final boolean unsafe) {
+    if (name == null || name.isEmpty()) {
+      throw new SchemaException(session.getDatabaseName(), "Found property name null");
+    }
+
+    if (!unsafe) {
+      checkPersistentPropertyType(session, name, type, linkedClass);
+    }
+
+    final SchemaPropertyShared prop;
+
+    // This check are doubled because used by sql commands
+    if (linkedType != null) {
+      SchemaPropertyShared.checkLinkTypeSupport(type);
+    }
+
+    if (linkedClass != null) {
+      SchemaPropertyShared.checkSupportLinkedClass(type);
+    }
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      if (properties.containsKey(name)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Class '" + this.name + "' already has property '" + name + "'");
+      }
+
+      var global = owner.findOrCreateGlobalProperty(name, type);
+
+      prop = createPropertyInstance(global);
+
+      properties.put(name, prop);
+
+      if (linkedType != null) {
+        prop.setLinkedTypeInternal(session, linkedType);
+      } else if (linkedClass != null) {
+        prop.setLinkedClassInternal(session, linkedClass);
+      }
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+
+    if (prop != null && !unsafe) {
+      fireDatabaseMigration(session, name, type);
+    }
+
+    return prop;
+  }
+
+
+  @Override
+  public void setStrictMode(DatabaseSessionInternal session, final boolean isStrict) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setStrictModeInternal(session, isStrict);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+
+  }
+
+  protected void setStrictModeInternal(DatabaseSessionInternal session, final boolean iStrict) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      this.strictMode = iStrict;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setDescription(DatabaseSessionInternal session, String iDescription) {
+    if (iDescription != null) {
+      iDescription = iDescription.trim();
+      if (iDescription.isEmpty()) {
+        iDescription = null;
+      }
+    }
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setDescriptionInternal(session, iDescription);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setDescriptionInternal(DatabaseSessionInternal session,
+      final String iDescription) {
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+      this.description = iDescription;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void dropProperty(DatabaseSessionInternal session, final String propertyName) {
+    if (session.getTransactionInternal().isActive()) {
+      throw new IllegalStateException("Cannot drop a property inside a transaction");
+    }
+
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
+
+    acquireSchemaWriteLock();
+    try {
+      if (!properties.containsKey(propertyName)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Property '" + propertyName + "' not found in class " + name + "'");
+      }
+      dropPropertyInternal(session, propertyName);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void dropPropertyInternal(
+      DatabaseSessionInternal session, final String iPropertyName) {
+    if (session.getTransactionInternal().isActive()) {
+      throw new IllegalStateException("Cannot drop a property inside a transaction");
+    }
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_DELETE);
+
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      final var prop = properties.remove(iPropertyName);
+
+      if (prop == null) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Property '" + iPropertyName + "' not found in class " + name + "'");
+      }
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  public void setOverSize(DatabaseSessionInternal session, final float overSize) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock();
+    try {
+      setOverSizeInternal(session, overSize);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setOverSizeInternal(DatabaseSessionInternal session, final float overSize) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      this.overSize = overSize;
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  @Override
+  public void setAbstract(DatabaseSessionInternal session, boolean isAbstract) {
+    session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      setAbstractInternal(session, isAbstract);
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setCustomInternal(DatabaseSessionInternal session, final String name,
+      final String value) {
+    acquireSchemaWriteLock();
+    try {
+      checkEmbedded(session);
+
+      if (customFields == null) {
+        customFields = new HashMap<>();
+      }
+      if (value == null || "null".equalsIgnoreCase(value)) {
+        customFields.remove(name);
+      } else {
+        customFields.put(name, value);
+      }
+    } finally {
+      releaseSchemaWriteLock(session);
+    }
+  }
+
+  protected void setAbstractInternal(DatabaseSessionInternal database, final boolean isAbstract) {
+    database.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
+
+    acquireSchemaWriteLock();
+    try {
+      if (isAbstract) {
+        // SWITCH TO ABSTRACT
+        if (defaultCollectionId != NOT_EXISTENT_COLLECTION_ID) {
+          // CHECK
+          if (count(database) > 0) {
+            throw new IllegalStateException(
+                "Cannot set the class as abstract because contains records.");
+          }
+
+          tryDropCollection(database, defaultCollectionId);
+          for (var collectionId : getCollectionIds()) {
+            tryDropCollection(database, collectionId);
+            removePolymorphicCollectionId(database, collectionId);
+            owner.removeCollectionForClass(database, collectionId);
+          }
+
+          setCollectionIds(new int[]{NOT_EXISTENT_COLLECTION_ID});
+
+          defaultCollectionId = NOT_EXISTENT_COLLECTION_ID;
+        }
+      } else {
+        if (!abstractClass) {
+          return;
+        }
+
+        var collectionId = database.getCollectionIdByName(name);
+        if (collectionId == -1) {
+          collectionId = database.addCollection(name);
+        }
+
+        this.defaultCollectionId = collectionId;
+        this.collectionIds[0] = this.defaultCollectionId;
+        this.polymorphicCollectionIds = Arrays.copyOf(collectionIds, collectionIds.length);
+        for (var clazz : getAllSubclasses()) {
+          if (clazz instanceof SchemaClassShared) {
+            addPolymorphicCollectionIds(database, clazz, true);
+          } else {
+            LogManager.instance()
+                .warn(this, "Warning: cannot set polymorphic collection IDs for class " + name);
+          }
+        }
+      }
+
+      this.abstractClass = isAbstract;
+    } finally {
+      releaseSchemaWriteLock(database);
+    }
+  }
+
+
+  @Override
+  protected void addCollectionIdToIndexes(DatabaseSessionInternal session, int iId,
+      boolean requireEmpty) {
+    var collectionName = session.getCollectionNameById(iId);
+    final List<String> indexesToAdd = new ArrayList<>();
+
+    for (var index : getIndexesInternal(session)) {
+      indexesToAdd.add(index.getName());
+    }
+
+    final var indexManager =
+        session.getSharedContext().getIndexManager();
+    for (var indexName : indexesToAdd) {
+      indexManager.addCollectionToIndex(session, collectionName, indexName, requireEmpty);
+    }
   }
 }

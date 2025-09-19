@@ -20,13 +20,13 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.util.PatternConst;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyShared;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.RecordSerializerStringAbstract;
@@ -136,18 +136,18 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
       try {
         var type = PropertyType.valueOf(fields.get("type"));
 
-        SchemaPropertyImpl prop;
+        SchemaPropertyShared prop;
         if (type == PropertyType.LINK
             || type == PropertyType.LINKLIST
             || type == PropertyType.LINKSET
             || type == PropertyType.LINKMAP) {
           prop =
-              (SchemaPropertyImpl)
+              (SchemaPropertyShared)
                   cls.createProperty(
                       fields.get("name"),
                       type, db.getMetadata().getSchema().getClass(fields.get("linkedClass")));
         } else {
-          prop = (SchemaPropertyImpl) cls.createProperty(fields.get("name"), type);
+          prop = (SchemaPropertyShared) cls.createProperty(fields.get("name"), type);
         }
 
         if (fields.get("linkedType") != null) {

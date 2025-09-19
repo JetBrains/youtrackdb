@@ -5,13 +5,13 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.SchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexMetadataPath;
 import java.lang.reflect.Array;
@@ -525,7 +525,7 @@ public class SQLModifier extends SimpleNode {
     return next == null || next.isCacheable(session);
   }
 
-  public boolean isIndexChain(CommandContext ctx, SchemaClassInternal clazz) {
+  public boolean isIndexChain(CommandContext ctx, SchemaClass clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
       var prop = clazz.getPropertyInternal(
           suffix.getIdentifier().getStringValue());
@@ -533,7 +533,7 @@ public class SQLModifier extends SimpleNode {
           && prop.getAllIndexesInternal().stream()
           .anyMatch(idx -> idx.getDefinition().getProperties().size() == 1)) {
         if (next != null) {
-          var linkedClazz = (SchemaClassInternal) prop.getLinkedClass();
+          var linkedClazz = prop.getLinkedClass();
           return next.isIndexChain(ctx, linkedClazz);
         }
         return true;

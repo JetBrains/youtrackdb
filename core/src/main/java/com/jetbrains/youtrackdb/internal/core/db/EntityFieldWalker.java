@@ -19,10 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -86,7 +86,7 @@ public class EntityFieldWalker {
 
     final var updateMode = fieldWalker.updateMode();
 
-    SchemaImmutableClass result;
+    SchemaClassSnapshot result;
     result = entity.getImmutableSchemaClass(session);
     final SchemaClass clazz = result;
     for (var fieldName : entity.getPropertyNamesInternal(false, false)) {

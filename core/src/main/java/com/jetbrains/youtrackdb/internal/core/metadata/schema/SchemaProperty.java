@@ -17,96 +17,36 @@
  *
  *
  */
-package com.jetbrains.youtrackdb.api.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.schema.SchemaClass.INDEX_TYPE;
+
+import com.jetbrains.youtrackdb.api.schema.Collate;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass.INDEX_TYPE;
 import java.util.Map;
-import java.util.Set;
 import javax.annotation.Nonnull;
 
 /**
  * Contains the description of a persistent class property.
  */
-public interface SchemaProperty {
-  enum ATTRIBUTES {
-    LINKEDTYPE,
-    LINKEDCLASS,
-    MIN,
-    MAX,
-    MANDATORY,
-    NAME,
-    NOTNULL,
-    REGEXP,
-    TYPE,
-    CUSTOM,
-    READONLY,
-    COLLATE,
-    DEFAULT,
-    DESCRIPTION
-  }
-
-  String getName();
-
-  /**
-   * Returns the full name as <class>.<property>
-   */
-  String getFullName();
-
+public interface SchemaProperty extends ImmutableSchemaProperty {
   SchemaProperty setName(String iName);
 
   void set(ATTRIBUTES attribute, Object iValue);
 
-  PropertyType getType();
-
-  /**
-   * Returns the linked class in lazy mode because while unmarshalling the class could be not loaded
-   * yet.
-   *
-   * @return
-   */
-  SchemaClass getLinkedClass();
-
   SchemaProperty setLinkedClass(SchemaClass oClass);
-
-  PropertyType getLinkedType();
 
   SchemaProperty setLinkedType(@Nonnull PropertyType type);
 
-  boolean isNotNull();
-
   SchemaProperty setNotNull(boolean iNotNull);
-
-  Collate getCollate();
 
   SchemaProperty setCollate(String iCollateName);
 
   SchemaProperty setCollate(Collate collate);
 
-  boolean isMandatory();
-
   SchemaProperty setMandatory(boolean mandatory);
 
-  boolean isReadonly();
-
   SchemaProperty setReadonly(boolean iReadonly);
-
-  /**
-   * Min behavior depends on the Property PropertyType.
-   *
-   * <p>
-   *
-   * <ul>
-   *   <li>String : minimum length
-   *   <li>Number : minimum value
-   *   <li>date and time : minimum time in millisecond, date must be written in the storage date
-   *       format
-   *   <li>binary : minimum size of the byte array
-   *   <li>List,Set,Collection : minimum size of the collection
-   * </ul>
-   *
-   * @return String, can be null
-   */
-  String getMin();
 
   /**
    * @param min can be null
@@ -115,23 +55,6 @@ public interface SchemaProperty {
    */
   SchemaProperty setMin(String min);
 
-  /**
-   * Max behavior depends on the Property PropertyType.
-   *
-   * <p>
-   *
-   * <ul>
-   *   <li>String : maximum length
-   *   <li>Number : maximum value
-   *   <li>date and time : maximum time in millisecond, date must be written in the storage date
-   *       format
-   *   <li>binary : maximum size of the byte array
-   *   <li>List,Set,Collection : maximum size of the collection
-   * </ul>
-   *
-   * @return String, can be null
-   */
-  String getMax();
 
   /**
    * @param max can be null
@@ -139,13 +62,6 @@ public interface SchemaProperty {
    * @see SchemaProperty#getMax()
    */
   SchemaProperty setMax(String max);
-
-  /**
-   * Default value for the property; can be function
-   *
-   * @return String, can be null
-   */
-  String getDefaultValue();
 
   /**
    * @param defaultValue can be null
@@ -209,9 +125,6 @@ public interface SchemaProperty {
    */
   String createIndex(INDEX_TYPE iType, Map<String, Object> metadata);
 
-
-  String getRegexp();
-
   SchemaProperty setRegexp(String regexp);
 
   /**
@@ -219,23 +132,17 @@ public interface SchemaProperty {
    */
   SchemaProperty setType(final PropertyType iType);
 
-  String getCustom(final String iName);
-
   SchemaProperty setCustom(final String iName, final String iValue);
 
   void removeCustom(final String iName);
 
   void clearCustom();
 
-  Set<String> getCustomKeys();
-
-  SchemaClass getOwnerClass();
-
-  Object get(ATTRIBUTES iAttribute);
-
-  Integer getId();
-
-  String getDescription();
-
   SchemaProperty setDescription(String iDescription);
+
+  @Override
+  SchemaClass getLinkedClass();
+
+  @Override
+  SchemaClass getOwnerClass();
 }

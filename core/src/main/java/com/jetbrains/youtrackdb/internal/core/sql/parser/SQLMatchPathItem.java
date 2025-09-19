@@ -4,10 +4,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Collections;
@@ -97,7 +97,7 @@ public class SQLMatchPathItem extends SimpleNode {
       whileCondition = this.filter.getWhileCondition();
       maxDepth = this.filter.getMaxDepth();
       var className = this.filter.getClassName(iCommandContext);
-      oClass = iCommandContext.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot()
+      oClass = iCommandContext.getDatabaseSession().getMetadata().getImmutableSchema(session)
           .getClass(className);
     }
 
@@ -168,7 +168,7 @@ public class SQLMatchPathItem extends SimpleNode {
       var transaction = session.getActiveTransaction();
       var record = transaction.load(identifiable);
       if (record instanceof EntityImpl) {
-        SchemaImmutableClass result;
+        SchemaClassSnapshot result;
         result = ((EntityImpl) record).getImmutableSchemaClass(session);
         return result
             .isSubClassOf(oClass);
