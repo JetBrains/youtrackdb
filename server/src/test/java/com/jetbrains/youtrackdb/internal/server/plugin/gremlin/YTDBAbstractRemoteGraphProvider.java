@@ -5,9 +5,10 @@ import static org.apache.tinkerpop.gremlin.process.remote.RemoteConnection.GREML
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YouTrackDBFeatures.YTDBFeatures;
 import com.jetbrains.youtrackdb.internal.driver.YTDBDriverWebSocketChannelizer;
-import com.jetbrains.youtrackdb.internal.gremlin.tests.YTDBTemporaryRidConversionTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTemporaryRidConversionTest;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -21,6 +22,8 @@ import org.apache.tinkerpop.gremlin.driver.Cluster;
 import org.apache.tinkerpop.gremlin.driver.remote.AbstractRemoteGraphProvider;
 import org.apache.tinkerpop.gremlin.driver.remote.DriverRemoteConnection;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
+import org.apache.tinkerpop.gremlin.process.traversal.AnonymousTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.server.TestClientFactory;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Graph.Features;
@@ -207,5 +210,15 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
     // match the content length in the server yaml
     return TestClientFactory.build().maxContentLength(1000000).serializer(serializer).channelizer(
         YTDBDriverWebSocketChannelizer.class);
+  }
+
+  // overriding to create an instance of YTDBGraphTraversalSource
+  @Override
+  public GraphTraversalSource traversal(final Graph graph) {
+    assert graph instanceof RemoteGraph;
+
+    return AnonymousTraversalSource
+        .traversal(YTDBGraphTraversalSource.class)
+        .withRemote(((RemoteGraph) graph).getConnection());
   }
 }

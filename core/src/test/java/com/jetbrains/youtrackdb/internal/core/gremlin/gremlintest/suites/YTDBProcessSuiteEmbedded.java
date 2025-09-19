@@ -1,9 +1,27 @@
-package com.jetbrains.youtrackdb.internal.gremlin.suites;
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.suites;
 
-import com.jetbrains.youtrackdb.internal.gremlin.tests.YTDBTemporaryRidConversionTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBPropertiesProcessTest;
 import org.apache.tinkerpop.gremlin.AbstractGremlinSuite;
 import org.apache.tinkerpop.gremlin.process.traversal.CoreTraversalTest;
-import org.apache.tinkerpop.gremlin.process.traversal.TraversalEngine.Type;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalEngine;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalInterruptionTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.ComplexTest;
 import org.apache.tinkerpop.gremlin.process.traversal.step.OrderabilityTest;
@@ -82,9 +100,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.Read
 import org.junit.runners.model.InitializationError;
 import org.junit.runners.model.RunnerBuilder;
 
-public class YTDBProcessTestSuite extends AbstractGremlinSuite {
+public class YTDBProcessSuiteEmbedded extends AbstractGremlinSuite {
 
-  private static final Class<?>[] testsToExecute = new Class<?>[]{
+  static final Class<?>[] testsToExecute = new Class<?>[]{
       // branch
       BranchTest.Traversals.class,
       ChooseTest.Traversals.class,
@@ -112,7 +130,6 @@ public class YTDBProcessTestSuite extends AbstractGremlinSuite {
       // map
       AddEdgeTest.Traversals.class,
       AddVertexTest.Traversals.class,
-      YTDBTemporaryRidConversionTest.Traversals.class,
       CoalesceTest.Traversals.class,
       ConstantTest.Traversals.class,
       CountTest.Traversals.class,
@@ -180,10 +197,13 @@ public class YTDBProcessTestSuite extends AbstractGremlinSuite {
       // semantics
       OrderabilityTest.Traversals.class,
       TernaryBooleanLogicsTest.class,
+
+      // ytdb
+      YTDBPropertiesProcessTest.class,
   };
 
-  public YTDBProcessTestSuite(Class<?> klass, RunnerBuilder builder)
+  public YTDBProcessSuiteEmbedded(final Class<?> klass, final RunnerBuilder builder)
       throws InitializationError {
-    super(klass, builder, testsToExecute, testsToExecute, true, Type.STANDARD);
+    super(klass, builder, testsToExecute, null, true, TraversalEngine.Type.STANDARD);
   }
 }

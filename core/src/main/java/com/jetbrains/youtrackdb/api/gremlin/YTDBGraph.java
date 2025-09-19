@@ -1,12 +1,14 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
+import com.jetbrains.youtrackdb.api.gremlin.service.YTDBServices;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.service.ServiceRegistry;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 
 @GraphFactoryClass(YTDBGraphFactory.class)
@@ -14,6 +16,11 @@ import org.apache.tinkerpop.gremlin.structure.util.GraphFactoryClass;
 @Graph.OptIn(Graph.OptIn.SUITE_PROCESS_STANDARD)
 @Graph.OptIn("com.jetbrains.youtrackdb.internal.server.plugin.gremlin.process.YTDBProcessTestSuite")
 public interface YTDBGraph extends Graph {
+
+  @Override
+  default ServiceRegistry getServiceRegistry() {
+    return YTDBServices.REGISTRY;
+  }
 
   @Override
   YTDBVertex addVertex(Object... keyValues);

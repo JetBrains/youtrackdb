@@ -58,6 +58,7 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl.PropertyValidationMode;
 import com.jetbrains.youtrackdb.internal.core.record.impl.StatefullEdgeEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
 import java.io.ByteArrayInputStream;
@@ -676,7 +677,8 @@ public class JSONSerializerJackson {
       }
 
       // skipping validation when importing graph fields
-      entity.setPropertyInternal(fieldName, value, type, null, !isGraphField);
+      entity.setPropertyInternal(fieldName, value, type, null,
+          isGraphField ? PropertyValidationMode.SKIP : PropertyValidationMode.FULL);
     }
   }
 

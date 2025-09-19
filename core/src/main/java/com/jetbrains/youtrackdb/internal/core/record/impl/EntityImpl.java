@@ -678,8 +678,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
         "Property " + name + " is not a link set type, but " + value.getClass().getName());
   }
 
-  private void validatePropertyUpdate(String propertyName, Object propertyValue) {
-    validatePropertyName(propertyName, false);
+  private void validatePropertyUpdate(String propertyName, Object propertyValue,
+      boolean allowMetadata) {
+    validatePropertyName(propertyName, allowMetadata);
     validatePropertyValue(propertyName, propertyValue);
 
     if (!isPropertyAccessible(propertyName)) {
@@ -1057,7 +1058,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
     final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
-    if (allowMetadata && propertyName.charAt(0) == '@') {
+    if (allowMetadata && (propertyName.charAt(0) == '@' || propertyName.charAt(0) == '~')) {
       return;
     }
 
@@ -1180,7 +1181,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   @Override
   public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
-    setPropertyInternal(propertyName, propertyValue, null, null, true);
+    setPropertyInternal(propertyName, propertyValue, null, null, PropertyValidationMode.FULL);
   }
 
   /**
@@ -1196,7 +1197,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return setPropertyInternal(
         propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(type), null,
-        true);
+        PropertyValidationMode.FULL);
   }
 
 
@@ -1208,7 +1209,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(propertyType),
         PropertyTypeInternal.convertFromPublicType(linkedType),
-        true);
+        PropertyValidationMode.FULL);
   }
 
   public void compareAndSetPropertyInternal(String name, Object value, PropertyTypeInternal type) {
@@ -1229,14 +1230,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
       String name, Object value,
       @Nullable PropertyTypeInternal type
   ) {
-    setPropertyInternal(name, value, type, null, false);
+    setPropertyInternal(name, value, type, null, PropertyValidationMode.SKIP);
   }
 
   public Object setPropertyInternal(
       String name, Object value,
       @Nullable PropertyTypeInternal type,
       @Nullable PropertyTypeInternal linkedType,
-      boolean validate
+      PropertyValidationMode validationMode
   ) {
 
     if (name == null) {
@@ -1247,8 +1248,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new IllegalArgumentException("Field name is empty");
     }
 
-    if (validate) {
-      validatePropertyUpdate(name, value);
+    if (validationMode != PropertyValidationMode.SKIP) {
+      validatePropertyUpdate(name, value, validationMode == PropertyValidationMode.ALLOW_METADATA);
     }
 
     checkForBinding();
@@ -1441,14 +1442,20 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  public <RET> RET removeProperty(@Nonnull final String iFieldName) {
-    validatePropertyName(iFieldName, false);
-    return removePropertyInternal(iFieldName);
+  public <RET> RET removeProperty(@Nonnull final String name) {
+    return removePropertyInternal(name, PropertyValidationMode.FULL);
   }
 
+  public void removePropertyInternal(String name) {
+    removePropertyInternal(name, PropertyValidationMode.SKIP);
+  }
 
   @Nullable
-  public <RET> RET removePropertyInternal(String name) {
+  public <RET> RET removePropertyInternal(String name, PropertyValidationMode validationMode) {
+
+    if (validationMode != PropertyValidationMode.SKIP) {
+      validatePropertyName(name, validationMode == PropertyValidationMode.ALLOW_METADATA);
+    }
     checkForBinding();
     checkForProperties();
 
@@ -4123,5 +4130,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (dirty) {
       setDirty();
     }
+  }
+
+  public enum PropertyValidationMode {
+    SKIP, ALLOW_METADATA, FULL,
   }
 }

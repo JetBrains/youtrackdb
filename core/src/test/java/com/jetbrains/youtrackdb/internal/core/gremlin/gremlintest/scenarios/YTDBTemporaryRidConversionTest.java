@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.gremlin.tests;
+package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
 import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.junit.Assert.assertEquals;
@@ -20,6 +20,7 @@ import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
