@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -100,13 +99,6 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassShared> im
     return delegate.count(this.session, isPolymorphic);
   }
 
-  @Nullable
-  @Override
-  public SchemaProperty getPropertyInternal(String propertyName) {
-    assert this.session.assertIfNotActive();
-    var result = delegate.getPropertyInternal(propertyName);
-    return result != null ? new SchemaPropertyProxy(result, session) : null;
-  }
 
   @Override
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
@@ -571,7 +563,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassShared> im
   }
 
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return session;
   }
 

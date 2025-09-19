@@ -19,8 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
@@ -37,7 +36,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -62,9 +60,9 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   private final boolean isAbstract;
   private final boolean strictMode;
   private final String name;
-  private final Map<String, ImmutableSchemaProperty> properties;
-  private Map<String, ImmutableSchemaProperty> allPropertiesMap;
-  private Collection<ImmutableSchemaProperty> allProperties;
+  private final Map<String, SchemaPropertySnapshot> properties;
+  private Map<String, SchemaPropertySnapshot> allPropertiesMap;
+  private Collection<SchemaPropertySnapshot> allProperties;
   private final int[] collectionIds;
   private final int[] polymorphicCollectionIds;
   private final Collection<String> baseClassesNames;
@@ -75,9 +73,9 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   private final SchemaSnapshot schema;
   // do not do it volatile it is already SAFE TO USE IT in MT mode.
-  private final List<ImmutableSchemaClass> superClasses;
+  private final List<SchemaClassSnapshot> superClasses;
   // do not do it volatile it is already SAFE TO USE IT in MT mode.
-  private Collection<ImmutableSchemaClass> subclasses;
+  private Collection<SchemaClassSnapshot> subclasses;
   private boolean isVertexType;
   private boolean isEdgeType;
   private boolean function;
@@ -88,13 +86,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   private boolean securityPolicy;
   private HashSet<Index> indexes;
 
-  @Nonnull
-  private final SchemaClassShared original;
-
-
-  public SchemaClassSnapshot(@Nonnull DatabaseSessionInternal session,
-      @Nonnull final SchemaClassShared oClass,
-      final SchemaSnapshot schema) {
+  public SchemaClassSnapshot(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull final SchemaClassShared oClass, final SchemaSnapshot schema) {
 
     isAbstract = oClass.isAbstract();
     strictMode = oClass.isStrictMode();
@@ -114,8 +107,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
     properties = new HashMap<>();
     for (var p : oClass.declaredProperties()) {
-      properties.put(p.getName(),
-          new SchemaPropertySnapshot(session, p, this));
+      properties.put(p.getName(), new SchemaPropertySnapshot(session, p, this));
     }
 
     Map<String, String> customFields = new HashMap<>();
@@ -125,22 +117,19 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
     this.customFields = Collections.unmodifiableMap(customFields);
     this.description = oClass.getDescription();
-
-    this.original = oClass;
   }
 
   public void init(DatabaseSessionInternal session) {
     if (!inited) {
       initSuperClasses(session);
 
-      final Collection<ImmutableSchemaProperty> allProperties = new ArrayList<>();
-      final Map<String, ImmutableSchemaProperty> allPropsMap = new HashMap<>(20);
+      final Collection<SchemaPropertySnapshot> allProperties = new ArrayList<>();
+      final Map<String, SchemaPropertySnapshot> allPropsMap = new HashMap<>(20);
       for (var i = superClasses.size() - 1; i >= 0; i--) {
-        allProperties.addAll(((SchemaClassSnapshot) superClasses.get(i)).allProperties);
-        allPropsMap.putAll(((SchemaClassSnapshot) superClasses.get(i)).allPropertiesMap);
+        allProperties.addAll(superClasses.get(i).allProperties);
+        allPropsMap.putAll(superClasses.get(i).allPropertiesMap);
       }
       allProperties.addAll(properties.values());
-
       for (var p : properties.values()) {
         final var propName = p.getName();
 
@@ -181,8 +170,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Iterator<ImmutableSchemaClass> getSuperClasses() {
-    return superClasses.iterator();
+  public List<SchemaClassSnapshot> getSuperClasses() {
+    return superClasses;
   }
 
   @Override
@@ -191,8 +180,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Iterator<String> getSuperClassesNames() {
-    return superClassesNames.iterator();
+  public List<String> getSuperClassesNames() {
+    return superClassesNames;
   }
 
   @Override
@@ -201,22 +190,22 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Iterator<ImmutableSchemaProperty> getDeclaredProperties() {
-    return properties.values().iterator();
+  public Collection<SchemaPropertySnapshot> getDeclaredProperties() {
+    return properties.values();
   }
 
   @Override
-  public Iterator<ImmutableSchemaProperty> getProperties() {
-    return allProperties.iterator();
+  public Collection<SchemaPropertySnapshot> getProperties() {
+    return allProperties;
   }
 
   @Override
-  public Map<String, ImmutableSchemaProperty> getPropertiesMap() {
+  public Map<String, SchemaPropertySnapshot> getPropertiesMap() {
     return allPropertiesMap;
   }
 
   @Override
-  public ImmutableSchemaProperty getProperty(String propertyName) {
+  public SchemaPropertySnapshot getProperty(String propertyName) {
     var p = properties.get(propertyName);
 
     if (p != null) {
@@ -261,7 +250,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public int[] getPolymorphicCollectionIds() {
-    return Arrays.copyOf(polymorphicCollectionIds, polymorphicCollectionIds.length);
+    return polymorphicCollectionIds;
   }
 
   public SchemaSnapshot getSchema() {
@@ -269,39 +258,32 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Iterator<ImmutableSchemaClass> getSubclasses() {
+  public Collection<SchemaClassSnapshot> getSubclasses() {
     initBaseClasses();
-    return subclasses.iterator();
+    return subclasses;
   }
 
   @Override
-  public Iterator<ImmutableSchemaClass> getAllSubclasses() {
+  public Collection<SchemaClassSnapshot> getAllSubclasses() {
     initBaseClasses();
 
-    final Set<ImmutableSchemaClass> set = new HashSet<>();
-    var subclasses = getSubclasses();
+    var set = new HashSet<>(getSubclasses());
 
-    while (subclasses.hasNext()) {
-      set.add(subclasses.next());
-      0
-    }
-
-    subclasses = getSubclasses();
     for (var c : subclasses) {
       set.addAll(c.getAllSubclasses());
     }
 
-    return set.iterator();
+    return set;
   }
 
   @Override
-  public Collection<SchemaClass> getAllSuperClasses() {
-    Set<SchemaClass> ret = new HashSet<>();
+  public Collection<ImmutableSchemaClass> getAllSuperClasses() {
+    var ret = new HashSet<ImmutableSchemaClass>();
     getAllSuperClasses(ret);
     return ret;
   }
 
-  private void getAllSuperClasses(Set<SchemaClass> set) {
+  private void getAllSuperClasses(HashSet<ImmutableSchemaClass> set) {
     set.addAll(superClasses);
     for (var superClass : superClasses) {
       superClass.getAllSuperClasses(set);
@@ -379,27 +361,6 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
       case CUSTOM -> customFields;
       case DESCRIPTION -> description;
     };
-
-  }
-
-  @Override
-  public void createIndex(String iName, INDEX_TYPE iType,
-      String... fields) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void createIndex(String iName, String iType,
-      String... fields) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void createIndex(
-      String iName, INDEX_TYPE iType,
-      ProgressListener iProgressListener,
-      String... fields) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -497,31 +458,6 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public SchemaProperty createProperty(String iPropertyName,
-      PropertyTypeInternal iType, PropertyTypeInternal iLinkedType, boolean unsafe) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaProperty createProperty(String iPropertyName,
-      PropertyTypeInternal iType, SchemaClass iLinkedClass, boolean unsafe) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void createIndex(String iName, String iType,
-      ProgressListener iProgressListener, Map<String, Object> metadata, String algorithm,
-      String... fields) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void createIndex(String iName, String iType,
-      ProgressListener iProgressListener, Map<String, Object> metadata, String... fields) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public Set<Index> getClassIndexesInternal() {
     return this.indexes;
   }
@@ -561,6 +497,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     initSuperClasses(session);
 
     getRawClassIndexes(session, indexes);
+
     for (var superClass : superClasses) {
       superClass.getRawIndexes(session, indexes);
     }
@@ -591,20 +528,6 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     return customFields.get(iName);
   }
 
-  @Override
-  public SchemaClass setCustom(String iName, String iValue) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void removeCustom(String iName) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void clearCustom() {
-    throw new UnsupportedOperationException();
-  }
 
   @Override
   public Set<String> getCustomKeys() {
@@ -622,16 +545,11 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
 
-  @Override
-  public SchemaClass set(ATTRIBUTES attribute, Object value) {
-    throw new UnsupportedOperationException();
-  }
-
   private void initSuperClasses(DatabaseSessionInternal session) {
     if (superClassesNames != null && superClassesNames.size() != superClasses.size()) {
       superClasses.clear();
       for (var superClassName : superClassesNames) {
-        var superClass = (SchemaClassSnapshot) schema.getClass(superClassName);
+        var superClass = schema.getClass(superClassName);
         superClass.init(session);
         superClasses.add(superClass);
       }
@@ -643,7 +561,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
       final List<SchemaClassSnapshot> result = new ArrayList<>(
           baseClassesNames.size());
       for (var clsName : baseClassesNames) {
-        result.add((SchemaClassSnapshot) schema.getClass(clsName));
+        result.add(schema.getClass(clsName));
       }
 
       subclasses = result;
@@ -681,11 +599,6 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public SchemaClassShared getImplementation() {
-    return original;
-  }
-
-  @Override
   public int hashCode() {
     return name.hashCode();
   }
@@ -705,7 +618,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Nullable
   @Override
-  public DatabaseSession getBoundToSession() {
+  public DatabaseSessionEmbedded getBoundToSession() {
     return null;
   }
 }

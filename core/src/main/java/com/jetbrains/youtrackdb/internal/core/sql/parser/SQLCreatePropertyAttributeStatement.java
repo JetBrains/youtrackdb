@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
 import java.util.Map;
 import java.util.Objects;
 

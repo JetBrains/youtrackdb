@@ -22,8 +22,8 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.validation.ValidationBinaryComparable;
@@ -44,7 +44,7 @@ import javax.annotation.Nullable;
 /**
  * @since 10/21/14
  */
-public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
+public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
 
   private final String name;
   private final String fullName;
@@ -52,7 +52,7 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
   private final String description;
 
   // do not make it volatile it is already thread safe.
-  private SchemaClass linkedClass = null;
+  private SchemaClassSnapshot linkedClass = null;
 
   private final String linkedClassName;
 
@@ -65,7 +65,7 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
   private final String defaultValue;
   private final String regexp;
   private final Map<String, String> customProperties;
-  private final SchemaClass owner;
+  private final SchemaClassSnapshot owner;
   private final Integer id;
   private final boolean readOnly;
   private final Comparable<Object> minComparable;
@@ -74,7 +74,7 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
 
   private int hashCode;
 
-  public SchemaPropertySnapshot(@Nonnull DatabaseSessionInternal session,
+  public SchemaPropertySnapshot(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaPropertyShared property,
       SchemaClassSnapshot owner) {
     name = property.getName();
@@ -238,24 +238,10 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
     return fullName;
   }
 
-  @Override
-  public SchemaProperty setName(String iName) {
-    throw new UnsupportedOperationException();
-  }
 
   @Override
   public String getDescription() {
     return description;
-  }
-
-  @Override
-  public SchemaProperty setDescription(String iDescription) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void set(ATTRIBUTES attribute, Object iValue) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -265,7 +251,7 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
 
   @Nullable
   @Override
-  public SchemaClass getLinkedClass() {
+  public SchemaClassSnapshot getLinkedClass() {
     if (linkedClassName == null) {
       return null;
     }
@@ -274,15 +260,10 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
       return linkedClass;
     }
 
-    Schema schema = ((SchemaClassSnapshot) owner).getSchema();
+    var schema = owner.getSchema();
     linkedClass = schema.getClass(linkedClassName);
 
     return linkedClass;
-  }
-
-  @Override
-  public SchemaProperty setLinkedClass(SchemaClass oClass) {
-    throw new UnsupportedOperationException();
   }
 
   @Nullable
@@ -296,18 +277,8 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
   }
 
   @Override
-  public SchemaProperty setLinkedType(@Nonnull PropertyType type) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public boolean isNotNull() {
     return notNull;
-  }
-
-  @Override
-  public SchemaProperty setNotNull(boolean iNotNull) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -315,24 +286,10 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
     return collate;
   }
 
-  @Override
-  public SchemaProperty setCollate(String iCollateName) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaProperty setCollate(Collate collate) {
-    throw new UnsupportedOperationException();
-  }
 
   @Override
   public boolean isMandatory() {
     return mandatory;
-  }
-
-  @Override
-  public SchemaProperty setMandatory(boolean mandatory) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -341,18 +298,8 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
   }
 
   @Override
-  public SchemaProperty setReadonly(boolean iReadonly) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public String getMin() {
     return min;
-  }
-
-  @Override
-  public SchemaProperty setMin(String min) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -361,39 +308,8 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
   }
 
   @Override
-  public SchemaProperty setMax(String max) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public String getDefaultValue() {
     return defaultValue;
-  }
-
-  @Override
-  public SchemaProperty setDefaultValue(String defaultValue) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public String createIndex(INDEX_TYPE iType) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public String createIndex(String iType) {
-    throw new UnsupportedOperationException();
-  }
-
-
-  @Override
-  public String createIndex(String iType, Map<String, Object> metadata) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public String createIndex(INDEX_TYPE iType, Map<String, Object> metadata) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -401,20 +317,9 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
     return this.allIndexes.stream().map(Index::getName).toList();
   }
 
-
   @Override
   public String getRegexp() {
     return regexp;
-  }
-
-  @Override
-  public SchemaProperty setRegexp(String regexp) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public SchemaProperty setType(PropertyType iType) {
-    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -423,27 +328,12 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
   }
 
   @Override
-  public SchemaProperty setCustom(String iName, String iValue) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void removeCustom(String iName) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void clearCustom() {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public Set<String> getCustomKeys() {
     return Collections.unmodifiableSet(customProperties.keySet());
   }
 
   @Override
-  public SchemaClass getOwnerClass() {
+  public SchemaClassSnapshot getOwnerClass() {
     return owner;
   }
 
@@ -488,11 +378,6 @@ public final class SchemaPropertySnapshot implements SchemaPropertyInternal {
 
   public Comparable<Object> getMinComparable() {
     return minComparable;
-  }
-
-  @Override
-  public Collection<Index> getAllIndexesInternal() {
-    return this.allIndexes;
   }
 
   @Nullable

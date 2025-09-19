@@ -225,8 +225,6 @@ public interface ImmutableSchemaClass {
    */
   Set<String> getIndexes();
 
-  SchemaClassShared getImplementation();
-
   DatabaseSessionEmbedded getBoundToSession();
 
   boolean isUser();

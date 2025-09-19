@@ -195,4 +195,6 @@ public interface SchemaClass extends ImmutableSchemaClass {
 
   @Override
   Collection<SchemaClass> getAllSubclasses();
+
+  SchemaClassShared getImplementation();
 }

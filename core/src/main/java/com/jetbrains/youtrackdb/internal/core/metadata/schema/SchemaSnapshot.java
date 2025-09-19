@@ -20,14 +20,13 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -37,16 +36,16 @@ import javax.annotation.Nullable;
 /**
  * @since 10/21/14
  */
-public class SchemaSnapshot implements ImmutableSchema {
+public final class SchemaSnapshot implements ImmutableSchema {
 
-  private final Int2ObjectOpenHashMap<SchemaClass> collectionsToClasses;
-  private final Map<String, SchemaClass> classes;
+  private final Int2ObjectOpenHashMap<SchemaClassSnapshot> collectionsToClasses;
+  private final Map<String, SchemaClassSnapshot> classes;
 
   private final List<GlobalProperty> properties;
   private final Map<String, IndexDefinition> indexes;
 
   public SchemaSnapshot(@Nonnull SchemaShared schemaShared,
-      @Nonnull DatabaseSessionInternal session) {
+      @Nonnull DatabaseSessionEmbedded session) {
     collectionsToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(session).size() * 3);
     classes = new HashMap<>(schemaShared.getClasses(session).size());
 
@@ -63,8 +62,8 @@ public class SchemaSnapshot implements ImmutableSchema {
     properties = new ArrayList<>();
     properties.addAll(schemaShared.getGlobalProperties());
 
-    for (SchemaClass cl : classes.values()) {
-      ((SchemaClassSnapshot) cl).init(session);
+    for (var cl : classes.values()) {
+      cl.init(session);
     }
 
     var indexManager = session.getSharedContext().getIndexManager();
@@ -90,7 +89,7 @@ public class SchemaSnapshot implements ImmutableSchema {
       indexes.put(indexName.toLowerCase(Locale.ROOT),
           new IndexDefinition(indexName, indexDefinition.getClassName(),
               Collections.unmodifiableList(indexDefinition.getProperties()),
-              SchemaClass.INDEX_TYPE.valueOf(index.getType()),
+              ImmutableSchemaClass.INDEX_TYPE.valueOf(index.getType()),
               indexDefinition.isNullValuesIgnored(), collateName, metadata));
     }
 
@@ -113,7 +112,7 @@ public class SchemaSnapshot implements ImmutableSchema {
   }
 
   @Override
-  public SchemaClass getClass(Class<?> iClass) {
+  public SchemaClassSnapshot getClass(Class<?> iClass) {
     if (iClass == null) {
       return null;
     }
@@ -122,17 +121,17 @@ public class SchemaSnapshot implements ImmutableSchema {
   }
 
   @Override
-  public SchemaClass getClass(String iClassName) {
-    return classes.get(iClassName);
+  public SchemaClassSnapshot getClass(String iClassName) {
+    return (SchemaClassSnapshot) classes.get(iClassName);
   }
 
   @Override
-  public Iterator<SchemaClass> getClasses() {
+  public Collection<SchemaClassSnapshot> getClasses() {
     return new HashSet<>(classes.values());
   }
 
   @Override
-  public Iterator<String> getIndexes() {
+  public Collection<String> getIndexes() {
     return indexes.keySet();
   }
 
@@ -152,11 +151,7 @@ public class SchemaSnapshot implements ImmutableSchema {
   }
 
   @Override
-  public CollectionSelectionFactory getCollectionSelectionFactory() {
-  }
-
-  @Override
-  public SchemaClass getClassByCollectionId(int collectionId) {
+  public SchemaClassSnapshot getClassByCollectionId(int collectionId) {
     return collectionsToClasses.get(collectionId);
   }
 
@@ -171,7 +166,7 @@ public class SchemaSnapshot implements ImmutableSchema {
   }
 
   @Override
-  public Iterator<GlobalProperty> getGlobalProperties() {
-    return Collections.unmodifiableList(properties);
+  public List<GlobalProperty> getGlobalProperties() {
+    return properties;
   }
 }

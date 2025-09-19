@@ -8,14 +8,13 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -32,7 +31,6 @@ public final class SchemaShared {
   public static final String GLOBAL_PROPERTY_INDEX = "$GlobalPropertyIndex";
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-  private final CollectionSelectionFactory collectionSelectionFactory = new CollectionSelectionFactory();
   private volatile RecordIdInternal identity;
   private volatile SchemaSnapshot snapshot;
 
@@ -140,7 +138,7 @@ public final class SchemaShared {
     return null;
   }
 
-  public SchemaSnapshot makeSnapshot(DatabaseSessionInternal session) {
+  public SchemaSnapshot makeSnapshot(DatabaseSessionEmbedded session) {
     var snapshot = this.snapshot;
 
     if (snapshot == null) {
@@ -177,9 +175,6 @@ public final class SchemaShared {
     }
   }
 
-  public CollectionSelectionFactory getCollectionSelectionFactory() {
-    return collectionSelectionFactory;
-  }
 
   public long countClasses(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
@@ -342,7 +337,7 @@ public final class SchemaShared {
     }
   }
 
-  public Iterator<SchemaClassShared> getClasses(DatabaseSessionInternal session) {
+  public Collection<SchemaClassShared> getClasses(DatabaseSessionInternal session) {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
     acquireSchemaReadLock();
     try {
@@ -435,7 +430,7 @@ public final class SchemaShared {
     }
   }
 
-  public Iterator<GlobalProperty> getGlobalProperties() {
+  public List<GlobalProperty> getGlobalProperties() {
     acquireSchemaReadLock();
     try {
       return Collections.unmodifiableList(properties);
