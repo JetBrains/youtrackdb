@@ -4,6 +4,9 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 
+/// Factory for creating TinkerPop [[Property]]s. Having this abstraction allows us to express
+/// common property-related logic without code duplication and in a type-safe manner.
+/// @see com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement
 public interface YTDBPropertyFactory<V, P extends Property<V>> {
 
   P empty();

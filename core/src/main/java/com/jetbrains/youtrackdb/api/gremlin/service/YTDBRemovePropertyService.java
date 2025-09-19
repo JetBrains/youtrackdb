@@ -4,11 +4,19 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
+/// TinkerPop service that handles the `removeProperty` operation that is available via
+/// [[com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal#removeProperty]].
+///
+/// This is a `Streaming` service, meaning that it operates on a stream of elements of type `E`, and
+/// returning a stream without aggregating any intermediate state. The resulting iterator (see
+/// [[YTDBRemovePropertyService#execute(ServiceCallContext, Admin, Map)]]) will return
+/// all the original elements with the specified properties removed.
 public class YTDBRemovePropertyService<E extends YTDBElement> implements Service<E, E> {
 
   private final Set<String> properties;
@@ -64,6 +72,8 @@ public class YTDBRemovePropertyService<E extends YTDBElement> implements Service
   public CloseableIterator<E> execute(ServiceCallContext ctx, Traverser.Admin<E> in, Map params) {
     final var element = in.get();
     properties.forEach(element::removeProperty);
+
+    // returning the input
     return CloseableIterator.of(IteratorUtils.of(element));
   }
 }
