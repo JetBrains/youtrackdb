@@ -44,7 +44,7 @@ public class LuceneListIndexingTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);

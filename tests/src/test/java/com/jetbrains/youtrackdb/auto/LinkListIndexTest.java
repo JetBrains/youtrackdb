@@ -21,7 +21,7 @@ public class LinkListIndexTest extends BaseDBTest {
   @BeforeClass
   public void setupSchema() {
     final var linkListIndexTestClass =
-        session.getMetadata().getSchema().createClass("LinkListIndexTestClass");
+        session.getMetadata().getSlowMutableSchema().createClass("LinkListIndexTestClass");
 
     linkListIndexTestClass.createProperty("linkCollection", PropertyType.LINKLIST);
 
@@ -32,7 +32,7 @@ public class LinkListIndexTest extends BaseDBTest {
   @AfterClass
   public void destroySchema() {
     session = acquireSession();
-    session.getMetadata().getSchema().dropClass("LinkListIndexTestClass");
+    session.getMetadata().getSlowMutableSchema().dropClass("LinkListIndexTestClass");
   }
 
   @Override

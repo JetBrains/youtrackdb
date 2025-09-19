@@ -179,7 +179,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
   }
 
   private static void createSchema(DatabaseSessionInternal session) {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var testOneClass = schema.createClass("TestOne");
 
     testOneClass.createProperty("intProp", PropertyType.INTEGER);
@@ -206,8 +206,8 @@ public class LocalPaginatedStorageRestoreFromWALIT {
         List<RID> testTwoList = new ArrayList<>();
         List<RID> firstDocs = new ArrayList<>();
 
-        var classOne = db.getMetadata().getSchema().getClass("TestOne");
-        var classTwo = db.getMetadata().getSchema().getClass("TestTwo");
+        var classOne = db.getMetadata().getSlowMutableSchema().getClass("TestOne");
+        var classTwo = db.getMetadata().getSlowMutableSchema().getClass("TestTwo");
 
         for (var i = 0; i < 5000; i++) {
           db.executeInTx(transaction -> {

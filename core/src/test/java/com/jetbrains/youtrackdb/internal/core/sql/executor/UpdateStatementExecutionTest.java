@@ -46,7 +46,7 @@ public class UpdateStatementExecutionTest {
             youTrackDB.open(name.getMethodName(), "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
     className = name.getMethodName();
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     for (var i = 0; i < 10; i++) {
@@ -606,7 +606,7 @@ public class UpdateStatementExecutionTest {
   public void testRemove1() {
     var className = "overridden" + this.className;
 
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("theProperty", PropertyType.EMBEDDEDLIST);
 
     session.begin();
@@ -647,7 +647,7 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testRemove2() {
     var className = "overridden" + this.className;
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("theProperty", PropertyType.EMBEDDEDLIST);
 
     session.begin();
@@ -694,7 +694,7 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testRemove3() {
     var className = "overriden" + this.className;
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("theProperty", PropertyType.EMBEDDED);
 
     session.begin();

@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -11,7 +11,7 @@ public class NestedInsertTest extends DbTestBase {
 
   @Test
   public void testEmbeddedValueDate() {
-    Schema schm = session.getMetadata().getSchema();
+    Schema schm = session.getMetadata().getSlowMutableSchema();
     schm.createClass("myClass");
 
     session.begin();
@@ -36,7 +36,7 @@ public class NestedInsertTest extends DbTestBase {
 
   @Test
   public void testLinkedNested() {
-    Schema schm = session.getMetadata().getSchema();
+    Schema schm = session.getMetadata().getSlowMutableSchema();
     var cl = schm.createClass("myClass");
     var linked = schm.createClass("Linked");
     cl.createProperty("some", PropertyType.LINK, linked);

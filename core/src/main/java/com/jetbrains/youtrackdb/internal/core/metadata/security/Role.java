@@ -24,9 +24,9 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.type.IdentityWrapper;
@@ -224,8 +224,8 @@ public class Role extends IdentityWrapper implements SecurityRole {
 
   static void generateSchema(DatabaseSessionInternal session) {
     SchemaProperty p;
-    var schema = session.getMetadata().getSchema();
-    final var roleClass = schema.getClassInternal(CLASS_NAME);
+    var schema = session.getMetadata().getSlowMutableSchema();
+    final var roleClass = schema.getClass(CLASS_NAME);
 
     final var rules = roleClass.getProperty(RULES);
     if (rules == null) {

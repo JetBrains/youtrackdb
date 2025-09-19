@@ -9,16 +9,16 @@ public class TestReaderDropClass extends DbTestBase {
 
   @Test
   public void testReaderDropClass() {
-    session.getMetadata().getSchema().createClass("ReaderDropClass");
+    session.getMetadata().getSlowMutableSchema().createClass("ReaderDropClass");
     session.close();
     session = openDatabase(readerUser, readerPassword);
     try {
-      session.getMetadata().getSchema().dropClass("ReaderDropClass");
+      session.getMetadata().getSlowMutableSchema().dropClass("ReaderDropClass");
       Assert.fail("reader should not be able to drop a class");
     } catch (SecurityAccessException ex) {
     }
     session.close();
     session = openDatabase();
-    Assert.assertTrue(session.getMetadata().getSchema().existsClass("ReaderDropClass"));
+    Assert.assertTrue(session.getMetadata().getSlowMutableSchema().existsClass("ReaderDropClass"));
   }
 }

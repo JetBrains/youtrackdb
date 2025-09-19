@@ -18,7 +18,7 @@ public class DateIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var dateIndexTest = schema.createClass("DateIndexTest");
 

@@ -30,7 +30,7 @@ public class CommandExecutorSQLCreateClassTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass("User", schema.getClass("V"));
   }
 
@@ -39,7 +39,7 @@ public class CommandExecutorSQLCreateClassTest extends DbTestBase {
 
     session.execute("create class `UserVertex` extends `V` , `User`").close();
 
-    var userVertex = session.getMetadata().getSchema().getClass("UserVertex");
+    var userVertex = session.getMetadata().getSlowMutableSchema().getClass("UserVertex");
 
     Assert.assertNotNull(userVertex);
 

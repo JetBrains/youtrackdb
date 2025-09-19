@@ -16,7 +16,7 @@ public class SchemaIndexTest extends BaseDBTest {
   public void beforeMethod() throws Exception {
     super.beforeMethod();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var superTest = schema.createClass("SchemaSharedIndexSuperTest");
     final var test = schema.createClass("SchemaIndexTest", superTest);
     test.createProperty("prop1", PropertyType.DOUBLE);
@@ -25,7 +25,7 @@ public class SchemaIndexTest extends BaseDBTest {
 
   @AfterMethod
   public void tearDown() throws Exception {
-    if (session.getMetadata().getSchema().existsClass("SchemaIndexTest")) {
+    if (session.getMetadata().getSlowMutableSchema().existsClass("SchemaIndexTest")) {
       session.execute("drop class SchemaIndexTest").close();
     }
     session.execute("drop class SchemaSharedIndexSuperTest").close();
@@ -44,11 +44,12 @@ public class SchemaIndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("SchemaSharedIndexCompositeIndex"));
 
-    session.getMetadata().getSchema().dropClass("SchemaIndexTest");
+    session.getMetadata().getSlowMutableSchema().dropClass("SchemaIndexTest");
     session.getSharedContext().getIndexManager().reload(session);
 
-    Assert.assertNull(session.getMetadata().getSchema().getClass("SchemaIndexTest"));
-    Assert.assertNotNull(session.getMetadata().getSchema().getClass("SchemaSharedIndexSuperTest"));
+    Assert.assertNull(session.getMetadata().getSlowMutableSchema().getClass("SchemaIndexTest"));
+    Assert.assertNotNull(
+        session.getMetadata().getSlowMutableSchema().getClass("SchemaSharedIndexSuperTest"));
 
     Assert.assertNull(
         session
@@ -65,7 +66,7 @@ public class SchemaIndexTest extends BaseDBTest {
         .close();
 
     try {
-      session.getMetadata().getSchema().dropClass("SchemaSharedIndexSuperTest");
+      session.getMetadata().getSlowMutableSchema().dropClass("SchemaSharedIndexSuperTest");
       Assert.fail();
     } catch (SchemaException e) {
       Assert.assertTrue(
@@ -75,8 +76,9 @@ public class SchemaIndexTest extends BaseDBTest {
                       + " classes"));
     }
 
-    Assert.assertNotNull(session.getMetadata().getSchema().getClass("SchemaIndexTest"));
-    Assert.assertNotNull(session.getMetadata().getSchema().getClass("SchemaSharedIndexSuperTest"));
+    Assert.assertNotNull(session.getMetadata().getSlowMutableSchema().getClass("SchemaIndexTest"));
+    Assert.assertNotNull(
+        session.getMetadata().getSlowMutableSchema().getClass("SchemaSharedIndexSuperTest"));
 
     Assert.assertNotNull(
         session
@@ -88,7 +90,7 @@ public class SchemaIndexTest extends BaseDBTest {
 
   @Test
   public void testIndexWithNumberProperties() {
-    var oclass = session.getMetadata().getSchema()
+    var oclass = session.getMetadata().getSlowMutableSchema()
         .createClass("SchemaIndexTest_numberclass");
     oclass.createProperty("1", PropertyType.STRING).setMandatory(false);
     oclass.createProperty("2", PropertyType.STRING).setMandatory(false);
@@ -96,6 +98,6 @@ public class SchemaIndexTest extends BaseDBTest {
         "1",
         "2");
 
-    session.getMetadata().getSchema().dropClass(oclass.getName());
+    session.getMetadata().getSlowMutableSchema().dropClass(oclass.getName());
   }
 }

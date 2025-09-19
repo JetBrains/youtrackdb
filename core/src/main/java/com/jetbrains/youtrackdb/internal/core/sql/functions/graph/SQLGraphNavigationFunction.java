@@ -1,9 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import com.jetbrains.youtrackdb.api.record.Direction;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl.EdgeType;
@@ -61,7 +60,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
     // In the last case we return related property names.
 
     if (schemaClass.isVertexType()) {
-      var immutableSchema = session.getMetadata().getImmutableSchema(session);
+      var immutableSchema = session.getMetadata().getFastImmutableSchema(session);
 
       return VertexEntityImpl.getAllPossibleEdgePropertyNames(
           immutableSchema,
@@ -127,7 +126,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
 
     //if an entity is vertex, we collect property names that are references of lightweight edges,
     // so we return only properties that directly reference opposite vertices.
-    var immutableSchema = session.getMetadata().getImmutableSchema(session);
+    var immutableSchema = session.getMetadata().getFastImmutableSchema(session);
     return VertexEntityImpl.getAllPossibleEdgePropertyNames(
         immutableSchema,
         direction, EdgeType.LIGHTWEIGHT, labels);

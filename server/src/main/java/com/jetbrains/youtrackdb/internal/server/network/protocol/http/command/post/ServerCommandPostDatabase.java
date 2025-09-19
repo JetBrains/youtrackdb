@@ -140,10 +140,10 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
 
     json.beginObject();
 
-    if (session.getMetadata().getSchema().getClasses() != null) {
+    if (session.getMetadata().getSlowMutableSchema().getClasses() != null) {
       json.beginCollection(session, 1, false, "classes");
       Set<String> exportedNames = new HashSet<String>();
-      for (var cls : session.getMetadata().getSchema().getClasses()) {
+      for (var cls : session.getMetadata().getSlowMutableSchema().getClasses()) {
         if (!exportedNames.contains(cls.getName())) {
           try {
             exportClass(session, json, (SchemaClass) cls);

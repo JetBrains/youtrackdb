@@ -6,13 +6,13 @@ import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPO
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,7 +35,7 @@ public class TestImportRewriteLinks {
       try (var session =
           (DatabaseSessionInternal) youTrackDb.open("testDB", "admin",
               CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-        final Schema schema = session.getMetadata().getSchema();
+        final Schema schema = session.getMetadata().getSlowMutableSchema();
 
         final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
         cls.createProperty("key", PropertyType.STRING);

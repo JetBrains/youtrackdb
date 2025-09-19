@@ -35,7 +35,7 @@ public class DBRecordLazyListTest {
 
   @Test
   public void test() {
-    var schema = db.getMetadata().getSchema();
+    var schema = db.getMetadata().getSlowMutableSchema();
     var mainClass = schema.createClass("MainClass");
     mainClass.createProperty("name", PropertyType.STRING);
     var itemsProp = mainClass.createProperty("items", PropertyType.LINKLIST);

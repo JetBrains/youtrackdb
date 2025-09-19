@@ -409,7 +409,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
 
     Set<String> classesToCheck = new HashSet<>();
     classesToCheck.add(indexClass);
-    var clazz = database.getMetadata().getImmutableSchema(session).getClass(indexClass);
+    var clazz = database.getMetadata().getFastImmutableSchema(session).getClass(indexClass);
     if (clazz == null) {
       return;
     }

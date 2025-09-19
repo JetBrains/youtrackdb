@@ -158,8 +158,8 @@ public class CRUDDocumentValidationTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "closeDb")
   public void createSchemaForMandatoryNullableTest() {
-    if (session.getMetadata().getSchema().existsClass("MyTestClass")) {
-      session.getMetadata().getSchema().dropClass("MyTestClass");
+    if (session.getMetadata().getSlowMutableSchema().existsClass("MyTestClass")) {
+      session.getMetadata().getSlowMutableSchema().dropClass("MyTestClass");
     }
 
     session.execute("CREATE CLASS MyTestClass").close();

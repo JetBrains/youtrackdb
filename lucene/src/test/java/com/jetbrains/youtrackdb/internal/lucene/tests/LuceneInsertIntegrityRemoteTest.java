@@ -38,7 +38,7 @@ public class LuceneInsertIntegrityRemoteTest extends LuceneBaseTest {
   @Before
   public void init() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createClass("City");
 
     oClass.createProperty("name", PropertyType.STRING);
@@ -50,7 +50,7 @@ public class LuceneInsertIntegrityRemoteTest extends LuceneBaseTest {
   @Ignore
   public void testInsertUpdateWithIndex() throws Exception {
     session.getMetadata().reload();
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
 
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "Rome");
@@ -111,7 +111,7 @@ public class LuceneInsertIntegrityRemoteTest extends LuceneBaseTest {
 
     Assert.assertEquals("Berlin", doc.getProperty("name"));
 
-    schema = session.getMetadata().getSchema();
+    schema = session.getMetadata().getSlowMutableSchema();
     idx = schema.getClassInternal("City").getClassIndex(session, "City.name");
 
     Assert.assertEquals(1, idx.size(session));

@@ -28,9 +28,9 @@ public class DocumentTrackingTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    if (!session.getMetadata().getSchema().existsClass("DocumentTrackingTestClass")) {
+    if (!session.getMetadata().getSlowMutableSchema().existsClass("DocumentTrackingTestClass")) {
       final var trackedClass =
-          session.getMetadata().getSchema().createClass("DocumentTrackingTestClass");
+          session.getMetadata().getSlowMutableSchema().createClass("DocumentTrackingTestClass");
       trackedClass.createProperty("embeddedlist", PropertyType.EMBEDDEDLIST);
       trackedClass.createProperty("embeddedmap", PropertyType.EMBEDDEDMAP);
       trackedClass.createProperty("embeddedset", PropertyType.EMBEDDEDSET);

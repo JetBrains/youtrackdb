@@ -6,8 +6,8 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Arrays;
@@ -37,7 +37,7 @@ public class SQLAlterPropertyStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var clazz = session.getMetadata().getSchema().getClass(className.getStringValue());
+    var clazz = session.getMetadata().getSlowMutableSchema().getClass(className.getStringValue());
 
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

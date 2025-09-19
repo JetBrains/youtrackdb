@@ -44,8 +44,8 @@ public class ServerCommandGetClass extends ServerCommandAuthenticatedDbAbstract 
     try {
       db = getProfiledDatabaseSessionInstance(iRequest);
 
-      if (db.getMetadata().getSchema().existsClass(urlParts[2])) {
-        var cls = db.getMetadata().getSchemaInternal().getClassInternal(urlParts[2]);
+      if (db.getMetadata().getFastImmutableSchema().existsClass(urlParts[2])) {
+        var cls = db.getMetadata().getFastImmutableSchema().getClass(urlParts[2]);
         final var buffer = new StringWriter();
         final var json = new JSONWriter(buffer, HttpResponse.JSON_FORMAT);
         ServerCommandGetDatabase.exportClass(db, json, cls);

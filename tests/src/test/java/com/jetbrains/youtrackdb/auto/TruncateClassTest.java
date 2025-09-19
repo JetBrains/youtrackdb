@@ -17,10 +17,10 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -38,7 +38,7 @@ public class TruncateClassTest extends BaseDBTest {
   @Test
   public void testTruncateClass() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var testClass = getOrCreateClass(schema);
 
     final var index = getOrCreateIndex(testClass);
@@ -212,7 +212,7 @@ public class TruncateClassTest extends BaseDBTest {
   @Test
   public void testTruncateClassWithCommandCache() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var testClass = getOrCreateClass(schema);
 
     session.execute("truncate class test_class").close();

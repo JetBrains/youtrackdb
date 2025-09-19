@@ -85,7 +85,7 @@ public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
   private void checkIndex(DatabaseSessionEmbedded session, Index index) {
     var fields = index.getDefinition().getProperties();
     var className = index.getDefinition().getClassName();
-    var clazz = this.session.getMetadata().getImmutableSchema(session).getClass(className);
+    var clazz = this.session.getMetadata().getFastImmutableSchema(session).getClass(className);
     var collectionIds = clazz.getPolymorphicCollectionIds();
     for (var collectionId : collectionIds) {
       checkCollection(session, collectionId, index, fields);

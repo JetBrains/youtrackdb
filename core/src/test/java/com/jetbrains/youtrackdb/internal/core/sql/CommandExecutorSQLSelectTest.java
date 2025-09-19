@@ -183,7 +183,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     session.commit();
 
     // /*** from issue #2743
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     if (!schema.existsClass("alphabet")) {
       schema.createClass("alphabet", 1);
     }
@@ -360,7 +360,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initMassiveOrderSkipLimit(DatabaseSessionInternal db) {
-    db.getMetadata().getSchema().createClass("MassiveOrderSkipLimit", 1);
+    db.getMetadata().getSlowMutableSchema().createClass("MassiveOrderSkipLimit", 1);
     var fieldValue =
         "laskdf lkajsd flaksjdf laksjd flakjsd flkasjd flkajsd flkajsd flkajsd flkajsd flkajsd"
             + " flkjas;lkj a;ldskjf laksdj asdklasdjf lskdaj fladsd";
@@ -1655,7 +1655,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   @Test
   public void testOrderByRidDescMultiCollection() {
     // issue #6694
-    var clazz = session.getMetadata().getSchema().createClass("TestOrderByRidDescMultiCollection");
+    var clazz = session.getMetadata().getSlowMutableSchema()
+        .createClass("TestOrderByRidDescMultiCollection");
 
     for (var i = 0; i < 100; i++) {
       session.begin();

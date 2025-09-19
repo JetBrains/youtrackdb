@@ -256,7 +256,7 @@ public class SchedulerTest {
   }
 
   private static Function createFunction(DatabaseSessionInternal db) {
-    db.getMetadata().getSchema().createClass("scheduler_log");
+    db.getMetadata().getSlowMutableSchema().createClass("scheduler_log");
 
     return db.computeInTx(
         transaction -> {

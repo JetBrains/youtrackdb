@@ -18,7 +18,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertSet() {
     var className = "testInsertSet";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className, schema.getClass("V"));
 
     session.begin();
@@ -48,7 +48,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertSetNoVertex() {
     var className = "testInsertSetNoVertex";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
 
     try {
@@ -63,7 +63,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertValue() {
     var className = "testInsertValue";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className, schema.getClass("V"));
 
     session.begin();
@@ -96,7 +96,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertValue2() {
     var className = "testInsertValue2";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className, schema.getClass("V"));
 
     session.begin();
@@ -138,7 +138,7 @@ public class CreateVertexStatementExecutionTest extends DbTestBase {
   @Test
   public void testContent() {
     var className = "testContent";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className, schema.getClass("V"));
 
     session.begin();

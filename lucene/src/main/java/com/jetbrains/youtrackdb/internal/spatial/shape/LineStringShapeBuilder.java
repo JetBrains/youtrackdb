@@ -42,7 +42,7 @@ public class LineStringShapeBuilder extends ComplexShapeBuilder<JtsGeometry> {
   @Override
   public void initClazz(DatabaseSessionInternal db) {
 
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = db.getMetadata().getSlowMutableSchema();
     var lineString = schema.createAbstractClass(getName(), superClass(db));
     lineString.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
         PropertyType.EMBEDDEDLIST);

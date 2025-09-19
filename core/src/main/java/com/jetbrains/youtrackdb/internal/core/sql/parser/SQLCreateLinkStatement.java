@@ -80,7 +80,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     var sourceClass =
         session
             .getMetadata()
-            .getImmutableSchema(session)
+            .getFastImmutableSchema(session)
             .getClass(this.sourceClass.getStringValue());
     if (sourceClass == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
@@ -90,7 +90,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     var destClass =
         session
             .getMetadata()
-            .getImmutableSchema(session)
+            .getFastImmutableSchema(session)
             .getClass(this.destClass.getStringValue());
     if (destClass == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
@@ -231,7 +231,8 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
         if (inverse) {
           // REMOVE THE OLD PROPERTY IF ANY
           var prop = destClass.getProperty(linkName);
-          destClass = session.getMetadata().getSchema().getClass(this.destClass.getStringValue());
+          destClass = session.getMetadata().getSlowMutableSchema()
+              .getClass(this.destClass.getStringValue());
           if (prop != null) {
             if (linkType != PropertyTypeInternal.convertFromPublicType(prop.getType())) {
               throw new CommandExecutionException(session,
@@ -255,7 +256,8 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
         } else {
           // REMOVE THE OLD PROPERTY IF ANY
           var prop = sourceClass.getProperty(linkName);
-          sourceClass = session.getMetadata().getSchema().getClass(this.destClass.getStringValue());
+          sourceClass = session.getMetadata().getSlowMutableSchema()
+              .getClass(this.destClass.getStringValue());
           if (prop != null) {
             if (prop.getType() != PropertyType.LINK) {
               throw new CommandExecutionException(session,

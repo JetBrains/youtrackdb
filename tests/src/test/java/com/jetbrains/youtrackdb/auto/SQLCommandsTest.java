@@ -25,7 +25,7 @@ import org.testng.annotations.Test;
 @Test
 public class SQLCommandsTest extends BaseDBTest {
   public void createProperty() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     if (!schema.existsClass("SQLCommandsTest_account")) {
       schema.createClass("SQLCommandsTest_account");
     }
@@ -33,7 +33,7 @@ public class SQLCommandsTest extends BaseDBTest {
     session.execute("create property SQLCommandsTest_account.timesheet string").close();
 
     Assert.assertEquals(
-        session.getMetadata().getSchema()
+        session.getMetadata().getSlowMutableSchema()
             .getClass("SQLCommandsTest_account")
             .getProperty("timesheet").getType(),
         PropertyType.STRING
@@ -45,17 +45,18 @@ public class SQLCommandsTest extends BaseDBTest {
     session.execute("create property SQLCommandsTest_account.knows embeddedmap SQLCommandsTest_account").close();
 
     Assert.assertEquals(
-        session.getMetadata().getSchema().getClass("SQLCommandsTest_account").getProperty("knows")
+        session.getMetadata().getSlowMutableSchema().getClass("SQLCommandsTest_account")
+            .getProperty("knows")
             .getType(),
         PropertyType.EMBEDDEDMAP);
     Assert.assertEquals(
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClass("SQLCommandsTest_account")
             .getProperty("knows")
             .getLinkedClass(),
-        session.getMetadata().getSchema().getClass("SQLCommandsTest_account"));
+        session.getMetadata().getSlowMutableSchema().getClass("SQLCommandsTest_account"));
   }
 
   @Test(dependsOnMethods = "createLinkedClassProperty")
@@ -63,11 +64,13 @@ public class SQLCommandsTest extends BaseDBTest {
     session.execute("create property SQLCommandsTest_account.tags embeddedlist string").close();
 
     Assert.assertEquals(
-        session.getMetadata().getSchema().getClass("SQLCommandsTest_account").getProperty("tags")
+        session.getMetadata().getSlowMutableSchema().getClass("SQLCommandsTest_account")
+            .getProperty("tags")
             .getType(),
         PropertyType.EMBEDDEDLIST);
     Assert.assertEquals(
-        session.getMetadata().getSchema().getClass("SQLCommandsTest_account").getProperty("tags")
+        session.getMetadata().getSlowMutableSchema().getClass("SQLCommandsTest_account")
+            .getProperty("tags")
             .getLinkedType(),
         PropertyType.STRING);
   }
@@ -78,10 +81,10 @@ public class SQLCommandsTest extends BaseDBTest {
     session.execute("drop property SQLCommandsTest_account.tags").close();
 
     Assert.assertFalse(
-        session.getMetadata().getSchema().getClass("SQLCommandsTest_account")
+        session.getMetadata().getSlowMutableSchema().getClass("SQLCommandsTest_account")
             .existsProperty("timesheet"));
     Assert.assertFalse(
-        session.getMetadata().getSchema().getClass("SQLCommandsTest_account")
+        session.getMetadata().getSlowMutableSchema().getClass("SQLCommandsTest_account")
             .existsProperty("tags"));
   }
 

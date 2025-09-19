@@ -70,7 +70,7 @@ public class MultipleDBTest extends BaseDBTest {
             try {
               var session = createSessionInstance(dbName);
 
-              session.getMetadata().getSchema().getOrCreateClass("DummyObject");
+              session.getMetadata().getSlowMutableSchema().getOrCreateClass("DummyObject");
 
               var start = System.currentTimeMillis();
               for (var j = 0; j < operations_write; j++) {
@@ -147,7 +147,7 @@ public class MultipleDBTest extends BaseDBTest {
             createDatabase(dbName);
 
             try (var session = createSessionInstance(dbName)) {
-              session.getMetadata().getSchema().createClass("DummyObject", 1);
+              session.getMetadata().getSlowMutableSchema().createClass("DummyObject", 1);
 
               var start = System.currentTimeMillis();
               for (var j = 0; j < operations_write; j++) {

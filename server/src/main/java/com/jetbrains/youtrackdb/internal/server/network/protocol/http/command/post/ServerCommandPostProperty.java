@@ -20,8 +20,8 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpResponse;
@@ -63,11 +63,11 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
     iRequest.getData().commandInfo = "Create property";
     iRequest.getData().commandDetail = urlParts[2] + "." + urlParts[3];
 
-    if (db.getMetadata().getSchema().getClass(urlParts[2]) == null) {
+    if (db.getMetadata().getSlowMutableSchema().getClass(urlParts[2]) == null) {
       throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
     }
 
-    final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
+    final var cls = db.getMetadata().getSlowMutableSchema().getClass(urlParts[2]);
 
     final var propertyName = urlParts[3];
 
@@ -89,7 +89,7 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
           }
 
           if (linkType == null) {
-            linkClass = db.getMetadata().getSchema().getClass(urlParts[5]);
+            linkClass = db.getMetadata().getSlowMutableSchema().getClass(urlParts[5]);
             if (linkClass == null) {
               throw new IllegalArgumentException(
                   "linked type declared as "
@@ -135,11 +135,11 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
     iRequest.getData().commandInfo = "Create property";
     iRequest.getData().commandDetail = urlParts[2];
 
-    if (db.getMetadata().getSchema().getClass(urlParts[2]) == null) {
+    if (db.getMetadata().getSlowMutableSchema().getClass(urlParts[2]) == null) {
       throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
     }
 
-    final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
+    final var cls = db.getMetadata().getSlowMutableSchema().getClass(urlParts[2]);
 
     final var properties = JSONSerializerJackson.INSTANCE.mapFromJson(iRequest.getContent());
 
@@ -159,7 +159,8 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
           } else if (linkClass != null) {
             final var prop =
                 cls.createProperty(
-                    propertyName, propertyType, db.getMetadata().getSchema().getClass(linkClass));
+                    propertyName, propertyType,
+                    db.getMetadata().getSlowMutableSchema().getClass(linkClass));
           } else {
             throw new IllegalArgumentException(
                 "property named "
@@ -175,7 +176,8 @@ public class ServerCommandPostProperty extends ServerCommandAuthenticatedDbAbstr
           if (linkClass != null) {
             final var prop =
                 cls.createProperty(
-                    propertyName, propertyType, db.getMetadata().getSchema().getClass(linkClass));
+                    propertyName, propertyType,
+                    db.getMetadata().getSlowMutableSchema().getClass(linkClass));
           } else {
             throw new IllegalArgumentException(
                 "property named "

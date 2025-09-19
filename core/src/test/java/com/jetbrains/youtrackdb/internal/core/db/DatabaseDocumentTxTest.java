@@ -23,8 +23,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
   @Test
   public void testCountClass() throws Exception {
-    var testSuperclass = session.getMetadata().getSchema().createClass("TestSuperclass");
-    session.getMetadata().getSchema().createClass("TestSubclass", testSuperclass);
+    var testSuperclass = session.getMetadata().getSlowMutableSchema().createClass("TestSuperclass");
+    session.getMetadata().getSlowMutableSchema().createClass("TestSubclass", testSuperclass);
 
     session.begin();
     var toDelete = ((EntityImpl) session.newEntity("TestSubclass"));
@@ -93,7 +93,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
-    Assert.assertNotNull(session.getMetadata().getSchema().getClass("TestCreateClass"));
+    Assert.assertNotNull(session.getMetadata().getSlowMutableSchema().getClass("TestCreateClass"));
     try {
       session.createClass("TestCreateClass");
       Assert.fail();
@@ -127,7 +127,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
   @Test
   public void testDocFromJsonEmbedded() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var c0 = schema.createAbstractClass("testDocFromJsonEmbedded_Class0");
 
@@ -340,7 +340,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   @Test
   public void selectDescTest() {
     var className = "bar";
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className, 1, schema.getClass(SchemaClass.VERTEX_CLASS_NAME));
     session.begin();
 

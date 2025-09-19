@@ -65,7 +65,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
     random = new Random(seed);
 
     session.getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .createClass("Person")
         .createProperty("name", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);

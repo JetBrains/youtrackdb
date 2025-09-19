@@ -15,7 +15,7 @@ public class AlterSchemaPropertyStatementExecutionTest extends DbTestBase {
   @Test
   public void testSetProperty() {
     var className = "testSetProperty";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     var prop = clazz.createProperty("name", PropertyType.STRING);
     prop.setMax("15");
 
@@ -36,7 +36,7 @@ public class AlterSchemaPropertyStatementExecutionTest extends DbTestBase {
   @Test
   public void testSetCustom() {
     var className = "testSetCustom";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     var prop = clazz.createProperty("name", PropertyType.STRING);
     prop.setCustom("foo", "bar");
 

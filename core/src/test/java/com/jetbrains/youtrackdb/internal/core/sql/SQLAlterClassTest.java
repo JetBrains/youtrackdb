@@ -9,7 +9,7 @@ public class SQLAlterClassTest extends DbTestBase {
 
   @Test
   public void alterClassRenameTest() {
-    session.getMetadata().getSchema().createClass("TestClass");
+    session.getMetadata().getSlowMutableSchema().createClass("TestClass");
 
     try {
       session.execute("alter class TestClass name = 'test_class'").close();
@@ -17,7 +17,7 @@ public class SQLAlterClassTest extends DbTestBase {
     } catch (CommandSQLParsingException ex) {
 
     }
-    Assert.assertNotNull(session.getMetadata().getSchema().getClass("TestClass"));
+    Assert.assertNotNull(session.getMetadata().getSlowMutableSchema().getClass("TestClass"));
   }
 
   @Test

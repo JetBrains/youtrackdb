@@ -15,7 +15,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
   @Test
   public void testPlain() {
     var indexName = session.getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .createClass("testPlain")
         .createProperty("bar", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
@@ -38,7 +38,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
   @Test
   public void testAll() {
     var indexName = session.getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .createClass("testAll")
         .createProperty("baz", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);

@@ -22,7 +22,7 @@ public class CommandExecutorSQLCreateEdgeTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass("Owner", schema.getClass("V"));
     schema.createClass("link", schema.getClass("E"));
 

@@ -20,8 +20,8 @@ import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
@@ -130,17 +130,17 @@ public class TransactionAtomicTest extends BaseDBTest {
 
   @Test
   public void testTransactionWithDuplicateUniqueIndexValues() {
-    var fruitClass = session.getMetadata().getSchema().getClass("Fruit");
+    var fruitClass = session.getMetadata().getSlowMutableSchema().getClass("Fruit");
 
     if (fruitClass == null) {
-      fruitClass = session.getMetadata().getSchema().createClass("Fruit");
+      fruitClass = session.getMetadata().getSlowMutableSchema().createClass("Fruit");
 
       fruitClass.createProperty("name", PropertyType.STRING);
       fruitClass.createProperty("color", PropertyType.STRING);
 
       session
           .getMetadata()
-          .getSchema()
+          .getSlowMutableSchema()
           .getClass("Fruit")
           .getProperty("color")
           .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);

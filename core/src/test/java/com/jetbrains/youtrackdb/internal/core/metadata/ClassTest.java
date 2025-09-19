@@ -17,7 +17,7 @@ public class ClassTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testRename() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createClass("ClassName");
 
     final var storage = session.getStorage();
@@ -38,7 +38,7 @@ public class ClassTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testOClassAndOPropertyDescription() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("DescriptionTest");
     var property = oClass.createProperty("property", PropertyType.STRING);
     oClass.setDescription("DescriptionTest-class-description");
@@ -50,7 +50,7 @@ public class ClassTest extends BaseMemoryInternalDatabase {
     assertEquals("DescriptionTest-class-description", oClass.getDescription());
     assertEquals("DescriptionTest-property-description", property.getDescription());
 
-    oClass = session.getMetadata().getImmutableSchema(session).getClass("DescriptionTest");
+    oClass = session.getMetadata().getFastImmutableSchema(session).getClass("DescriptionTest");
     property = oClass.getProperty("property");
     assertEquals("DescriptionTest-class-description", oClass.getDescription());
     assertEquals("DescriptionTest-property-description", property.getDescription());

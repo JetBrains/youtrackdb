@@ -29,7 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionC
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -101,7 +101,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final AbstractStorage storage) {
     super(storage, name, dataExtension, name + dataExtension);
 
-    systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);
+    systemCollection = SessionMetadata.SYSTEM_COLLECTION.contains(name);
     collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getFullName(),
         cpmExtension);
     freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getFullName());

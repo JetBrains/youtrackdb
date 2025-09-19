@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -14,7 +14,7 @@ public class TestOrderByIndexPropDesc extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    var oclass = session.getMetadata().getSchema().createClass(DOCUMENT_CLASS_NAME);
+    var oclass = session.getMetadata().getSlowMutableSchema().createClass(DOCUMENT_CLASS_NAME);
     oclass.createProperty(PROP_INDEXED_STRING, PropertyType.INTEGER);
     oclass.createIndex("index", INDEX_TYPE.NOTUNIQUE, PROP_INDEXED_STRING);
   }

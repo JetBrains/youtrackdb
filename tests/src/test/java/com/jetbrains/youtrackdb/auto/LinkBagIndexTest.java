@@ -22,7 +22,7 @@ public class LinkBagIndexTest extends BaseDBTest {
   @BeforeClass
   public void setupSchema() {
     final var ridBagIndexTestClass =
-        session.getMetadata().getSchema().createClass("RidBagIndexTestClass");
+        session.getMetadata().getSlowMutableSchema().createClass("RidBagIndexTestClass");
 
     ridBagIndexTestClass.createProperty("ridBag", PropertyType.LINKBAG);
 
@@ -38,7 +38,7 @@ public class LinkBagIndexTest extends BaseDBTest {
       session = acquireSession();
     }
 
-    session.getMetadata().getSchema().dropClass("RidBagIndexTestClass");
+    session.getMetadata().getSlowMutableSchema().dropClass("RidBagIndexTestClass");
     session.close();
   }
 

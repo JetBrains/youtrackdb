@@ -16,7 +16,7 @@ public class FunctionSqlTest extends DbTestBase {
 
   @Test
   public void functionSqlWithParameters() {
-    session.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSlowMutableSchema().createClass("Test");
 
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("Test"));
@@ -50,7 +50,7 @@ public class FunctionSqlTest extends DbTestBase {
   @Test
   public void functionSqlWithInnerFunctionJs() {
 
-    session.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSlowMutableSchema().createClass("Test");
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("Test"));
     doc1.setProperty("name", "Enrico");

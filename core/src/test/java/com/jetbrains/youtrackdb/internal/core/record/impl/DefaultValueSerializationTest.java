@@ -12,7 +12,7 @@ public class DefaultValueSerializationTest extends DbTestBase {
   @Test
   public void testKeepValueSerialization() {
     // create example schema
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassC");
 
     var prop = classA.createProperty("name", PropertyType.STRING);

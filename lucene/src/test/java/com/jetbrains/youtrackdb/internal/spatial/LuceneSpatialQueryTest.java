@@ -16,10 +16,10 @@ package com.jetbrains.youtrackdb.internal.spatial;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.lucene.test.BaseLuceneTest;
 import java.io.File;
@@ -38,7 +38,7 @@ public class LuceneSpatialQueryTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
 
     var oClass = schema.createClass("Place");

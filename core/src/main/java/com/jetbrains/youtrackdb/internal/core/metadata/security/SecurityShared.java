@@ -28,8 +28,6 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -37,9 +35,11 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.index.NullOutputListener;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -520,7 +520,7 @@ public class SecurityShared implements SecurityInternal {
       var clazz =
           session
               .getMetadata()
-              .getImmutableSchema(session)
+              .getFastImmutableSchema(session)
               .getClass(clazzName);
       if (clazz == null) {
         return;
@@ -611,7 +611,7 @@ public class SecurityShared implements SecurityInternal {
   @Override
   @Nullable
   public SecurityUserImpl create(final DatabaseSessionInternal session) {
-    if (!session.getMetadata().getSchema().getClasses().isEmpty()) {
+    if (!session.getMetadata().getFastImmutableSchema().getClasses().isEmpty()) {
       return null;
     }
 
@@ -619,9 +619,10 @@ public class SecurityShared implements SecurityInternal {
     SecurityUserImpl adminUser = null;
     try {
       var identityClass =
-          session.getMetadata().getSchema().getClass(Identity.CLASS_NAME); // SINCE 1.2.0
+          session.getMetadata().getSlowMutableSchema().getClass(Identity.CLASS_NAME); // SINCE 1.2.0
       if (identityClass == null) {
-        identityClass = session.getMetadata().getSchema().createAbstractClass(Identity.CLASS_NAME);
+        identityClass = session.getMetadata().getSlowMutableSchema()
+            .createAbstractClass(Identity.CLASS_NAME);
       }
 
       createOrUpdateOSecurityPolicyClass(session);
@@ -690,7 +691,7 @@ public class SecurityShared implements SecurityInternal {
         null, Role.PERMISSION_READ + Role.PERMISSION_CREATE + Role.PERMISSION_UPDATE);
     writerRole.addRule(session,
         ResourceGeneric.COLLECTION,
-        MetadataDefault.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
+        SessionMetadata.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
     writerRole.addRule(session, ResourceGeneric.CLASS, null, Role.PERMISSION_ALL);
     writerRole.addRule(session, ResourceGeneric.CLASS, "OUser", Role.PERMISSION_READ);
     writerRole.addRule(session, ResourceGeneric.COLLECTION, null, Role.PERMISSION_ALL);
@@ -719,7 +720,7 @@ public class SecurityShared implements SecurityInternal {
         writerRole,
         Rule.ResourceGeneric.COLLECTION.getLegacyName()
             + "."
-            + MetadataDefault.COLLECTION_INTERNAL_NAME,
+            + SessionMetadata.COLLECTION_INTERNAL_NAME,
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
@@ -795,7 +796,7 @@ public class SecurityShared implements SecurityInternal {
     readerRole.addRule(session, ResourceGeneric.SCHEMA, null, Role.PERMISSION_READ);
     readerRole.addRule(session,
         ResourceGeneric.COLLECTION,
-        MetadataDefault.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
+        SessionMetadata.COLLECTION_INTERNAL_NAME, Role.PERMISSION_READ);
     readerRole.addRule(session, ResourceGeneric.COLLECTION,
         Role.CLASS_NAME.toLowerCase(Locale.ROOT),
         Role.PERMISSION_READ);
@@ -819,7 +820,7 @@ public class SecurityShared implements SecurityInternal {
         readerRole,
         Rule.ResourceGeneric.COLLECTION.getLegacyName()
             + "."
-            + MetadataDefault.COLLECTION_INTERNAL_NAME,
+            + SessionMetadata.COLLECTION_INTERNAL_NAME,
         Role.PERMISSION_READ);
     setSecurityPolicyWithBitmask(
         session,
@@ -898,7 +899,7 @@ public class SecurityShared implements SecurityInternal {
     var userClass = database.getMetadata().getSchemaInternal()
         .getClassInternal("OUser");
     if (userClass == null) {
-      userClass = database.getMetadata().getSchema().createClass("OUser", identityClass);
+      userClass = database.getMetadata().getSlowMutableSchema().createClass("OUser", identityClass);
       unsafe = true;
     } else if (!userClass.getSuperClasses().contains(identityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
@@ -948,7 +949,7 @@ public class SecurityShared implements SecurityInternal {
         .getClassInternal("OSecurityPolicy");
     var unsafe = false;
     if (policyClass == null) {
-      policyClass = database.getMetadata().getSchema()
+      policyClass = database.getMetadata().getSlowMutableSchema()
           .createClass("OSecurityPolicy");
       unsafe = true;
     }
@@ -1007,11 +1008,11 @@ public class SecurityShared implements SecurityInternal {
 
   private static SchemaClass createOrUpdateORoleClass(final DatabaseSessionInternal database,
       SchemaClass identityClass) {
-    var roleClass = database.getMetadata().getSchemaInternal()
-        .getClassInternal(Role.CLASS_NAME);
+    var roleClass = database.getMetadata().getSlowMutableSchema()
+        .getClass(Role.CLASS_NAME);
     var unsafe = false;
     if (roleClass == null) {
-      roleClass = database.getMetadata().getSchema()
+      roleClass = database.getMetadata().getSlowMutableSchema()
           .createClass(Role.CLASS_NAME, identityClass);
       unsafe = true;
     } else if (!roleClass.getSuperClasses().contains(identityClass))
@@ -1030,7 +1031,7 @@ public class SecurityShared implements SecurityInternal {
           NullOutputListener.INSTANCE,
           "name");
     } else {
-      var name = roleClass.getPropertyInternal("name");
+      var name = roleClass.getProperty("name");
       if (name.getAllIndexes().isEmpty()) {
         roleClass.createIndex(
             "ORole.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
@@ -1060,7 +1061,7 @@ public class SecurityShared implements SecurityInternal {
 
   @Override
   public void load(DatabaseSessionInternal session) {
-    final var userClass = session.getMetadata().getSchema()
+    final var userClass = session.getMetadata().getSlowMutableSchema()
         .getClassInternal("OUser");
     if (userClass != null) {
       // @COMPATIBILITY <1.3.0
@@ -1094,7 +1095,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   private void setupPredicateSecurity(DatabaseSessionInternal session) {
-    var securityPolicyClass = session.getMetadata().getSchema()
+    var securityPolicyClass = session.getMetadata().getSlowMutableSchema()
         .getClass(SecurityPolicy.CLASS_NAME);
     if (securityPolicyClass == null) {
       createOrUpdateOSecurityPolicyClass(session);
@@ -1241,11 +1242,11 @@ public class SecurityShared implements SecurityInternal {
 
   private void initPredicateSecurityOptimizationsInternal(DatabaseSessionInternal session) {
     Map<String, Map<String, Boolean>> result = new HashMap<>();
-    var allClasses = session.getMetadata().getSchema().getClasses();
+    var allClasses = session.getMetadata().getSlowMutableSchema().getClasses();
 
     if (!session
         .getMetadata()
-        .getImmutableSchema(session)
+        .getFastImmutableSchema(session)
         .existsClass(Role.CLASS_NAME)) {
       return;
     }
@@ -1801,7 +1802,7 @@ public class SecurityShared implements SecurityInternal {
     Set<SecurityResourceProperty> result = new HashSet<>();
     if (!db
         .getMetadata()
-        .getImmutableSchema(session)
+        .getFastImmutableSchema(session)
         .existsClass(Role.CLASS_NAME)) {
       return Collections.emptySet();
     }

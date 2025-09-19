@@ -50,7 +50,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
@@ -268,7 +268,7 @@ public class JSONSerializerJackson {
               record = session.newInstance();
             }
           } else {
-            var schemaSnapshot = session.getMetadata().getImmutableSchema(session);
+            var schemaSnapshot = session.getMetadata().getFastImmutableSchema(session);
             var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
             if (schemaClass == null) {
               throw new SerializationException(session,
@@ -313,7 +313,7 @@ public class JSONSerializerJackson {
                 "Record class name mismatch: " + className + " != " + null);
           }
 
-          var schemaSnapshot = session.getMetadata().getImmutableSchema(session);
+          var schemaSnapshot = session.getMetadata().getFastImmutableSchema(session);
           var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
 
           if (schemaClass == null) {
@@ -515,7 +515,7 @@ public class JSONSerializerJackson {
       return null;
     }
 
-    var schema = session.getMetadata().getImmutableSchema(session);
+    var schema = session.getMetadata().getFastImmutableSchema(session);
     SchemaClass schemaClass = null;
     if (className == null && defaultClassName == null && recordId != null) {
       schemaClass = schema.getClassByCollectionId(recordId.getCollectionId());
@@ -553,7 +553,7 @@ public class JSONSerializerJackson {
       if (className == null) {
         embeddedValue = asValue && recordId == null;
       } else {
-        var cls = session.getMetadata().getImmutableSchema(session).getClass(className);
+        var cls = session.getMetadata().getFastImmutableSchema(session).getClass(className);
         if (cls != null) {
           embeddedValue = cls.isAbstract();
         } else {
@@ -777,7 +777,7 @@ public class JSONSerializerJackson {
       } else if (formatSettings.internalRecords && !entity.isEmbedded()) {
         var collectionName = session.getCollectionName(record);
 
-        if (collectionName.equals(MetadataDefault.COLLECTION_INTERNAL_NAME)) {
+        if (collectionName.equals(SessionMetadata.COLLECTION_INTERNAL_NAME)) {
           var metadata = session.getMetadata();
           var schema = metadata.getSchemaInternal();
           var indexManager = session.getSharedContext().getIndexManager();

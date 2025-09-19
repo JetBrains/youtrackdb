@@ -33,7 +33,6 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -46,12 +45,12 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.SimpleKeyIndexDefinition;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
@@ -222,7 +221,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         }
       }
 
-      var beforeImportSchemaSnapshot = session.getMetadata().getImmutableSchema(session);
+      var beforeImportSchemaSnapshot = session.getMetadata().getFastImmutableSchema(session);
 
       var collectionsImported = false;
       while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
@@ -345,7 +344,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   public void removeExportImportRIDsMap() {
     listener.onMessage("\nDeleting RID Mapping table...");
 
-    Schema schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     if (schema.getClass(EXPORT_IMPORT_CLASS_NAME) != null) {
       schema.dropClass(EXPORT_IMPORT_CLASS_NAME);
     }
@@ -388,7 +387,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage(
         "\nWARN: Exported database does not support manual index separation."
             + " Manual index collection will be dropped.");
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     if (schema.existsClass(SecurityUserImpl.CLASS_NAME)) {
       schema.dropClass(SecurityUserImpl.CLASS_NAME);
     }
@@ -429,7 +428,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage(
         "\nNon merge mode (-merge=false): removing all default non security classes");
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var classes = schema.getClasses();
     final var role = schema.getClass(Role.CLASS_NAME);
     final var user = schema.getClass(SecurityUserImpl.CLASS_NAME);
@@ -488,7 +487,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     for (final var linkedClass : linkedClasses.entrySet()) {
       linkedClass
           .getKey()
-          .setLinkedClass(session.getMetadata().getSchema().getClass(
+          .setLinkedClass(session.getMetadata().getSlowMutableSchema().getClass(
               linkedClass.getValue()));
     }
   }
@@ -526,30 +525,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
     }
 
-    if (jsonReader.getValue().equals("\"blob-collections\"") ||
-        jsonReader.getValue().equals("\"blob-clusters\"")) {
-      var blobCollectionIds = jsonReader.readString(JSONReader.END_COLLECTION, true).trim();
-      blobCollectionIds = blobCollectionIds.substring(1, blobCollectionIds.length() - 1);
-
-      if (!blobCollectionIds.isEmpty()) {
-        // READ BLOB COLLECTION IDS
-        for (var i :
-            StringSerializerHelper.split(
-                blobCollectionIds, StringSerializerHelper.RECORD_SEPARATOR)) {
-          var collection = Integer.parseInt(i.trim());
-          if (!ArrayUtils.contains(session.getBlobCollectionIds(), collection)) {
-            var name = session.getCollectionNameById(collection);
-            session.addBlobCollection(name);
-          }
-        }
-      }
-
-      jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
-      jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
-    }
 
     jsonReader.checkContent("\"classes\"").readNext(JSONReader.BEGIN_COLLECTION);
-
     long classImported = 0;
 
     try {
@@ -559,7 +536,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       // we tried to fix this by making the export tool write these classes first,
       // but if the dump was created by an older version of the export tool,
       // it won't work.
-      final var schema = session.getMetadata().getSchema();
+      final var schema = session.getMetadata().getSlowMutableSchema();
       final var vertexClass = schema.existsClass(Vertex.CLASS_NAME) ?
           schema.getClass(Vertex.CLASS_NAME) : schema.createClass(Vertex.CLASS_NAME);
       final var edgeClass = schema.existsClass(Edge.CLASS_NAME) ?
@@ -738,7 +715,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       this.setLinkedClasses();
 
       if (exporterVersion < 11) {
-        var role = session.getMetadata().getSchema().getClass(Role.CLASS_NAME);
+        var role = session.getMetadata().getSlowMutableSchema().getClass(Role.CLASS_NAME);
         role.dropProperty("rules");
       }
 
@@ -753,10 +730,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private void rebuildCompleteClassInheritance() {
     for (final var entry : superClasses.entrySet()) {
-      final var cls = session.getMetadata().getSchema().getClass(entry.getKey());
+      final var cls = session.getMetadata().getSlowMutableSchema().getClass(entry.getKey());
 
       for (final var superClassName : entry.getValue()) {
-        final var superClass = session.getMetadata().getSchema().getClass(superClassName);
+        final var superClass = session.getMetadata().getSlowMutableSchema()
+            .getClass(superClassName);
 
         if (!cls.getSuperClasses().contains(superClass)) {
           cls.addSuperClass(superClass);
@@ -1173,7 +1151,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   }
 
   private void importRecords(Schema beforeImportSchemaSnapshot) throws Exception {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     if (schema.getClass(EXPORT_IMPORT_CLASS_NAME) != null) {
       schema.dropClass(EXPORT_IMPORT_CLASS_NAME);
     }
@@ -1207,7 +1185,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       session.executeInTx(transaction -> {
         for (final var collectionName : session.getCollectionNames()) {
-          if (collectionName.equals(MetadataDefault.COLLECTION_INTERNAL_NAME)) {
+          if (collectionName.equals(SessionMetadata.COLLECTION_INTERNAL_NAME)) {
             // don't want to mess with the internal collection
             continue;
           }

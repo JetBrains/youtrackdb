@@ -6,13 +6,12 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.IterableRecordSource;
@@ -594,7 +593,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   @Nullable
   private static String getLowerSubclass(DatabaseSessionInternal session, String className1,
       String className2) {
-    Schema schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getFastImmutableSchema();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
     if (class1 == null) {

@@ -161,7 +161,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   public void testDoubleChanges() {
 
     final Set<Integer> profileCollectionIds =
-        Arrays.stream(session.getMetadata().getSchema().getClass("Profile").getCollectionIds())
+        Arrays.stream(
+                session.getMetadata().getSlowMutableSchema().getClass("Profile").getCollectionIds())
             .asLongStream()
             .mapToObj(i -> (int) i)
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
@@ -670,7 +671,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test
   public void testCreateEmbddedClassDocument() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var testClass1 = schema.createAbstractClass("testCreateEmbddedClass1");
     var testClass2 = schema.createClass("testCreateEmbddedClass2");

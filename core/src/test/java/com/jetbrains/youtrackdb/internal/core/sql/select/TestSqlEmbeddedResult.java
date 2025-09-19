@@ -13,7 +13,7 @@ public class TestSqlEmbeddedResult extends DbTestBase {
 
   @Test
   public void testEmbeddedRusultTypeNotLink() {
-    session.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSlowMutableSchema().createClass("Test");
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Test"));

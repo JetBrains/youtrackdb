@@ -24,7 +24,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
 
   @Test
   public void freezeReleaseTest() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
 
@@ -66,7 +66,7 @@ public class LuceneFreezeReleaseTest extends LuceneBaseTest {
   @Test
   public void freezeReleaseMisUsageTest() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
 

@@ -35,7 +35,7 @@ public class LuceneSpatialLineStringTest extends BaseSpatialLuceneTest {
 
   @Before
   public void initMore() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     var oClass = schema.createClass("Place");
     oClass.addSuperClass(v);

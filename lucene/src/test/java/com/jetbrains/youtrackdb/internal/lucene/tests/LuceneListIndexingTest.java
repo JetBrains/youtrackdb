@@ -41,7 +41,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
   @Before
   public void init() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var person = schema.createClass("Person");
     person.createProperty("name", PropertyType.STRING);
@@ -63,7 +63,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
 
   @Test
   public void testIndexingList() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
 
 
     session.begin();
@@ -132,7 +132,7 @@ public class LuceneListIndexingTest extends LuceneBaseTest {
   @Ignore
   public void testCompositeIndexList() {
     session.begin();
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
 
     var doc = ((EntityImpl) session.newEntity("Person"));
     doc.setProperty("name", "Enrico");

@@ -12,8 +12,8 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
 
   @Test
   public void testTruncatePlain() {
-    var vcl = session.getMetadata().getSchema().createClass("A");
-    session.getMetadata().getSchema().createClass("ab", vcl);
+    var vcl = session.getMetadata().getSlowMutableSchema().createClass("A");
+    session.getMetadata().getSlowMutableSchema().createClass("ab", vcl);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("A");
@@ -29,14 +29,14 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
 
   @Test
   public void testTruncateAPI() throws IOException {
-    session.getMetadata().getSchema().createClass("A");
+    session.getMetadata().getSlowMutableSchema().createClass("A");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("A");
     var record = session.load(new RecordId(1,3));
     session.commit();
 
-    session.getMetadata().getSchema().getClasses().stream()
+    session.getMetadata().getSlowMutableSchema().getClasses().stream()
         .filter(oClass -> !oClass.getName().startsWith("OSecurity")) //
         .forEach(
             oClass -> {
@@ -49,8 +49,8 @@ public class CommandExecutorSQLTruncateTest extends DbTestBase {
 
   @Test
   public void testTruncatePolimorphic() {
-    var vcl = session.getMetadata().getSchema().createClass("A");
-    session.getMetadata().getSchema().createClass("ab", vcl);
+    var vcl = session.getMetadata().getSlowMutableSchema().createClass("A");
+    session.getMetadata().getSlowMutableSchema().createClass("ab", vcl);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("A");

@@ -4,8 +4,8 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import java.util.Locale;
 import java.util.stream.Collectors;
 import org.junit.Ignore;
@@ -17,7 +17,7 @@ public class TestOrderBy extends DbTestBase {
   public void testGermanOrderBy() {
     session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
     session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
-    session.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
 
     session.begin();
     var res1 = session.newEntity("test");
@@ -50,7 +50,7 @@ public class TestOrderBy extends DbTestBase {
     session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMANY.getCountry());
     session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
 
-    var clazz = session.getMetadata().getSchema().createClass("test");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("test");
     clazz.createProperty("name", PropertyType.STRING)
         .createIndex(INDEX_TYPE.NOTUNIQUE);
     var res1 = session.newEntity("test");

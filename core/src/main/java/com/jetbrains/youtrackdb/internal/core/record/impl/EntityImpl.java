@@ -63,14 +63,14 @@ import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.GlobalProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertySnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
@@ -116,19 +116,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
   private boolean lazyLoad = true;
   protected WeakReference<RecordElement> owner = null;
 
-  private SchemaSnapshot schema;
   private String className;
-  private SchemaClassSnapshot immutableClazz;
 
   @Nullable
   private ArrayList<BTreeBasedLinkBag> linkBagsToDelete;
-
-  private int immutableSchemaVersion = 1;
 
   public PropertyAccess propertyAccess;
   public PropertyEncryption propertyEncryption;
 
   private boolean propertyConversionInProgress = false;
+
+  private ImmutableSchemaClass immutableSchemaClass;
 
   /**
    * Internal constructor used on unmarshalling.
@@ -157,15 +155,27 @@ public class EntityImpl extends RecordAbstract implements Entity {
     setup();
     setClassNameWithoutPropertiesPostProcessing(iClassName);
 
-    var cls = getImmutableSchemaClass(session);
-    if (cls != null) {
-      if (!isEmbedded() && cls.isAbstract()) {
+    if (immutableSchemaClass != null) {
+      if (!isEmbedded() && immutableSchemaClass.isAbstract()) {
         throw new SchemaException(session,
             "Standalone entities can be only of non-abstract classes. Provided class : "
-                + cls.getName(
+                + immutableSchemaClass.getName(
             ) + " is abstract.");
       }
     }
+  }
+
+  public ImmutableSchemaClass getImmutableSchemaClass() {
+    if (session.getActiveTransaction().isSchemaChanged()) {
+      immutableSchemaClass = null;
+      return session.getMetadata().getFastImmutableSchema().getClass(className);
+    }
+
+    if (immutableSchemaClass == null) {
+      immutableSchemaClass = session.getMetadata().getFastImmutableSchema().getClass(className);
+    }
+
+    return immutableSchemaClass;
   }
 
   /// Returns the name of the property that contains the link bag that is used for tracking
@@ -230,31 +240,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Override
   public boolean isVertex() {
     checkForBinding();
-    if (this instanceof Vertex) {
-      return true;
-    }
-
-    SchemaClass type = this.getImmutableSchemaClass(session);
-    if (type == null) {
-      return false;
-    }
-
-    return type.isVertexType();
+    return this instanceof Vertex;
   }
 
   @Override
   public boolean isStatefulEdge() {
     checkForBinding();
-    if (this instanceof Edge) {
-      return true;
-    }
-
-    SchemaClass type = this.getImmutableSchemaClass(session);
-    if (type == null) {
-      return false;
-    }
-
-    return type.isEdgeType();
+    return this instanceof Edge;
   }
 
   @Override
@@ -1400,7 +1392,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Nullable
-  private Object preprocessAssignedValue(Object value,  PropertyTypeInternal propertyType) {
+  private Object preprocessAssignedValue(Object value, PropertyTypeInternal propertyType) {
     switch (value) {
       case EntityImpl entity -> {
         if (propertyType == PropertyTypeInternal.EMBEDDED) {
@@ -1508,7 +1500,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateProperty(
-      DatabaseSessionInternal session, SchemaSnapshot schema, EntityImpl iRecord,
+      DatabaseSessionEmbedded session, ImmutableSchema schema, EntityImpl iRecord,
       SchemaPropertySnapshot p)
       throws ValidationException {
     iRecord.checkForBinding();
@@ -1788,7 +1780,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLinkCollection(
-      DatabaseSessionInternal db, SchemaSnapshot schema,
+      DatabaseSessionEmbedded db, ImmutableSchema schema,
       final SchemaProperty property,
       Iterable<Object> values,
       EntityEntry value) {
@@ -1845,7 +1837,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLink(
-      SchemaSnapshot schema, @Nonnull DatabaseSessionInternal session, final SchemaProperty p,
+      ImmutableSchema schema, @Nonnull DatabaseSessionEmbedded session, final SchemaProperty p,
       final Object propertyValue, boolean allowNull) {
     if (propertyValue == null) {
       if (allowNull) {
@@ -1876,12 +1868,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
       if (!schemaClass.hasPolymorphicCollectionId(rid.getCollectionId())) {
         // AT THIS POINT CHECK THE CLASS ONLY IF != NULL BECAUSE IN CASE OF GRAPHS THE RECORD
         // COULD BE PARTIAL
-        SchemaClass cls;
+        ImmutableSchemaClass cls;
         var collectionId = rid.getCollectionId();
         if (collectionId != RID.COLLECTION_ID_INVALID) {
           cls = schema.getClassByCollectionId(rid.getCollectionId());
         } else if (identifiable instanceof EntityImpl entity) {
-          cls = entity.getImmutableSchemaClass(session);
+          cls = entity.getImmutableSchemaClass();
         } else {
           cls = null;
         }
@@ -1941,7 +1933,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + " with linked class '"
                     + embeddedClass
                     + "' but the record is of class '"
-                    + entity.getImmutableSchemaClass(session).getName()
+                    + entity.getSchemaClassName()
                     + "' that is vertex class");
           }
 
@@ -1954,7 +1946,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + " with linked class '"
                     + embeddedClass
                     + "' but the record is of class '"
-                    + entity.getImmutableSchemaClass(session).getName()
+                    + entity.getSchemaClassName()
                     + "' that is edge class");
           }
         }
@@ -1972,7 +1964,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + "' but the record was not a entity");
           }
 
-          if (entity.getImmutableSchemaClass(session) == null) {
+          var cls = entity.getImmutableSchemaClass();
+          if (cls == null) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -1983,7 +1976,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + "' but the record has no class");
           }
 
-          if (!(entity.getImmutableSchemaClass(session).isSubClassOf(embeddedClass))) {
+          if (!(cls.isSubClassOf(embeddedClass))) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()
@@ -1992,7 +1985,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + " with linked class '"
                     + embeddedClass
                     + "' but the record is of class '"
-                    + entity.getImmutableSchemaClass(session).getName()
+                    + entity.getSchemaClassName()
                     + "' that is not a subclass of that");
           }
 
@@ -2075,6 +2068,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
       }
 
+      var className = getSchemaClassName();
       if (className != null) {
         map.put(EntityHelper.ATTRIBUTE_CLASS, className);
       }
@@ -2176,7 +2170,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public void updateFromResult(@Nonnull Result result) {
     checkForBinding();
 
-    var cls = getImmutableSchemaClass(this.session);
+    var cls = getImmutableSchemaClass();
     Map<String, String> propertyTypes = null;
 
     if (result instanceof ResultInternal resultInternal) {
@@ -2290,7 +2284,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public void updateFromMap(@Nonnull final Map<String, ?> map) {
     checkForBinding();
 
-    var cls = getImmutableSchemaClass(this.session);
+    var cls = getImmutableSchemaClass();
     for (var entry : map.entrySet()) {
       var key = entry.getKey();
       if (key.isEmpty()) {
@@ -2305,13 +2299,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
 
         if (!Objects.equals(getSchemaClassName(), className)) {
-          var immutableSchemaClass = getImmutableSchemaClass(session);
-          var providedClass = schema.getClass(className);
-
-          if (!providedClass.equals(immutableSchemaClass)) {
-            throw new IllegalArgumentException("Invalid  entity class name provided: "
-                + className + " expected: " + getSchemaClassName());
-          }
+          throw new IllegalArgumentException("Invalid  entity class name provided: "
+              + className + " expected: " + getSchemaClassName());
         }
       }
 
@@ -2765,15 +2754,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private void convertToResult(ResultInternal result) {
     var propertyTypes = new HashMap<String, String>();
+    var cls = getImmutableSchemaClass();
 
-    var cls = getImmutableSchemaClass(session);
     for (var entry : properties.entrySet()) {
       var name = entry.getKey();
-
       if (propertyAccess == null || propertyAccess.isReadable(name)) {
         result.setProperty(name, entry.getValue().value);
 
-        SchemaProperty prop = null;
+        ImmutableSchemaProperty prop = null;
         if (cls != null) {
           prop = cls.getProperty(name);
         }
@@ -2793,6 +2781,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       }
     }
 
+    var className = getSchemaClassName();
     if (className != null) {
       result.setProperty(EntityHelper.ATTRIBUTE_CLASS, className);
     }
@@ -2896,10 +2885,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
       properties = null;
       propertiesCount = 0;
-      contentChanged = false;
-      schema = null;
 
-      fetchSchema();
       super.fromStream(iRecordBuffer);
 
       return this;
@@ -3218,17 +3204,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     checkForBinding();
 
-    immutableClazz = null;
-    immutableSchemaVersion = -1;
     className = iClassName;
-
     if (iClassName == null) {
       initPropertyAccess();
       return;
     }
 
-    final var _clazz = session.getMetadata().getImmutableSchema(session)
-        .getClass(iClassName);
+    final var _clazz = session.getMetadata().getFastImmutableSchema().getClass(iClassName);
     if (_clazz != null) {
       className = _clazz.getName();
       convertPropertiesToClassAndInitDefaultValues(_clazz);
@@ -3248,7 +3230,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return null;
     }
 
-    return session.getMetadata().getSchema().getClass(className);
+    return session.getMetadata().getSlowMutableSchema().getClass(className);
   }
 
   @Override
@@ -3266,38 +3248,21 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return;
     }
 
-    immutableClazz = null;
-    immutableSchemaVersion = -1;
-
     this.className = className;
-
     if (className == null) {
       return;
     }
 
     var metadata = session.getMetadata();
+    var schemaSnapshot = metadata.getFastImmutableSchema();
 
-    var schemaSnapshot = metadata.getImmutableSchema(session);
-    this.immutableClazz = (SchemaClassSnapshot) schemaSnapshot.getClass(className);
-
-    if (this.immutableClazz != null) {
-      this.immutableSchemaVersion = schemaSnapshot.getVersion();
-      this.schema = schemaSnapshot;
-    } else {
-      metadata.getSchema().getOrCreateClass(className);
-      schemaSnapshot = metadata.getImmutableSchema(session);
-
-      this.immutableClazz = (SchemaClassSnapshot) schemaSnapshot.getClass(className);
-      this.immutableSchemaVersion = schemaSnapshot.getVersion();
-      this.schema = schemaSnapshot;
+    var immutableClazz = schemaSnapshot.getClass(className);
+    if (immutableClazz == null) {
+      throw new DatabaseException(session, "Class '" + className + "' not found");
     }
 
-    if (this.immutableClazz == null) {
-      throw new DatabaseException(session,
-          "Class '" + className + "' not found in the database");
-    }
-
-    this.className = this.immutableClazz.getName();
+    this.className = immutableClazz.getName();
+    this.immutableSchemaClass = immutableClazz;
   }
 
 
@@ -3321,7 +3286,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     customValidationRules();
 
-    final var immutableSchemaClass = getImmutableSchemaClass(session);
+    final var immutableSchemaClass = getImmutableSchemaClass();
     if (immutableSchemaClass != null) {
       if (immutableSchemaClass.isStrictMode()) {
         // CHECK IF ALL FIELDS ARE DEFINED
@@ -3337,7 +3302,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
       }
 
-      final var immutableSchema = session.getMetadata().getImmutableSchema(session);
+      final var immutableSchema = session.getMetadata().getFastImmutableSchema();
       for (var p : immutableSchemaClass.getProperties()) {
         validateProperty(session, immutableSchema, this, (SchemaPropertySnapshot) p);
       }
@@ -3422,76 +3387,21 @@ public class EntityImpl extends RecordAbstract implements Entity {
   @Override
   public final RecordAbstract fill(
       final int version, final byte[] buffer, final boolean dirty) {
-    var session = getSession();
     if (this.dirty > 0) {
+      var session = getSession();
       throw new DatabaseException(session.getDatabaseName(),
           "Cannot call fill() on dirty records");
     }
 
-    schema = null;
-    fetchSchema();
     return super.fill(version, buffer, dirty);
-  }
-
-  @Override
-  public void clearSource() {
-    super.clearSource();
-    schema = null;
   }
 
   public GlobalProperty getGlobalPropertyById(int id) {
     checkForBinding();
-    if (schema == null) {
-      var metadata = session.getMetadata();
-      schema = metadata.getImmutableSchema(session);
-    }
-    var prop = schema.getGlobalPropertyById(id);
-    if (prop == null) {
-      if (session.isClosed()) {
-        throw new DatabaseException(session.getDatabaseName(),
-            "Cannot unmarshall the entity because no database is active, use detach for use the"
-                + " entity outside the database session scope");
-      }
 
-      var metadata = session.getMetadata();
-      if (metadata.getImmutableSchema(session) != null) {
-        metadata.clearThreadLocalSchemaSnapshot();
-      }
-      metadata.reload();
-      metadata.makeThreadLocalSchemaSnapshot();
-      schema = metadata.getImmutableSchema(session);
-      prop = schema.getGlobalPropertyById(id);
-    }
-    return prop;
-  }
-
-  @Nullable
-  public SchemaClassSnapshot getImmutableSchemaClass(
-      @Nonnull DatabaseSessionInternal session) {
-    if (this.session != session) {
-      throw new DatabaseException("The entity is bounded to another session");
-    }
-
-    var immutableSchema = session.getMetadata().getImmutableSchema(session);
-    if (immutableClazz == null) {
-      if (className == null) {
-        fetchClassName(session);
-      }
-
-      if (className != null) {
-        if (immutableSchema == null) {
-          return null;
-        }
-        //noinspection deprecation
-        immutableSchemaVersion = immutableSchema.getVersion();
-        immutableClazz = (SchemaClassSnapshot) immutableSchema.getClass(className);
-      }
-    } else if (immutableSchemaVersion != immutableSchema.getVersion()) {
-      immutableClazz = null;
-      return getImmutableSchemaClass(session);
-    }
-
-    return immutableClazz;
+    var metadata = session.getMetadata();
+    var schema = metadata.getFastImmutableSchema();
+    return schema.getGlobalPropertyById(id);
   }
 
   public boolean rawContainsProperty(final String iFiledName) {
@@ -3584,7 +3494,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
         var propertyType = entry.type;
         if (propertyType == null) {
-          SchemaClass clazz = getImmutableSchemaClass(session);
+          var clazz = getImmutableSchemaClass();
           if (clazz != null) {
             final var prop = clazz.getProperty(propertyEntry.getKey());
             propertyType =
@@ -3836,16 +3746,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return IterableUtils.chainedIterable(iterables.toArray(new Iterable[0]));
   }
 
-  private void fetchSchema() {
-    if (schema == null) {
-      var metadata = session.getMetadata();
-      schema = metadata.getImmutableSchema(session);
-    }
-  }
-
   private void fetchClassName(DatabaseSessionInternal session) {
     if (recordId.getCollectionId() >= 0) {
-      final Schema schema = session.getMetadata().getImmutableSchema(session);
+      final var schema = session.getMetadata().getFastImmutableSchema();
       if (schema != null) {
         var clazz = schema.getClassByCollectionId(recordId.getCollectionId());
         if (clazz != null) {
@@ -3858,7 +3761,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   /**
    * Checks and convert the property of the entity matching the types specified by the class.
    */
-  public final void convertPropertiesToClassAndInitDefaultValues(final SchemaClass clazz) {
+  public final void convertPropertiesToClassAndInitDefaultValues(final ImmutableSchemaClass clazz) {
     for (var prop : clazz.getProperties()) {
       var entry = properties != null ? properties.get(prop.getName()) : null;
       if (entry != null && entry.exists()) {
@@ -3899,7 +3802,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private PropertyTypeInternal derivePropertyType(String propertyName,
       PropertyTypeInternal propertyType, Object value) {
-    SchemaClass clazz = getImmutableSchemaClass(session);
+    var clazz = getImmutableSchemaClass();
     if (clazz != null) {
       // SCHEMA-FULL?
       final var prop = clazz.getProperty(propertyName);
@@ -3988,30 +3891,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  public void checkClass(DatabaseSessionInternal session) {
-    checkForBinding();
-    if (className == null) {
-      fetchClassName(session);
-    }
-
-    final Schema immutableSchema = session.getMetadata().getImmutableSchema(session);
-    if (immutableSchema == null) {
-      return;
-    }
-
-    if (immutableClazz == null) {
-      //noinspection deprecation
-      immutableSchemaVersion = immutableSchema.getVersion();
-      immutableClazz = (SchemaClassSnapshot) immutableSchema.getClass(className);
-    } else {
-      //noinspection deprecation
-      if (immutableSchemaVersion < immutableSchema.getVersion()) {
-        //noinspection deprecation
-        immutableSchemaVersion = immutableSchema.getVersion();
-        immutableClazz = (SchemaClassSnapshot) immutableSchema.getClass(className);
-      }
-    }
-  }
 
   @SuppressWarnings("unchecked")
   @Nullable
@@ -4033,7 +3912,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return (RET) value;
     }
 
-    var immutableSchemaClass = entity.getImmutableSchemaClass(session);
+    var immutableSchemaClass = entity.getImmutableSchemaClass();
     var property =
         immutableSchemaClass != null ? immutableSchemaClass.getProperty(fieldName) : null;
     if (linkedType == null) {
@@ -4048,14 +3927,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return (RET) value;
   }
 
-  public SchemaSnapshot getImmutableSchema() {
-    return schema;
-  }
-
   void checkEmbeddable() {
     checkForBinding();
 
-    var cls = getImmutableSchemaClass(session);
+    var cls = getImmutableSchemaClass();
     if (cls != null && !cls.isAbstract()) {
       throw new DatabaseException(session,
           "Embedded entities can be only of abstract classes. Provided class : " + cls.getName(

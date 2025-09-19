@@ -10,7 +10,7 @@ import org.testng.annotations.Test;
 public class IndexConcurrentCommitTest extends BaseDBTest {
 
   public void testConcurrentUpdate() {
-    var personClass = session.getMetadata().getSchema().createClass("Person");
+    var personClass = session.getMetadata().getSlowMutableSchema().createClass("Person");
     personClass.createProperty("ssn", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
     personClass.createProperty("name", PropertyType.STRING)

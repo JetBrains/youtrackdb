@@ -14,8 +14,8 @@
 package com.jetbrains.youtrackdb.internal.spatial;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -114,7 +114,7 @@ public class LuceneSpatialMultiPolygonTest extends BaseSpatialLuceneTest {
   @Before
   public void initMore() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createVertexClass("Place");
     oClass.createProperty("location", PropertyType.EMBEDDED,
         schema.getClass("OMultiPolygon"));

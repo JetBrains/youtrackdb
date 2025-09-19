@@ -18,7 +18,7 @@ public class AlterSuperclassTest extends DbTestBase {
   @Test
   public void testSamePropertyCheck() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ParentClass");
     classA.setAbstract(true);
     var property = classA.createProperty("RevNumberNine", PropertyType.INTEGER);
@@ -32,7 +32,7 @@ public class AlterSuperclassTest extends DbTestBase {
 
   @Test(expected = SchemaException.class)
   public void testPropertyNameConflict() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ParentClass");
     classA.setAbstract(true);
     var property = classA.createProperty("RevNumberNine", PropertyType.INTEGER);
@@ -45,7 +45,7 @@ public class AlterSuperclassTest extends DbTestBase {
 
   @Test(expected = SchemaException.class)
   public void testHasAlreadySuperclass() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ParentClass");
     var classChild = schema.createClass("ChildClass1", classA);
     assertEquals(classChild.getSuperClasses(), Collections.singletonList(classA));
@@ -54,7 +54,7 @@ public class AlterSuperclassTest extends DbTestBase {
 
   @Test(expected = SchemaException.class)
   public void testSetDuplicateSuperclasses() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ParentClass");
     var classChild = schema.createClass("ChildClass1", classA);
     assertEquals(classChild.getSuperClasses(), Collections.singletonList(classA));
@@ -67,7 +67,7 @@ public class AlterSuperclassTest extends DbTestBase {
    */
   @Test
   public void testBrokenDbAlteringSuperClass() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("BaseClass");
     var classChild = schema.createClass("ChildClass1", classA);
     var classChild2 = schema.createClass("ChildClass2", classA);

@@ -14,7 +14,7 @@ public class TestNullFieldQuery extends DbTestBase {
 
   @Test
   public void testQueryNullValue() {
-    session.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSlowMutableSchema().createClass("Test");
     session.begin();
     var doc = (EntityImpl) session.newEntity("Test");
     doc.setProperty("name", null);
@@ -28,7 +28,7 @@ public class TestNullFieldQuery extends DbTestBase {
 
   @Test
   public void testQueryNullValueSchemaFull() {
-    var clazz = session.getMetadata().getSchema().createClass("Test");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Test");
     clazz.createProperty("name", PropertyType.STRING);
 
     session.begin();

@@ -30,7 +30,7 @@ public class AbstractClassTest extends BaseDBTest {
   @BeforeClass
   public void createSchema() throws IOException {
     var abstractPerson =
-        session.getMetadata().getSchema().createAbstractClass("AbstractPerson");
+        session.getMetadata().getSlowMutableSchema().createAbstractClass("AbstractPerson");
     abstractPerson.createProperty("name", PropertyType.STRING);
 
     Assert.assertTrue(abstractPerson.isAbstract());

@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -73,7 +72,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     // exclude automatically generated collections
     excludeIndexes.add(DatabaseImport.EXPORT_IMPORT_INDEX_NAME);
 
-    final Schema schemaTwo = sessionTwo.getMetadata().getSchema();
+    var schemaTwo = sessionTwo.getMetadata().getFastImmutableSchema();
     final var cls = schemaTwo.getClass(DatabaseImport.EXPORT_IMPORT_CLASS_NAME);
 
     if (cls != null) {
@@ -95,7 +94,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
             "\n"
                 + "Auto discovery of mapping between RIDs of exported and imported records is"
                 + " switched on, try to discover mapping data on disk.");
-        if (sessionTwo.getMetadata().getSchema().getClass(DatabaseImport.EXPORT_IMPORT_CLASS_NAME)
+        if (sessionTwo.getMetadata().getFastImmutableSchema()
+            .getClass(DatabaseImport.EXPORT_IMPORT_CLASS_NAME)
             != null) {
           listener.onMessage("\nMapping data were found and will be loaded.");
           ridMapper =
@@ -165,8 +165,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   }
 
   private void compareSchema() {
-    Schema schema1 = sessionOne.getMetadata().getImmutableSchema(session);
-    Schema schema2 = sessionTwo.getMetadata().getImmutableSchema(session);
+    var schema1 = sessionOne.getMetadata().getFastImmutableSchema();
+    var schema2 = sessionTwo.getMetadata().getFastImmutableSchema();
 
     var ok = true;
     for (var clazz : schema1.getClasses()) {

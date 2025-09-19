@@ -293,7 +293,7 @@ public class SecurityTest extends BaseDBTest {
   @Test
   public void testCannotExtendClassWithNoUpdateProvileges() {
     session = createSessionInstance();
-    session.getMetadata().getSchema().createClass("Protected");
+    session.getMetadata().getSlowMutableSchema().createClass("Protected");
     session.close();
 
     session = createSessionInstance("writer", "writer");
@@ -306,19 +306,19 @@ public class SecurityTest extends BaseDBTest {
       session.close();
 
       session = createSessionInstance();
-      session.getMetadata().getSchema().dropClass("Protected");
+      session.getMetadata().getSlowMutableSchema().dropClass("Protected");
     }
   }
 
   @Test
   public void testSuperUserCanExtendClassWithNoUpdateProvileges() {
     session = createSessionInstance();
-    session.getMetadata().getSchema().createClass("Protected");
+    session.getMetadata().getSlowMutableSchema().createClass("Protected");
 
     try {
       session.execute("alter class Protected superclasses OUser").close();
     } finally {
-      session.getMetadata().getSchema().dropClass("Protected");
+      session.getMetadata().getSlowMutableSchema().dropClass("Protected");
     }
   }
 

@@ -22,9 +22,9 @@ import static com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.lucene.LuceneIndexFactory;
 import java.io.FileInputStream;
@@ -43,7 +43,7 @@ public class LuceneExportImportTest extends LuceneBaseTest {
   @Before
   public void init() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var city = schema.createClass("City");
     city.createProperty("name", PropertyType.STRING);
 

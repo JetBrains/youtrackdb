@@ -26,7 +26,7 @@ public class ClassIteratorTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
 
     // Create Person class
     final var personClass = schema.createClass("Person");
@@ -50,7 +50,7 @@ public class ClassIteratorTest extends DbTestBase {
 
   @Test
   public void testDescendentOrderIteratorWithMultipleCollections() throws Exception {
-    var personClass = session.getMetadata().getSchema().getClass("Person");
+    var personClass = session.getMetadata().getSlowMutableSchema().getClass("Person");
 
     // empty old collection but keep it attached
     personClass.truncate();
@@ -72,7 +72,7 @@ public class ClassIteratorTest extends DbTestBase {
 
   @Test
   public void testMultipleCollections() throws Exception {
-    session.getMetadata().getSchema().createClass("PersonMultipleCollections", 4);
+    session.getMetadata().getSlowMutableSchema().createClass("PersonMultipleCollections", 4);
     for (var name : names) {
       createPerson("PersonMultipleCollections", name);
     }

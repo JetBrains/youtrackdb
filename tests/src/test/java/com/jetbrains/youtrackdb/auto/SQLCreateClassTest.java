@@ -21,18 +21,19 @@ import org.testng.annotations.Test;
 public class SQLCreateClassTest extends BaseDBTest {
   @Test
   public void testSimpleCreate() {
-    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testSimpleCreate"));
+    Assert.assertFalse(
+        session.getMetadata().getSlowMutableSchema().existsClass("testSimpleCreate"));
     session.execute("create class testSimpleCreate").close();
-    Assert.assertTrue(session.getMetadata().getSchema().existsClass("testSimpleCreate"));
+    Assert.assertTrue(session.getMetadata().getSlowMutableSchema().existsClass("testSimpleCreate"));
   }
 
   @Test
   public void testIfNotExists() {
-    Assert.assertFalse(session.getMetadata().getSchema().existsClass("testIfNotExists"));
+    Assert.assertFalse(session.getMetadata().getSlowMutableSchema().existsClass("testIfNotExists"));
     session.execute("create class testIfNotExists if not exists").close();
-    Assert.assertTrue(session.getMetadata().getSchema().existsClass("testIfNotExists"));
+    Assert.assertTrue(session.getMetadata().getSlowMutableSchema().existsClass("testIfNotExists"));
     session.execute("create class testIfNotExists if not exists").close();
-    Assert.assertTrue(session.getMetadata().getSchema().existsClass("testIfNotExists"));
+    Assert.assertTrue(session.getMetadata().getSlowMutableSchema().existsClass("testIfNotExists"));
     try {
       session.execute("create class testIfNotExists").close();
       Assert.fail();

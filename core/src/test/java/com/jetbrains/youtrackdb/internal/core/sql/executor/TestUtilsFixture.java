@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.apache.commons.lang.RandomStringUtils;
 
 /**
@@ -19,7 +19,7 @@ public class TestUtilsFixture extends DbTestBase {
   }
 
   private Schema getDBSchema() {
-    return session.getMetadata().getSchema();
+    return session.getMetadata().getSlowMutableSchema();
   }
 
   private static String generateClassName() {

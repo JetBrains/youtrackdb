@@ -42,7 +42,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    final var class_ = session.getMetadata().getSchema().createClass("Person");
+    final var class_ = session.getMetadata().getSlowMutableSchema().createClass("Person");
     var indexName =
         class_
             .createProperty("name", PropertyType.STRING)

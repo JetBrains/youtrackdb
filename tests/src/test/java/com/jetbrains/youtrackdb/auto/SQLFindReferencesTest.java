@@ -86,9 +86,9 @@ public class SQLFindReferencesTest extends BaseDBTest {
   }
 
   private void createSchema() {
-    var worker = session.getMetadata().getSchema().createClass(WORKER);
-    var workplace = session.getMetadata().getSchema().createClass(WORKPLACE);
-    var car = session.getMetadata().getSchema().createClass(CAR);
+    var worker = session.getMetadata().getSlowMutableSchema().createClass(WORKER);
+    var workplace = session.getMetadata().getSlowMutableSchema().createClass(WORKPLACE);
+    var car = session.getMetadata().getSlowMutableSchema().createClass(CAR);
 
     worker.createProperty("name", PropertyType.STRING);
     worker.createProperty("surname", PropertyType.STRING);
@@ -178,8 +178,8 @@ public class SQLFindReferencesTest extends BaseDBTest {
 
   private void dropClass(String iClass) {
     session.execute("drop class " + iClass).close();
-    while (session.getMetadata().getSchema().existsClass(iClass)) {
-      session.getMetadata().getSchema().dropClass(iClass);
+    while (session.getMetadata().getSlowMutableSchema().existsClass(iClass)) {
+      session.getMetadata().getSlowMutableSchema().dropClass(iClass);
       session.reload();
     }
     while (session.getCollectionIdByName(iClass) > -1) {

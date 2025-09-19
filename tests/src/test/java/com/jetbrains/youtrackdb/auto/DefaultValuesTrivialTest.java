@@ -28,7 +28,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
   public void test() {
 
     // create example schema
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classPerson = schema.createClass("PersonA");
 
     classPerson.createProperty("name", PropertyType.STRING);
@@ -87,7 +87,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
     final var userId = session.getCurrentUser().getIdentity();
     session.commit();
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var classPerson = schema.createClass("PersonB");
     classPerson.createProperty("users", PropertyType.LINKSET)
@@ -109,7 +109,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
   @Test
   public void testPrepopulation() {
     // create example schema
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassA");
 
     classA.createProperty("name", PropertyType.STRING)
@@ -148,7 +148,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
   @Test
   public void testPrepopulationIndex() {
     // create example schema
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classB = schema.createClass("ClassB");
 
     var prop = classB.createProperty("name", PropertyType.STRING);
@@ -170,7 +170,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
   public void testPrepopulationMultivalueIndex() {
 
     // create example schema
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classD = schema.createClass("ClassD");
 
     var prop = classD.createProperty("name", PropertyType.STRING);

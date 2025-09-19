@@ -5,9 +5,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -329,7 +329,7 @@ public class SQLAlterClassStatement extends DDLStatement {
     }
     var database = ctx.getDatabaseSession();
     var superclass =
-        database.getMetadata().getSchema().getClass(superclassName.getStringValue());
+        database.getMetadata().getSlowMutableSchema().getClass(superclassName.getStringValue());
     if (superclass == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "superclass not found: " + this);
@@ -353,7 +353,7 @@ public class SQLAlterClassStatement extends DDLStatement {
     List<SchemaClass> superclasses = new ArrayList<>();
     for (var superclassName : superclassNames) {
       var superclass =
-          ctx.getDatabaseSession().getMetadata().getSchema()
+          ctx.getDatabaseSession().getMetadata().getSlowMutableSchema()
               .getClass(superclassName.getStringValue());
       if (superclass == null) {
         throw new CommandExecutionException(ctx.getDatabaseSession(),

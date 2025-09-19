@@ -45,7 +45,7 @@ public class CheckClassTypeStep extends AbstractExecutionStep {
     }
     var session = context.getDatabaseSession();
 
-    Schema schema = session.getMetadata().getImmutableSchema(session);
+    Schema schema = session.getMetadata().getFastImmutableSchema(session);
     var parentClazz = schema.getClass(this.parentClass);
     if (parentClazz == null) {
       throw new CommandExecutionException(context.getDatabaseSession(),

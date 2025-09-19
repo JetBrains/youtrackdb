@@ -26,7 +26,7 @@ public class TestSchemaImportExport extends DbTestBase {
     try (var db =
         (DatabaseSessionEmbedded)
             youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
-      var clazz = db.getMetadata().getSchema().createClass("Test");
+      var clazz = db.getMetadata().getSlowMutableSchema().createClass("Test");
       clazz.createProperty("some", PropertyType.STRING);
       clazz.setCustom("testcustom", "test");
       var exp = new DatabaseExport(db, output, new MockOutputListener());
@@ -49,7 +49,7 @@ public class TestSchemaImportExport extends DbTestBase {
               (DatabaseSessionEmbedded) sessionOne, new ByteArrayInputStream(output.toByteArray()),
               new MockOutputListener());
       imp.importDatabase();
-      var clas1 = sessionOne.getMetadata().getSchema().getClass("Test");
+      var clas1 = sessionOne.getMetadata().getSlowMutableSchema().getClass("Test");
       Assert.assertNotNull(clas1);
       Assert.assertEquals("test", clas1.getCustom("testcustom"));
     } finally {
@@ -70,7 +70,7 @@ public class TestSchemaImportExport extends DbTestBase {
     try (var db =
         (DatabaseSessionEmbedded)
             youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
-      var clazz = db.getMetadata().getSchema().createClass("Test");
+      var clazz = db.getMetadata().getSlowMutableSchema().createClass("Test");
       clazz.createProperty("bla", PropertyType.STRING).setDefaultValue("something");
       var exp = new DatabaseExport(db, output, new MockOutputListener());
       exp.exportDatabase();
@@ -92,7 +92,7 @@ public class TestSchemaImportExport extends DbTestBase {
               sessionOne, new ByteArrayInputStream(output.toByteArray()), new MockOutputListener());
       imp.importDatabase();
 
-      var clas1 = sessionOne.getMetadata().getSchema().getClass("Test");
+      var clas1 = sessionOne.getMetadata().getSlowMutableSchema().getClass("Test");
       Assert.assertNotNull(clas1);
       var prop1 = clas1.getProperty("bla");
       Assert.assertNotNull(prop1);
@@ -114,9 +114,9 @@ public class TestSchemaImportExport extends DbTestBase {
     try (var db =
         (DatabaseSessionEmbedded)
             youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
-      var clazz = db.getMetadata().getSchema().createClass("Test");
-      clazz.addSuperClass(db.getMetadata().getSchema().getClass("O"));
-      clazz.addSuperClass(db.getMetadata().getSchema().getClass("OIdentity"));
+      var clazz = db.getMetadata().getSlowMutableSchema().createClass("Test");
+      clazz.addSuperClass(db.getMetadata().getSlowMutableSchema().getClass("O"));
+      clazz.addSuperClass(db.getMetadata().getSlowMutableSchema().getClass("OIdentity"));
 
       var exp = new DatabaseExport(db, output, new MockOutputListener());
       exp.exportDatabase();
@@ -139,7 +139,7 @@ public class TestSchemaImportExport extends DbTestBase {
               sessionOne, new ByteArrayInputStream(output.toByteArray()), new MockOutputListener());
       imp.importDatabase();
 
-      var clas1 = sessionOne.getMetadata().getSchema().getClass("Test");
+      var clas1 = sessionOne.getMetadata().getSlowMutableSchema().getClass("Test");
       Assert.assertTrue(clas1.isSubClassOf("OIdentity"));
       Assert.assertTrue(clas1.isSubClassOf("O"));
     } finally {

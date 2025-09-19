@@ -16,7 +16,7 @@ public class HookChangeValidationTest extends DbTestBase {
 
   @Test
   public void testBeforeHookCreateChangeTx() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestClass");
     classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
     classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
@@ -44,7 +44,7 @@ public class HookChangeValidationTest extends DbTestBase {
 
   @Test
   public void testAfterHookCreateChangeTx() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestClass");
     classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
     classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
@@ -73,7 +73,7 @@ public class HookChangeValidationTest extends DbTestBase {
 
   @Test
   public void testBeforeHookUpdateChangeTx() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestClass");
     classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
     classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
@@ -115,7 +115,7 @@ public class HookChangeValidationTest extends DbTestBase {
 
   @Test
   public void testAfterHookUpdateChangeTx() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestClass");
     classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
     classA.createProperty("property2", PropertyType.STRING).setReadonly(true);

@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.collection.LazyIterator;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
@@ -42,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -212,7 +212,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           var pos = iValue.indexOf(StringSerializerHelper.CLASS_SEPARATOR);
           if (pos > -1) {
             session.getMetadata()
-                .getImmutableSchema(session)
+                .getFastImmutableSchema(session)
                 .getClass(iValue.substring(1, pos));
           } else {
             pos = 0;

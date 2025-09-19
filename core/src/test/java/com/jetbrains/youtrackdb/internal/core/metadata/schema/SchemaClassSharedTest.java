@@ -23,7 +23,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
    */
   @Test
   public void testSetAbstractCollectionNotChanged() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
 
     var oClass = oSchema.createClass("Test1");
     final var oldCollectionId = oClass.getCollectionIds()[0];
@@ -39,7 +39,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
    */
   @Test
   public void testSetAbstractShouldCreateNewCollections() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
 
     var oClass = oSchema.createAbstractClass("Test2");
 
@@ -51,7 +51,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testCreateNoLinkedClass() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
 
     var oClass = oSchema.createClass("Test21");
     oClass.createProperty("some", PropertyType.LINKLIST, (SchemaClass) null);
@@ -63,7 +63,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = SchemaException.class)
   public void testCreatePropertyFailOnExistingData() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test3");
 
     session.executeInTx(
@@ -77,7 +77,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = SchemaException.class)
   public void testCreatePropertyFailOnExistingDataLinkList() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test4");
 
     session.executeInTx(
@@ -93,7 +93,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = SchemaException.class)
   public void testCreatePropertyFailOnExistingDataLinkSet() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test5");
 
     session.executeInTx(
@@ -109,7 +109,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = SchemaException.class)
   public void testCreatePropertyFailOnExistingDataEmbeddetSet() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test6");
     oSchema.createAbstractClass("Test69");
 
@@ -126,7 +126,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = SchemaException.class)
   public void testCreatePropertyFailOnExistingDataEmbeddedList() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test7");
 
     session.executeInTx(
@@ -142,7 +142,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = SchemaException.class)
   public void testCreatePropertyFailOnExistingDataEmbeddedMap() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test8");
     oSchema.createAbstractClass("Test89");
 
@@ -159,7 +159,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = SchemaException.class)
   public void testCreatePropertyFailOnExistingDataLinkMap() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test9");
     oSchema.createClass("Test8");
 
@@ -176,7 +176,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testCreatePropertyCastable() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test10");
 
     var rid =
@@ -219,7 +219,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testCreatePropertyCastableColection() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test11");
 
     var rid =
@@ -255,7 +255,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testCreatePropertyIdKeep() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test12");
     var prop = oClass.createProperty("test2", PropertyType.STRING);
     var id = prop.getId();
@@ -266,7 +266,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testRenameProperty() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test13");
     var prop = oClass.createProperty("test1", PropertyType.STRING);
     var id = prop.getId();
@@ -276,7 +276,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testChangeTypeProperty() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test14");
     var prop = oClass.createProperty("test1", PropertyType.SHORT);
     var id = prop.getId();
@@ -286,7 +286,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testRenameBackProperty() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test15");
     var prop = oClass.createProperty("test1", PropertyType.STRING);
     var id = prop.getId();
@@ -298,7 +298,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test(expected = IllegalArgumentException.class)
   public void testSetUncastableType() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test16");
     var prop = oClass.createProperty("test1", PropertyType.STRING);
     prop.setType(PropertyType.INTEGER);
@@ -306,7 +306,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testFindById() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test17");
     var prop = oClass.createProperty("testaaa", PropertyType.STRING);
     var global = oSchema.getGlobalPropertyById(prop.getId());
@@ -318,7 +318,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testFindByIdDrop() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test18");
     var prop = oClass.createProperty("testaaa", PropertyType.STRING);
     var id = prop.getId();
@@ -332,7 +332,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testChangePropertyTypeCastable() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test19");
 
     oClass.createProperty("test1", PropertyType.SHORT);
@@ -382,7 +382,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testChangePropertyName() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test20");
 
     oClass.createProperty("test1", PropertyType.SHORT);
@@ -432,7 +432,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testCreatePropertyCastableColectionNoCache() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test11bis");
 
     var rid =
@@ -472,7 +472,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
   @Test
   public void testClassNameSyntax() {
 
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     assertNotNull(oSchema.createClass("OClassImplTesttestClassNameSyntax"));
     assertNotNull(oSchema.createClass("_OClassImplTesttestClassNameSyntax"));
     assertNotNull(oSchema.createClass("_OClassImplTesttestClassNameSyntax_"));
@@ -501,7 +501,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testAlterCustomAttributeInClass() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createClass("TestCreateCustomAttributeClass");
 
     oClass.setCustom("customAttribute", "value1");
@@ -513,7 +513,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testCreateVertexLinkProperty() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var vertexClass =
         oSchema.createVertexClass("MyVertex" + SchemaClassSharedTest.class.getSimpleName());
 

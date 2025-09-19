@@ -38,11 +38,11 @@ public class ServerCommandDeleteClass extends ServerCommandAuthenticatedDbAbstra
 
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
 
-      if (db.getMetadata().getSchema().getClass(urlParts[2]) == null) {
+      if (db.getMetadata().getSlowMutableSchema().getClass(urlParts[2]) == null) {
         throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
       }
 
-      db.getMetadata().getSchema().dropClass(urlParts[2]);
+      db.getMetadata().getSlowMutableSchema().dropClass(urlParts[2]);
 
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,

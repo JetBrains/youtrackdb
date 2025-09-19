@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.StringParser;
 import com.jetbrains.youtrackdb.internal.common.types.Binary;
@@ -32,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -1329,7 +1329,7 @@ public abstract class StringSerializerHelper {
             iValue, StringSerializerHelper.CLASS_SEPARATOR.charAt(0), 0, -1);
     if (classSeparatorPos > -1) {
       final var className = iValue.substring(0, classSeparatorPos);
-      iLinkedClass = session.getMetadata().getImmutableSchema(session).getClass(className);
+      iLinkedClass = session.getMetadata().getFastImmutableSchema(session).getClass(className);
     }
     return iLinkedClass;
   }

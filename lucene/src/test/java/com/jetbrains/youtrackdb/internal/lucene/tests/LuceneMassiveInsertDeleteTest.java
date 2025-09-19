@@ -19,8 +19,8 @@
 package com.jetbrains.youtrackdb.internal.lucene.tests;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.assertj.core.api.Assertions;
 import org.junit.Assert;
@@ -34,7 +34,7 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
 
   @Before
   public void init() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var song = session.createVertexClass("City");
     song.createProperty("name", PropertyType.STRING);
 
@@ -83,7 +83,7 @@ public class LuceneMassiveInsertDeleteTest extends LuceneBaseTest {
     session.getMetadata().reload();
 
     session.begin();
-    var idx = session.getMetadata().getSchema().getClassInternal("City")
+    var idx = session.getMetadata().getSlowMutableSchema().getClassInternal("City")
         .getClassIndex(session, "City.name");
     Assert.assertEquals(0, idx.size(session));
     session.commit();

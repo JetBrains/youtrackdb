@@ -29,8 +29,8 @@ import org.testng.annotations.Test;
 public class CollectionIndexTest extends BaseDBTest {
   @BeforeClass
   public void setupSchema() {
-    if (session.getMetadata().getSchema().existsClass("Collector")) {
-      session.getMetadata().getSchema().dropClass("Collector");
+    if (session.getMetadata().getSlowMutableSchema().existsClass("Collector")) {
+      session.getMetadata().getSlowMutableSchema().dropClass("Collector");
     }
     final var collector = session.createClass("Collector");
     collector.createProperty("id", PropertyType.STRING);

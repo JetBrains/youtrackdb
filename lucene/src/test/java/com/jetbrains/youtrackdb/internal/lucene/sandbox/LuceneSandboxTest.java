@@ -100,7 +100,7 @@ public class LuceneSandboxTest extends LuceneBaseTest {
     session.execute("CREATE PROPERTY Son.textOfSon STRING");
 
     session.execute("CREATE INDEX Son.textOfSon ON Son(textOfSon) FULLTEXT ENGINE LUCENE ");
-    var father = session.getMetadata().getSchema().getClass("Father");
+    var father = session.getMetadata().getSlowMutableSchema().getClass("Father");
   }
 
   @Test

@@ -15,7 +15,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
 
   @Test
   public void testClassCreation() {
-    Schema oSchema = session.getMetadata().getSchema();
+    Schema oSchema = session.getMetadata().getSlowMutableSchema();
 
     var aClass = oSchema.createAbstractClass("javaA");
     var bClass = oSchema.createAbstractClass("javaB");
@@ -24,7 +24,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     var cClass = oSchema.createClass("javaC", aClass, bClass);
     testClassCreationBranch(aClass, bClass, cClass);
     testClassCreationBranch(aClass, bClass, cClass);
-    oSchema = session.getMetadata().getImmutableSchema(session);
+    oSchema = session.getMetadata().getFastImmutableSchema(session);
     aClass = oSchema.getClass("javaA");
     bClass = oSchema.getClass("javaB");
     cClass = oSchema.getClass("javaC");
@@ -60,7 +60,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
 
   @Test
   public void testSql() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
 
     var aClass = oSchema.createAbstractClass("sqlA");
     var bClass = oSchema.createAbstractClass("sqlB");
@@ -72,7 +72,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
 
   @Test
   public void testCreationBySql() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
 
     session.execute("create class sql2A abstract").close();
     session.execute("create class sql2B abstract").close();
@@ -92,7 +92,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
       expected = SchemaException.class) // , expectedExceptionsMessageRegExp = "(?s).*recursion.*"
   // )
   public void testPreventionOfCycles() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var aClass = oSchema.createAbstractClass("cycleA");
     var bClass = oSchema.createAbstractClass("cycleB", aClass);
     var cClass = oSchema.createAbstractClass("cycleC", bClass);
@@ -102,7 +102,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
 
   @Test
   public void testParametersImpactGoodScenario() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var aClass = oSchema.createAbstractClass("impactGoodA");
     aClass.createProperty("property", PropertyType.STRING);
     var bClass = oSchema.createAbstractClass("impactGoodB");
@@ -115,7 +115,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
       expected = SchemaException.class)
   // }, expectedExceptionsMessageRegExp = "(?s).*conflict.*")
   public void testParametersImpactBadScenario() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var aClass = oSchema.createAbstractClass("impactBadA");
     aClass.createProperty("property", PropertyType.STRING);
     var bClass = oSchema.createAbstractClass("impactBadB");
@@ -125,7 +125,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
 
   @Test
   public void testCreationOfClassWithV() {
-    final Schema oSchema = session.getMetadata().getSchema();
+    final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.getClass("O");
     var vClass = oSchema.getClass("V");
     vClass.setSuperClasses(Collections.singletonList(oClass));

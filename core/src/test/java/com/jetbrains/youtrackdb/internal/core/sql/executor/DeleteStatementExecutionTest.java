@@ -17,7 +17,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
   @Test
   public void testSimple() {
     var className = "testSimple";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -67,11 +67,11 @@ public class DeleteStatementExecutionTest extends DbTestBase {
   @Test
   public void testUnsafe1() {
     var className = "testUnsafe1";
-    var v = session.getMetadata().getSchema().getClass("V");
+    var v = session.getMetadata().getSlowMutableSchema().getClass("V");
     if (v == null) {
-      session.getMetadata().getSchema().createClass("V");
+      session.getMetadata().getSlowMutableSchema().createClass("V");
     }
-    session.getMetadata().getSchema().createClass(className, v);
+    session.getMetadata().getSlowMutableSchema().createClass(className, v);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newVertex(className);
@@ -91,11 +91,11 @@ public class DeleteStatementExecutionTest extends DbTestBase {
   @Test
   public void testUnsafe2() {
     var className = "testUnsafe2";
-    var v = session.getMetadata().getSchema().getClass("V");
+    var v = session.getMetadata().getSlowMutableSchema().getClass("V");
     if (v == null) {
-      session.getMetadata().getSchema().createClass("V");
+      session.getMetadata().getSlowMutableSchema().createClass("V");
     }
-    session.getMetadata().getSchema().createClass(className, v);
+    session.getMetadata().getSlowMutableSchema().createClass(className, v);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var vertex = session.newVertex(className);
@@ -133,7 +133,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
   @Test
   public void testReturnBefore() {
     var className = "testReturnBefore";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     RID fourthId = null;
 
     for (var i = 0; i < 10; i++) {
@@ -176,7 +176,7 @@ public class DeleteStatementExecutionTest extends DbTestBase {
   @Test
   public void testLimit() {
     var className = "testLimit";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       EntityImpl doc = session.newInstance(className);

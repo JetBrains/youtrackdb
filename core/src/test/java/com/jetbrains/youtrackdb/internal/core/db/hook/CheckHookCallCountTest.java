@@ -23,7 +23,7 @@ public class CheckHookCallCountTest extends DbTestBase {
 
   @Test
   public void testMultipleCallHook() {
-    var aClass = session.getMetadata().getSchema().createClass(CLASS_NAME);
+    var aClass = session.getMetadata().getSlowMutableSchema().createClass(CLASS_NAME);
     aClass.createProperty(FIELD_ID, PropertyType.STRING);
     aClass.createProperty(FIELD_STATUS, PropertyType.STRING);
     aClass.createIndex("IDX", SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_ID);
@@ -50,7 +50,7 @@ public class CheckHookCallCountTest extends DbTestBase {
 
   @Test
   public void testInHook() throws Exception {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createClass("TestInHook");
     oClass.createProperty("a", PropertyType.INTEGER);
     oClass.createProperty("b", PropertyType.INTEGER);

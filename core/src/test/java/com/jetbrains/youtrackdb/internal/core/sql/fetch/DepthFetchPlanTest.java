@@ -15,7 +15,7 @@ public class DepthFetchPlanTest extends DbTestBase {
 
   @Test
   public void testFetchPlanDepth() {
-    session.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSlowMutableSchema().createClass("Test");
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Test"));
@@ -58,7 +58,7 @@ public class DepthFetchPlanTest extends DbTestBase {
 
   @Test
   public void testFullDepthFetchPlan() {
-    session.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSlowMutableSchema().createClass("Test");
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("Test"));

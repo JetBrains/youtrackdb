@@ -14,7 +14,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testName1() {
     var className = "testName1";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
     var result = session.execute("alter class " + className + " name " + className + "_new");
     Assert.assertNull(schema.getClass(className));
@@ -25,7 +25,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testName2() {
     var className = "testName2";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var e = schema.getClass("E");
     if (e == null) {
       schema.createClass("E");
@@ -48,7 +48,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
     var className = "testSuperclasses_sub";
     var superclassName = "testSuperclasses_super1";
     var superclassName2 = "testSuperclasses_super2";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
     var superclass = schema.createClass(superclassName);
     var superclass2 = schema.createClass(superclassName2);
@@ -68,7 +68,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testStrictmode() {
     var className = "testStrictmode";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
     var result = session.execute("alter class " + className + " strict_mode true");
     var clazz = schema.getClass(className);
@@ -79,7 +79,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testCustom() {
     var className = "testCustom";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
     var result = session.execute("alter class " + className + " custom foo = 'bar'");
     var clazz = schema.getClass(className);
@@ -90,7 +90,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testCustom2() {
     var className = "testCustom2";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
     var result = session.execute("alter class " + className + " custom foo = ?", "bar");
     var clazz = schema.getClass(className);
@@ -101,7 +101,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testAbstract() {
     var className = "testAbstract";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
     var result = session.execute("alter class " + className + " abstract true");
     var clazz = schema.getClass(className);
@@ -112,7 +112,7 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testUnsafe1() {
     var className = "testUnsafe1";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var e = schema.getClass("E");
     if (e == null) {
       e = schema.createClass("E");

@@ -20,9 +20,9 @@ import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Locale;
@@ -35,7 +35,7 @@ public class SchemaTest extends BaseDBTest {
 
   @Test
   public void checkSchema() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     assert schema != null;
     assert schema.getClass("Profile") != null;
@@ -81,7 +81,7 @@ public class SchemaTest extends BaseDBTest {
   @Test(dependsOnMethods = "checkSchema")
   public void checkInvalidNamesBefore30() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     schema.createClass("TestInvalidName,");
     Assert.assertNotNull(schema.getClass("TestInvalidName,"));
@@ -96,7 +96,7 @@ public class SchemaTest extends BaseDBTest {
   @Test(dependsOnMethods = "checkSchema")
   public void checkSchemaApi() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     try {
       Assert.assertNull(schema.getClass("Animal33"));
@@ -107,7 +107,7 @@ public class SchemaTest extends BaseDBTest {
   @Test(dependsOnMethods = "checkSchemaApi")
   public void checkCollections() {
 
-    for (var cls : session.getMetadata().getSchema().getClasses()) {
+    for (var cls : session.getMetadata().getSlowMutableSchema().getClasses()) {
       assert cls.isAbstract()
           || session.getCollectionNameById(cls.getCollectionIds()[0]) != null;
     }
@@ -146,7 +146,7 @@ public class SchemaTest extends BaseDBTest {
                 doc.delete();
                 session.commit();
 
-                session.getMetadata().getSchema().dropClass("NewClass");
+                session.getMetadata().getSlowMutableSchema().dropClass("NewClass");
               }
             });
 
@@ -159,24 +159,24 @@ public class SchemaTest extends BaseDBTest {
 
     final var testClassName = "dropTestClass";
     final int collectionId;
-    var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
+    var dropTestClass = session.getMetadata().getSlowMutableSchema().createClass(testClassName);
     collectionId = dropTestClass.getCollectionIds()[0];
-    dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
+    dropTestClass = session.getMetadata().getSlowMutableSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), collectionId);
     Assert.assertNotNull(session.getCollectionNameById(collectionId));
 
-    dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
+    dropTestClass = session.getMetadata().getSlowMutableSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), collectionId);
     Assert.assertNotNull(session.getCollectionNameById(collectionId));
-    session.getMetadata().getSchema().dropClass(testClassName);
-    dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
+    session.getMetadata().getSlowMutableSchema().dropClass(testClassName);
+    dropTestClass = session.getMetadata().getSlowMutableSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), -1);
     Assert.assertNull(session.getCollectionNameById(collectionId));
 
-    dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
+    dropTestClass = session.getMetadata().getSlowMutableSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), -1);
     Assert.assertNull(session.getCollectionNameById(collectionId));
@@ -187,25 +187,25 @@ public class SchemaTest extends BaseDBTest {
 
     final var testClassName = "dropTestClass";
     final int collectionId;
-    var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
+    var dropTestClass = session.getMetadata().getSlowMutableSchema().createClass(testClassName);
     collectionId = dropTestClass.getCollectionIds()[0];
-    dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
+    dropTestClass = session.getMetadata().getSlowMutableSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), collectionId);
     Assert.assertNotNull(session.getCollectionNameById(collectionId));
 
-    dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
+    dropTestClass = session.getMetadata().getSlowMutableSchema().getClass(testClassName);
     Assert.assertNotNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), collectionId);
     Assert.assertNotNull(session.getCollectionNameById(collectionId));
     session.execute("drop class " + testClassName).close();
 
-    dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
+    dropTestClass = session.getMetadata().getSlowMutableSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), -1);
     Assert.assertNull(session.getCollectionNameById(collectionId));
 
-    dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
+    dropTestClass = session.getMetadata().getSlowMutableSchema().getClass(testClassName);
     Assert.assertNull(dropTestClass);
     Assert.assertEquals(session.getStorage().getCollectionIdByName(testClassName), -1);
     Assert.assertNull(session.getCollectionNameById(collectionId));
@@ -217,7 +217,7 @@ public class SchemaTest extends BaseDBTest {
     // TEST CUSTOM PROPERTY CREATION
     session
         .getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
         .setCustom("stereotype", "icon");
@@ -225,7 +225,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertEquals(
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
             .getCustom("stereotype"),
@@ -236,7 +236,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertEquals(
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
             .getCustom("stereotype"),
@@ -245,14 +245,14 @@ public class SchemaTest extends BaseDBTest {
     // TEST CUSTOM PROPERTY REMOVAL
     session
         .getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
         .setCustom("stereotype", null);
     Assert.assertNull(
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
             .getCustom("stereotype"));
@@ -260,14 +260,14 @@ public class SchemaTest extends BaseDBTest {
     // TEST CUSTOM PROPERTY UPDATE
     session
         .getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
         .setCustom("stereotype", "polygon");
     Assert.assertEquals(
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
             .getCustom("stereotype"),
@@ -278,7 +278,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertEquals(
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
             .getCustom("stereotype"),
@@ -288,7 +288,7 @@ public class SchemaTest extends BaseDBTest {
 
     session
         .getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
         .setCustom("equal", "this = that");
@@ -296,7 +296,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertEquals(
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
             .getCustom("equal"),
@@ -307,7 +307,7 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertEquals(
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
             .getCustom("equal"),
@@ -316,7 +316,7 @@ public class SchemaTest extends BaseDBTest {
 
   @Test
   public void alterAttributes() {
-    var company = session.getMetadata().getSchema().getClass("Company");
+    var company = session.getMetadata().getSlowMutableSchema().getClass("Company");
     var superClasses = company.getSuperClasses();
     Assert.assertEquals(superClasses.size(), 1);
     var superClass = superClasses.getFirst();
@@ -342,7 +342,7 @@ public class SchemaTest extends BaseDBTest {
         .execute("alter class " + company.getName() + " superclasses " + superClass.getName())
         .close();
 
-    company = session.getMetadata().getSchema().getClass("Company");
+    company = session.getMetadata().getSlowMutableSchema().getClass("Company");
     superClasses = company.getSuperClasses();
     Assert.assertEquals(superClasses.size(), 1);
     superClass = superClasses.getFirst();
@@ -370,7 +370,7 @@ public class SchemaTest extends BaseDBTest {
 
   @Test
   public void testRenameClass() {
-    var oClass = session.getMetadata().getSchema()
+    var oClass = session.getMetadata().getSlowMutableSchema()
         .createClass("RenameClassTest");
 
     session.begin();
@@ -394,12 +394,12 @@ public class SchemaTest extends BaseDBTest {
   }
 
   public void testRenameWithSameNameIsNop() {
-    session.getMetadata().getSchema().getClass("V").setName("V");
+    session.getMetadata().getSlowMutableSchema().getClass("V").setName("V");
   }
 
   public void testRenameWithExistentName() {
     try {
-      session.getMetadata().getSchema().getClass("V").setName("OUser");
+      session.getMetadata().getSlowMutableSchema().getClass("V").setName("OUser");
       Assert.fail();
     } catch (SchemaException | CommandExecutionException ignore) {
     }
@@ -407,7 +407,7 @@ public class SchemaTest extends BaseDBTest {
 
   @Test
   public void testDeletionOfDependentClass() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.getClass(EntityImpl.DEFAULT_CLASS_NAME);
     var classA = schema.createClass("TestDeletionOfDependentClassA", oClass);
     var classB = schema.createClass("TestDeletionOfDependentClassB", classA);

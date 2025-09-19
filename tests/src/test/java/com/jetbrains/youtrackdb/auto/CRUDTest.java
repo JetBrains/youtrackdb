@@ -111,7 +111,7 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testCreate")
   public void testCreateClass() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     Assert.assertNull(schema.getClass("Dummy"));
     var dummyClass = schema.createClass("Dummy");
     dummyClass.createProperty("name", PropertyType.STRING);

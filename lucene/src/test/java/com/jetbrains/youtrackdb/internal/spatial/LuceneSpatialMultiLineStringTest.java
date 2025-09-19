@@ -209,7 +209,7 @@ public class LuceneSpatialMultiLineStringTest extends BaseSpatialLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createVertexClass("Place");
     oClass.createProperty("location", PropertyType.EMBEDDED,
         schema.getClass("OMultiLineString"));

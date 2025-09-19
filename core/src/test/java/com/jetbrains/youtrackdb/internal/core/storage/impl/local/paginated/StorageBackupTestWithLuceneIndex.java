@@ -4,12 +4,12 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.io.IOException;
@@ -63,7 +63,7 @@ public class StorageBackupTestWithLuceneIndex {
 
   // @Test
   public void testSingeThreadFullBackup() throws IOException {
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = db.getMetadata().getSlowMutableSchema();
     final var backupClass = schema.createClass("BackupClass");
     backupClass.createProperty("num", PropertyType.INTEGER);
     backupClass.createProperty("name", PropertyType.STRING);
@@ -117,7 +117,7 @@ public class StorageBackupTestWithLuceneIndex {
   // @Test
   public void testSingeThreadIncrementalBackup() throws IOException {
 
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = db.getMetadata().getSlowMutableSchema();
     final var backupClass = schema.createClass("BackupClass");
     backupClass.createProperty("num", PropertyType.INTEGER);
     backupClass.createProperty("name", PropertyType.STRING);

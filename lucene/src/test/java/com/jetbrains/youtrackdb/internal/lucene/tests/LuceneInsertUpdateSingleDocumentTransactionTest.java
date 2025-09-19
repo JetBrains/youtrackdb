@@ -33,7 +33,7 @@ public class LuceneInsertUpdateSingleDocumentTransactionTest extends LuceneBaseT
 
   @Before
   public void init() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var oClass = schema.createClass("City");
     oClass.createProperty("name", PropertyType.STRING);
@@ -46,7 +46,7 @@ public class LuceneInsertUpdateSingleDocumentTransactionTest extends LuceneBaseT
   @Test
   public void testInsertUpdateTransactionWithIndex() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));
     doc.setProperty("name", "");

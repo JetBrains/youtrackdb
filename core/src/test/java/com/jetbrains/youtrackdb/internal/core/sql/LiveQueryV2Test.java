@@ -77,8 +77,8 @@ public class LiveQueryV2Test extends DbTestBase {
 
   @Test
   public void testLiveInsert() throws InterruptedException {
-    session.getMetadata().getSchema().createClass("test");
-    session.getMetadata().getSchema().createClass("test2");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("test2");
     var listener = new MyLiveQueryListener(new CountDownLatch(2));
 
     var monitor = session.live("select from test", listener);
@@ -111,7 +111,7 @@ public class LiveQueryV2Test extends DbTestBase {
 
   @Test
   public void testLiveInsertOnClass() {
-    session.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
 
     var listener =
         new MyLiveQueryListener(new CountDownLatch(1));
@@ -138,7 +138,7 @@ public class LiveQueryV2Test extends DbTestBase {
 
   @Test
   public void testLiveWithWhereCondition() {
-    session.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
 
     var listener =
         new MyLiveQueryListener(new CountDownLatch(1));
@@ -165,8 +165,8 @@ public class LiveQueryV2Test extends DbTestBase {
 
   @Test
   public void testLiveProjections() throws InterruptedException {
-    session.getMetadata().getSchema().createClass("test");
-    session.getMetadata().getSchema().createClass("test2");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("test2");
     var listener = new MyLiveQueryListener(new CountDownLatch(2));
 
     var monitor = session.live("select @class, @rid as rid, name from test", listener);

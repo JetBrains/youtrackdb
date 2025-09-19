@@ -20,7 +20,6 @@ import com.jetbrains.youtrackdb.api.transaction.TxBiFunction;
 import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Iterator;
@@ -246,13 +245,6 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
   <T, X extends Exception> void forEachInTx(Stream<T> stream,
       TxBiFunction<Transaction, T, Boolean, X> consumer) throws X;
 
-
-  /**
-   * Returns the schema of the database.
-   *
-   * @return the schema of the database
-   */
-  Schema getSchema();
 
   /**
    * Returns the number of active nested transactions.

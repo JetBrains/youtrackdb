@@ -248,7 +248,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
   }
 
   private void createSchema(DatabaseSessionInternal session) {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var testOneClass = schema.createClass("TestOne");
 
     testOneClass.createProperty("intProp", PropertyType.INTEGER);
@@ -291,8 +291,8 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
         List<RID> testTwoList = new ArrayList<RID>();
         List<RID> firstDocs = new ArrayList<RID>();
 
-        var classOne = baseDB.getMetadata().getSchema().getClass("TestOne");
-        var classTwo = baseDB.getMetadata().getSchema().getClass("TestTwo");
+        var classOne = baseDB.getMetadata().getSlowMutableSchema().getClass("TestOne");
+        var classTwo = baseDB.getMetadata().getSlowMutableSchema().getClass("TestTwo");
 
         for (var i = 0; i < 10000; i++) {
           var docOne = ((EntityImpl) baseDB.newEntity(classOne));

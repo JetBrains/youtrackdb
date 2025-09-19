@@ -16,9 +16,9 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.Arrays;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
@@ -35,7 +35,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
   public void beforeMethod() throws Exception {
     super.beforeMethod();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.createClass("DropPropertyIndexTestClass");
     oClass.createProperty("prop1", EXPECTED_PROP1_TYPE.getPublicPropertyType());
     oClass.createProperty("prop2", EXPECTED_PROP2_TYPE.getPublicPropertyType());
@@ -60,7 +60,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("DropPropertyIndexTestClass")
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
     Assert.assertNotNull(index);
@@ -70,7 +70,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("DropPropertyIndexTestClass")
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
 
@@ -88,7 +88,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("DropPropertyIndexTestClass")
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
     Assert.assertNotNull(index);
@@ -98,7 +98,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("DropPropertyIndexTestClass")
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
 
@@ -116,7 +116,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("DropPropertyIndexTestClass")
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
     Assert.assertNotNull(index);
@@ -135,7 +135,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("DropPropertyIndexTestClass")
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
 
@@ -172,7 +172,7 @@ public class SQLDropSchemaPropertyIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("DropPropertyIndexTestClass")
             .getClassIndex(session, "DropPropertyIndexCompositeIndex");
 

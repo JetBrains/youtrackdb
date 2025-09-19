@@ -19,14 +19,14 @@ public class ByteArrayKeyTest extends BaseDBTest {
     super.beforeClass();
 
     final var byteArrayKeyTest =
-        session.getMetadata().getSchema().createClass("ByteArrayKeyTest");
+        session.getMetadata().getSlowMutableSchema().createClass("ByteArrayKeyTest");
     byteArrayKeyTest.createProperty("byteArrayKey", PropertyType.BINARY);
 
     byteArrayKeyTest.createIndex("byteArrayKeyIndex", SchemaClass.INDEX_TYPE.UNIQUE,
         "byteArrayKey");
 
     final var compositeByteArrayKeyTest =
-        session.getMetadata().getSchema().createClass("CompositeByteArrayKeyTest");
+        session.getMetadata().getSlowMutableSchema().createClass("CompositeByteArrayKeyTest");
     compositeByteArrayKeyTest.createProperty("byteArrayKey", PropertyType.BINARY);
     compositeByteArrayKeyTest.createProperty("intKey", PropertyType.INTEGER);
 

@@ -31,7 +31,7 @@ public class ExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
     cache = ExecutionPlanCache.instance(session);
     Assert.assertTrue(cache.contains(stm));
 
-    var clazz = session.getMetadata().getSchema().createClass(testName);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(testName);
     Assert.assertFalse(cache.contains(stm));
 
     Thread.sleep(2);

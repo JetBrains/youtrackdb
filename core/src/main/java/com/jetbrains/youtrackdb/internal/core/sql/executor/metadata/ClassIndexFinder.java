@@ -30,7 +30,7 @@ public class ClassIndexFinder implements IndexFinder {
     var cand =
         new PrePath() {
           {
-            this.cl = ctx.getDatabaseSession().getMetadata().getImmutableSchema(session)
+            this.cl = ctx.getDatabaseSession().getMetadata().getFastImmutableSchema(session)
                 .getClassInternal(ClassIndexFinder.this.clazz);
             valid = true;
             last = lastP;

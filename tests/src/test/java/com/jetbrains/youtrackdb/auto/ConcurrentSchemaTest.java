@@ -49,12 +49,13 @@ public class ConcurrentSchemaTest extends BaseDBTest {
         try {
           final var clsName = "ConcurrentClassTest-" + id + "-" + i;
 
-          var cls = ConcurrentSchemaTest.this.session.getMetadata().getSchema()
+          var cls = ConcurrentSchemaTest.this.session.getMetadata().getSlowMutableSchema()
               .createClass(clsName);
 
           Assert.assertEquals(cls.getName(), clsName);
           Assert.assertTrue(
-              ConcurrentSchemaTest.this.session.getMetadata().getSchema().existsClass(clsName));
+              ConcurrentSchemaTest.this.session.getMetadata().getSlowMutableSchema()
+                  .existsClass(clsName));
 
           db.executeInTx(transaction -> {
             transaction.execute("select from " + clsName).close();
@@ -85,10 +86,12 @@ public class ConcurrentSchemaTest extends BaseDBTest {
           final var clsName = "ConcurrentClassTest-" + id + "-" + i;
 
           Assert.assertTrue(
-              ConcurrentSchemaTest.this.session.getMetadata().getSchema().existsClass(clsName));
-          ConcurrentSchemaTest.this.session.getMetadata().getSchema().dropClass(clsName);
+              ConcurrentSchemaTest.this.session.getMetadata().getSlowMutableSchema()
+                  .existsClass(clsName));
+          ConcurrentSchemaTest.this.session.getMetadata().getSlowMutableSchema().dropClass(clsName);
           Assert.assertFalse(
-              ConcurrentSchemaTest.this.session.getMetadata().getSchema().existsClass(clsName));
+              ConcurrentSchemaTest.this.session.getMetadata().getSlowMutableSchema()
+                  .existsClass(clsName));
 
           counter.decrementAndGet();
         } finally {
@@ -115,7 +118,7 @@ public class ConcurrentSchemaTest extends BaseDBTest {
     for (var id = 0; id < THREADS; ++id) {
       for (var i = 0; i < CYCLES; ++i) {
         final var clsName = "ConcurrentClassTest-" + id + "-" + i;
-        Assert.assertTrue(session.getMetadata().getSchema().existsClass(clsName));
+        Assert.assertTrue(session.getMetadata().getSlowMutableSchema().existsClass(clsName));
       }
     }
 

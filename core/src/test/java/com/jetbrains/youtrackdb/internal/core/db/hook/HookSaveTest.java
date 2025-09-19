@@ -36,8 +36,8 @@ public class HookSaveTest extends DbTestBase {
 
         });
 
-    session.getMetadata().getSchema().createClass("test");
-    session.getMetadata().getSchema().createClass("another");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("another");
 
     session.begin();
     var entity = session.newEntity("test");
@@ -74,8 +74,8 @@ public class HookSaveTest extends DbTestBase {
           }
         });
 
-    session.getMetadata().getSchema().createClass("test");
-    session.getMetadata().getSchema().createClass("another");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("another");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("test");

@@ -9,8 +9,6 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -112,8 +110,8 @@ public class GraphRepair {
     final var session = (DatabaseSessionInternal) graph;
     session.executeInTx(
         transaction -> {
-          final Metadata metadata = session.getMetadata();
-          final Schema schema = metadata.getSchema();
+          final var metadata = session.getMetadata();
+          final var schema = metadata.getFastImmutableSchema();
 
           final var useVertexFieldsForEdgeLabels = true; // db.isUseVertexFieldsForEdgeLabels();
 
@@ -313,8 +311,8 @@ public class GraphRepair {
       final Map<String, List<String>> options,
       final boolean checkOnly) {
     final var db = (DatabaseSessionInternal) session;
-    final Metadata metadata = db.getMetadata();
-    final Schema schema = metadata.getSchema();
+    final var metadata = db.getMetadata();
+    final var schema = metadata.getFastImmutableSchema();
 
     final var vertexClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
     if (vertexClass != null) {
@@ -372,7 +370,7 @@ public class GraphRepair {
               for (var fieldName : vertex.getPropertyNamesInternal(false, false)) {
                 final var connection =
                     VertexEntityImpl.getConnection(
-                        db.getMetadata().getSchema(), Direction.BOTH, fieldName);
+                        db.getMetadata().getFastImmutableSchema(), Direction.BOTH, fieldName);
                 if (connection == null) {
                   continue;
                 }

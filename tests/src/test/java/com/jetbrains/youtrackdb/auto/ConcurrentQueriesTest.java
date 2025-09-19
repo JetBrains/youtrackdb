@@ -66,11 +66,11 @@ public class ConcurrentQueriesTest extends BaseDBTest {
 
   @BeforeClass
   public void init() {
-    if (session.getMetadata().getSchema().existsClass("Concurrent")) {
-      session.getMetadata().getSchema().dropClass("Concurrent");
+    if (session.getMetadata().getSlowMutableSchema().existsClass("Concurrent")) {
+      session.getMetadata().getSlowMutableSchema().dropClass("Concurrent");
     }
 
-    session.getMetadata().getSchema().createClass("Concurrent");
+    session.getMetadata().getSlowMutableSchema().createClass("Concurrent");
 
     for (var i = 0; i < 1000; ++i) {
       session.begin();

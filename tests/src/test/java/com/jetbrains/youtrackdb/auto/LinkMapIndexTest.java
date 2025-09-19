@@ -21,7 +21,7 @@ public class LinkMapIndexTest extends BaseDBTest {
   @BeforeClass
   public void setupSchema() {
     final var linkMapIndexTestClass =
-        session.getMetadata().getSchema().createClass("LinkMapIndexTestClass");
+        session.getMetadata().getSlowMutableSchema().createClass("LinkMapIndexTestClass");
     linkMapIndexTestClass.createProperty("linkMap", PropertyType.LINKMAP);
 
     linkMapIndexTestClass.createIndex("mapIndexTestKey", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -33,7 +33,7 @@ public class LinkMapIndexTest extends BaseDBTest {
   @AfterClass
   public void destroySchema() {
     session = createSessionInstance();
-    session.getMetadata().getSchema().dropClass("LinkMapIndexTestClass");
+    session.getMetadata().getSlowMutableSchema().dropClass("LinkMapIndexTestClass");
     session.close();
   }
 

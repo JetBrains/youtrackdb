@@ -26,19 +26,19 @@ public class GEOTest extends BaseDBTest {
 
   @Test
   public void geoSchema() {
-    final var mapPointClass = session.getMetadata().getSchema().createClass("MapPoint");
+    final var mapPointClass = session.getMetadata().getSlowMutableSchema().createClass("MapPoint");
     mapPointClass.createProperty("x", PropertyType.DOUBLE)
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
     mapPointClass.createProperty("y", PropertyType.DOUBLE)
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
     final var xIndexes =
-        session.getMetadata().getSchema().getClassInternal("MapPoint")
+        session.getMetadata().getSlowMutableSchema().getClassInternal("MapPoint")
             .getInvolvedIndexesInternal(session, "x");
     Assert.assertEquals(xIndexes.size(), 1);
 
     final var yIndexes =
-        session.getMetadata().getSchema().getClassInternal("MapPoint")
+        session.getMetadata().getSlowMutableSchema().getClassInternal("MapPoint")
             .getInvolvedIndexesInternal(session, "y");
     Assert.assertEquals(yIndexes.size(), 1);
   }
@@ -46,12 +46,12 @@ public class GEOTest extends BaseDBTest {
   @Test(dependsOnMethods = "geoSchema")
   public void checkGeoIndexes() {
     final var xIndexes =
-        session.getMetadata().getSchema().getClassInternal("MapPoint").
+        session.getMetadata().getSlowMutableSchema().getClassInternal("MapPoint").
             getInvolvedIndexesInternal(session, "x");
     Assert.assertEquals(xIndexes.size(), 1);
 
     final var yIndexDefinitions =
-        session.getMetadata().getSchema().getClassInternal("MapPoint")
+        session.getMetadata().getSlowMutableSchema().getClassInternal("MapPoint")
             .getInvolvedIndexesInternal(session, "y");
     Assert.assertEquals(yIndexDefinitions.size(), 1);
   }

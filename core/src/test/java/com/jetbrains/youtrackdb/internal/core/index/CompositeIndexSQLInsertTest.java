@@ -12,7 +12,7 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var book = schema.createClass("Book");
     book.createProperty("author", PropertyType.STRING);
     book.createProperty("title", PropertyType.STRING);
@@ -29,7 +29,7 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
 
   @Test
   public void testCompositeIndexWithRangeAndContains() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("CompositeIndexWithRangeAndConditions");
     clazz.createProperty("id", PropertyType.INTEGER);
     clazz.createProperty("bar", PropertyType.INTEGER);

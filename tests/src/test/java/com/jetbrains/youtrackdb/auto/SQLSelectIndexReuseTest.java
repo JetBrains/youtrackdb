@@ -27,7 +27,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.createClass("sqlSelectIndexReuseTestClass");
 
     oClass.createProperty("prop1", PropertyType.INTEGER);
@@ -2734,7 +2734,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
   @Test
   public void testReuseOfIndexOnSeveralClassesFields() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var superClass = schema.createClass("sqlSelectIndexReuseTestSuperClass");
     superClass.createProperty("prop0", PropertyType.INTEGER);
     final var oClass = schema.createClass("sqlSelectIndexReuseTestChildClass", superClass);
@@ -2781,7 +2781,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   @Test
   public void testCountFunctionWithNotUniqueIndex() {
     var klazz =
-        session.getMetadata().getSchema().getOrCreateClass("CountFunctionWithNotUniqueIndexTest");
+        session.getMetadata().getSlowMutableSchema()
+            .getOrCreateClass("CountFunctionWithNotUniqueIndexTest");
     if (!klazz.existsProperty("a")) {
       klazz.createProperty("a", PropertyType.STRING);
       klazz.createIndex("a", "NOTUNIQUE", "a");
@@ -2820,7 +2821,8 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
   @Test
   public void testCountFunctionWithUniqueIndex() {
     var klazz =
-        session.getMetadata().getSchema().getOrCreateClass("CountFunctionWithUniqueIndexTest");
+        session.getMetadata().getSlowMutableSchema()
+            .getOrCreateClass("CountFunctionWithUniqueIndexTest");
     if (!klazz.existsProperty("a")) {
       klazz.createProperty("a", PropertyType.STRING);
       klazz.createIndex("testCountFunctionWithUniqueIndex", "NOTUNIQUE", "a");

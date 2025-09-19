@@ -47,7 +47,7 @@ public class CreateRecordStep extends AbstractExecutionStep {
     var db = ctx.getDatabaseSession();
     final Entity entity;
     if (targetClass != null) {
-      var cls = db.getMetadata().getImmutableSchema(session).getClass(targetClass);
+      var cls = db.getMetadata().getFastImmutableSchema(session).getClass(targetClass);
       if (cls == null) {
         throw new DatabaseException("Class " + targetClass + " not found");
       }

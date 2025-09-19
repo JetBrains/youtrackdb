@@ -35,7 +35,7 @@ public class LuceneSpatialFunctionAsTextTest extends BaseSpatialLuceneTest {
   @Before
   public void init() throws IOException {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     var oClass = schema.createVertexClass("Location");
     oClass.createProperty("geometry", PropertyType.EMBEDDED, schema.getClass("OShape"));

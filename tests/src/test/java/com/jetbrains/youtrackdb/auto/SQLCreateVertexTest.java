@@ -18,7 +18,7 @@ public class SQLCreateVertexTest extends BaseDBTest {
 
     session = createSessionInstance();
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     if (!schema.existsClass("CreateVertexByContent")) {
       var vClass = schema.createClass("CreateVertexByContent", schema.getClass("V"));
       vClass.createProperty("message", PropertyType.STRING);

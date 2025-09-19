@@ -17,7 +17,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
   public void testPlain() {
     var className = "testPlain";
     var propertyName = "foo";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className).createProperty(propertyName, PropertyType.STRING);
 
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
@@ -35,7 +35,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
   public void testDropIndexForce() {
     var className = "testDropIndexForce";
     var propertyName = "foo";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema
         .createClass(className)
         .createProperty(propertyName, PropertyType.STRING)
@@ -60,7 +60,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var className = "testDropIndex";
     var propertyName = "foo";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema
         .createClass(className)
         .createProperty(propertyName, PropertyType.STRING)

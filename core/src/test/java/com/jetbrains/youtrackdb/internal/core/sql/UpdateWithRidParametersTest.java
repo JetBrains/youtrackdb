@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.List;
 import org.junit.Test;
 
@@ -13,7 +13,7 @@ public class UpdateWithRidParametersTest extends DbTestBase {
   @Test
   public void testRidParameters() {
 
-    Schema schm = session.getMetadata().getSchema();
+    Schema schm = session.getMetadata().getSlowMutableSchema();
     schm.createClass("testingClass");
     schm.createClass("testingClass2");
 

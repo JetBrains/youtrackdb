@@ -22,7 +22,7 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
 
   @Test
   public void testCompositeGrowShirnk() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("CompositeIndex");
     clazz.createProperty("id", PropertyType.INTEGER);
     clazz.createProperty("bar", PropertyType.INTEGER);
@@ -55,7 +55,7 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
   @Test
   public void testCompositeGrowDrop() {
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("CompositeIndex");
     clazz.createProperty("id", PropertyType.INTEGER);
     clazz.createProperty("bar", PropertyType.INTEGER);

@@ -24,9 +24,9 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
@@ -49,7 +49,7 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
       final Object iRight,
       CommandContext iContext) {
     var session = iContext.getDatabaseSession();
-    final Schema schema = session.getMetadata().getImmutableSchema(session);
+    final Schema schema = session.getMetadata().getFastImmutableSchema(session);
 
     final var baseClassName = iRight.toString();
     final var baseClass = schema.getClass(baseClassName);

@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
@@ -320,21 +319,6 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     assert session.assertIfNotActive();
     return session.countClass(name, isPolymorphic);
   }
-
-  public long countImpl(boolean isPolymorphic, DatabaseSessionInternal session) {
-    assert session.assertIfNotActive();
-
-    if (isPolymorphic) {
-      return session
-          .countCollectionElements(
-              SchemaClassShared.readableCollections(session, polymorphicCollectionIds, name));
-    }
-
-    return session
-        .countCollectionElements(
-            SchemaClassShared.readableCollections(session, collectionIds, name));
-  }
-
 
   @Override
   public boolean isSubClassOf(final String iClassName) {

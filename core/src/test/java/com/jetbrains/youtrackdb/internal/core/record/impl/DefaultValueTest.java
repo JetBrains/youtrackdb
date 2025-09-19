@@ -17,7 +17,7 @@ public class DefaultValueTest extends DbTestBase {
   @Test
   public void testKeepValueSerialization() {
     // create example schema
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassC");
 
     var prop = classA.createProperty("name", PropertyType.STRING);
@@ -38,7 +38,7 @@ public class DefaultValueTest extends DbTestBase {
 
   @Test
   public void testDefaultValueDate() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassA");
 
     var prop = classA.createProperty("date", PropertyType.DATE);
@@ -71,7 +71,7 @@ public class DefaultValueTest extends DbTestBase {
 
   @Test
   public void testDefaultValueDateFromContent() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassA");
 
     var prop = classA.createProperty("date", PropertyType.DATE);
@@ -111,7 +111,7 @@ public class DefaultValueTest extends DbTestBase {
 
   @Test
   public void testDefaultValueFromJson() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassA");
 
     var prop = classA.createProperty("date", PropertyType.DATE);
@@ -134,7 +134,7 @@ public class DefaultValueTest extends DbTestBase {
 
   @Test
   public void testDefaultValueProvidedFromJson() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassA");
 
     var prop = classA.createProperty("date", PropertyType.DATETIME);
@@ -159,7 +159,7 @@ public class DefaultValueTest extends DbTestBase {
 
   @Test
   public void testDefaultValueMandatoryReadonlyFromJson() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassA");
 
     var prop = classA.createProperty("date", PropertyType.DATE);
@@ -184,7 +184,7 @@ public class DefaultValueTest extends DbTestBase {
 
   @Test
   public void testDefaultValueProvidedMandatoryReadonlyFromJson() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassA");
 
     var prop = classA.createProperty("date", PropertyType.DATETIME);
@@ -211,7 +211,7 @@ public class DefaultValueTest extends DbTestBase {
 
   @Test
   public void testDefaultValueUpdateMandatoryReadonlyFromJson() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ClassA");
 
     var prop = classA.createProperty("date", PropertyType.DATETIME);

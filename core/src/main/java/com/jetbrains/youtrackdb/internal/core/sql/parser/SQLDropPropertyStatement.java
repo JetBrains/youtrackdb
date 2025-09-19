@@ -35,7 +35,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
   public ExecutionStream executeDDL(CommandContext ctx) {
 
     final var session = ctx.getDatabaseSession();
-    final var sourceClass = session.getMetadata().getSchema()
+    final var sourceClass = session.getMetadata().getSlowMutableSchema()
             .getClass(className.getStringValue());
     if (sourceClass == null) {
       throw new CommandExecutionException(session, "Source class '" + className + "' not found");

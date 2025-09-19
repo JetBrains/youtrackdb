@@ -71,7 +71,7 @@ public class FunctionLibraryImpl {
     functions.clear();
 
     // LOAD ALL THE FUNCTIONS IN MEMORY
-    if (session.getMetadata().getImmutableSchema(session).existsClass("OFunction")) {
+    if (session.getMetadata().getFastImmutableSchema(session).existsClass("OFunction")) {
       session.executeInTx(tx -> {
         try (var result = tx.query("select from OFunction order by name")) {
           while (result.hasNext()) {
@@ -162,8 +162,8 @@ public class FunctionLibraryImpl {
   }
 
   protected static void init(final DatabaseSessionInternal session) {
-    if (session.getMetadata().getSchema().existsClass("OFunction")) {
-      var f = session.getMetadata().getSchema().getClass("OFunction");
+    if (session.getMetadata().getFastImmutableSchema().existsClass("OFunction")) {
+      var f = session.getMetadata().getSlowMutableSchema().getClass("OFunction");
       var prop = f.getProperty("name");
 
       if (prop.getAllIndexes().isEmpty()) {
@@ -172,7 +172,7 @@ public class FunctionLibraryImpl {
       return;
     }
 
-    var f = session.getMetadata().getSchema().createClass("OFunction");
+    var f = session.getMetadata().getSlowMutableSchema().createClass("OFunction");
     var prop = f.createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
         true);
     prop.createIndex(SchemaClass.INDEX_TYPE.UNIQUE);

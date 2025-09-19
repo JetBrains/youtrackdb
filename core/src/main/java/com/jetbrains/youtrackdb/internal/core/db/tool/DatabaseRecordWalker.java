@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import java.util.Set;
@@ -48,7 +48,7 @@ public class DatabaseRecordWalker {
     var lastLap = System.currentTimeMillis();
 
     for (var collectionName : collectionNames) {
-      if (MetadataDefault.COLLECTION_INTERNAL_NAME.equals(collectionName)) {
+      if (SessionMetadata.COLLECTION_INTERNAL_NAME.equals(collectionName)) {
         continue;
       }
 

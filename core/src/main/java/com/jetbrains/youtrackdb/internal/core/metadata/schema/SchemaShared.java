@@ -7,13 +7,12 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -186,7 +185,7 @@ public final class SchemaShared {
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_READ);
     acquireSchemaReadLock();
     try {
-      return session.countCollectionElements(MetadataDefault.COLLECTION_NAME_SCHEMA_CLASS);
+      return session.countCollectionElements(SessionMetadata.COLLECTION_NAME_SCHEMA_CLASS);
     } finally {
       releaseSchemaReadLock();
     }

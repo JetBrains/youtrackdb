@@ -138,7 +138,8 @@ public abstract class BaseDBTest extends BaseTest {
     createAccountClass();
 
     final Set<Integer> accountCollectionIds =
-        Arrays.stream(session.getMetadata().getSchema().getClass("Account").getCollectionIds())
+        Arrays.stream(
+                session.getMetadata().getSlowMutableSchema().getClass("Account").getCollectionIds())
             .asLongStream()
             .mapToObj(i -> (int) i)
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
@@ -452,11 +453,11 @@ public abstract class BaseDBTest extends BaseTest {
 
   private void createWhizClass() {
     var account = createAccountClass();
-    if (session.getMetadata().getSchema().existsClass("Whiz")) {
+    if (session.getMetadata().getSlowMutableSchema().existsClass("Whiz")) {
       return;
     }
 
-    var whiz = session.getMetadata().getSchema().createClass("Whiz");
+    var whiz = session.getMetadata().getSlowMutableSchema().createClass("Whiz");
     whiz.createProperty("id", PropertyType.INTEGER);
     whiz.createProperty("account", PropertyType.LINK, account);
     whiz.createProperty("date", PropertyType.DATE).setMin("2010-01-01");
@@ -467,25 +468,25 @@ public abstract class BaseDBTest extends BaseTest {
   }
 
   private void createAnimalRaceClass() {
-    if (session.getMetadata().getSchema().existsClass("AnimalRace")) {
+    if (session.getMetadata().getSlowMutableSchema().existsClass("AnimalRace")) {
       return;
     }
 
     var animalRace =
-        session.getMetadata().getSchema().createClass("AnimalRace");
+        session.getMetadata().getSlowMutableSchema().createClass("AnimalRace");
     animalRace.createProperty("name", PropertyType.STRING);
-    var animal = session.getMetadata().getSchema().createClass("Animal");
+    var animal = session.getMetadata().getSlowMutableSchema().createClass("Animal");
     animal.createProperty("races", PropertyType.LINKSET, animalRace);
     animal.createProperty("name", PropertyType.STRING);
   }
 
   private void createStrictTestClass() {
-    if (session.getMetadata().getSchema().existsClass("StrictTest")) {
+    if (session.getMetadata().getSlowMutableSchema().existsClass("StrictTest")) {
       return;
     }
 
     var strictTest =
-        session.getMetadata().getSchema().createClass("StrictTest");
+        session.getMetadata().getSlowMutableSchema().createClass("StrictTest");
     strictTest.setStrictMode(true);
     strictTest.createProperty("id", PropertyType.INTEGER).isMandatory();
     strictTest.createProperty("name", PropertyType.STRING);

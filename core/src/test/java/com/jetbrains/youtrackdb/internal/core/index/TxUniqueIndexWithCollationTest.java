@@ -23,8 +23,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
 
@@ -36,7 +36,7 @@ public class TxUniqueIndexWithCollationTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
     session.getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .createClass("user")
         .createProperty("name", PropertyType.STRING)
         .setCollate("ci")

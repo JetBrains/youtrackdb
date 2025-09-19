@@ -10,7 +10,7 @@ public class GraphComplexIndexTest extends GraphBaseTest {
 
   @Test
   public void compositeIndexSingleSecondFieldTest() {
-    var foo = session.getMetadata().getSchema().createVertexClass("Foo");
+    var foo = session.getMetadata().getSlowMutableSchema().createVertexClass("Foo");
     foo.createProperty("prop1", PropertyType.LONG);
     foo.createProperty("prop2", PropertyType.STRING);
 

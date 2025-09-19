@@ -15,7 +15,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateSingleEdge() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var vClass = "testCreateSingleEdgeV";
     schema.createClass(vClass, schema.getClass("V"));
@@ -60,7 +60,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateEdgeWithProperty() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var vClass = "testCreateEdgeWithPropertyV";
     schema.createClass(vClass, schema.getClass("V"));
@@ -103,7 +103,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testCreateTwoByTwo() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var vClass = "testCreateTwoByTwoV";
     schema.createClass(vClass, schema.getClass("V"));
@@ -156,7 +156,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testUpsert() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var vClass1 = "testUpsertV1";
     var vclazz1 = schema.createClass(vClass1, schema.getClass("V"));
@@ -230,7 +230,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testUpsertHashIndex() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var vClass1 = "testUpsertHashIndexV1";
     var vclazz1 = schema.createClass(vClass1, schema.getClass("V"));
@@ -303,7 +303,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testBreakUniqueWithoutUpsert() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var vClass1 = "testBreakUniqueWithoutUpsertV1";
     var vclazz1 = schema.createClass(vClass1, schema.getClass("V"));
@@ -372,7 +372,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testUpsertNoIndex() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var vClass1 = "testUpsertNoIndexV1";
     schema.createClass(vClass1, schema.getClass("V"));

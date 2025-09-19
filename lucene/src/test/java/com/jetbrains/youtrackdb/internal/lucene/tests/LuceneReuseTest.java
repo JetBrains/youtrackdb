@@ -17,7 +17,7 @@ public class LuceneReuseTest extends LuceneBaseTest {
   @Test
   public void shouldUseTheRightIndex() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var cls = schema.createClass("Reuse");
     cls.createProperty("name", PropertyType.STRING);
@@ -54,7 +54,7 @@ public class LuceneReuseTest extends LuceneBaseTest {
   @Test
   public void shouldUseTheRightLuceneIndex() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var cls = schema.createClass("Reuse");
     cls.createProperty("name", PropertyType.STRING);

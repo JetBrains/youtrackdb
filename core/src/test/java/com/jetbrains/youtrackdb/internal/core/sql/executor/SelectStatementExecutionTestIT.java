@@ -12,7 +12,7 @@ public class SelectStatementExecutionTestIT extends DbTestBase {
   @Test
   public void stressTestNew() {
     var className = "stressTestNew";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 1000000; i++) {
       session.begin();
       var doc = session.newInstance(className);

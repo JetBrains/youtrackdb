@@ -21,9 +21,9 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -351,8 +351,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void createLinkInTx() {
     session = createSessionInstance();
 
-    var profile = session.getMetadata().getSchema().createClass("MyProfile", 1);
-    var edge = session.getMetadata().getSchema().createClass("MyEdge", 1);
+    var profile = session.getMetadata().getSlowMutableSchema().createClass("MyProfile", 1);
+    var edge = session.getMetadata().getSlowMutableSchema().createClass("MyEdge", 1);
     profile
         .createProperty("name", PropertyType.STRING)
         .setMin("3")
@@ -437,27 +437,27 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
   @Test
   public void testTransactionPopulateDelete() {
-    if (!session.getMetadata().getSchema().existsClass("MyFruit")) {
-      var fruitClass = session.getMetadata().getSchema().createClass("MyFruit");
+    if (!session.getMetadata().getSlowMutableSchema().existsClass("MyFruit")) {
+      var fruitClass = session.getMetadata().getSlowMutableSchema().createClass("MyFruit");
       fruitClass.createProperty("name", PropertyType.STRING);
       fruitClass.createProperty("color", PropertyType.STRING);
       fruitClass.createProperty("flavor", PropertyType.STRING);
 
       session
           .getMetadata()
-          .getSchema()
+          .getSlowMutableSchema()
           .getClass("MyFruit")
           .getProperty("name")
           .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
       session
           .getMetadata()
-          .getSchema()
+          .getSlowMutableSchema()
           .getClass("MyFruit")
           .getProperty("color")
           .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
       session
           .getMetadata()
-          .getSchema()
+          .getSlowMutableSchema()
           .getClass("MyFruit")
           .getProperty("flavor")
           .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
@@ -517,7 +517,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
   @Test
   public void testConsistencyOnDelete() {
-    if (session.getMetadata().getSchema().getClass("Foo") == null) {
+    if (session.getMetadata().getSlowMutableSchema().getClass("Foo") == null) {
       session.createVertexClass("Foo");
     }
 
@@ -617,14 +617,14 @@ public class TransactionConsistencyTest extends BaseDBTest {
   }
 
   public void transactionRollbackConstistencyTest() {
-    var vertexClass = session.getMetadata().getSchema().createClass("TRVertex");
-    var edgeClass = session.getMetadata().getSchema().createClass("TREdge");
+    var vertexClass = session.getMetadata().getSlowMutableSchema().createClass("TRVertex");
+    var edgeClass = session.getMetadata().getSlowMutableSchema().createClass("TREdge");
     vertexClass.createProperty("in", PropertyType.LINKSET, edgeClass);
     vertexClass.createProperty("out", PropertyType.LINKSET, edgeClass);
     edgeClass.createProperty("in", PropertyType.LINK, vertexClass);
     edgeClass.createProperty("out", PropertyType.LINK, vertexClass);
 
-    var personClass = session.getMetadata().getSchema()
+    var personClass = session.getMetadata().getSlowMutableSchema()
         .createClass("TRPerson", vertexClass);
     personClass.createProperty("name", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
@@ -820,7 +820,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
 
   public void testTransactionsCache() {
     Assert.assertFalse(session.getTransactionInternal().isActive());
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TransA");
     classA.createProperty("name", PropertyType.STRING);
 

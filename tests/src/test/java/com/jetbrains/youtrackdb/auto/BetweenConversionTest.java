@@ -21,7 +21,7 @@ public class BetweenConversionTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var clazz = schema.createClass("BetweenConversionTest");
     clazz.createProperty("a", PropertyType.INTEGER);
     clazz.createProperty("ai", PropertyType.INTEGER);

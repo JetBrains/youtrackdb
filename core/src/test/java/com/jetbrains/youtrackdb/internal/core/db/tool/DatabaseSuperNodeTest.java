@@ -123,7 +123,7 @@ public class DatabaseSuperNodeTest {
       final var time = (System.nanoTime() - start) / 1000000;
       stats.add(time);
       System.out.println("Import-" + numberEdge + "(ms)=" + time);
-      Assert.assertTrue(db.getMetadata().getSchema().existsClass("SuperNodeClass"));
+      Assert.assertTrue(db.getMetadata().getSlowMutableSchema().existsClass("SuperNodeClass"));
     } catch (final IOException e) {
       e.printStackTrace();
     }

@@ -10,8 +10,6 @@ import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -20,7 +18,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -295,7 +296,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   private Iterable<EdgeInternal> getEdgesInternal(Direction direction,
       String[] labels) {
-    var schema = session.getMetadata().getImmutableSchema(session);
+    var schema = session.getMetadata().getFastImmutableSchema(session);
     labels = resolveAliases(session, schema, labels);
 
     Collection<String> propertyNames = null;
@@ -433,7 +434,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   @Nullable
   public static Pair<Direction, String> getConnection(
-      final Schema schema,
+      final ImmutableSchema schema,
       final Direction direction,
       final String fieldName,
       String... classNames) {

@@ -68,7 +68,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     var rec = session.newBlob("blabla".getBytes());
     session.commit();
 
-    session.getMetadata().getSchema().createClass("RecordPointer");
+    session.getMetadata().getSlowMutableSchema().createClass("RecordPointer");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("RecordPointer");
@@ -98,7 +98,7 @@ public class TestBinaryRecordsQuery extends DbTestBase {
     var rec1 = session.newBlob("blabla".getBytes());
     session.commit();
 
-    session.getMetadata().getSchema().createClass("RecordPointer");
+    session.getMetadata().getSlowMutableSchema().createClass("RecordPointer");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("RecordPointer");

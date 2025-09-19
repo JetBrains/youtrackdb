@@ -5,9 +5,6 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.util.PairIntegerObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -15,6 +12,9 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -945,7 +945,7 @@ public class SelectExecutionPlanner {
       if (!className.isEmpty() && className.charAt(0) == '$'
           && !ctx.getDatabaseSession()
           .getMetadata()
-          .getImmutableSchema(session)
+          .getFastImmutableSchema(session)
           .existsClass(className)) {
         handleVariableAsTarget(result, info, ctx, profilingEnabled);
       } else {
@@ -1883,7 +1883,7 @@ public class SelectExecutionPlanner {
   }
 
   private static ImmutableSchema getSchemaFromContext(CommandContext ctx) {
-    return ctx.getDatabaseSession().getMetadata().getImmutableSchema(session);
+    return ctx.getDatabaseSession().getMetadata().getFastImmutableSchema(session);
   }
 
   private static boolean fullySorted(SQLOrderBy orderBy, IndexSearchDescriptor desc) {

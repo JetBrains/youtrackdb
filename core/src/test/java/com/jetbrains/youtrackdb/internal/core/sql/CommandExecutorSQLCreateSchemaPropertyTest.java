@@ -51,7 +51,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE class company").close();
     session.execute("CREATE property company.name STRING").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -68,7 +68,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE class company").close();
     session.execute("CREATE property company.name STRING UNSAFE").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -85,7 +85,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE class company").close();
     session.execute("CREATE property company.division LINK division").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_DIVISION);
 
     assertEquals(PROP_DIVISION, nameProperty.getName());
@@ -103,7 +103,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE Class company").close();
     session.execute("CREATE Property company.officers EMBEDDEDLIST STRING").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
     assertEquals(PROP_OFFICERS, nameProperty.getName());
@@ -120,7 +120,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE class company").close();
     session.execute("CREATE property company.name STRING (MANDATORY)").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -135,7 +135,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE class company").close();
     session.execute("CREATE property company.name STRING (NOTNULL)").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -150,7 +150,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE class company").close();
     session.execute("CREATE property company.name STRING (READONLY)").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -165,7 +165,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE class company").close();
     session.execute("CREATE property company.name STRING (READONLY false)").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -179,7 +179,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE Class company").close();
     session.execute("CREATE Property company.officers EMBEDDEDLIST STRING (MANDATORY)").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
     assertEquals(PROP_OFFICERS, nameProperty.getName());
@@ -197,7 +197,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE Class company").close();
     session.execute("CREATE Property company.officers EMBEDDEDLIST STRING UNSAFE").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
     assertEquals(PROP_OFFICERS, nameProperty.getName());
@@ -215,7 +215,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
                 + " UNSAFE")
         .close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
     assertEquals(PROP_OFFICERS, nameProperty.getName());
@@ -234,7 +234,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
             "CREATE PROPERTY company.id EMBEDDEDLIST Integer (DEFAULT 5, MIN 1, MAX 10) UNSAFE")
         .close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var idProperty = companyClass.getProperty(PROP_ID);
 
     assertEquals(PROP_ID, idProperty.getName());
@@ -254,7 +254,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE CLASS company").close();
     session.execute("CREATE PROPERTY company.id INTEGER (DEFAULT 5, MIN 1, MAX 10) UNSAFE").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var idProperty = companyClass.getProperty(PROP_ID);
 
     assertEquals(PROP_ID, idProperty.getName());
@@ -275,7 +275,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE PROPERTY company.id INTEGER  ( DEFAULT  5 ,  MANDATORY  )  UNSAFE ")
         .close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var idProperty = companyClass.getProperty(PROP_ID);
 
     assertEquals(PROP_ID, idProperty.getName());
@@ -297,7 +297,7 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
                 + " MIN 4, DEFAULT 6)  UNSAFE")
         .close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
     var idProperty = companyClass.getProperty(PROP_ID);
 
     assertEquals(PROP_ID, idProperty.getName());
@@ -339,8 +339,8 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE CLASS Mandatory").close();
     session.execute("CREATE PROPERTY company.id EMBEDDEDLIST Mandatory UNSAFE").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("company");
-    var mandatoryClass = session.getMetadata().getSchema().getClass("Mandatory");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("company");
+    var mandatoryClass = session.getMetadata().getSlowMutableSchema().getClass("Mandatory");
     var idProperty = companyClass.getProperty(PROP_ID);
 
     assertEquals(PROP_ID, idProperty.getName());
@@ -355,13 +355,13 @@ public class CommandExecutorSQLCreateSchemaPropertyTest extends BaseMemoryIntern
     session.execute("CREATE class testIfNotExists").close();
     session.execute("CREATE property testIfNotExists.name if not exists STRING").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("testIfNotExists");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("testIfNotExists");
     var property = companyClass.getProperty("name");
     assertEquals(PROP_NAME, property.getName());
 
     session.execute("CREATE property testIfNotExists.name if not exists STRING").close();
 
-    companyClass = session.getMetadata().getSchema().getClass("testIfNotExists");
+    companyClass = session.getMetadata().getSlowMutableSchema().getClass("testIfNotExists");
     property = companyClass.getProperty("name");
     assertEquals(PROP_NAME, property.getName());
   }

@@ -54,7 +54,7 @@ public class LuceneIndexVsLuceneTest extends LuceneBaseTest {
 
     session.computeScript("sql", getScriptFromStream(stream));
 
-    session.getMetadata().getSchema();
+    session.getMetadata().getSlowMutableSchema();
 
     FileUtils.deleteRecursively(getPath().getAbsoluteFile());
     try {

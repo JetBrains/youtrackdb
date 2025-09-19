@@ -2108,7 +2108,7 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test
   public void testGetIndexesWithoutParent() {
-    final var inClass = session.getMetadata().getSchema()
+    final var inClass = session.getMetadata().getSlowMutableSchema()
         .createClass("ClassIndexInTest");
     inClass.createProperty("fOne", PropertyType.INTEGER);
 

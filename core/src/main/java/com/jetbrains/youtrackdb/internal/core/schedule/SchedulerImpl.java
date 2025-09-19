@@ -21,12 +21,12 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.schedule.Scheduler.STATUS;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -137,7 +137,7 @@ public class SchedulerImpl {
   }
 
   public void load(DatabaseSessionInternal session) {
-    if (session.getMetadata().getSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
+    if (session.getMetadata().getFastImmutableSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
       session.executeInTx(tx -> {
         try (var result = tx.query("select from " + ScheduledEvent.CLASS_NAME)) {
           while (result.hasNext()) {
@@ -159,11 +159,11 @@ public class SchedulerImpl {
   public static void create(DatabaseSessionInternal database) {
     if (database
         .getMetadata()
-        .getImmutableSchema(session)
+        .getFastImmutableSchema(session)
         .existsClass(ScheduledEvent.CLASS_NAME)) {
       return;
     }
-    var f = database.getMetadata().getSchema()
+    var f = database.getMetadata().getSlowMutableSchema()
         .createClass(ScheduledEvent.CLASS_NAME);
 
     f.createProperty(ScheduledEvent.PROP_NAME, PropertyTypeInternal.STRING,
@@ -187,7 +187,7 @@ public class SchedulerImpl {
     f.createProperty(
             ScheduledEvent.PROP_FUNC,
             PropertyTypeInternal.LINK,
-            database.getMetadata().getSchema().getClass(Function.CLASS_NAME), true)
+            database.getMetadata().getSlowMutableSchema().getClass(Function.CLASS_NAME), true)
         .setMandatory(true)
         .setNotNull(true);
     f.createProperty(ScheduledEvent.PROP_STARTTIME, PropertyTypeInternal.DATETIME,

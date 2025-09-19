@@ -112,9 +112,10 @@ public class CRUDInheritanceTest extends BaseDBTest {
     createInheritanceTestClass();
 
     var abstractClass =
-        session.getMetadata().getSchema().getClass("InheritanceTestAbstractClass");
-    var baseClass = session.getMetadata().getSchema().getClass("InheritanceTestBaseClass");
-    var testClass = session.getMetadata().getSchema().getClass("InheritanceTestClass");
+        session.getMetadata().getSlowMutableSchema().getClass("InheritanceTestAbstractClass");
+    var baseClass = session.getMetadata().getSlowMutableSchema()
+        .getClass("InheritanceTestBaseClass");
+    var testClass = session.getMetadata().getSlowMutableSchema().getClass("InheritanceTestClass");
 
     Assert.assertTrue(baseClass.getSuperClasses().contains(abstractClass));
     Assert.assertTrue(testClass.getSuperClasses().contains(baseClass));
@@ -135,16 +136,16 @@ public class CRUDInheritanceTest extends BaseDBTest {
 
   @Test
   public void testKeywordClass() {
-    var klass = session.getMetadata().getSchema().createClass("Not");
+    var klass = session.getMetadata().getSlowMutableSchema().createClass("Not");
 
-    var klass1 = session.getMetadata().getSchema().createClass("Extends_Not", klass);
+    var klass1 = session.getMetadata().getSlowMutableSchema().createClass("Extends_Not", klass);
     Assert.assertEquals(klass1.getSuperClasses().size(), 1, 1);
     Assert.assertEquals(klass1.getSuperClasses().getFirst().getName(), "Not");
   }
 
   @Test
   public void testSchemaGeneration() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var testSchemaClass = schema.createClass("JavaTestSchemaGeneration");
     var childClass = schema.createClass("TestSchemaGenerationChild");
 

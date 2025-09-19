@@ -20,63 +20,76 @@
 package com.jetbrains.youtrackdb.internal.core.metadata;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibrary;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryProxy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProxy;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Security;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityProxy;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibrary;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryProxy;
 import com.jetbrains.youtrackdb.internal.core.schedule.Scheduler;
 import com.jetbrains.youtrackdb.internal.core.schedule.SchedulerProxy;
-import java.io.IOException;
-import javax.annotation.Nullable;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 
-public class MetadataDefault implements MetadataInternal {
-
+public final class SessionMetadata {
   public static final String COLLECTION_INTERNAL_NAME = "internal";
 
   public static final String COLLECTION_NAME_SCHEMA_CLASS = "$schemaClassInternal";
   public static final String COLLECTION_NAME_SCHEMA_PROPERTY = "$schemaPropertyInternal";
   public static final String COLLECTION_NAME_GLOBAL_PROPERTY = "$globalPropertyInternal";
 
-  protected int schemaCollectionId;
+  public static Set<String> SYSTEM_COLLECTION =
+      Collections.unmodifiableSet(
+          new HashSet<>(
+              Arrays.asList(
+                  SecurityUserImpl.CLASS_NAME.toLowerCase(Locale.ENGLISH),
+                  Role.CLASS_NAME.toLowerCase(Locale.ENGLISH),
+                  Identity.CLASS_NAME.toLowerCase(Locale.ENGLISH),
+                  Function.CLASS_NAME.toLowerCase(Locale.ENGLISH),
+                  COLLECTION_INTERNAL_NAME, COLLECTION_NAME_SCHEMA_PROPERTY,
+                  COLLECTION_NAME_GLOBAL_PROPERTY)));
 
-  protected SchemaProxy schema;
-  protected Security security;
-  protected FunctionLibraryProxy functionLibrary;
-  protected SchedulerProxy scheduler;
-  protected SequenceLibraryProxy sequenceLibrary;
+
+  private SchemaProxy schema;
+  private Security security;
+  private FunctionLibraryProxy functionLibrary;
+  private SchedulerProxy scheduler;
+  private SequenceLibraryProxy sequenceLibrary;
 
   private SchemaSnapshot schemaSnapshot = null;
   private int immutableCount = 0;
-  private DatabaseSessionEmbedded database;
+  private final DatabaseSessionEmbedded database;
 
-  public MetadataDefault() {
-  }
-
-  public MetadataDefault(DatabaseSessionEmbedded databaseDocument) {
+  public SessionMetadata(DatabaseSessionEmbedded databaseDocument) {
     this.database = databaseDocument;
   }
 
-  @Deprecated
-  public void load() {
-  }
-
-  @Deprecated
-  public void create() throws IOException {
-  }
-
-  public SchemaProxy getSchema() {
+  public SchemaProxy getSlowMutableSchema() {
     return schema;
   }
 
+  public ImmutableSchema getFastImmutableSchema() {
+    var transaction = database.getTransactionInternal();
 
-  @Override
+    if (transaction.isSchemaChanged()) {
+      return schema;
+    }
+
+    return schemaSnapshot;
+  }
+
+
   public void makeThreadLocalSchemaSnapshot() {
     if (this.immutableCount == 0) {
       if (schema != null) {
@@ -86,7 +99,6 @@ public class MetadataDefault implements MetadataInternal {
     this.immutableCount++;
   }
 
-  @Override
   public void clearThreadLocalSchemaSnapshot() {
     this.immutableCount--;
     if (this.immutableCount == 0) {
@@ -94,7 +106,6 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
-  @Override
   public void forceClearThreadLocalSchemaSnapshot() {
     if (this.immutableCount == 0) {
       this.schemaSnapshot = null;
@@ -105,32 +116,12 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
-  @Nullable
-  @Override
-  public ImmutableSchema getImmutableSchema(DatabaseSessionEmbedded session) {
-    var currentTransaction = session.getTransactionInternal();
-    if (currentTransaction.isSchemaChanged()) {
-      return schema;
-    }
-
-    if (schemaSnapshot == null) {
-      if (schema == null) {
-        return null;
-      }
-      return schema.makeSnapshot();
-    }
-
-    return schemaSnapshot;
-  }
-
   public Security getSecurity() {
     return security;
   }
 
 
   public SharedContext init(SharedContext shared) {
-    schemaCollectionId = database.getCollectionIdByName(COLLECTION_INTERNAL_NAME);
-
     schema = new SchemaProxy(shared.getSchema(), database);
     security = new SecurityProxy(shared.getSecurity(), database);
     functionLibrary = new FunctionLibraryProxy(shared.getFunctionLibrary(), database);
@@ -148,24 +139,10 @@ public class MetadataDefault implements MetadataInternal {
     // ADD HERE THE RELOAD OF A PROXY OBJECT IF NEEDED
   }
 
-  /**
-   * Closes internal objects
-   */
-  @Deprecated
-  public void close() {
-    // DO NOTHING BECAUSE THE PROXY OBJECT HAVE NO DIRECT STATE
-    // ADD HERE THE CLOSE OF A PROXY OBJECT IF NEEDED
-  }
-
-  protected DatabaseSessionInternal getDatabase() {
-    return database;
-  }
-
   public FunctionLibrary getFunctionLibrary() {
     return functionLibrary;
   }
 
-  @Override
   public SequenceLibrary getSequenceLibrary() {
     return sequenceLibrary;
   }

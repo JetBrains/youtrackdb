@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import java.util.Collection;
 import java.util.Set;
 
 public interface ImmutableSchemaProperty {
@@ -111,4 +113,13 @@ public interface ImmutableSchemaProperty {
   String getDescription();
 
   String getCustom(final String iName);
+
+  /**
+   * @return All indexes in which this property participates.
+   */
+  Collection<String> getAllIndexes();
+
+  DatabaseSession getBoundToSession();
+
+  PropertyTypeInternal getTypeInternal();
 }

@@ -29,10 +29,10 @@ public class CommandExecutorSQLCreateLinkTest extends DbTestBase {
 
   @Test
   public void testBasic() {
-    var basic1 = session.getMetadata().getSchema().createClass("Basic1");
+    var basic1 = session.getMetadata().getSlowMutableSchema().createClass("Basic1");
     basic1.createProperty("theLink", PropertyType.LINK);
 
-    var basic2 = session.getMetadata().getSchema().createClass("Basic2");
+    var basic2 = session.getMetadata().getSlowMutableSchema().createClass("Basic2");
     basic2.createProperty("theLink", PropertyType.LINK);
 
     session.begin();
@@ -58,10 +58,10 @@ public class CommandExecutorSQLCreateLinkTest extends DbTestBase {
 
   @Test
   public void testInverse() {
-    var inverse1 = session.getMetadata().getSchema().createClass("Inverse1");
+    var inverse1 = session.getMetadata().getSlowMutableSchema().createClass("Inverse1");
     inverse1.createProperty("theLink", PropertyType.LINK);
 
-    var inverse2 = session.getMetadata().getSchema().createClass("Inverse2");
+    var inverse2 = session.getMetadata().getSlowMutableSchema().createClass("Inverse2");
     inverse2.createProperty("theLink", PropertyType.LINKSET);
 
     session.begin();

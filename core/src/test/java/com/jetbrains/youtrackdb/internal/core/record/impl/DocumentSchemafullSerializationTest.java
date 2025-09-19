@@ -68,7 +68,7 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
 
     session.setSerializer(serializer);
     // databaseDocument.getMetadata().
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     address = schema.createAbstractClass("Address");
     address.createProperty(NAME, PropertyType.STRING);
     address.createProperty(NUMBER, PropertyType.INTEGER);

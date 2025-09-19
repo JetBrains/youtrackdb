@@ -206,7 +206,7 @@ public abstract class LuceneIndexEngineAbstract implements LuceneIndexEngine {
     var fields = indexDefinition.getProperties();
 
     var aClass =
-        session.getMetadata().getSchema().getClass(indexDefinition.getClassName());
+        session.getMetadata().getFastImmutableSchema().getClass(indexDefinition.getClassName());
     for (var field : fields) {
       var property = aClass.getProperty(field);
 

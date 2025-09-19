@@ -239,7 +239,7 @@ public class LocalPaginatedStorageRestoreTx {
   }
 
   private static void createSchema(DatabaseSessionInternal session) {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var testOneClass = schema.createClass("TestOne");
 
     testOneClass.createProperty("intProp", PropertyType.INTEGER);

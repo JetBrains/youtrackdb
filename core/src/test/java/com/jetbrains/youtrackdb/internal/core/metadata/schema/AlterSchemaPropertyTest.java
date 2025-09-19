@@ -15,7 +15,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testPropertyRenaming() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestPropertyRenaming");
     var property = classA.createProperty("propertyOld", PropertyType.STRING);
     assertEquals(property, classA.getProperty("propertyOld"));
@@ -27,7 +27,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testPropertyRenamingReload() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestPropertyRenaming");
     var property = classA.createProperty("propertyOld", PropertyType.STRING);
     assertEquals(property, classA.getProperty("propertyOld"));
@@ -40,7 +40,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testLinkedMapPropertyLinkedType() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestMapProperty");
     try {
       classA.createProperty("propertyMap", PropertyType.LINKMAP, PropertyType.STRING);
@@ -55,7 +55,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testLinkedMapPropertyLinkedClass() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestMapProperty");
     var classLinked = schema.createClass("LinkedClass");
     try {
@@ -71,7 +71,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testRemoveLinkedClass() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestRemoveLinkedClass");
     var classLinked = schema.createClass("LinkedClass");
     var prop = classA.createProperty("propertyLink", PropertyType.LINK, classLinked);
@@ -82,7 +82,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testRemoveLinkedClassSQL() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestRemoveLinkedClass");
     var classLinked = schema.createClass("LinkedClass");
     var prop = classA.createProperty("propertyLink", PropertyType.LINK, classLinked);
@@ -93,7 +93,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testMax() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("TestWrongMax");
     var prop = classA.createProperty("dates", PropertyType.EMBEDDEDLIST,
         PropertyType.DATE);
@@ -110,7 +110,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
   @Test
   public void testAlterPropertyWithDot() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     session.execute("create class testAlterPropertyWithDot").close();
     session.execute("create property testAlterPropertyWithDot.`a.b` STRING").close();
     Assert.assertNotNull(schema.getClass("testAlterPropertyWithDot").getProperty("a.b"));
@@ -121,7 +121,7 @@ public class AlterSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testAlterCustomAttributeInProperty() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createClass("TestCreateCustomAttributeClass");
     var property = oClass.createProperty("property", PropertyType.STRING);
 

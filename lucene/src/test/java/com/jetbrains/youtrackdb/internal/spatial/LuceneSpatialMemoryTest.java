@@ -32,7 +32,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
   @Test
   @Ignore
   public void boundingBoxTest() {
-    var point = session.getMetadata().getSchema().createClass("Point");
+    var point = session.getMetadata().getSlowMutableSchema().createClass("Point");
     point.createProperty("latitude", PropertyType.DOUBLE);
     point.createProperty("longitude", PropertyType.DOUBLE);
 
@@ -60,7 +60,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
   @Test
   @Ignore
   public void boundingBoxTestTxRollBack() {
-    var point = session.getMetadata().getSchema().createClass("Point");
+    var point = session.getMetadata().getSlowMutableSchema().createClass("Point");
     point.createProperty("latitude", PropertyType.DOUBLE);
     point.createProperty("longitude", PropertyType.DOUBLE);
 
@@ -128,7 +128,7 @@ public class LuceneSpatialMemoryTest extends LuceneBaseTest {
   @Test
   @Ignore
   public void boundingBoxTestTxCommit() {
-    var point = session.getMetadata().getSchema().createClass("Point");
+    var point = session.getMetadata().getSlowMutableSchema().createClass("Point");
     point.createProperty("latitude", PropertyType.DOUBLE);
     point.createProperty("longitude", PropertyType.DOUBLE);
 

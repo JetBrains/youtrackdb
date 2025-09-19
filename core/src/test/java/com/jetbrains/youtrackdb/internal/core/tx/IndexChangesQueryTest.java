@@ -38,7 +38,7 @@ public class IndexChangesQueryTest {
         (DatabaseSessionEmbedded)
             youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = db.getMetadata().getSlowMutableSchema();
     final var cls = schema.createClass(CLASS_NAME);
     cls.createProperty(FIELD_NAME, PropertyType.INTEGER);
     cls.createIndex(INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);

@@ -14,7 +14,7 @@ public class DeepLinkedDocumentSaveTest extends DbTestBase {
   public void testLinkedTx() {
     final Set<EntityImpl> docs = new HashSet<>();
 
-    session.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSlowMutableSchema().createClass("Test");
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("Test");

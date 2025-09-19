@@ -3,10 +3,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -54,7 +54,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
 
   private void executeInternal(CommandContext ctx, ResultInternal result) {
     var session = ctx.getDatabaseSession();
-    var clazz = session.getMetadata().getSchema()
+    var clazz = session.getMetadata().getSlowMutableSchema()
         .getClass(className.getStringValue());
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
@@ -82,7 +82,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
     if (this.linkedType != null) {
       var linked = this.linkedType.getStringValue();
       // FIRST SEARCH BETWEEN CLASSES
-      linkedClass = session.getMetadata().getSchema().getClass(linked);
+      linkedClass = session.getMetadata().getSlowMutableSchema().getClass(linked);
       if (linkedClass == null)
       // NOT FOUND: SEARCH BETWEEN TYPES
       {

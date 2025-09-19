@@ -28,7 +28,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.execute("CREATE class testBasicCreateProperty").close();
     session.execute("CREATE property testBasicCreateProperty.name STRING").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("testBasicCreateProperty");
+    var companyClass = session.getMetadata().getSlowMutableSchema()
+        .getClass("testBasicCreateProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -44,7 +45,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.execute("CREATE class testBasicUnsafeCreateProperty").close();
     session.execute("CREATE property testBasicUnsafeCreateProperty.name STRING UNSAFE").close();
 
-    var companyClass = session.getMetadata().getSchema()
+    var companyClass = session.getMetadata().getSlowMutableSchema()
         .getClass("testBasicUnsafeCreateProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
@@ -66,7 +67,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     var companyClass =
-        session.getMetadata().getSchema().getClass("testCreatePropertyWithLinkedClass_2");
+        session.getMetadata().getSlowMutableSchema()
+            .getClass("testCreatePropertyWithLinkedClass_2");
     var nameProperty = companyClass.getProperty(PROP_DIVISION);
 
     assertEquals(PROP_DIVISION, nameProperty.getName());
@@ -88,7 +90,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     var companyClass =
-        session.getMetadata().getSchema().getClass("testCreatePropertyWithEmbeddedType");
+        session.getMetadata().getSlowMutableSchema().getClass("testCreatePropertyWithEmbeddedType");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
     assertEquals(PROP_OFFICERS, nameProperty.getName());
@@ -105,7 +107,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.execute("CREATE class testCreateMandatoryProperty").close();
     session.execute("CREATE property testCreateMandatoryProperty.name STRING (MANDATORY)").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("testCreateMandatoryProperty");
+    var companyClass = session.getMetadata().getSlowMutableSchema()
+        .getClass("testCreateMandatoryProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -120,7 +123,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.execute("CREATE class testCreateNotNullProperty").close();
     session.execute("CREATE property testCreateNotNullProperty.name STRING (NOTNULL)").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("testCreateNotNullProperty");
+    var companyClass = session.getMetadata().getSlowMutableSchema()
+        .getClass("testCreateNotNullProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -135,7 +139,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.execute("CREATE class testCreateReadOnlyProperty").close();
     session.execute("CREATE property testCreateReadOnlyProperty.name STRING (READONLY)").close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("testCreateReadOnlyProperty");
+    var companyClass = session.getMetadata().getSlowMutableSchema()
+        .getClass("testCreateReadOnlyProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -151,7 +156,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.execute("CREATE property testCreateReadOnlyFalseProperty.name STRING (READONLY false)")
         .close();
 
-    var companyClass = session.getMetadata().getSchema()
+    var companyClass = session.getMetadata().getSlowMutableSchema()
         .getClass("testCreateReadOnlyFalseProperty");
     var nameProperty = companyClass.getProperty(PROP_NAME);
 
@@ -169,7 +174,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     var companyClass =
-        session.getMetadata().getSchema().getClass("testCreateMandatoryPropertyWithEmbeddedType");
+        session.getMetadata().getSlowMutableSchema()
+            .getClass("testCreateMandatoryPropertyWithEmbeddedType");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
     assertEquals(PROP_OFFICERS, nameProperty.getName());
@@ -191,7 +197,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     var companyClass =
-        session.getMetadata().getSchema().getClass("testCreateUnsafePropertyWithEmbeddedType");
+        session.getMetadata().getSlowMutableSchema()
+            .getClass("testCreateUnsafePropertyWithEmbeddedType");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
     assertEquals(PROP_OFFICERS, nameProperty.getName());
@@ -209,7 +216,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
                 + " READONLY, NOTNULL) UNSAFE")
         .close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("testComplexCreateProperty");
+    var companyClass = session.getMetadata().getSlowMutableSchema()
+        .getClass("testComplexCreateProperty");
     var nameProperty = companyClass.getProperty(PROP_OFFICERS);
 
     assertEquals(PROP_OFFICERS, nameProperty.getName());
@@ -230,7 +238,8 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     var companyClass =
-        session.getMetadata().getSchema().getClass("testLinkedTypeDefaultAndMinMaxUnsafeProperty");
+        session.getMetadata().getSlowMutableSchema()
+            .getClass("testLinkedTypeDefaultAndMinMaxUnsafeProperty");
     var idProperty = companyClass.getProperty(PROP_ID);
 
     assertEquals(PROP_ID, idProperty.getName());
@@ -255,7 +264,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
         .close();
 
     var companyClass =
-        session.getMetadata().getSchema().getClass("testDefaultAndMinMaxUnsafeProperty");
+        session.getMetadata().getSlowMutableSchema().getClass("testDefaultAndMinMaxUnsafeProperty");
     var idProperty = companyClass.getProperty(PROP_ID);
 
     assertEquals(PROP_ID, idProperty.getName());
@@ -277,7 +286,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
             "CREATE PROPERTY testExtraSpaces.id INTEGER  ( DEFAULT  5 ,  MANDATORY  )  UNSAFE ")
         .close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("testExtraSpaces");
+    var companyClass = session.getMetadata().getSlowMutableSchema().getClass("testExtraSpaces");
     var idProperty = companyClass.getProperty(PROP_ID);
 
     assertEquals(PROP_ID, idProperty.getName());
@@ -313,8 +322,9 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
                 + " UNSAFE")
         .close();
 
-    var companyClass = session.getMetadata().getSchema().getClass("testMandatoryAsLinkedName");
-    var mandatoryClass = session.getMetadata().getSchema()
+    var companyClass = session.getMetadata().getSlowMutableSchema()
+        .getClass("testMandatoryAsLinkedName");
+    var mandatoryClass = session.getMetadata().getSlowMutableSchema()
         .getClass("testMandatoryAsLinkedName_2");
     var idProperty = companyClass.getProperty(PROP_ID);
 
@@ -330,7 +340,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
     session.execute("CREATE class testIfNotExists").close();
     session.execute("CREATE property testIfNotExists.name if not exists STRING").close();
 
-    var clazz = session.getMetadata().getSchema().getClass("testIfNotExists");
+    var clazz = session.getMetadata().getSlowMutableSchema().getClass("testIfNotExists");
     var nameProperty = clazz.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());
@@ -339,7 +349,7 @@ public class CreateSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     session.execute("CREATE property testIfNotExists.name if not exists STRING").close();
 
-    clazz = session.getMetadata().getSchema().getClass("testIfNotExists");
+    clazz = session.getMetadata().getSlowMutableSchema().getClass("testIfNotExists");
     nameProperty = clazz.getProperty(PROP_NAME);
 
     assertEquals(PROP_NAME, nameProperty.getName());

@@ -15,7 +15,6 @@ package com.jetbrains.youtrackdb.internal.security.auditing;
 
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.security.AuditingOperation;
 import com.jetbrains.youtrackdb.internal.core.security.SecuritySystem;
@@ -61,7 +60,7 @@ public class AuditingLoggingThread extends Thread {
         .getSystemDatabase()
         .executeInDBScope(
             session -> {
-              Schema schema = session.getMetadata().getSchema();
+              var schema = session.getMetadata().getSlowMutableSchema();
               if (!schema.existsClass(className)) {
                 var clazz = schema.getClass(DefaultAuditing.AUDITING_LOG_CLASSNAME);
                 var cls = schema.createClass(className, clazz);

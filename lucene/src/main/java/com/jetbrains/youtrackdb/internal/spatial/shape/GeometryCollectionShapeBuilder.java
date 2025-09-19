@@ -71,7 +71,7 @@ public class GeometryCollectionShapeBuilder extends ComplexShapeBuilder<ShapeCol
   @Override
   public void initClazz(DatabaseSessionInternal db) {
 
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = db.getMetadata().getSlowMutableSchema();
     var shape = superClass(db);
     var polygon = schema.createAbstractClass(getName(), shape);
     polygon.createProperty("geometries", PropertyType.EMBEDDEDLIST, shape);

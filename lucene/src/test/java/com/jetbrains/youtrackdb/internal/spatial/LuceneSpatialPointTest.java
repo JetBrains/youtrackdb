@@ -32,7 +32,7 @@ public class LuceneSpatialPointTest extends BaseSpatialLuceneTest {
   @Before
   public void init() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     var oClass = schema.createVertexClass("City");
     oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));

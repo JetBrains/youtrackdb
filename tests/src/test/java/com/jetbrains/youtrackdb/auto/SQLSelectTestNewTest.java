@@ -21,11 +21,11 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -53,8 +53,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @BeforeClass
   public void init() {
-    if (!session.getMetadata().getSchema().existsClass("Profile")) {
-      session.getMetadata().getSchema().createClass("Profile", 1);
+    if (!session.getMetadata().getSlowMutableSchema().existsClass("Profile")) {
+      session.getMetadata().getSlowMutableSchema().createClass("Profile", 1);
 
       for (var i = 0; i < 1000; ++i) {
         session.begin();
@@ -63,8 +63,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       }
     }
 
-    if (!session.getMetadata().getSchema().existsClass("company")) {
-      session.getMetadata().getSchema().createClass("company", 1);
+    if (!session.getMetadata().getSlowMutableSchema().existsClass("company")) {
+      session.getMetadata().getSlowMutableSchema().createClass("company", 1);
       for (var i = 0; i < 20; ++i) {
         session.begin();
         session.newEntity("company").setProperty("id", i);
@@ -73,7 +73,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       }
     }
 
-    session.getMetadata().getSchema().getOrCreateClass("Account");
+    session.getMetadata().getSlowMutableSchema().getOrCreateClass("Account");
     session.begin();
     record = ((EntityImpl) session.newEntity());
     session.commit();
@@ -575,7 +575,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void queryWhereRidDirectMatching() {
-    var collectionId = session.getMetadata().getSchema().getClass("ORole").getCollectionIds()[0];
+    var collectionId = session.getMetadata().getSlowMutableSchema().getClass("ORole")
+        .getCollectionIds()[0];
     session.begin();
     var positions = getValidPositions(collectionId);
 
@@ -799,7 +800,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   public void queryRecordTargetRid() {
     session.begin();
     var profileCollectionId =
-        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+        session.getMetadata().getSlowMutableSchema().getClass("Profile").getCollectionIds()[0];
     var positions = getValidPositions(profileCollectionId);
 
     var result =
@@ -818,7 +819,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   public void queryRecordTargetRids() {
     session.begin();
     var profileCollectionId =
-        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+        session.getMetadata().getSlowMutableSchema().getClass("Profile").getCollectionIds()[0];
     var positions = getValidPositions(profileCollectionId);
 
     var result =
@@ -848,7 +849,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     session.begin();
 
     var profileCollectionId =
-        session.getMetadata().getSchema().getClass("Profile").getCollectionIds()[0];
+        session.getMetadata().getSlowMutableSchema().getClass("Profile").getCollectionIds()[0];
     var postions = getValidPositions(profileCollectionId);
 
     var result =
@@ -1334,9 +1335,9 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   }
 
   public void testParams() {
-    var test = session.getMetadata().getSchema().getClass("test");
+    var test = session.getMetadata().getSlowMutableSchema().getClass("test");
     if (test == null) {
-      test = session.getMetadata().getSchema().createClass("test");
+      test = session.getMetadata().getSlowMutableSchema().createClass("test");
       test.createProperty("f1", PropertyType.STRING);
       test.createProperty("f2", PropertyType.STRING);
     }
@@ -1408,7 +1409,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryOrderByWithLimit() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var facClass = schema.getClass("FicheAppelCDI");
     if (facClass == null) {
       facClass = schema.createClass("FicheAppelCDI");
@@ -1495,7 +1496,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testSelectFromListParameter() {
-    var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
     placeClass.createProperty("id", PropertyType.STRING);
     placeClass.createProperty("descr", PropertyType.STRING);
     placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
@@ -1524,12 +1525,12 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
         params);
     Assert.assertEquals(result.size(), 1);
 
-    session.getMetadata().getSchema().dropClass("Place");
+    session.getMetadata().getSlowMutableSchema().dropClass("Place");
   }
 
   @Test
   public void testSelectRidFromListParameter() {
-    var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
     placeClass.createProperty("id", PropertyType.STRING);
     placeClass.createProperty("descr", PropertyType.STRING);
     placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
@@ -1560,13 +1561,13 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
         executeQuery("select from place where @rid in :place", session, params);
     Assert.assertEquals(result.size(), 2);
 
-    session.getMetadata().getSchema().dropClass("Place");
+    session.getMetadata().getSlowMutableSchema().dropClass("Place");
   }
 
   @Test
   public void testSelectRidInList() {
-    var placeClass = session.getMetadata().getSchema().createClass("Place", 1);
-    session.getMetadata().getSchema().createClass("FamousPlace", 1, placeClass);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
+    session.getMetadata().getSlowMutableSchema().createClass("FamousPlace", 1, placeClass);
 
     var firstPlace = ((EntityImpl) session.newEntity("Place"));
 
@@ -1588,8 +1589,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
             session);
     Assert.assertEquals(result.size(), 2);
 
-    session.getMetadata().getSchema().dropClass("FamousPlace");
-    session.getMetadata().getSchema().dropClass("Place");
+    session.getMetadata().getSlowMutableSchema().dropClass("FamousPlace");
+    session.getMetadata().getSlowMutableSchema().dropClass("Place");
   }
 
   @Test
@@ -1648,7 +1649,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testMultipleCollectionsWithPagination() throws Exception {
-    final var cls = session.getMetadata().getSchema()
+    final var cls = session.getMetadata().getSlowMutableSchema()
         .createClass("PersonMultipleCollections");
     try {
       Set<String> names =
@@ -1679,13 +1680,13 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
       Assert.assertTrue(names.isEmpty());
 
     } finally {
-      session.getMetadata().getSchema().dropClass("PersonMultipleCollections");
+      session.getMetadata().getSlowMutableSchema().dropClass("PersonMultipleCollections");
     }
   }
 
   @Test
   public void testOutFilterInclude() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass("TestOutFilterInclude", schema.getClass("V"));
     session.execute("create class linkedToOutFilterInclude extends E").close();
     session.execute("insert into TestOutFilterInclude content { \"name\": \"one\" }").close();
@@ -1749,7 +1750,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testExpandSkip() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     final var cls = schema.createClass("TestExpandSkip", v);
     cls.createProperty("name", PropertyType.STRING);
@@ -1799,7 +1800,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testPolymorphicEdges() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     var e = schema.getClass("E");
     final var v1 = schema.createClass("TestPolymorphicEdges_V", v);
@@ -1840,7 +1841,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testSizeOfLink() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     final var cls = schema.createClass("TestSizeOfLink", v);
     session.execute("CREATE VERTEX TestSizeOfLink set name = '1'").close();
@@ -1863,7 +1864,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testEmbeddedMapAndDotNotation() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     final var cls = schema.createClass("EmbeddedMapAndDotNotation", v);
     session.execute("CREATE VERTEX EmbeddedMapAndDotNotation set name = 'foo'").close();
@@ -1896,7 +1897,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testLetWithQuotedValue() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     final var cls = schema.createClass("LetWithQuotedValue", v);
     session.execute("CREATE VERTEX LetWithQuotedValue set name = \"\\\"foo\\\"\"").close();

@@ -243,7 +243,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   // issue #4776
   @Test
   public void testBooleanListNamedParameter() {
-    session.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
 
     session.executeInTx(transaction -> {
       var doc = (EntityImpl) session.newEntity("test");
@@ -442,7 +442,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
 
   @Test
   public void testBacktickClassName() throws Exception {
-    session.getMetadata().getSchema().createClass("foo-bar");
+    session.getMetadata().getSlowMutableSchema().createClass("foo-bar");
     session.begin();
     session.execute("insert into `foo-bar` set name = 'foo'").close();
     session.execute("UPDATE `foo-bar` set name = 'bar' where name = 'foo'").close();
@@ -456,7 +456,7 @@ public class CommandExecutorSQLUpdateTest extends DbTestBase {
   @Test
   @Ignore
   public void testUpdateLockLimit() throws Exception {
-    session.getMetadata().getSchema().createClass("foo");
+    session.getMetadata().getSlowMutableSchema().createClass("foo");
     session.execute("insert into foo set name = 'foo'").close();
     session.execute("UPDATE foo set name = 'bar' where name = 'foo' lock record limit 1").close();
     try (var result = session.query("select from foo")) {

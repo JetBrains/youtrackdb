@@ -43,7 +43,7 @@ public class LuceneCreateJavaApiTest extends LuceneBaseTest {
 
   @Test
   public void testCreateIndex() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var song = schema.getClass("Song");
 
@@ -67,7 +67,7 @@ public class LuceneCreateJavaApiTest extends LuceneBaseTest {
 
   @Test
   public void testCreateIndexCompositeWithDefaultAnalyzer() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var song = schema.getClass("Song");
 
     song.createIndex(

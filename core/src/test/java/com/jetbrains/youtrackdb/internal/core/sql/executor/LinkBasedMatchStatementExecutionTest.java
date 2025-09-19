@@ -1257,7 +1257,7 @@ public class LinkBasedMatchStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testBigEntryPoint() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass("testBigEntryPoint1");
     schema.createClass("testBigEntryPoint2");
 

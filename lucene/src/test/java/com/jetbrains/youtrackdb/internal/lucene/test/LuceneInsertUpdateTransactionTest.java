@@ -39,7 +39,7 @@ public class LuceneInsertUpdateTransactionTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var oClass = schema.createClass("City");
     oClass.createProperty("name", PropertyType.STRING);

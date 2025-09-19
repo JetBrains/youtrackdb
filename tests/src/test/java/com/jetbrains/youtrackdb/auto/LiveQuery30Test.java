@@ -79,8 +79,8 @@ public class LiveQuery30Test extends BaseDBTest implements CommandOutputListener
   public void checkLiveQuery1() throws IOException, InterruptedException {
     final var className1 = "LiveQuery30Test_checkLiveQuery1_1";
     final var className2 = "LiveQuery30Test_checkLiveQuery1_2";
-    session.getMetadata().getSchema().createClass(className1);
-    session.getMetadata().getSchema().createClass(className2);
+    session.getMetadata().getSlowMutableSchema().createClass(className1);
+    session.getMetadata().getSlowMutableSchema().createClass(className2);
 
     var listener = new MyLiveQueryListener();
 

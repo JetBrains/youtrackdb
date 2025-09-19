@@ -34,7 +34,7 @@ public class IndexManagerTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
 
     final var oClass = schema.createClass(CLASS_NAME);
 
@@ -598,7 +598,7 @@ public class IndexManagerTest extends BaseDBTest {
   public void testGetClassInvolvedIndexesWithNullValues() {
     var className = "GetClassInvolvedIndexesWithNullValues";
     final var indexManager = session.getSharedContext().getIndexManager();
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.createClass(className);
 
     oClass.createProperty("one", PropertyType.STRING);
@@ -774,7 +774,7 @@ public class IndexManagerTest extends BaseDBTest {
   @Test
   public void testDropAllClassIndexes() {
     final var oClass =
-        session.getMetadata().getSchema().createClass("indexManagerTestClassTwo");
+        session.getMetadata().getSlowMutableSchema().createClass("indexManagerTestClassTwo");
     oClass.createProperty("fOne", PropertyType.INTEGER);
 
     final var indexManager = session.getSharedContext().getIndexManager();

@@ -32,7 +32,7 @@ public class LuceneDocumentEmbeddedTest extends LuceneBaseTest {
 
   @Before
   public void init() {
-    var type = session.getMetadata().getSchema().createClass("City");
+    var type = session.getMetadata().getSlowMutableSchema().createClass("City");
     type.createProperty("name", PropertyType.STRING);
 
     session.execute("create index City.name on City (name) FULLTEXT ENGINE LUCENE");

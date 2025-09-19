@@ -13,7 +13,7 @@ public class RecursiveLinkedSaveTest extends DbTestBase {
 
   @Test
   public void testTxLinked() {
-    session.getMetadata().getSchema().createClass("Test");
+    session.getMetadata().getSlowMutableSchema().createClass("Test");
     session.begin();
     var doc = (EntityImpl) session.newEntity("Test");
     var doc1 = (EntityImpl) session.newEntity("Test");

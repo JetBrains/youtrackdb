@@ -12,7 +12,7 @@ public class SchemaSharedGlobalSchemaPropertyTest extends DbTestBase {
   @Test
   public void testGlobalPropertyCreate() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     schema.createGlobalProperty("testaasd", PropertyType.SHORT, 100);
     var prop = schema.getGlobalPropertyById(100);
@@ -24,7 +24,7 @@ public class SchemaSharedGlobalSchemaPropertyTest extends DbTestBase {
   @Test
   public void testGlobalPropertyCreateDoubleSame() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     schema.createGlobalProperty("test", PropertyType.SHORT, 200);
     schema.createGlobalProperty("test", PropertyType.SHORT, 200);
@@ -33,7 +33,7 @@ public class SchemaSharedGlobalSchemaPropertyTest extends DbTestBase {
   @Test(expected = SchemaException.class)
   public void testGlobalPropertyCreateDouble() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     schema.createGlobalProperty("test", PropertyType.SHORT, 201);
     schema.createGlobalProperty("test1", PropertyType.SHORT, 201);

@@ -28,15 +28,15 @@ import org.testng.annotations.Test;
 public class QueryLocalCacheIntegrationTest extends BaseDBTest {
   @BeforeMethod
   public void beforeMeth() {
-    session.getMetadata().getSchema().createClass("FetchClass");
+    session.getMetadata().getSlowMutableSchema().createClass("FetchClass");
 
     session
         .getMetadata()
-        .getSchema()
+        .getSlowMutableSchema()
         .createClass("SecondFetchClass")
         .createProperty("surname", PropertyType.STRING)
         .setMandatory(true);
-    session.getMetadata().getSchema().createClass("OutInFetchClass");
+    session.getMetadata().getSlowMutableSchema().createClass("OutInFetchClass");
 
     session.begin();
     var singleLinked = ((EntityImpl) session.newEntity());
@@ -87,9 +87,9 @@ public class QueryLocalCacheIntegrationTest extends BaseDBTest {
 
   @AfterMethod
   public void afterMeth() {
-    session.getMetadata().getSchema().dropClass("FetchClass");
-    session.getMetadata().getSchema().dropClass("SecondFetchClass");
-    session.getMetadata().getSchema().dropClass("OutInFetchClass");
+    session.getMetadata().getSlowMutableSchema().dropClass("FetchClass");
+    session.getMetadata().getSlowMutableSchema().dropClass("SecondFetchClass");
+    session.getMetadata().getSlowMutableSchema().dropClass("OutInFetchClass");
   }
 
   @Test

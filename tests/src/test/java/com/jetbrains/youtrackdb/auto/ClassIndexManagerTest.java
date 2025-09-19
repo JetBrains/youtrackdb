@@ -46,7 +46,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
 
     if (schema.existsClass("classIndexManagerTestClass")) {
       schema.dropClass("classIndexManagerTestClass");
@@ -502,7 +502,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.getClass("classIndexManagerTestSuperClass");
     schema.getClass("classIndexManagerTestClass");
 
@@ -541,7 +541,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.getClass("classIndexManagerTestSuperClass");
     schema.getClass("classIndexManagerTestClass");
 
@@ -663,7 +663,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
   public void testListUpdate() {
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.getClass("classIndexManagerTestClass");
 
     final var propFourIndex = session.getSharedContext().getIndexManager()
@@ -1184,7 +1184,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.getClass("classIndexManagerTestClass");
 
     final Collection<Index> indexes = oClass.getIndexesInternal();

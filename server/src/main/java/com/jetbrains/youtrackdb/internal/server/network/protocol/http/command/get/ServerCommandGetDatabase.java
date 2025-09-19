@@ -24,8 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.JSONWriter;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
@@ -42,7 +41,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
   private static final String[] NAMES = {"GET|database/*"};
 
   public static void exportClass(
-      final DatabaseSessionInternal session, final JSONWriter json, final SchemaClass cls)
+      final DatabaseSessionInternal session, final JSONWriter json, final ImmutableSchemaClass cls)
       throws IOException {
     json.beginObject();
     json.writeAttribute(session, "name", cls.getName());
@@ -89,14 +88,6 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
             "collate",
             prop.getCollate() != null ? prop.getCollate().getName() : "default");
         json.writeAttribute(session, "defaultValue", prop.getDefaultValue());
-
-        if (prop instanceof SchemaPropertyShared) {
-          final var custom = ((SchemaPropertyShared) prop).getCustomInternal();
-          if (custom != null && !custom.isEmpty()) {
-            json.writeAttribute(session, "custom", custom);
-          }
-        }
-
         json.endObject();
       }
       json.endCollection();
@@ -181,34 +172,20 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
         i++;
       }
       json.endCollection();
-
-      json.beginCollection(session, "collectionSelectionStrategies");
-      var collectionSelectionStrategies =
-          session.getMetadata()
-              .getImmutableSchema(session)
-              .getCollectionSelectionFactory()
-              .getRegisteredNames();
-      var j = 0;
-      for (var strategy : collectionSelectionStrategies) {
-        json.write((j > 0 ? "," : "") + "\"" + strategy + "\"");
-        j++;
-      }
-      json.endCollection();
-
       json.endObject();
 
-      if (session.getMetadata().getImmutableSchema(session).getClasses() != null) {
+      if (session.getMetadata().getFastImmutableSchema().getClasses() != null) {
         json.beginCollection(session, "classes");
         List<String> classNames = new ArrayList<String>();
 
-        for (var cls : session.getMetadata().getImmutableSchema(session).getClasses()) {
+        for (var cls : session.getMetadata().getFastImmutableSchema().getClasses()) {
           classNames.add(cls.getName());
         }
         Collections.sort(classNames);
 
         for (var className : classNames) {
-          var cls = session.getMetadata().getImmutableSchema(session)
-              .getClassInternal(className);
+          var cls = session.getMetadata().getFastImmutableSchema()
+              .getClass(className);
 
           try {
             exportClass(session, json, cls);

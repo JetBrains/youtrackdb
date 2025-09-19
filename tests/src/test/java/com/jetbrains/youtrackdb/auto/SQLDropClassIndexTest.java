@@ -32,7 +32,7 @@ public class SQLDropClassIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.createClass("SQLDropClassTestClass");
     oClass.createProperty("prop1", EXPECTED_PROP1_TYPE);
     oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
@@ -54,7 +54,8 @@ public class SQLDropClassIndexTest extends BaseDBTest {
 
     session.execute("DROP CLASS SQLDropClassTestClass").close();
 
-    Assert.assertNull(session.getMetadata().getSchema().getClass("SQLDropClassTestClass"));
+    Assert.assertNull(
+        session.getMetadata().getSlowMutableSchema().getClass("SQLDropClassTestClass"));
     Assert.assertNull(
         session
             .getSharedContext()
@@ -62,7 +63,8 @@ public class SQLDropClassIndexTest extends BaseDBTest {
             .getIndex("SQLDropClassCompositeIndex"));
     session.close();
     session = createSessionInstance();
-    Assert.assertNull(session.getMetadata().getSchema().getClass("SQLDropClassTestClass"));
+    Assert.assertNull(
+        session.getMetadata().getSlowMutableSchema().getClass("SQLDropClassTestClass"));
     Assert.assertNull(
         session
             .getSharedContext()

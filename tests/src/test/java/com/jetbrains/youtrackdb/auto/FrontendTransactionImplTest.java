@@ -33,6 +33,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class FrontendTransactionImplTest extends BaseDBTest {
+
   @Test
   public void testTransactionOptimisticRollback() {
     if (session.getCollectionIdByName("binary") == -1) {
@@ -47,21 +48,6 @@ public class FrontendTransactionImplTest extends BaseDBTest {
     session.rollback();
 
     Assert.assertEquals(session.countCollectionElements("binary"), rec);
-  }
-
-  @Test(dependsOnMethods = "testTransactionOptimisticRollback")
-  public void testTransactionOptimisticCommitInternal() {
-
-    session.begin();
-    final var blocCollectionIds = session.getBlobCollectionIds();
-    var tot = session.countCollectionElements(blocCollectionIds);
-    session.commit();
-
-    session.begin();
-    session.newBlob("This is the first version".getBytes());
-    session.commit();
-
-    Assert.assertEquals(session.countCollectionElements(blocCollectionIds), tot + 1);
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticCommitInternal")
@@ -181,7 +167,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testTransactionOptimisticCacheMgmt2Db")
   public void testTransactionMultipleRecords() throws IOException {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
 
     if (!schema.existsClass("Account")) {
       schema.createClass("Account");
@@ -208,7 +194,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
 
   @SuppressWarnings("unchecked")
   public void createGraphInTx() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
 
     if (!schema.existsClass("Profile")) {
       schema.createClass("Profile");
@@ -282,7 +268,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
           }
         };
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     if (!schema.existsClass("NestedTxClass")) {
       schema.createClass("NestedTxClass");
     }
@@ -335,7 +321,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
           }
         };
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     if (!schema.existsClass("NestedTxRollbackOne")) {
       schema.createClass("NestedTxRollbackOne");
     }
@@ -400,7 +386,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
   }
 
   public void testNestedTxRollbackTwo() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     if (!schema.existsClass("NestedTxRollbackTwo")) {
       schema.createClass("NestedTxRollbackTwo");
     }

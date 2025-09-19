@@ -134,7 +134,7 @@ public class LuceneMiscTest extends LuceneBaseTest {
   @Ignore
   public void dottedNotationTest() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     var e = schema.getClass("E");
     var author = schema.createClass("Author", v);

@@ -71,8 +71,8 @@ public class DBRecordLazySetTest extends DbTestBase {
 
   @Test(expected = ValidationException.class)
   public void testSetWithNotExistentRecordWithValidation() {
-    var test = session.getMetadata().getSchema().createClass("test");
-    var test1 = session.getMetadata().getSchema().createClass("test1");
+    var test = session.getMetadata().getSlowMutableSchema().createClass("test");
+    var test1 = session.getMetadata().getSlowMutableSchema().createClass("test1");
     test.createProperty("fi", PropertyType.LINKSET).setLinkedClass(test1);
 
     session.begin();

@@ -14,7 +14,7 @@ public class CreateClassStatementExecutionTest extends DbTestBase {
   public void testPlain() {
     var className = "testPlain";
     var result = session.execute("create class " + className);
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
     Assert.assertFalse(clazz.isAbstract());
@@ -25,7 +25,7 @@ public class CreateClassStatementExecutionTest extends DbTestBase {
   public void testAbstract() {
     var className = "testAbstract";
     var result = session.execute("create class " + className + " abstract ");
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
     Assert.assertTrue(clazz.isAbstract());
@@ -37,7 +37,7 @@ public class CreateClassStatementExecutionTest extends DbTestBase {
   public void testIfNotExists() {
     var className = "testIfNotExists";
     var result = session.execute("create class " + className + " if not exists");
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.getClass(className);
     Assert.assertNotNull(clazz);
     result.close();

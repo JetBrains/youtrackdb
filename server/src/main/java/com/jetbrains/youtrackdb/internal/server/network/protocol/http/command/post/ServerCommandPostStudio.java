@@ -20,12 +20,12 @@
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.post;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.util.PatternConst;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyShared;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -119,7 +119,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
       final Map<String, String> fields)
       throws IOException {
     // GET THE TARGET CLASS
-    final var cls = db.getMetadata().getSchema().getClass(rid);
+    final var cls = db.getMetadata().getSlowMutableSchema().getClass(rid);
     if (cls == null) {
       iResponse.send(
           HttpUtils.STATUS_INTERNALERROR_CODE,
@@ -145,7 +145,8 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
               (SchemaPropertyShared)
                   cls.createProperty(
                       fields.get("name"),
-                      type, db.getMetadata().getSchema().getClass(fields.get("linkedClass")));
+                      type,
+                      db.getMetadata().getSlowMutableSchema().getClass(fields.get("linkedClass")));
         } else {
           prop = (SchemaPropertyShared) cls.createProperty(fields.get("name"), type);
         }
@@ -214,12 +215,12 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
         final var superClassName = fields.get("superClass");
         final SchemaClass superClass;
         if (superClassName != null) {
-          superClass = db.getMetadata().getSchema().getClass(superClassName);
+          superClass = db.getMetadata().getSlowMutableSchema().getClass(superClassName);
         } else {
           superClass = null;
         }
 
-        db.getMetadata().getSchema()
+        db.getMetadata().getSlowMutableSchema()
             .createClass(fields.get("name"), superClass);
 
         iResponse.send(
@@ -229,7 +230,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
             "Class '"
                 + rid
                 + "' created successfully with id="
-                + db.getMetadata().getSchema().getClasses().size(),
+                + db.getMetadata().getSlowMutableSchema().getClasses().size(),
             null);
 
       } catch (Exception e) {
@@ -243,7 +244,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
     } else if ("del".equals(operation)) {
       iRequest.getData().commandInfo = "Studio delete class";
 
-      db.getMetadata().getSchema().dropClass(rid);
+      db.getMetadata().getSlowMutableSchema().dropClass(rid);
 
       iResponse.send(
           HttpUtils.STATUS_OK_CODE,

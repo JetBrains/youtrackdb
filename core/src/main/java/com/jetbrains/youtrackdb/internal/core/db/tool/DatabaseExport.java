@@ -29,8 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -177,7 +176,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     for (var i = 0; exportedCollections <= maxCollectionId; ++i) {
       var collectionName = session.getCollectionNameById(i);
 
-      if (MetadataDefault.COLLECTION_INTERNAL_NAME.equals(collectionName)) {
+      if (SessionMetadata.COLLECTION_INTERNAL_NAME.equals(collectionName)) {
         continue;
       }
 
@@ -458,14 +457,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage("\nExporting schema...");
 
     jsonGenerator.writeObjectFieldStart("schema");
-    final Schema schema = (session.getMetadata()).getImmutableSchema(session);
+    var schema = session.getMetadata().getFastImmutableSchema();
     //noinspection deprecation
     jsonGenerator.writeNumberField("version", schema.getVersion());
-    jsonGenerator.writeArrayFieldStart("blob-collections");
-    for (var collectionId : session.getBlobCollectionIds()) {
-      jsonGenerator.writeNumber(collectionId);
-    }
-    jsonGenerator.writeEndArray();
 
     if (!schema.getClasses().isEmpty()) {
       jsonGenerator.writeArrayFieldStart("classes");

@@ -90,7 +90,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngin
 import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -894,7 +894,7 @@ public abstract class AbstractStorage
           linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
 
           // ADD THE METADATA COLLECTION TO STORE INTERNAL STUFF
-          doAddCollection(atomicOperation, MetadataDefault.COLLECTION_INTERNAL_NAME);
+          doAddCollection(atomicOperation, SessionMetadata.COLLECTION_INTERNAL_NAME);
 
           ((CollectionBasedStorageConfiguration) configuration)
               .setCreationVersion(atomicOperation, YouTrackDBConstants.getVersion());
@@ -1909,7 +1909,7 @@ public abstract class AbstractStorage
               && record instanceof EntityImpl) {
             // TRY TO FIX COLLECTION ID TO THE DEFAULT COLLECTION ID DEFINED IN SCHEMA CLASS
 
-            var cls = ((EntityImpl) record).getImmutableSchemaClass(session);
+            var cls = ((EntityImpl) record).getImmutableSchemaClass();
             if (cls != null) {
               collectionId = cls.getCollectionForNewInstance((EntityImpl) record);
               collectionOverrides.put(recordOperation, collectionId);
@@ -4701,7 +4701,7 @@ public abstract class AbstractStorage
               doUpdateRecord(
                   atomicOperation,
                   rid,
-                  rec.isContentChanged(),
+                  true,
                   stream,
                   -2,
                   rec.getRecordType(),
@@ -4725,7 +4725,7 @@ public abstract class AbstractStorage
             doUpdateRecord(
                 atomicOperation,
                 rid,
-                rec.isContentChanged(),
+                true,
                 stream,
                 rec.getVersion(),
                 rec.getRecordType(),

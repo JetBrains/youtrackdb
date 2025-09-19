@@ -18,7 +18,7 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    clazz = session.getMetadata().getSchema().createClass("testClass");
+    clazz = session.getMetadata().getSlowMutableSchema().createClass("testClass");
     clazz.createProperty("integer", PropertyType.INTEGER);
     clazz.createProperty("string", PropertyType.STRING);
     clazz.createProperty("boolean", PropertyType.BOOLEAN);

@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.common.util.PairLongObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -802,7 +801,7 @@ public class MatchExecutionPlanner {
   @Nullable
   private static String getLowerSubclass(
       DatabaseSessionInternal db, String className1, String className2) {
-    Schema schema = db.getMetadata().getSchema();
+    var schema = db.getMetadata().getFastImmutableSchema();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
     if (class1.isSubClassOf(class2)) {
@@ -846,7 +845,7 @@ public class MatchExecutionPlanner {
     allAliases.addAll(aliasRids.keySet());
 
     var db = ctx.getDatabaseSession();
-    var schema = db.getMetadata().getImmutableSchema(session);
+    var schema = db.getMetadata().getFastImmutableSchema(session);
 
     Map<String, Long> result = new LinkedHashMap<String, Long>();
     for (var alias : allAliases) {

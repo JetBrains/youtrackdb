@@ -26,7 +26,7 @@ public class LuceneSpatialClassCreateTest extends BaseLuceneTest {
   @Test
   public void testClasses() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     Assert.assertNotNull(schema.getClass("OPoint"));
 

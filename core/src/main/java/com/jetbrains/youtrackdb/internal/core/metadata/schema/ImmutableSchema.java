@@ -1,12 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
-import java.util.Iterator;
+import java.util.Collection;
+import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface ImmutableSchema {
-
   long countClasses();
 
   @Nullable
@@ -28,9 +28,9 @@ public interface ImmutableSchema {
 
   boolean existsClass(String iClassName);
 
-  Iterator<? extends ImmutableSchemaClass> getClasses();
+  Collection<? extends ImmutableSchemaClass> getClasses();
 
-  Iterator<String> getIndexes();
+  Collection<String> getIndexes();
 
   boolean indexExists(String indexName);
 
@@ -42,7 +42,7 @@ public interface ImmutableSchema {
 
   GlobalProperty getGlobalPropertyById(int id);
 
-  Iterator<GlobalProperty> getGlobalProperties();
+  List<GlobalProperty> getGlobalProperties();
 
   SchemaSnapshot makeSnapshot();
 }

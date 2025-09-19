@@ -14,7 +14,7 @@ public class DropClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testPlain() {
     var className = "testPlain";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
 
     Assert.assertNotNull(schema.getClass(className));
@@ -32,7 +32,7 @@ public class DropClassStatementExecutionTest extends DbTestBase {
   public void testUnsafe() {
 
     var className = "testUnsafe";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var v = schema.getClass("V");
     schema.createClass(className, v);
 
@@ -58,7 +58,7 @@ public class DropClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testIfExists() {
     var className = "testIfExists";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
 
     Assert.assertNotNull(schema.getClass(className));
@@ -79,7 +79,7 @@ public class DropClassStatementExecutionTest extends DbTestBase {
   @Test
   public void testParam() {
     var className = "testParam";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
 
     Assert.assertNotNull(schema.getClass(className));

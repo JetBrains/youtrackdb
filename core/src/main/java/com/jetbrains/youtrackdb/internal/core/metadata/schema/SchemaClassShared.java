@@ -29,8 +29,6 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -38,6 +36,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -1735,7 +1735,7 @@ public final class SchemaClassShared {
     }
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
     final var wrongCharacter = SchemaShared.checkClassNameIfValid(name);
-    var oClass = session.getMetadata().getSchema().getClass(name);
+    var oClass = session.getMetadata().getSlowMutableSchema().getClass(name);
     if (oClass != null) {
       var error =
           String.format(

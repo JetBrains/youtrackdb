@@ -14,8 +14,8 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
   @Test
   public void testDataNotMatchSchema() {
     var klass = session.getMetadata()
-            .getSchema()
-            .createClass("Test", session.getMetadata().getSchema().getClass("V"));
+        .getSlowMutableSchema()
+        .createClass("Test", session.getMetadata().getSlowMutableSchema().getClass("V"));
     session.begin();
     var stubEntity = session.newEntity();
     session.commit();

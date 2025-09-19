@@ -25,7 +25,7 @@ public class DbCopyTest extends BaseDBTest implements CommandOutputListener {
   @Test
   public void checkCopy() throws IOException {
     final var className = "DbCopyTest";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     try (final var otherDB = session.copy()) {
       for (var i = 0; i < 5; i++) {

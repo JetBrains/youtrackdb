@@ -40,7 +40,7 @@ public abstract class IndexTxAwareBaseTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final var cls = session.getMetadata().getSchema().createClass(className);
+    final var cls = session.getMetadata().getSlowMutableSchema().createClass(className);
     cls.createProperty(fieldName, PropertyType.INTEGER);
     cls.createIndex(
         indexName,
@@ -52,7 +52,7 @@ public abstract class IndexTxAwareBaseTest extends BaseDBTest {
   @Override
   @AfterMethod
   public void afterMethod() throws Exception {
-    session.getMetadata().getSchema().getClassInternal(className).truncate();
+    session.getMetadata().getSlowMutableSchema().getClassInternal(className).truncate();
     super.afterMethod();
   }
 

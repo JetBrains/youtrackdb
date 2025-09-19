@@ -22,7 +22,7 @@ public class DateBinaryComparatorTest extends DbTestBase {
   }
 
   private void initSchema() {
-    var testClass = session.getMetadata().getSchema().createClass("Test");
+    var testClass = session.getMetadata().getSlowMutableSchema().createClass("Test");
     testClass.createProperty("date", PropertyType.DATE);
     session.begin();
     var document = (EntityImpl) session.newEntity(testClass.getName());

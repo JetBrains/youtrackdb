@@ -23,7 +23,7 @@ public class LinkSetIndexTest extends BaseDBTest {
   @BeforeClass
   public void setupSchema() {
     final var ridBagIndexTestClass =
-        session.getMetadata().getSchema().createClass("LinkSetIndexTestClass");
+        session.getMetadata().getSlowMutableSchema().createClass("LinkSetIndexTestClass");
 
     ridBagIndexTestClass.createProperty("linkSet", PropertyType.LINKSET);
 

@@ -39,7 +39,7 @@ public class LuceneInsertDeleteTest extends LuceneBaseTest {
   @Before
   public void init() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createClass("City");
 
     oClass.createProperty("name", PropertyType.STRING);
@@ -52,7 +52,7 @@ public class LuceneInsertDeleteTest extends LuceneBaseTest {
   @Test
   public void testInsertUpdateWithIndex() {
     session.getMetadata().reload();
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("City"));

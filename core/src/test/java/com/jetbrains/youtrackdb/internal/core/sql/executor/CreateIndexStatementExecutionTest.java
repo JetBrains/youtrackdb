@@ -13,7 +13,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
   @Test
   public void testPlain() {
     var className = "testPlain";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
 
     Assert.assertNull(
@@ -35,7 +35,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
   @Test
   public void testIfNotExists() {
     var className = "testIfNotExists";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
 
     Assert.assertNull(

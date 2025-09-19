@@ -17,7 +17,7 @@ import org.testng.annotations.Test;
 public class CollateTest extends BaseDBTest {
 
   public void testQuery() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("collateTest");
 
     var csp = clazz.createProperty("csp", PropertyType.STRING);
@@ -64,7 +64,7 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testQueryNotNullCi() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("collateTestNotNull");
 
     var csp = clazz.createProperty("bar", PropertyType.STRING);
@@ -88,7 +88,7 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testIndexQuery() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("collateIndexTest");
 
     var csp = clazz.createProperty("csp", PropertyType.STRING);
@@ -139,7 +139,7 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testIndexQueryCollateWasChanged() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("collateWasChangedIndexTest");
 
     var cp = clazz.createProperty("cp", PropertyType.STRING);
@@ -185,7 +185,7 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testCompositeIndexQueryCS() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("CompositeIndexQueryCSTest");
 
     var csp = clazz.createProperty("csp", PropertyType.STRING);
@@ -257,7 +257,7 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testCompositeIndexQueryCollateWasChanged() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("CompositeIndexQueryCollateWasChangedTest");
 
     var csp = clazz.createProperty("csp", PropertyType.STRING);
@@ -307,7 +307,7 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void collateThroughSQL() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("collateTestViaSQL");
 
     clazz.createProperty("csp", PropertyType.STRING);

@@ -727,7 +727,6 @@ public class FrontendTransactionImpl implements
         entityImpl = entity;
         className = entity.getSchemaClassName();
         if (recordOperation.recordBeforeCallBackDirtyCounter != record.getDirtyCounter()) {
-          entity.checkClass(session);
           entity.checkAllMultiValuesAreTrackedVersions();
 
           if (recordOperation.type == RecordOperation.CREATED) {
@@ -778,8 +777,6 @@ public class FrontendTransactionImpl implements
       if (recordOperation.record instanceof EntityImpl entity) {
         entityImpl = entity;
         className = entity.getSchemaClassName();
-        entity.checkClass(session);
-
         if (className != null) {
           session.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE,
               className);

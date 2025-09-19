@@ -51,7 +51,7 @@ public class DatabaseImportTest {
               iText -> {
               });
       importer.importDatabase();
-      final var schema = db.getMetadata().getSchema();
+      final var schema = db.getMetadata().getSlowMutableSchema();
       Assert.assertTrue(schema.existsClass("SimpleClass"));
       Assert.assertTrue(schema.existsClass("SimpleVertexClass"));
       Assert.assertTrue(schema.existsClass("SimpleEdgeClass"));

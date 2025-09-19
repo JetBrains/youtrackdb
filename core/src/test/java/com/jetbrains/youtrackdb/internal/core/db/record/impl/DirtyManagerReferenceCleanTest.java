@@ -11,7 +11,7 @@ public class DirtyManagerReferenceCleanTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    session.getMetadata().getSchema().createClass("test");
+    session.getMetadata().getSlowMutableSchema().createClass("test");
   }
 
   @Test

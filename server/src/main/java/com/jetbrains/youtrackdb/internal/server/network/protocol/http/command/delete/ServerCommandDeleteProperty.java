@@ -39,11 +39,11 @@ public class ServerCommandDeleteProperty extends ServerCommandAuthenticatedDbAbs
 
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
 
-      if (db.getMetadata().getSchema().getClass(urlParts[2]) == null) {
+      if (db.getMetadata().getSlowMutableSchema().getClass(urlParts[2]) == null) {
         throw new IllegalArgumentException("Invalid class '" + urlParts[2] + "'");
       }
 
-      final var cls = db.getMetadata().getSchema().getClass(urlParts[2]);
+      final var cls = db.getMetadata().getSlowMutableSchema().getClass(urlParts[2]);
 
       cls.dropProperty(urlParts[3]);
 

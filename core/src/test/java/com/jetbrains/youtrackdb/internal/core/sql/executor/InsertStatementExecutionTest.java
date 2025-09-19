@@ -23,7 +23,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertSet() {
     var className = "testInsertSet";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var result = session.execute("insert into " + className + " set name = 'name1'");
@@ -54,7 +54,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertValue() {
     var className = "testInsertValue";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var result =
@@ -88,7 +88,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertValue2() {
     var className = "testInsertValue2";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var result =
@@ -131,10 +131,10 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertFromSelect1() {
     var className1 = "testInsertFromSelect1";
-    session.getMetadata().getSchema().createClass(className1);
+    session.getMetadata().getSlowMutableSchema().createClass(className1);
 
     var className2 = "testInsertFromSelect1_1";
-    session.getMetadata().getSchema().createClass(className2);
+    session.getMetadata().getSlowMutableSchema().createClass(className2);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className1);
@@ -183,10 +183,10 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertFromSelect2() {
     var className1 = "testInsertFromSelect2";
-    session.getMetadata().getSchema().createClass(className1);
+    session.getMetadata().getSlowMutableSchema().createClass(className1);
 
     var className2 = "testInsertFromSelect2_1";
-    session.getMetadata().getSchema().createClass(className2);
+    session.getMetadata().getSlowMutableSchema().createClass(className2);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className1);
@@ -235,7 +235,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testContent() {
     var className = "testContent";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var result =
@@ -269,7 +269,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testContentMultiple() {
     var className = "testContent";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var result =
@@ -306,7 +306,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testContentWithParam() {
     var className = "testContentWithParam";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     Map<String, Object> theContent = new HashMap<>();
     theContent.put("name", "name1");
@@ -463,7 +463,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testInsertReturn() {
     var className = "testInsertReturn";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var result =
@@ -495,7 +495,7 @@ public class InsertStatementExecutionTest extends DbTestBase {
   @Test
   public void testNestedInsert() {
     var className = "testNestedInsert";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var result =

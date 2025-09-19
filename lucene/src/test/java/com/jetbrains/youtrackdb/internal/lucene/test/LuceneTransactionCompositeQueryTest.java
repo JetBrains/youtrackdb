@@ -112,7 +112,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
   public void txUpdateTest() {
 
     var index = session.getSharedContext().getIndexManager().getIndex("Foo.bar");
-    var c1 = session.getMetadata().getSchema().getClassInternal("Foo");
+    var c1 = session.getMetadata().getSlowMutableSchema().getClassInternal("Foo");
     c1.truncate();
 
     session.begin();
@@ -173,7 +173,7 @@ public class LuceneTransactionCompositeQueryTest extends BaseLuceneTest {
   public void txUpdateTestComplex() {
 
     var index = session.getSharedContext().getIndexManager().getIndex("Foo.bar");
-    var c1 = session.getMetadata().getSchema().getClassInternal("Foo");
+    var c1 = session.getMetadata().getSlowMutableSchema().getClassInternal("Foo");
     c1.truncate();
 
     session.begin();

@@ -32,7 +32,7 @@ public class HookReadTest extends DbTestBase {
           }
         });
 
-    session.getMetadata().getSchema().createClass("TestClass");
+    session.getMetadata().getSlowMutableSchema().createClass("TestClass");
     session.begin();
     session.newEntity("TestClass");
     session.commit();

@@ -4,9 +4,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
@@ -97,7 +97,7 @@ public class SQLMatchPathItem extends SimpleNode {
       whileCondition = this.filter.getWhileCondition();
       maxDepth = this.filter.getMaxDepth();
       var className = this.filter.getClassName(iCommandContext);
-      oClass = iCommandContext.getDatabaseSession().getMetadata().getImmutableSchema(session)
+      oClass = iCommandContext.getDatabaseSession().getMetadata().getFastImmutableSchema(session)
           .getClass(className);
     }
 

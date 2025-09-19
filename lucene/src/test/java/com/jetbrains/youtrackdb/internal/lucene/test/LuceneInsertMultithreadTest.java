@@ -21,9 +21,9 @@ package com.jetbrains.youtrackdb.internal.lucene.test;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.assertj.core.api.Assertions;
 import org.junit.Test;
@@ -74,7 +74,7 @@ public class LuceneInsertMultithreadTest {
     Schema schema;
     try (var session = (DatabaseSessionEmbedded) YOUTRACKDB.open(
         dbName, "admin", "admin")) {
-      schema = session.getMetadata().getSchema();
+      schema = session.getMetadata().getSlowMutableSchema();
 
       if (schema.getClass("City") == null) {
         var oClass = schema.createClass("City");

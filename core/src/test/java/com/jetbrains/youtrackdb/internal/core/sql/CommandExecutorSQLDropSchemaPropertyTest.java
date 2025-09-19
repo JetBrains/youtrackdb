@@ -29,7 +29,7 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void test() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var foo = schema.createClass("Foo");
 
     foo.createProperty("name", PropertyType.STRING);
@@ -55,7 +55,7 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void testIfExists() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var testIfExistsClass = schema.createClass("testIfExists");
 
     testIfExistsClass.createProperty("name", PropertyType.STRING);

@@ -19,11 +19,11 @@ public class MapIndexTest extends BaseDBTest {
 
   @BeforeClass
   public void setupSchema() {
-    if (session.getMetadata().getSchema().existsClass("Mapper")) {
-      session.getMetadata().getSchema().dropClass("Mapper");
+    if (session.getMetadata().getSlowMutableSchema().existsClass("Mapper")) {
+      session.getMetadata().getSlowMutableSchema().dropClass("Mapper");
     }
 
-    final var mapper = session.getMetadata().getSchema().createClass("Mapper");
+    final var mapper = session.getMetadata().getSlowMutableSchema().createClass("Mapper");
     mapper.createProperty("id", PropertyType.STRING);
     mapper.createProperty("intMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
 
@@ -31,7 +31,7 @@ public class MapIndexTest extends BaseDBTest {
     mapper.createIndex("mapIndexTestValue", SchemaClass.INDEX_TYPE.NOTUNIQUE,
         "intMap by value");
 
-    final var movie = session.getMetadata().getSchema().createClass("MapIndexTestMovie");
+    final var movie = session.getMetadata().getSlowMutableSchema().createClass("MapIndexTestMovie");
     movie.createProperty("title", PropertyType.STRING);
     movie.createProperty("thumbs", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
 
@@ -41,8 +41,8 @@ public class MapIndexTest extends BaseDBTest {
   @AfterClass
   public void destroySchema() {
     session = createSessionInstance();
-    session.getMetadata().getSchema().dropClass("Mapper");
-    session.getMetadata().getSchema().dropClass("MapIndexTestMovie");
+    session.getMetadata().getSlowMutableSchema().dropClass("Mapper");
+    session.getMetadata().getSlowMutableSchema().dropClass("MapIndexTestMovie");
     session.close();
   }
 

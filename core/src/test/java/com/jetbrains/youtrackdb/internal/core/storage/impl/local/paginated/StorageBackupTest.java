@@ -4,14 +4,14 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.util.Random;
@@ -40,7 +40,7 @@ public class StorageBackupTest {
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = db.getMetadata().getSlowMutableSchema();
     final var backupClass = schema.createClass("BackupClass");
     backupClass.createProperty("num", PropertyType.INTEGER);
     backupClass.createProperty("data", PropertyType.BINARY);
@@ -119,7 +119,7 @@ public class StorageBackupTest {
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = db.getMetadata().getSlowMutableSchema();
     final var backupClass = schema.createClass("BackupClass");
     backupClass.createProperty("num", PropertyType.INTEGER);
     backupClass.createProperty("data", PropertyType.BINARY);
@@ -219,7 +219,7 @@ public class StorageBackupTest {
 
     var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = db.getMetadata().getSlowMutableSchema();
     final var backupClass = schema.createClass("BackupClass");
     backupClass.createProperty("num", PropertyType.INTEGER);
     backupClass.createProperty("data", PropertyType.BINARY);

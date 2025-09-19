@@ -23,6 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
@@ -50,9 +51,9 @@ public class ClassIndexManager {
 
   private static void processIndexOnCreate(FrontendTransaction transaction,
       EntityImpl entity) {
-    SchemaClassSnapshot cls = null;
+    ImmutableSchemaClass cls = null;
     if (entity != null) {
-      cls = entity.getImmutableSchemaClass(transaction.getDatabaseSession());
+      cls = entity.getImmutableSchemaClass();
     }
     if (cls != null) {
       final Collection<Index> indexes = cls.getRawIndexes();
@@ -67,9 +68,9 @@ public class ClassIndexManager {
 
   private static void processIndexOnUpdate(FrontendTransaction transaction,
       EntityImpl entity) {
-    SchemaClassSnapshot cls = null;
+    ImmutableSchemaClass cls = null;
     if (entity != null) {
-      cls = entity.getImmutableSchemaClass(transaction.getDatabaseSession());
+      cls = entity.getImmutableSchemaClass();
     }
     if (cls == null) {
       return;

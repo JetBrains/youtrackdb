@@ -22,7 +22,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassProxy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
 import com.jetbrains.youtrackdb.internal.core.security.AuditingOperation;
@@ -404,11 +403,11 @@ public class DefaultAuditing
 
   private void createClassIfNotExists() {
     try (var session = context.getSystemDatabase().openSystemDatabaseSession()) {
-      Schema schema = session.getMetadata().getSchema();
+      var schema = session.getMetadata().getSlowMutableSchema();
       var cls = schema.getClass(AUDITING_LOG_CLASSNAME);
 
       if (cls == null) {
-        cls = session.getMetadata().getSchema().createClass(AUDITING_LOG_CLASSNAME);
+        cls = session.getMetadata().getSlowMutableSchema().createClass(AUDITING_LOG_CLASSNAME);
         cls.createProperty("date", PropertyType.DATETIME);
         cls.createProperty("user", PropertyType.STRING);
         cls.createProperty("operation", PropertyType.BYTE);

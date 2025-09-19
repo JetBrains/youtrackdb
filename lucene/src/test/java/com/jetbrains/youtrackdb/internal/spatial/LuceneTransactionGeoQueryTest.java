@@ -33,7 +33,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
   @Test
   @Ignore
   public void testPointTransactionRollBack() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createVertexClass("City");
     oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
     oClass.createProperty("name", PropertyType.STRING);
@@ -77,7 +77,7 @@ public class LuceneTransactionGeoQueryTest extends LuceneBaseTest {
   @Test
   @Ignore
   public void testPointTransactionUpdate() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createVertexClass("City");
     oClass.createProperty("location", PropertyType.EMBEDDED, schema.getClass("OPoint"));
     oClass.createProperty("name", PropertyType.STRING);

@@ -490,7 +490,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
   @Test(enabled = false)
   public void testEscaping() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass("FormatEscapingTest");
 
     session.begin();
@@ -586,7 +586,7 @@ public class SQLUpdateTest extends BaseDBTest {
   }
 
   public void testUpdateVertexContent() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var vertex = schema.getClass("V");
     schema.createClass("UpdateVertexContent", vertex);
 
@@ -647,7 +647,7 @@ public class SQLUpdateTest extends BaseDBTest {
   }
 
   public void testUpdateEdgeContent() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var vertex = schema.getClass("V");
     var edge = schema.getClass("E");
 
@@ -758,10 +758,11 @@ public class SQLUpdateTest extends BaseDBTest {
   }
 
   public void testAutoConversionOfEmbeddededListWithLinkedClass() {
-    var c = session.getMetadata().getSchema().getOrCreateClass("TestConvert");
-    var cc = session.getMetadata().getSchema().getClass("TestConvertLinkedClass");
+    var c = session.getMetadata().getSlowMutableSchema().getOrCreateClass("TestConvert");
+    var cc = session.getMetadata().getSlowMutableSchema().getClass("TestConvertLinkedClass");
     if (cc == null) {
-      cc = session.getMetadata().getSchema().createAbstractClass("TestConvertLinkedClass");
+      cc = session.getMetadata().getSlowMutableSchema()
+          .createAbstractClass("TestConvertLinkedClass");
     }
     if (!c.existsProperty("embeddedListWithLinkedClass")) {
       c.createProperty("embeddedListWithLinkedClass", PropertyType.EMBEDDEDLIST, cc);
@@ -817,7 +818,7 @@ public class SQLUpdateTest extends BaseDBTest {
 
   public void testPutListOfMaps() {
     var className = "testPutListOfMaps";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     session.command(

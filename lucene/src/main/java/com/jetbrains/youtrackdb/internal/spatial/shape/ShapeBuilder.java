@@ -16,8 +16,8 @@ package com.jetbrains.youtrackdb.internal.spatial.shape;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.io.IOException;
 import java.text.DecimalFormat;
@@ -161,7 +161,7 @@ public abstract class ShapeBuilder<T extends Shape> {
   }
 
   protected SchemaClass superClass(DatabaseSessionInternal db) {
-    return db.getMetadata().getSchema().getClass(BASE_CLASS);
+    return db.getMetadata().getSlowMutableSchema().getClass(BASE_CLASS);
   }
 
   public T fromText(String wkt) throws ParseException, org.locationtech.jts.io.ParseException {

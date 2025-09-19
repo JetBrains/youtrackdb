@@ -120,7 +120,7 @@ public class EntityImplTest extends DbTestBase {
       session = (DatabaseSessionEmbedded) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-      var clazz = session.getMetadata().getSchema().createClass("Test");
+      var clazz = session.getMetadata().getSlowMutableSchema().createClass("Test");
       clazz.createProperty("integer", PropertyType.INTEGER);
       clazz.createProperty("link", PropertyType.LINK);
       clazz.createProperty("string", PropertyType.STRING);
@@ -186,7 +186,7 @@ public class EntityImplTest extends DbTestBase {
       db = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-      Schema schema = db.getMetadata().getSchema();
+      Schema schema = db.getMetadata().getSlowMutableSchema();
       var classA = schema.createClass("TestRemovingField2");
       classA.createProperty("name", PropertyType.STRING);
       var property = classA.createProperty("property", PropertyType.STRING);
@@ -228,7 +228,7 @@ public class EntityImplTest extends DbTestBase {
       session = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-      Schema schema = session.getMetadata().getSchema();
+      Schema schema = session.getMetadata().getSlowMutableSchema();
       var classA = schema.createClass("TestUndo");
       classA.createProperty("name", PropertyType.STRING);
       classA.createProperty("property", PropertyType.STRING);

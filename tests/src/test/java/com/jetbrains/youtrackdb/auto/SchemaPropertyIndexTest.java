@@ -16,11 +16,11 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Map;
@@ -36,7 +36,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.createClass("PropertyIndexTestClass");
     oClass.createProperty("prop0", PropertyType.LINK);
     oClass.createProperty("prop1", PropertyType.STRING);
@@ -64,7 +64,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test
   public void testCreateUniqueIndex() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
     final var propOne = oClass.getProperty("prop1");
 
@@ -91,7 +91,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = {"testCreateUniqueIndex"})
   public void createAdditionalSchemas() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.getClass("PropertyIndexTestClass");
 
     oClass.createIndex(
@@ -123,7 +123,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "createAdditionalSchemas")
   public void testGetIndexes() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
     oClass.getProperty("prop1");
 
@@ -134,7 +134,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "createAdditionalSchemas")
   public void testGetAllIndexes() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
     var propOne = oClass.getPropertyInternal("prop1");
 
@@ -149,7 +149,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test
   public void testIsIndexedNonIndexedField() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
     var propThree = oClass.getPropertyInternal("prop3");
 
@@ -158,7 +158,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test(dependsOnMethods = {"testCreateUniqueIndex"})
   public void testIsIndexedIndexedField() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
     var propOne = oClass.getPropertyInternal("prop1");
     Assert.assertFalse(propOne.getAllIndexes().isEmpty());
@@ -262,7 +262,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
   @Test
   public void testDropIndexes() throws Exception {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
 
     oClass.createIndex(

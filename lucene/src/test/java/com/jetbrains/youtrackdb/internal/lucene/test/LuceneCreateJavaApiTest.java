@@ -38,7 +38,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var song = schema.createVertexClass(SONG_CLASS);
     song.createProperty("title", PropertyType.STRING);
     song.createProperty("author", PropertyType.STRING);
@@ -47,7 +47,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
   @Test
   public void testCreateIndex() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var song = schema.getClass(SONG_CLASS);
 
     var meta = Map.<String, Object>of("analyzer",
@@ -68,7 +68,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
   @Test
   public void testCreateIndexCompositeWithDefaultAnalyzer() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var song = schema.getClass(SONG_CLASS);
 
     song.createIndex(
@@ -87,7 +87,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
   @Test(expected = UnsupportedOperationException.class)
   public void testCreateIndexWithUnsupportedEmbedded() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var song = schema.getClassInternal(SONG_CLASS);
     song.createProperty(PropertyType.EMBEDDED.name(), PropertyType.EMBEDDED);
     song.createIndex(
@@ -178,7 +178,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   }
 
   private SchemaClass createEmbeddedMapIndex() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var song = schema.getClass(SONG_CLASS);
     song.createProperty("String" + PropertyType.EMBEDDEDMAP.name(),
         PropertyType.EMBEDDEDMAP,
@@ -194,7 +194,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
   }
 
   private SchemaClass createEmbeddedMapIndexSimple() {
-    var schema = session.getMetadata().getSchema();
+    var schema = session.getMetadata().getSlowMutableSchema();
     var song = schema.getClass(SONG_CLASS);
     song.createProperty("String" + PropertyType.EMBEDDEDMAP.name(),
         PropertyType.EMBEDDEDMAP,

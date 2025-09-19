@@ -38,17 +38,17 @@ public class ServerCommandPostClass extends ServerCommandAuthenticatedDbAbstract
 
     try (var db = getProfiledDatabaseSessionInstance(iRequest)) {
 
-      if (db.getMetadata().getSchema().getClass(urlParts[2]) != null) {
+      if (db.getMetadata().getSlowMutableSchema().getClass(urlParts[2]) != null) {
         throw new IllegalArgumentException("Class '" + urlParts[2] + "' already exists");
       }
 
-      db.getMetadata().getSchema().createClass(urlParts[2]);
+      db.getMetadata().getSlowMutableSchema().createClass(urlParts[2]);
 
       iResponse.send(
           HttpUtils.STATUS_CREATED_CODE,
           HttpUtils.STATUS_CREATED_DESCRIPTION,
           HttpUtils.CONTENT_TEXT_PLAIN,
-          db.getMetadata().getSchema().getClasses().size(),
+          db.getMetadata().getSlowMutableSchema().getClasses().size(),
           null);
 
     }

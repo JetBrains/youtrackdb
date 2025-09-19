@@ -9,9 +9,9 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 
 public interface ImmutableSchemaClass {
@@ -41,17 +41,17 @@ public interface ImmutableSchemaClass {
 
   boolean hasSuperClasses();
 
-  Iterator<String> getSuperClassesNames();
+  List<String> getSuperClassesNames();
 
-  Iterator<? extends ImmutableSchemaClass> getSuperClasses();
+  List<? extends ImmutableSchemaClass> getSuperClasses();
 
   String getName();
 
   String getDescription();
 
-  Iterator<? extends ImmutableSchemaProperty> getDeclaredProperties();
+  Collection<? extends ImmutableSchemaProperty> getDeclaredProperties();
 
-  Iterator<? extends ImmutableSchemaProperty> getProperties();
+  Collection<? extends ImmutableSchemaProperty> getProperties();
 
   Map<String, ? extends ImmutableSchemaProperty> getPropertiesMap();
 
@@ -64,17 +64,17 @@ public interface ImmutableSchemaClass {
   /**
    * @return all the subclasses (one level hierarchy only)
    */
-  Iterator<? extends ImmutableSchemaClass> getSubclasses();
+  Collection<? extends ImmutableSchemaClass> getSubclasses();
 
   /**
    * @return all the subclass hierarchy
    */
-  Iterator<? extends ImmutableSchemaClass> getAllSubclasses();
+  Collection<? extends ImmutableSchemaClass> getAllSubclasses();
 
   /**
    * @return all recursively collected super classes
    */
-  Iterator<? extends ImmutableSchemaClass> getAllSuperClasses();
+  Collection<? extends ImmutableSchemaClass> getAllSuperClasses();
 
   /**
    * Tells if the current instance extends the passed schema class (iClass).
@@ -115,7 +115,7 @@ public interface ImmutableSchemaClass {
 
   String getCustom(String iName);
 
-  Iterator<String> getCustomKeys();
+  Set<String> getCustomKeys();
 
   boolean hasCollectionId(int collectionId);
 
@@ -123,12 +123,12 @@ public interface ImmutableSchemaClass {
 
   int getCollectionForNewInstance(final EntityImpl entity);
 
-  Iterator<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
+  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
 
-  Iterator<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
+  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
       final Collection<String> fields);
 
-  Iterator<Index> getIndexesInternal();
+  Set<Index> getIndexesInternal();
 
   void getIndexesInternal(DatabaseSessionInternal session, Collection<Index> indices);
 
@@ -137,13 +137,13 @@ public interface ImmutableSchemaClass {
 
   long count(DatabaseSessionInternal session, final boolean isPolymorphic);
 
-  Iterator<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
       String... fields);
 
-  Iterator<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
       final Collection<String> fields);
 
-  Iterator<Index> getClassIndexesInternal();
+  Set<Index> getClassIndexesInternal();
 
   Index getClassIndex(DatabaseSessionInternal session, final String name);
 
@@ -159,7 +159,7 @@ public interface ImmutableSchemaClass {
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
-  Iterator<String> getInvolvedIndexes(DatabaseSessionInternal session, Collection<String> fields);
+  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, Collection<String> fields);
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
@@ -173,7 +173,7 @@ public interface ImmutableSchemaClass {
    * @return list of indexes that contain passed in fields names as their first keys.
    * @see #getInvolvedIndexes(DatabaseSessionInternal, Collection)
    */
-  Iterator<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields);
+  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields);
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
@@ -185,7 +185,7 @@ public interface ImmutableSchemaClass {
    * @param fields  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
-  Iterator<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
+  Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
       Collection<String> fields);
 
   /**
@@ -194,7 +194,7 @@ public interface ImmutableSchemaClass {
    * @return list of indexes that contain passed in fields names as their first keys.
    * @see #getClassInvolvedIndexes(DatabaseSessionInternal, Collection)
    */
-  Iterator<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields);
+  Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields);
 
   /**
    * Indicates whether given fields are contained as first key fields in class indexes. Order of
@@ -218,16 +218,28 @@ public interface ImmutableSchemaClass {
   /**
    * @return All indexes for given class, not the inherited ones.
    */
-  Iterator<String> getClassIndexes();
+  Set<String> getClassIndexes();
 
   /**
    * @return All indexes for given class and its super classes.
    */
-  Iterator<String> getIndexes();
+  Set<String> getIndexes();
 
   SchemaClassShared getImplementation();
 
   DatabaseSessionEmbedded getBoundToSession();
+
+  boolean isUser();
+
+  boolean isScheduler();
+
+  boolean isRole();
+
+  boolean isSecurityPolicy();
+
+  boolean isFunction();
+
+  boolean isSequence();
 
   default List<PropertyTypeInternal> extractFieldTypes(final String[] fieldNames) {
     final List<PropertyTypeInternal> types = new ArrayList<>(fieldNames.length);

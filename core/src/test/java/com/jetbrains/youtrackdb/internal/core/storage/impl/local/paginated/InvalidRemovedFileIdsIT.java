@@ -76,7 +76,7 @@ public class InvalidRemovedFileIdsIT {
     youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory, config);
     db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-    final Schema schema = db.getMetadata().getSchema();
+    final Schema schema = db.getMetadata().getSlowMutableSchema();
     schema.createClass("c1");
     schema.createClass("c2");
     schema.createClass("c3");

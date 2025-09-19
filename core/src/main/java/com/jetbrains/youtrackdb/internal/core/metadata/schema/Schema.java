@@ -21,11 +21,8 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.record.Edge;
-import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import java.util.Collection;
-import java.util.Iterator;
-import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -112,7 +109,7 @@ public interface Schema extends ImmutableSchema {
   SchemaClass getClass(String iClassName);
 
   @Override
-  Iterator<SchemaClass> getClasses();
+  Collection<SchemaClass> getClasses();
 
   @Nullable
   @Override

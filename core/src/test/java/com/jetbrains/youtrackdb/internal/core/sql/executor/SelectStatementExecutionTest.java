@@ -16,14 +16,14 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
@@ -72,7 +72,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testGroupByCount() {
-    session.getMetadata().getSchema().createClass("InputTx");
+    session.getMetadata().getSlowMutableSchema().createClass("InputTx");
 
     for (var i = 0; i < 100; i++) {
       session.begin();
@@ -157,7 +157,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFullScan1() {
     var className = "TestSelectFullScan1";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 100000; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -184,7 +184,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFullScanOrderByRidAsc() {
     var className = "testSelectFullScanOrderByRidAsc";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 100000; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -218,7 +218,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFullScanOrderByRidDesc() {
     var className = "testSelectFullScanOrderByRidDesc";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 100000; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -252,7 +252,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFullScanLimit1() {
     var className = "testSelectFullScanLimit1";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 300; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -280,7 +280,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFullScanSkipLimit1() {
     var className = "testSelectFullScanSkipLimit1";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 300; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -308,7 +308,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectOrderByDesc() {
     var className = "testSelectOrderByDesc";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 30; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -341,7 +341,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectOrderByAsc() {
     var className = "testSelectOrderByAsc";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 30; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -374,7 +374,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectOrderByMassiveAsc() {
     var className = "testSelectOrderByMassiveAsc";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 100000; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -402,7 +402,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectOrderWithProjections() {
     var className = "testSelectOrderWithProjections";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 100; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -436,7 +436,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectOrderWithProjections2() {
     var className = "testSelectOrderWithProjections2";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 100; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -471,7 +471,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFullScanWithFilter1() {
     var className = "testSelectFullScanWithFilter1";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 300; i++) {
       session.begin();
@@ -502,7 +502,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFullScanWithFilter2() {
     var className = "testSelectFullScanWithFilter2";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 300; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -531,7 +531,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testProjections() {
     var className = "testProjections";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 300; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -564,7 +564,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testCountStar() {
     var className = "testCountStar";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 7; i++) {
       session.begin();
@@ -587,7 +587,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testCountStar2() {
     var className = "testCountStar2";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -615,7 +615,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testCountStarEmptyNoIndex() {
     var className = "testCountStarEmptyNoIndex";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var elem = session.newEntity(className);
@@ -638,7 +638,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testCountStarEmptyNoIndexWithAlias() {
     var className = "testCountStarEmptyNoIndexWithAlias";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var elem = session.newEntity(className);
@@ -662,7 +662,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggretateMixedWithNonAggregate() {
     var className = "testAggretateMixedWithNonAggregate";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     try {
       session.executeInTx(transaction -> {
@@ -681,7 +681,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggretateMixedWithNonAggregateInCollection() {
     var className = "testAggretateMixedWithNonAggregateInCollection";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     try {
       session.executeInTx(transaction -> {
@@ -698,7 +698,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggretateInCollection() {
     var className = "testAggretateInCollection";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var query = "select [max(a), max(b)] from " + className;
@@ -711,7 +711,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggretateMixedWithNonAggregateConstants() {
     var className = "testAggretateMixedWithNonAggregateConstants";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     try {
       var result =
@@ -729,7 +729,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggregateSum() {
     var className = "testAggregateSum";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -755,7 +755,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggregateSumGroupBy() {
     var className = "testAggregateSumGroupBy";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -791,7 +791,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggregateSumMaxMinGroupBy() {
     var className = "testAggregateSumMaxMinGroupBy";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -834,7 +834,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggregateSumNoGroupByInProjection() {
     var className = "testAggregateSumNoGroupByInProjection";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -870,7 +870,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testAggregateSumNoGroupByInProjection2() {
     var className = "testAggregateSumNoGroupByInProjection2";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -899,7 +899,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromCollectionNumber() {
     var className = "testFetchFromCollectionNumber";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
 
     for (var i = 0; i < 10; i++) {
@@ -930,7 +930,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassNumberOrderByRidDesc() {
     var className = "testFetchFromCollectionNumberOrderByRidDesc";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
 
     for (var i = 0; i < 10; i++) {
@@ -965,7 +965,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassNumberOrderByRidAsc() {
     var className = "testFetchFromCollectionNumberOrderByRidAsc";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
 
     for (var i = 0; i < 10; i++) {
@@ -1000,7 +1000,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testQueryAsTarget() {
     var className = "testQueryAsTarget";
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     schema.createClass(className);
 
     for (var i = 0; i < 10; i++) {
@@ -1182,7 +1182,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndex() {
     var className = "testFetchFromClassWithIndex";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
@@ -1217,12 +1217,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromIndexHierarchy() {
     var className = "testFetchFromIndexHierarchy";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     var classNameExt = "testFetchFromIndexHierarchyExt";
-    var clazzExt = session.getMetadata().getSchema().createClass(classNameExt, clazz);
+    var clazzExt = session.getMetadata().getSlowMutableSchema().createClass(classNameExt, clazz);
     clazzExt.createIndex(classNameExt + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
     for (var i = 0; i < 5; i++) {
@@ -1266,7 +1266,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes() {
     var className = "testFetchFromClassWithIndexes";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -1311,7 +1311,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes2() {
     var className = "testFetchFromClassWithIndexes2";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -1342,7 +1342,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes3() {
     var className = "testFetchFromClassWithIndexes3";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -1383,7 +1383,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes4() {
     var className = "testFetchFromClassWithIndexes4";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -1425,7 +1425,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes5() {
     var className = "testFetchFromClassWithIndexes5";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1463,7 +1463,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes6() {
     var className = "testFetchFromClassWithIndexes6";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1494,7 +1494,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes7() {
     var className = "testFetchFromClassWithIndexes7";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1529,7 +1529,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes8() {
     var className = "testFetchFromClassWithIndexes8";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1560,7 +1560,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes9() {
     var className = "testFetchFromClassWithIndexes9";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1595,7 +1595,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes10() {
     var className = "testFetchFromClassWithIndexes10";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1628,7 +1628,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes11() {
     var className = "testFetchFromClassWithIndexes11";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1660,7 +1660,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes12() {
     var className = "testFetchFromClassWithIndexes12";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1692,7 +1692,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes13() {
     var className = "testFetchFromClassWithIndexes13";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1724,7 +1724,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes14() {
     var className = "testFetchFromClassWithIndexes14";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1760,7 +1760,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithIndexes15() {
     var className = "testFetchFromClassWithIndexes15";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(className + ".name_surname", SchemaClass.INDEX_TYPE.NOTUNIQUE,
@@ -1796,7 +1796,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithHashIndexes1() {
     var className = "testFetchFromClassWithHashIndexes1";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(
@@ -1835,7 +1835,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testFetchFromClassWithHashIndexes2() {
     var className = "testFetchFromClassWithHashIndexes2";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createIndex(
@@ -1875,8 +1875,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testExpand1() {
     var childClassName = "testExpand1_child";
     var parentClassName = "testExpand1_parent";
-    var childClass = session.getMetadata().getSchema().createClass(childClassName);
-    var parentClass = session.getMetadata().getSchema().createClass(parentClassName);
+    var childClass = session.getMetadata().getSlowMutableSchema().createClass(childClassName);
+    var parentClass = session.getMetadata().getSlowMutableSchema().createClass(parentClassName);
 
     var count = 10;
     for (var i = 0; i < count; i++) {
@@ -1910,8 +1910,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testExpand2() {
     var childClassName = "testExpand2_child";
     var parentClassName = "testExpand2_parent";
-    session.getMetadata().getSchema().createClass(childClassName);
-    session.getMetadata().getSchema().createClass(parentClassName);
+    session.getMetadata().getSlowMutableSchema().createClass(childClassName);
+    session.getMetadata().getSlowMutableSchema().createClass(parentClassName);
 
     session.begin();
     var count = 10;
@@ -1949,8 +1949,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testExpand3() {
     var childClassName = "testExpand3_child";
     var parentClassName = "testExpand3_parent";
-    session.getMetadata().getSchema().createClass(childClassName);
-    session.getMetadata().getSchema().createClass(parentClassName);
+    session.getMetadata().getSlowMutableSchema().createClass(childClassName);
+    session.getMetadata().getSlowMutableSchema().createClass(parentClassName);
 
     session.begin();
     var count = 30;
@@ -1993,7 +1993,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testDistinct1() {
     var className = "testDistinct1";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
 
@@ -2023,7 +2023,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testDistinct2() {
     var className = "testDistinct2";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
 
@@ -2110,7 +2110,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testLet4() {
     var className = "testLet4";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2145,7 +2145,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testLet5() {
     var className = "testLet5";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2179,7 +2179,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testLet6() {
     var className = "testLet6";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2214,7 +2214,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testLet7() {
     var className = "testLet7";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2299,7 +2299,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testLetVariableSubqueryProjectionFetchFromClassTarget_9695() {
     var className = "testLetVariableSubqueryProjectionFetchFromClassTarget_9695";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2340,7 +2340,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testUnwind1() {
     var className = "testUnwind1";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2372,7 +2372,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testUnwind2() {
     var className = "testUnwind2";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -2410,9 +2410,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var parent = "testFetchFromSubclassIndexes1_parent";
     var child1 = "testFetchFromSubclassIndexes1_child1";
     var child2 = "testFetchFromSubclassIndexes1_child2";
-    var parentClass = session.getMetadata().getSchema().createClass(parent);
-    var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
-    var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
+    var parentClass = session.getMetadata().getSlowMutableSchema().createClass(parent);
+    var childClass1 = session.getMetadata().getSlowMutableSchema().createClass(child1, parentClass);
+    var childClass2 = session.getMetadata().getSlowMutableSchema().createClass(child2, parentClass);
 
     parentClass.createProperty("name", PropertyType.STRING);
     childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -2454,9 +2454,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var parent = "testFetchFromSubclassIndexes2_parent";
     var child1 = "testFetchFromSubclassIndexes2_child1";
     var child2 = "testFetchFromSubclassIndexes2_child2";
-    var parentClass = session.getMetadata().getSchema().createClass(parent);
-    var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
-    var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
+    var parentClass = session.getMetadata().getSlowMutableSchema().createClass(parent);
+    var childClass1 = session.getMetadata().getSlowMutableSchema().createClass(child1, parentClass);
+    var childClass2 = session.getMetadata().getSlowMutableSchema().createClass(child2, parentClass);
 
     parentClass.createProperty("name", PropertyType.STRING);
     childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -2501,9 +2501,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var parent = "testFetchFromSubclassIndexes3_parent";
     var child1 = "testFetchFromSubclassIndexes3_child1";
     var child2 = "testFetchFromSubclassIndexes3_child2";
-    var parentClass = session.getMetadata().getSchema().createClass(parent);
-    var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
-    var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
+    var parentClass = session.getMetadata().getSlowMutableSchema().createClass(parent);
+    var childClass1 = session.getMetadata().getSlowMutableSchema().createClass(child1, parentClass);
+    var childClass2 = session.getMetadata().getSlowMutableSchema().createClass(child2, parentClass);
 
     parentClass.createProperty("name", PropertyType.STRING);
     childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -2548,9 +2548,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var parent = "testFetchFromSubclassIndexes4_parent";
     var child1 = "testFetchFromSubclassIndexes4_child1";
     var child2 = "testFetchFromSubclassIndexes4_child2";
-    var parentClass = session.getMetadata().getSchema().createClass(parent);
-    var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
-    var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
+    var parentClass = session.getMetadata().getSlowMutableSchema().createClass(parent);
+    var childClass1 = session.getMetadata().getSlowMutableSchema().createClass(child1, parentClass);
+    var childClass2 = session.getMetadata().getSlowMutableSchema().createClass(child2, parentClass);
 
     parentClass.createProperty("name", PropertyType.STRING);
     childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -2606,11 +2606,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child2 = "testFetchFromSubSubclassIndexes_child2";
     var child2_1 = "testFetchFromSubSubclassIndexes_child2_1";
     var child2_2 = "testFetchFromSubSubclassIndexes_child2_2";
-    var parentClass = session.getMetadata().getSchema().createClass(parent);
-    var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
-    var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
-    var childClass2_1 = session.getMetadata().getSchema().createClass(child2_1, childClass2);
-    var childClass2_2 = session.getMetadata().getSchema().createClass(child2_2, childClass2);
+    var parentClass = session.getMetadata().getSlowMutableSchema().createClass(parent);
+    var childClass1 = session.getMetadata().getSlowMutableSchema().createClass(child1, parentClass);
+    var childClass2 = session.getMetadata().getSlowMutableSchema().createClass(child2, parentClass);
+    var childClass2_1 = session.getMetadata().getSlowMutableSchema()
+        .createClass(child2_1, childClass2);
+    var childClass2_2 = session.getMetadata().getSlowMutableSchema()
+        .createClass(child2_2, childClass2);
 
     parentClass.createProperty("name", PropertyType.STRING);
     childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -2669,11 +2671,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child2 = "testFetchFromSubSubclassIndexesWithDiamond_child2";
     var child12 = "testFetchFromSubSubclassIndexesWithDiamond_child12";
 
-    var parentClass = session.getMetadata().getSchema().createClass(parent);
-    var childClass1 = session.getMetadata().getSchema().createClass(child1, parentClass);
-    var childClass2 = session.getMetadata().getSchema().createClass(child2, parentClass);
+    var parentClass = session.getMetadata().getSlowMutableSchema().createClass(parent);
+    var childClass1 = session.getMetadata().getSlowMutableSchema().createClass(child1, parentClass);
+    var childClass2 = session.getMetadata().getSlowMutableSchema().createClass(child2, parentClass);
     var childClass12 =
-        session.getMetadata().getSchema().createClass(child12, childClass1, childClass2);
+        session.getMetadata().getSlowMutableSchema().createClass(child12, childClass1, childClass2);
 
     parentClass.createProperty("name", PropertyType.STRING);
     childClass1.createIndex(child1 + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
@@ -2725,7 +2727,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort1() {
     var className = "testIndexPlusSort1";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -2775,7 +2777,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort2() {
     var className = "testIndexPlusSort2";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -2825,7 +2827,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort3() {
     var className = "testIndexPlusSort3";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -2876,7 +2878,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort4() {
     var className = "testIndexPlusSort4";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -2927,7 +2929,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort5() {
     var className = "testIndexPlusSort5";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
@@ -2977,7 +2979,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort6() {
     var className = "testIndexPlusSort6";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
@@ -3027,7 +3029,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort7() {
     var className = "testIndexPlusSort7";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     clazz.createProperty("address", PropertyType.STRING);
@@ -3076,7 +3078,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort8() {
     var className = "testIndexPlusSort8";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -3125,7 +3127,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort9() {
     var className = "testIndexPlusSort9";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -3172,7 +3174,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort10() {
     var className = "testIndexPlusSort10";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -3219,7 +3221,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort11() {
     var className = "testIndexPlusSort11";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -3266,7 +3268,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort12() {
     var className = "testIndexPlusSort12";
-    var clazz = session.getMetadata().getSchema().createClass(className);
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createProperty("surname", PropertyType.STRING);
     session.execute(
@@ -3318,7 +3320,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFromStringParam() {
     var className = "testSelectFromStringParam";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -3345,7 +3347,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSelectFromStringNamedParam() {
     var className = "testSelectFromStringNamedParam";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -3374,7 +3376,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testMatches() {
     var className = "testMatches";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -3402,7 +3404,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testRange() {
     var className = "testRange";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var doc = session.newInstance(className);
@@ -3437,7 +3439,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testRangeParams1() {
     var className = "testRangeParams1";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var doc = session.newInstance(className);
@@ -3471,7 +3473,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testRangeParams2() {
     var className = "testRangeParams2";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var doc = session.newInstance(className);
@@ -3509,7 +3511,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testEllipsis() {
     var className = "testEllipsis";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var doc = session.newInstance(className);
@@ -4533,7 +4535,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testCountGroupBy() {
     // issue #9288
     var className = "testCountGroupBy";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     for (var i = 0; i < 10; i++) {
       session.begin();
       var doc = session.newInstance(className);
@@ -4560,7 +4562,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testTimeout() {
     var className = "testTimeout";
     final var funcitonName = getClass().getSimpleName() + "_sleep";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     SQLEngine
         .registerFunction(
@@ -4654,7 +4656,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSimpleRangeQueryWithIndexGTE() {
     final var className = "testSimpleRangeQueryWithIndexGTE";
-    final var clazz = session.getMetadata().getSchema().getOrCreateClass(className);
+    final var clazz = session.getMetadata().getSlowMutableSchema().getOrCreateClass(className);
     final var prop = clazz.createProperty("name", PropertyType.STRING);
     prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
@@ -4681,7 +4683,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSimpleRangeQueryWithIndexLTE() {
     final var className = "testSimpleRangeQueryWithIndexLTE";
-    final var clazz = session.getMetadata().getSchema().getOrCreateClass(className);
+    final var clazz = session.getMetadata().getSlowMutableSchema().getOrCreateClass(className);
     final var prop = clazz.createProperty("name", PropertyType.STRING);
     prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
 
@@ -4709,7 +4711,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testSimpleRangeQueryWithOutIndex() {
     final var className = "testSimpleRangeQueryWithOutIndex";
-    final var clazz = session.getMetadata().getSchema().getOrCreateClass(className);
+    final var clazz = session.getMetadata().getSlowMutableSchema().getOrCreateClass(className);
     final var prop = clazz.createProperty("name", PropertyType.STRING);
     // Hash Index skipped for range query
     prop.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
@@ -4742,10 +4744,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     //               C.name
 
     var classNamePrefix = "testComplexIndexChain_";
-    var a = session.getMetadata().getSchema().createClass(classNamePrefix + "A");
-    var b = session.getMetadata().getSchema().createClass(classNamePrefix + "B");
-    var c = session.getMetadata().getSchema().createClass(classNamePrefix + "C");
-    var d = session.getMetadata().getSchema().createClass(classNamePrefix + "D");
+    var a = session.getMetadata().getSlowMutableSchema().createClass(classNamePrefix + "A");
+    var b = session.getMetadata().getSlowMutableSchema().createClass(classNamePrefix + "B");
+    var c = session.getMetadata().getSlowMutableSchema().createClass(classNamePrefix + "C");
+    var d = session.getMetadata().getSlowMutableSchema().createClass(classNamePrefix + "D");
 
     a.createProperty("b", PropertyType.LINK, b)
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
@@ -5352,7 +5354,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testExclude() {
     var className = "TestExclude";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
     session.begin();
     var doc = session.newInstance(className);
     doc.setProperty("name", "foo");
@@ -5376,7 +5378,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testOrderByLet() {
     var className = "testOrderByLet";
-    session.getMetadata().getSchema().createClass(className);
+    session.getMetadata().getSlowMutableSchema().createClass(className);
 
     session.begin();
     var doc = session.newInstance(className);

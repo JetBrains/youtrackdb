@@ -23,9 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -42,7 +42,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
   @Before
   public void init() {
 
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createClass("City");
 
     oClass.createProperty("name", PropertyType.STRING);
@@ -68,7 +68,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
 
     var db1 = (DatabaseSessionEmbedded) pool.acquire();
     db1.getMetadata().reload();
-    var schema = db1.getMetadata().getSchema();
+    var schema = db1.getMetadata().getSlowMutableSchema();
 
     var idx = schema.getClassInternal("City").getClassIndex(session, "City.name");
 
@@ -126,7 +126,7 @@ public class LuceneInsertReadMultiThreadTest extends LuceneBaseTest {
 
       final var db = (DatabaseSessionInternal) pool.acquire();
       db.activateOnCurrentThread();
-      var schema = db.getMetadata().getSchema();
+      var schema = db.getMetadata().getSlowMutableSchema();
       schema.getClassInternal("City").getClassIndex(session, "City.name");
 
       for (var i = 0; i < cycle; i++) {

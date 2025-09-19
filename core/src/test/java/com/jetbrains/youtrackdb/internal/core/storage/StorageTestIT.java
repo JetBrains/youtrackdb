@@ -3,13 +3,11 @@ package com.jetbrains.youtrackdb.internal.core.storage;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
-import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -56,8 +54,8 @@ public class StorageTestIT {
     var session =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
-    Metadata metadata = session.getMetadata();
-    Schema schema = metadata.getSchema();
+    var metadata = session.getMetadata();
+    var schema = metadata.getSlowMutableSchema();
     schema.createClass("PageBreak");
 
     session.executeInTx(transaction -> {
@@ -122,8 +120,8 @@ public class StorageTestIT {
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
-    Metadata metadata = db.getMetadata();
-    Schema schema = metadata.getSchema();
+    var metadata = db.getMetadata();
+    var schema = metadata.getSlowMutableSchema();
     schema.createClass("PageBreak");
 
     db.executeInTx(transaction -> {
@@ -185,8 +183,8 @@ public class StorageTestIT {
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
-    Metadata metadata = db.getMetadata();
-    Schema schema = metadata.getSchema();
+    var metadata = db.getMetadata();
+    var schema = metadata.getSlowMutableSchema();
     schema.createClass("PageBreak");
 
     db.executeInTx(transaction -> {
@@ -253,8 +251,8 @@ public class StorageTestIT {
     var db =
         (DatabaseSessionInternal) youTrackDB.open(StorageTestIT.class.getSimpleName(), "admin",
             "admin", YouTrackDBConfig.builder().fromApacheConfiguration(config).build());
-    Metadata metadata = db.getMetadata();
-    Schema schema = metadata.getSchema();
+    var metadata = db.getMetadata();
+    var schema = metadata.getSlowMutableSchema();
     schema.createClass("PageBreak");
 
     db.executeInTx(transaction -> {

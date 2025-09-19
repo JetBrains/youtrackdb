@@ -23,8 +23,6 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
@@ -33,6 +31,8 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -66,7 +66,7 @@ public class SQLHelper {
   public static final String DEFINED = "_DEFINED_";
 
   public static Object parseDefaultValue(DatabaseSessionEmbedded session, EntityImpl iRecord,
-      final String iWord, @Nonnull SchemaProperty schemaProperty) {
+      final String iWord, @Nonnull ImmutableSchemaProperty schemaProperty) {
     var context = new BasicCommandContext();
     context.setDatabaseSession(session);
 
@@ -94,7 +94,7 @@ public class SQLHelper {
    * @return The value converted if recognized, otherwise VALUE_NOT_PARSED
    */
   public static Object parseValue(String iValue, final CommandContext context,
-      @Nullable SchemaProperty schemaProperty) {
+      @Nullable ImmutableSchemaProperty schemaProperty) {
     return parseValue(iValue, context, false,
         null, schemaProperty, null, null);
   }
@@ -103,8 +103,8 @@ public class SQLHelper {
   public static Object parseValue(
       String iValue, final CommandContext context,
       boolean resolveContextVariables,
-      @Nullable SchemaClass schemaClass,
-      @Nullable SchemaProperty schemaProperty, @Nullable PropertyTypeInternal propertyType,
+      @Nullable ImmutableSchemaClass schemaClass,
+      @Nullable ImmutableSchemaProperty schemaProperty, @Nullable PropertyTypeInternal propertyType,
       @Nullable PropertyTypeInternal parentProperty) {
     if (iValue == null) {
       return null;
@@ -187,7 +187,8 @@ public class SQLHelper {
         } else {
           entity = session.newEntity(schemaClass);
         }
-        fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
+        fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue,
+            (RecordAbstract) entity);
       } else {
         final var items =
             StringSerializerHelper.smartSplit(
@@ -264,7 +265,8 @@ public class SQLHelper {
             entity = session.newEntity();
           }
 
-          fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue, (RecordAbstract) entity);
+          fieldValue = JSONSerializerJackson.INSTANCE.fromString(session, iValue,
+              (RecordAbstract) entity);
         } else {
           fieldValue = map;
         }

@@ -61,7 +61,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   public RecordSerializer recordSerializer;
   public long dirty = 1;
-  protected boolean contentChanged = true;
   protected STATUS status = STATUS.NOT_LOADED;
 
   @Nonnull
@@ -430,7 +429,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
 
   public void unsetDirty() {
-    contentChanged = false;
     dirty = 0;
   }
 
@@ -465,11 +463,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     return contentChanged;
   }
 
-  public void setContentChanged(boolean contentChanged) {
-    checkForBinding();
-
-    this.contentChanged = contentChanged;
-  }
 
   public void clearSource() {
     this.source = null;

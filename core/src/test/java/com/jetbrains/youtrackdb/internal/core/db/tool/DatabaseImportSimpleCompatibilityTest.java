@@ -56,7 +56,8 @@ public class DatabaseImportSimpleCompatibilityTest {
     this.executeImport();
     this.executeExport(" -excludeAll -includeSchema=true -includeManualIndexes=false");
 
-    Assert.assertTrue(importDatabase.getMetadata().getSchema().existsClass("OrderCustomer"));
+    Assert.assertTrue(
+        importDatabase.getMetadata().getSlowMutableSchema().existsClass("OrderCustomer"));
 
     this.tearDown(databaseName);
     Assert.assertTrue(output.size() > 0);
@@ -81,7 +82,8 @@ public class DatabaseImportSimpleCompatibilityTest {
     this.executeImport();
     this.executeExport(" -excludeAll -includeSchema=true");
 
-    Assert.assertTrue(importDatabase.getMetadata().getSchema().existsClass("OrderCustomer"));
+    Assert.assertTrue(
+        importDatabase.getMetadata().getSlowMutableSchema().existsClass("OrderCustomer"));
 
     this.tearDown(databaseName);
     Assert.assertTrue(output.size() > 0);

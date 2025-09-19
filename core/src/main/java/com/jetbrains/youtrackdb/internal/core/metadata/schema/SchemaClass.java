@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
-import java.util.Iterator;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
@@ -29,6 +29,7 @@ import java.util.Map;
  * Schema class
  */
 public interface SchemaClass extends ImmutableSchemaClass {
+
   SchemaClass setAbstract(boolean iAbstract);
 
   void setStrictMode(boolean iMode);
@@ -172,26 +173,26 @@ public interface SchemaClass extends ImmutableSchemaClass {
   SchemaClass set(final ATTRIBUTES attribute, final Object value);
 
   @Override
-  Iterator<SchemaClass> getSuperClasses();
+  List<SchemaClass> getSuperClasses();
 
   @Override
-  Iterator<SchemaProperty> getDeclaredProperties();
+  Collection<SchemaProperty> getDeclaredProperties();
 
   @Override
-  Iterator<SchemaProperty> getProperties();
+  Collection<SchemaProperty> getProperties();
 
   @Override
   Map<String, SchemaProperty> getPropertiesMap();
 
   @Override
-  Iterator<SchemaClass> getSubclasses();
+  Collection<SchemaClass> getSubclasses();
 
   @Override
-  Iterator<SchemaClass> getAllSuperClasses();
+  Collection<SchemaClass> getAllSuperClasses();
 
   @Override
   SchemaProperty getProperty(String propertyName);
 
   @Override
-  Iterator<SchemaClass> getAllSubclasses();
+  Collection<SchemaClass> getAllSubclasses();
 }

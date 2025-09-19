@@ -17,8 +17,8 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.EmbeddedEntity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -42,7 +42,7 @@ public class PointShapeBuilder extends ShapeBuilder<Point> {
   @Override
   public void initClazz(DatabaseSessionInternal db) {
 
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema = db.getMetadata().getSlowMutableSchema();
     var point = schema.createAbstractClass(NAME, superClass(db));
     var coordinates = point.createProperty(COORDINATES, PropertyType.EMBEDDEDLIST,
         PropertyType.DOUBLE);

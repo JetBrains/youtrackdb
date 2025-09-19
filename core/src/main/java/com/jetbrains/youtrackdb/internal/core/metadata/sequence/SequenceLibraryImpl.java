@@ -55,7 +55,8 @@ public class SequenceLibraryImpl {
     try {
       sequences.clear();
 
-      if (session.getMetadata().getImmutableSchema(session).existsClass(DBSequence.CLASS_NAME)) {
+      if (session.getMetadata().getFastImmutableSchema(session)
+          .existsClass(DBSequence.CLASS_NAME)) {
         session.executeInTx(tx -> {
           try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {
             while (result.hasNext()) {
@@ -193,11 +194,11 @@ public class SequenceLibraryImpl {
   }
 
   private static void init(final DatabaseSessionInternal session) {
-    if (session.getMetadata().getSchema().existsClass(DBSequence.CLASS_NAME)) {
+    if (session.getMetadata().getFastImmutableSchema().existsClass(DBSequence.CLASS_NAME)) {
       return;
     }
 
-    final var sequenceClass = session.getMetadata().getSchema()
+    final var sequenceClass = session.getMetadata().getSlowMutableSchema()
         .createClass(DBSequence.CLASS_NAME);
     DBSequence.initClass(sequenceClass);
   }

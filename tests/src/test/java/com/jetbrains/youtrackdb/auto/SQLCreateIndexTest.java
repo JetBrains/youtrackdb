@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
@@ -10,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.index.PropertyLinkBagIndexDefiniti
 import com.jetbrains.youtrackdb.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyMapIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.Arrays;
 import java.util.List;
 import org.testng.Assert;
@@ -27,7 +27,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.createClass("sqlCreateIndexTestClass");
     oClass.createProperty("prop1", EXPECTED_PROP1_TYPE.getPublicPropertyType());
     oClass.createProperty("prop2", EXPECTED_PROP2_TYPE.getPublicPropertyType());
@@ -85,7 +85,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexCompositeIndex");
 
@@ -110,7 +110,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedMapIndex");
 
@@ -134,7 +134,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexTestClass.prop3");
 
@@ -165,7 +165,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
 
@@ -187,7 +187,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
 
@@ -209,7 +209,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
 
@@ -227,7 +227,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedMapByKeyIndex");
 
@@ -255,7 +255,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedMapByValueIndex");
 
@@ -283,7 +283,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedListIndex");
 
@@ -306,7 +306,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexRidBagIndex");
 
@@ -326,7 +326,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexTestClass.prop5");
 
@@ -346,7 +346,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexTestClass.prop9");
 
@@ -379,7 +379,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedListWithoutLinkedTypeIndex");
 
@@ -405,7 +405,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexEmbeddedMapWithoutLinkedTypeIndex");
 
@@ -426,7 +426,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexCompositeIndex2");
 
@@ -470,7 +470,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexCompositeIndex3");
 
@@ -487,7 +487,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexCompositeIndexWithMetadata");
 
@@ -516,7 +516,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexTestClass.prop8");
 
@@ -549,7 +549,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("sqlCreateIndexTestClass")
             .getClassIndex(session, "sqlCreateIndexCompositeIndex2WithConfig");
 

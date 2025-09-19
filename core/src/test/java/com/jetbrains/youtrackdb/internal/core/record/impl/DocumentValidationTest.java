@@ -27,10 +27,11 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     Identifiable id = ((DBRecord) doc).getIdentity();
     session.commit();
 
-    var embeddedClazz = session.getMetadata().getSchema().createAbstractClass("EmbeddedValidation");
+    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
+        .createAbstractClass("EmbeddedValidation");
     embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
 
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
     clazz.createProperty("float", PropertyType.FLOAT).setMandatory(true);
@@ -142,15 +143,16 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidationNotValidEmbedded() {
-    var embeddedClazz = session.getMetadata().getSchema().createAbstractClass("EmbeddedValidation");
+    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
+        .createAbstractClass("EmbeddedValidation");
     embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
 
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
     clazz.createProperty("embedded", PropertyType.EMBEDDED, embeddedClazz)
         .setMandatory(true);
-    var clazzNotVertex = session.getMetadata().getSchema().createClass("NotVertex");
+    var clazzNotVertex = session.getMetadata().getSlowMutableSchema().createClass("NotVertex");
     clazzNotVertex.createProperty("embeddedSimple", PropertyType.EMBEDDED);
 
     session.begin();
@@ -171,11 +173,12 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidationNotValidEmbeddedSet() {
-    var embeddedClazz = session.getMetadata().getSchema().createAbstractClass("EmbeddedValidation");
+    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
+        .createAbstractClass("EmbeddedValidation");
     embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     embeddedClazz.createProperty("long", PropertyType.LONG).setMandatory(true);
 
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
     clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET, embeddedClazz)
@@ -208,11 +211,12 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidationNotValidEmbeddedList() {
-    var embeddedClazz = session.getMetadata().getSchema().createAbstractClass("EmbeddedValidation");
+    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
+        .createAbstractClass("EmbeddedValidation");
     embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     embeddedClazz.createProperty("long", PropertyType.LONG).setMandatory(true);
 
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
     clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST, embeddedClazz)
@@ -244,11 +248,12 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidationNotValidEmbeddedMap() {
-    var embeddedClazz = session.getMetadata().getSchema().createAbstractClass("EmbeddedValidation");
+    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
+        .createAbstractClass("EmbeddedValidation");
     embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     embeddedClazz.createProperty("long", PropertyType.LONG).setMandatory(true);
 
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
     clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
     clazz.createProperty("embeddedMap", PropertyType.EMBEDDEDMAP, embeddedClazz)
@@ -295,7 +300,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testMaxValidation() {
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMax("11");
     clazz.createProperty("long", PropertyType.LONG).setMax("11");
     clazz.createProperty("float", PropertyType.FLOAT).setMax("11");
@@ -447,7 +452,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     Identifiable id = ((DBRecord) doc).getIdentity();
     session.commit();
 
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setMin("11");
     clazz.createProperty("long", PropertyType.LONG).setMin("11");
     clazz.createProperty("float", PropertyType.FLOAT).setMin("11");
@@ -545,7 +550,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     Identifiable id = entity.getIdentity();
     session.commit();
 
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("int", PropertyType.INTEGER).setNotNull(true);
     clazz.createProperty("long", PropertyType.LONG).setNotNull(true);
     clazz.createProperty("float", PropertyType.FLOAT).setNotNull(true);
@@ -625,7 +630,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testRegExpValidation() {
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("string", PropertyType.STRING).setRegexp("[^Z]*");
 
     session.begin();
@@ -639,7 +644,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testLinkedTypeValidation() {
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
     clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST)
         .setLinkedType(PropertyType.INTEGER);
     clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET)
@@ -680,10 +685,11 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testLinkedClassValidation() {
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
-    var clazz1 = session.getMetadata().getSchema().createClass("Validation1");
-    var embeddedClazz = session.getMetadata().getSchema().createAbstractClass("ValidationEmbedded");
-    var embeddedClazz2 = session.getMetadata().getSchema()
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
+    var clazz1 = session.getMetadata().getSlowMutableSchema().createClass("Validation1");
+    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
+        .createAbstractClass("ValidationEmbedded");
+    var embeddedClazz2 = session.getMetadata().getSlowMutableSchema()
         .createAbstractClass("ValidationEmbedded2");
 
     clazz.createProperty("link", PropertyType.LINK).setLinkedClass(clazz1);
@@ -764,9 +770,10 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidLinkCollectionsUpdate() {
-    var clazz = session.getMetadata().getSchema().createClass("Validation");
-    var clazz1 = session.getMetadata().getSchema().createClass("Validation1");
-    var embeddedClazz = session.getMetadata().getSchema().createAbstractClass("EmbeddedValidation");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
+    var clazz1 = session.getMetadata().getSlowMutableSchema().createClass("Validation1");
+    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
+        .createAbstractClass("EmbeddedValidation");
     clazz.createProperty("linkList", PropertyType.LINKLIST)
         .setLinkedClass(clazz1);
     clazz.createProperty("linkSet", PropertyType.LINKSET).setLinkedClass(clazz1);

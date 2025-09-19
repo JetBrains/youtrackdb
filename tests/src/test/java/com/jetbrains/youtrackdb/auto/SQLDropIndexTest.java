@@ -32,7 +32,7 @@ public class SQLDropIndexTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.createClass("SQLDropIndexTestClass");
     oClass.createProperty("prop1", EXPECTED_PROP1_TYPE);
     oClass.createProperty("prop2", EXPECTED_PROP2_TYPE);
@@ -60,7 +60,7 @@ public class SQLDropIndexTest extends BaseDBTest {
     var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("SQLDropIndexTestClass")
             .getClassIndex(session, "SQLDropIndexTestClass.prop1");
     Assert.assertNotNull(index);
@@ -70,7 +70,7 @@ public class SQLDropIndexTest extends BaseDBTest {
     index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("SQLDropIndexTestClass")
             .getClassIndex(session, "SQLDropIndexTestClass.prop1");
     Assert.assertNull(index);
@@ -87,7 +87,7 @@ public class SQLDropIndexTest extends BaseDBTest {
     var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("SQLDropIndexTestClass")
             .getClassIndex(session, "SQLDropIndexCompositeIndex");
     Assert.assertNotNull(index);
@@ -97,7 +97,7 @@ public class SQLDropIndexTest extends BaseDBTest {
     index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("SQLDropIndexTestClass")
             .getClassIndex(session, "SQLDropIndexCompositeIndex");
     Assert.assertNull(index);
@@ -108,21 +108,21 @@ public class SQLDropIndexTest extends BaseDBTest {
     var index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("SQLDropIndexTestClass")
             .getClassIndex(session, "SQLDropIndexTestClass.prop1");
     Assert.assertNull(index);
     index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("SQLDropIndexTestClass")
             .getClassIndex(session, "SQLDropIndexWithoutClass");
     Assert.assertNull(index);
     index =
         session
             .getMetadata()
-            .getSchema()
+            .getSlowMutableSchema()
             .getClassInternal("SQLDropIndexTestClass")
             .getClassIndex(session, "SQLDropIndexCompositeIndex");
     Assert.assertNull(index);

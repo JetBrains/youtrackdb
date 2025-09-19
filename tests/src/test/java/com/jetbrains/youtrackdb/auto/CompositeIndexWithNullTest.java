@@ -13,7 +13,7 @@ import org.testng.Assert;
 public class CompositeIndexWithNullTest extends BaseDBTest {
 
   public void testPointQuery() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass(
         "compositeIndexNullPointQueryClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
@@ -66,7 +66,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryInTx() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("compositeIndexNullPointQueryInTxClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
     clazz.createProperty("prop2", PropertyType.INTEGER);
@@ -120,7 +120,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryInMiddleTx() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("compositeIndexNullPointQueryInMiddleTxClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
     clazz.createProperty("prop2", PropertyType.INTEGER);
@@ -173,7 +173,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testRangeQuery() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("compositeIndexNullRangeQueryClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
     clazz.createProperty("prop2", PropertyType.INTEGER);
@@ -224,7 +224,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testRangeQueryInMiddleTx() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("compositeIndexNullRangeQueryInMiddleTxClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
     clazz.createProperty("prop2", PropertyType.INTEGER);
@@ -276,7 +276,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryNullInTheMiddle() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("compositeIndexNullPointQueryNullInTheMiddleClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
     clazz.createProperty("prop2", PropertyType.INTEGER);
@@ -339,7 +339,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryNullInTheMiddleInMiddleTx() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass(
         "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
@@ -401,7 +401,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testRangeQueryNullInTheMiddle() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass("compositeIndexNullRangeQueryNullInTheMiddleClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);
     clazz.createProperty("prop2", PropertyType.INTEGER);
@@ -444,7 +444,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
   public void testRangeQueryNullInTheMiddleInMiddleTx() {
 
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var clazz = schema.createClass(
         "compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxClass");
     clazz.createProperty("prop1", PropertyType.INTEGER);

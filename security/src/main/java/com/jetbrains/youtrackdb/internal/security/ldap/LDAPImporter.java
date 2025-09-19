@@ -287,10 +287,10 @@ public class LDAPImporter implements SecurityComponent {
     try {
       System.out.println("calling existsClass odb = " + odb);
 
-      if (!odb.getMetadata().getSchema().existsClass(oldapUserClass)) {
+      if (!odb.getMetadata().getSlowMutableSchema().existsClass(oldapUserClass)) {
         System.out.println("calling createClass");
 
-        var ldapUser = odb.getMetadata().getSchema().createClass(oldapUserClass);
+        var ldapUser = odb.getMetadata().getSlowMutableSchema().createClass(oldapUserClass);
 
         System.out.println("calling createProperty");
 

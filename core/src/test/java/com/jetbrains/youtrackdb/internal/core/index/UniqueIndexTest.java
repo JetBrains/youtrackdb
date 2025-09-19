@@ -5,12 +5,12 @@ import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.Triple;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -116,7 +116,7 @@ public class UniqueIndexTest extends DbTestBase {
 
   @Test()
   public void testUniqueOnUpdate() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var userClass = schema.createClass("User");
     userClass.createProperty("MailAddress", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
@@ -150,7 +150,7 @@ public class UniqueIndexTest extends DbTestBase {
 
   @Test
   public void testUniqueOnUpdateNegativeVersion() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     var userClass = schema.createClass("User");
     userClass.createProperty("MailAddress", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
@@ -193,7 +193,7 @@ public class UniqueIndexTest extends DbTestBase {
 
   @Test
   public void uniqueIndexOnLinkBag() {
-    final var schema = session.getMetadata().getSchema();
+    final var schema = session.getMetadata().getSlowMutableSchema();
     final var bClass = schema.createClass("bClass_" + UniqueIndexTest.class.getSimpleName());
     final var aClass = schema.createClass("aClass_" + UniqueIndexTest.class.getSimpleName());
     aClass.createProperty("bLinks", PropertyType.LINKBAG, bClass);

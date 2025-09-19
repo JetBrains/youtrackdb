@@ -34,8 +34,8 @@ public class LuceneSpatialManager {
   }
 
   private void internalInit(DatabaseSessionInternal db) {
-    if (db.getMetadata().getSchema().getClass(BASE_CLASS) == null) {
-      db.getMetadata().getSchema().createAbstractClass(BASE_CLASS);
+    if (db.getMetadata().getSlowMutableSchema().getClass(BASE_CLASS) == null) {
+      db.getMetadata().getSlowMutableSchema().createAbstractClass(BASE_CLASS);
       shapeBuilder.initClazz(db);
     }
   }

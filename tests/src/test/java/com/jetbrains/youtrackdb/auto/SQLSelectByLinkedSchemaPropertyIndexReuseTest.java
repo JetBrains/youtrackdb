@@ -407,7 +407,7 @@ public class SQLSelectByLinkedSchemaPropertyIndexReuseTest extends AbstractIndex
   }
 
   private void createSchemaForTest() {
-    final Schema schema = session.getMetadata().getSchema();
+    final Schema schema = session.getMetadata().getSlowMutableSchema();
     if (!schema.existsClass("lpirtStudent")) {
       final var curatorClass = schema.createClass("lpirtCurator");
       curatorClass.createProperty("name", PropertyType.STRING)

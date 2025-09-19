@@ -20,7 +20,7 @@ public class LuceneRangeTest extends LuceneBaseTest {
 
   @Before
   public void setUp() throws Exception {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var cls = schema.createClass("Person");
     cls.createProperty("name", PropertyType.STRING);

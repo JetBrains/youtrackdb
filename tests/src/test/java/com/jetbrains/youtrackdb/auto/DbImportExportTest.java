@@ -143,7 +143,7 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
       try (final var session = (DatabaseSessionEmbedded) youTrackDB.open(
           "original", "admin", "admin")) {
-        final Schema schema = session.getMetadata().getSchema();
+        final Schema schema = session.getMetadata().getSlowMutableSchema();
 
         final var rootCls = schema.createClass("RootClass");
         rootCls.createProperty("no", PropertyType.INTEGER);

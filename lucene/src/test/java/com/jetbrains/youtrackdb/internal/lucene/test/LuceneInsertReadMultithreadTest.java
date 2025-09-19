@@ -20,8 +20,8 @@ package com.jetbrains.youtrackdb.internal.lucene.test;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Before;
@@ -42,7 +42,7 @@ public class LuceneInsertReadMultithreadTest extends BaseLuceneTest {
   public void init() {
 
     url = session.getURL();
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var oClass = schema.createClass("City");
 
     oClass.createProperty("name", PropertyType.STRING);
@@ -53,7 +53,7 @@ public class LuceneInsertReadMultithreadTest extends BaseLuceneTest {
   public void testConcurrentInsertWithIndex() throws Exception {
 
     session.getMetadata().reload();
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
 
     var threads = new Thread[THREADS + RTHREADS];
     for (var i = 0; i < THREADS; ++i) {
@@ -132,7 +132,7 @@ public class LuceneInsertReadMultithreadTest extends BaseLuceneTest {
 
       databaseDocumentTx = openDatabase();
 
-      Schema schema = databaseDocumentTx.getMetadata().getSchema();
+      Schema schema = databaseDocumentTx.getMetadata().getSlowMutableSchema();
       var idx = databaseDocumentTx.getClassInternal("City").getClassIndex(session, "City.name");
 
       for (var i = 0; i < cycle; i++) {

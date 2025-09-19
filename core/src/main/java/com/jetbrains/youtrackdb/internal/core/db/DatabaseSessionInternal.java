@@ -55,7 +55,8 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
-import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -82,6 +83,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface DatabaseSessionInternal extends DatabaseSession {
+
   /**
    * Returns the current user logged into the database.
    */
@@ -659,7 +661,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   long countCollectionElements(String iCollectionName);
 
-  MetadataInternal getMetadata();
+  SessionMetadata getMetadata();
 
   void afterCommitOperations(boolean rootTx, Map<RID, RID> updatedRids);
 
@@ -806,11 +808,11 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   Entity newEntity(final String className);
 
-  Entity newEntity(final SchemaClass cls);
+  Entity newEntity(final ImmutableSchemaClass cls);
 
   Entity newEntity();
 
-  EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass);
+  EmbeddedEntity newEmbeddedEntity(ImmutableSchemaClass schemaClass);
 
   EmbeddedEntity newEmbeddedEntity(String schemaClass);
 
@@ -895,13 +897,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param type the vertex type (class name)
    */
   Vertex newVertex(String type);
-
-  /**
-   * Retrieve the set of defined blob collection.
-   *
-   * @return the array of defined blob collection ids.
-   */
-  int[] getBlobCollectionIds();
 
   /**
    * Loads the entity by the Record ID.
@@ -1121,18 +1116,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     return createAbstractClass(className, SchemaClass.EDGE_CLASS_NAME);
   }
 
-
-  /**
-   * retrieves a class from the schema
-   *
-   * @param className The class name
-   * @return The object representing the class in the schema. Null if the class does not exist.
-   */
-  default SchemaClass getClass(String className) {
-    var schema = getSchema();
-    return schema.getClass(className);
-  }
-
   /**
    * Creates a new class in the schema
    *
@@ -1143,7 +1126,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *                         does not exist.
    */
   default SchemaClass createClass(String className, String... superclasses) throws SchemaException {
-    var schema = getSchema();
+    var schema = getMetadata().getSlowMutableSchema();
     SchemaClass[] superclassInstances = null;
     if (superclasses != null) {
       superclassInstances = new SchemaClass[superclasses.length];
@@ -1178,7 +1161,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   default SchemaClass createAbstractClass(String className, String... superclasses)
       throws SchemaException {
-    var schema = getSchema();
+    var schema = getMetadata().getSlowMutableSchema();
     SchemaClass[] superclassInstances = null;
     if (superclasses != null) {
       superclassInstances = new SchemaClass[superclasses.length];
@@ -1213,7 +1196,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   default SchemaClass createClassIfNotExist(String className, String... superclasses)
       throws SchemaException {
-    var schema = getSchema();
+    var schema = getMetadata().getSlowMutableSchema();
 
     var result = schema.getClass(className);
     if (result == null) {

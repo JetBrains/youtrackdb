@@ -35,7 +35,7 @@ public class LuceneMassiveInsertDeleteTest extends BaseLuceneTest {
 
   @Before
   public void init() {
-    Schema schema = session.getMetadata().getSchema();
+    Schema schema = session.getMetadata().getSlowMutableSchema();
     var song = schema.createVertexClass("City");
     song.createProperty("name", PropertyType.STRING);
 

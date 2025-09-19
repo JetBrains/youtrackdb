@@ -8,7 +8,7 @@ import org.junit.Test;
 public class AlterClassTest extends DbTestBase {
   @Test
   public void testSetAbstractClass() {
-    Schema oSchema = session.getMetadata().getSchema();
+    Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.getClass("O");
     var v = oSchema.getClass("V");
     v.addSuperClass(oClass);

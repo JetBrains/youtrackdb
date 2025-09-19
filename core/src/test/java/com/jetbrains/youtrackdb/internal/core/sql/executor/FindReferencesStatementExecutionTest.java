@@ -21,8 +21,8 @@ public class FindReferencesStatementExecutionTest extends DbTestBase {
   public void testLink() {
     var name = "testLink1";
     var name2 = "testLink2";
-    session.getMetadata().getSchema().createClass(name);
-    session.getMetadata().getSchema().createClass(name2);
+    session.getMetadata().getSlowMutableSchema().createClass(name);
+    session.getMetadata().getSlowMutableSchema().createClass(name2);
 
     session.begin();
     var linked = (EntityImpl) session.newEntity(name);

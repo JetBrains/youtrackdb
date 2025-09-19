@@ -55,7 +55,7 @@ public class ServerCommandPostImportRecords extends ServerCommandDocumentAbstrac
     iRequest.getData().commandInfo = "Import records";
 
     try (var session = getProfiledDatabaseSessionInstance(iRequest)) {
-      final var cls = session.getMetadata().getSchema().getClass(urlParts[3]);
+      final var cls = session.getMetadata().getSlowMutableSchema().getClass(urlParts[3]);
       if (cls == null) {
         throw new IllegalArgumentException("Class '" + urlParts[3] + " is not defined");
       }

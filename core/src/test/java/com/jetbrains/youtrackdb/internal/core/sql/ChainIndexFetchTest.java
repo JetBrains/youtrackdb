@@ -12,10 +12,10 @@ public class ChainIndexFetchTest extends DbTestBase {
 
   @Test
   public void testFetchChaninedIndex() {
-    var baseClass = session.getMetadata().getSchema().createClass("BaseClass");
+    var baseClass = session.getMetadata().getSlowMutableSchema().createClass("BaseClass");
     var propr = baseClass.createProperty("ref", PropertyType.LINK);
 
-    var linkedClass = session.getMetadata().getSchema().createClass("LinkedClass");
+    var linkedClass = session.getMetadata().getSlowMutableSchema().createClass("LinkedClass");
     var id = linkedClass.createProperty("id", PropertyType.STRING);
     id.createIndex(INDEX_TYPE.UNIQUE);
 
