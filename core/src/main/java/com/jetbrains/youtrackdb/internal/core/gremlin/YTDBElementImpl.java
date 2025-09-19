@@ -62,6 +62,10 @@ public abstract class YTDBElementImpl implements YTDBElement {
     return graph;
   }
 
+  /// Common logic for setting the value of an element property. Called from
+  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
+  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
+  /// [[YTDBPropertyFactory]] instances.
   protected <V, P extends Property<V>> P writeProperty(
       YTDBPropertyFactory<V, P> propFactory, final String key, final V value) {
     if (key == null) {
@@ -107,6 +111,10 @@ public abstract class YTDBElementImpl implements YTDBElement {
     return propFactory.create(key, value, this);
   }
 
+  /// Common logic for reading the value of an element property. Called from
+  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
+  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
+  /// [[YTDBPropertyFactory]] instances.
   protected <V, P extends Property<V>> P readProperty(
       YTDBPropertyFactory<V, P> propFactory, String key) {
     graph.tx().readWrite();
@@ -117,6 +125,10 @@ public abstract class YTDBElementImpl implements YTDBElement {
         propFactory.empty();
   }
 
+  /// Common logic for reading the values of multiple element properties. Called from
+  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
+  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
+  /// [[YTDBPropertyFactory]] instances.
   protected <V, P extends Property<V>> Iterator<P> readProperties(
       YTDBPropertyFactory<V, P> propFactory, final String... propertyKeys) {
     this.graph.tx().readWrite();
