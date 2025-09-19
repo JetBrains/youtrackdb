@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaPropertyPToken;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl.SkipAsAnonymousMethod;
+import java.util.HashSet;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -163,14 +164,26 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
   /// Removes one or several {@link Property}s from an element.
   @SkipAsAnonymousMethod
-  default GraphTraversal<S, E> removeProperty(String name) {
-    if (name == null || name.isBlank()) {
+  default GraphTraversal<S, E> removeProperty(String key, String... otherKeys) {
+
+    if (key == null || key.isBlank()) {
       throw new IllegalArgumentException("The provided name must not be null or blank");
+    }
+    final var allKeys = new HashSet<String>();
+    allKeys.add(key);
+
+    if (otherKeys != null) {
+      for (var k : otherKeys) {
+        if (k == null || k.isBlank()) {
+          throw new IllegalArgumentException("The provided name must not be null or blank");
+        }
+        allKeys.add(k);
+      }
     }
 
     return call(
         YTDBRemovePropertyService.NAME,
-        Map.of(YTDBRemovePropertyService.PROPERTY, name)
+        Map.of(YTDBRemovePropertyService.PROPERTIES, allKeys)
     );
   }
 }

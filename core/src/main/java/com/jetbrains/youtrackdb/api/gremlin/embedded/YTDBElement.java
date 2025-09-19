@@ -12,5 +12,6 @@ public interface YTDBElement extends Element {
   boolean hasProperty(String key);
 
   /// Remove a property from this {@code YTDBElement} for a given key.
+  /// @return `true` if the property existed and was removed, `false` otherwise.
   boolean removeProperty(String key);
 }

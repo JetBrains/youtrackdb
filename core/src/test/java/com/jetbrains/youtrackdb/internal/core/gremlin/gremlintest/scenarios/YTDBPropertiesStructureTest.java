@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -71,5 +72,20 @@ public class YTDBPropertiesStructureTest extends YTDBAbstractGremlinTest {
     isFriend.removeProperty("since");
     assertFalse(isFriend.hasProperty("since"));
     assertFalse(isFriend.property("since").isPresent());
+  }
+
+  @Test
+  public void testRemoveInternalFromEdge() {
+
+    final var person = graph().addVertex("person");
+    final var friend = graph().addVertex("person");
+    final var isFriend = person.addEdge("friend", friend);
+    isFriend.property("since", 2022);
+
+    isFriend.removeProperty("in");
+    isFriend.removeProperty("out");
+
+    assertEquals(person, isFriend.outVertex());
+    assertEquals(friend, isFriend.inVertex());
   }
 }

@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
@@ -118,6 +119,73 @@ public class YTDBPropertiesProcessTest extends YTDBAbstractGremlinTest {
             .has("weight")
             .toList()
             .size()
+    );
+  }
+
+  @Test
+  @LoadGraphWith(MODERN)
+  public void removeMultipleFromOne() {
+    final var marko = marko().removeProperty("name", "age", "non-existing").next();
+
+    assertEquals(3, people().has("name").toList().size());
+    assertEquals(3, people().has("age").toList().size());
+
+    // because "name" is removed already
+    assertFalse(marko().hasNext());
+
+    assertTrue(g().V().hasId(marko.id()).hasNext());
+    assertFalse(g().V().hasId(marko.id()).has("name").hasNext());
+    assertFalse(g().V().hasId(marko.id()).has("age").hasNext());
+  }
+
+  @Test
+  @LoadGraphWith(MODERN)
+  public void removeMultipleFromMany() {
+    people().removeProperty("name", "age", "non-existing").iterate();
+
+    assertEquals(0, people().has("name").toList().size());
+    assertEquals(0, people().has("age").toList().size());
+  }
+
+  @Test
+  @LoadGraphWith(MODERN)
+  public void removeInvalid() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> people().removeProperty(null).iterate()
+    );
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> people().removeProperty("  ").iterate()
+    );
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> people().removeProperty("valid", "   ").iterate()
+    );
+  }
+
+  @Test
+  @LoadGraphWith(MODERN)
+  public void ignoreEdgeInOutRemoval() {
+    assertEquals(
+        2,
+        marko().outE("knows").removeProperty("in", "out").toList().size()
+    );
+
+    // checking that edges are still valid
+    assertEquals(
+        List.of("marko"),
+        marko().outE("knows").outV().dedup().values("name").toList()
+    );
+
+    assertEquals(
+        List.of("vadas", "josh"),
+        marko()
+            .outE("knows")
+            .order().by("weight")
+            .inV()
+            .values("name")
+            .toList()
     );
   }
 

@@ -24,8 +24,8 @@ import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 public abstract class YTDBElementImpl implements YTDBElement {
   private final ThreadLocal<Entity> threadLocalEntity = new ThreadLocal<>();
   private static final char INTERNAL_PREFIX = '@';
-  private static final List<String> EDGE_LINK_FIELDS = List.of(Edge.DIRECTION_IN,
-      Edge.DIRECTION_OUT);
+  private static final List<String> EDGE_LINK_FIELDS =
+      List.of(Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
 
   @Nullable
   private final Entity fastPathEntity;

@@ -11,10 +11,10 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
 public class YTDBRemovePropertyService<E extends YTDBElement> implements Service<E, E> {
 
-  private final String property;
+  private final Set<String> properties;
 
   public static final String NAME = "ytdbRemoveProperty";
-  public static final String PROPERTY = "property";
+  public static final String PROPERTIES = "properties";
 
   public static class Factory<E extends YTDBElement> implements ServiceFactory<E, E> {
 
@@ -34,17 +34,20 @@ public class YTDBRemovePropertyService<E extends YTDBElement> implements Service
         throw new UnsupportedOperationException(Exceptions.cannotStartTraversal);
       }
 
-      if (params.get(PROPERTY) instanceof String property) {
-        return new YTDBRemovePropertyService<>(property);
+      if (params.get(PROPERTIES) instanceof Set<?> properties &&
+          !properties.isEmpty() &&
+          properties.iterator().next() instanceof String) {
+        //noinspection unchecked
+        return new YTDBRemovePropertyService<>((Set<String>) properties);
       }
 
       throw new IllegalArgumentException(
-          "Invalid properties parameter: " + params.get(PROPERTY));
+          "Invalid properties parameter: " + params.get(PROPERTIES));
     }
   }
 
-  public YTDBRemovePropertyService(String property) {
-    this.property = property;
+  public YTDBRemovePropertyService(Set<String> properties) {
+    this.properties = properties;
   }
 
   @Override
@@ -60,7 +63,7 @@ public class YTDBRemovePropertyService<E extends YTDBElement> implements Service
   @Override
   public CloseableIterator<E> execute(ServiceCallContext ctx, Traverser.Admin<E> in, Map params) {
     final var element = in.get();
-    element.removeProperty(property);
+    properties.forEach(element::removeProperty);
     return CloseableIterator.of(IteratorUtils.of(element));
   }
 }
