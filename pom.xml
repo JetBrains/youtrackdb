@@ -96,7 +96,7 @@
     <!--suppress UnresolvedMavenProperty -->
     <implementation.build>${scmBranch}@r${buildNumber}</implementation.build>
     <!-- | shared build/report plugins version -->
-    <surefire.version>3.5.3</surefire.version>
+    <surefire.version>3.5.4</surefire.version>
     <license.location>license.txt</license.location>
     <!--Override with the given url on external modules-->
     <!--<license.location>https://github.com/orientechnologies/orientdb/raw/develop/ODB-ASL-LICENSE.txt</license.location>-->
