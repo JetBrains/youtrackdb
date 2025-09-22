@@ -107,7 +107,7 @@
     <graalvm.version>22.0.0.2</graalvm.version>
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
-    <log4j.version>2.25.1</log4j.version>
+    <log4j.version>2.25.2</log4j.version>
     <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
     <gremlin.version>3.7.4-YTDB-SNAPSHOT</gremlin.version>
