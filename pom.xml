@@ -110,7 +110,7 @@
     <log4j.version>2.25.1</log4j.version>
     <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.7.4</gremlin.version>
+    <gremlin.version>3.7.4-YTDB-SNAPSHOT</gremlin.version>
   </properties>
 
 
@@ -179,7 +179,7 @@
       <dependency>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>gremlin-driver</artifactId>
-        <version>3.7.4-YTDB-20250807.132339-3</version>
+        <version>${gremlin.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.tinkerpop</groupId>
@@ -190,7 +190,7 @@
       <dependency>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>gremlin-server</artifactId>
-        <version>3.7.4-YTDB-20250814.140341-17</version>
+        <version>${gremlin.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.tinkerpop</groupId>
