@@ -2,10 +2,6 @@ package com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code;
 
 import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.JarDownloader.LocationType;
 import java.io.File;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 public class CommonDownloader {

@@ -5,8 +5,6 @@
 
 FROM azul/zulu-openjdk:8
 
-MAINTAINER OrientDB LTD (info@orientdb.com)
-
 RUN mkdir /orientdb
 
 COPY orientdb-community-*.tar.gz /orientdb-community.tar.gz

@@ -44,6 +44,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>com.fasterxml.jackson.dataformat</groupId>
+      <artifactId>jackson-dataformat-yaml</artifactId>
+      <version>2.15.2</version>
+    </dependency>
+    <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-jdk14</artifactId>
       <scope>test</scope>
@@ -109,12 +114,6 @@
       <groupId>org.openjdk.jmh</groupId>
       <artifactId>jmh-generator-annprocess</artifactId>
       <version>1.37</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.fasterxml.jackson.dataformat</groupId>
-      <artifactId>jackson-dataformat-yaml</artifactId>
-      <version>2.15.2</version>
       <scope>test</scope>
     </dependency>
     <!-- plotting -->
@@ -213,6 +212,38 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <!-- This makes the JAR executable by setting the Main-Class -->
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>com.jetbrains.youtrackdb.auto.BaseDBCompatibilityChecker</mainClass>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-deploy-plugin</artifactId>
         <configuration>
           <skip>true</skip>
@@ -267,24 +298,24 @@
               </suiteXmlFiles>
             </configuration>
           </execution>
-<!--          <execution>-->
-<!--            <id>test-remote</id>-->
-<!--            <goals>-->
-<!--              <goal>test</goal>-->
-<!--            </goals>-->
-<!--            <configuration>-->
-<!--              <systemPropertyVariables>-->
-<!--                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml-->
-<!--                </youtrackdb.config.file>-->
-<!--                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>-->
-<!--              </systemPropertyVariables>-->
-<!--              <suiteXmlFiles>-->
-<!--                <suiteXmlFile>-->
+          <!--          <execution>-->
+          <!--            <id>test-remote</id>-->
+          <!--            <goals>-->
+          <!--              <goal>test</goal>-->
+          <!--            </goals>-->
+          <!--            <configuration>-->
+          <!--              <systemPropertyVariables>-->
+          <!--                <youtrackdb.config.file>target/test-classes/youtrackdb-server-config.xml-->
+          <!--                </youtrackdb.config.file>-->
+          <!--                <YOUTRACKDB_HOME>${project.build.directory}/remote-server</YOUTRACKDB_HOME>-->
+          <!--              </systemPropertyVariables>-->
+          <!--              <suiteXmlFiles>-->
+          <!--                <suiteXmlFile>-->
           <!--                  src/test/java/com/jetbrains/youtrackdb/auto/remote-test-db-from-scratch.xml-->
-<!--                </suiteXmlFile>-->
-<!--              </suiteXmlFiles>-->
-<!--            </configuration>-->
-<!--          </execution>-->
+          <!--                </suiteXmlFile>-->
+          <!--              </suiteXmlFiles>-->
+          <!--            </configuration>-->
+          <!--          </execution>-->
         </executions>
         <dependencies>
           <dependency>

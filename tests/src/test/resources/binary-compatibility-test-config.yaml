@@ -1,11 +1,11 @@
 runs:
   - dbs:
-#      - name: "DbCreationTest"
-#        location:
-#          source: "/Users/logart/dev/youtrackdb/tests/target/test-db"
-#          type: FILE
-#        user: "admin"
-#        password: "admin"
+      - name: "DbCreationTest"
+        location:
+          source: "/config/test-db"
+          type: FILE
+        user: "admin"
+        password: "admin"
       - name: "DbCreationTest"
         location:
           source: "https://github.com/logart/youtrackdb/releases/download/1.0-new-classes/new-class-names-test-db.tar.gz"
