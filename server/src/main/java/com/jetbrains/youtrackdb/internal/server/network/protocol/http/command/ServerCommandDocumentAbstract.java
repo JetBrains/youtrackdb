@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command;
 
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
 import java.util.Map;
@@ -27,7 +27,7 @@ import java.util.Map;
 public abstract class ServerCommandDocumentAbstract extends ServerCommandAuthenticatedDbAbstract {
 
   protected String bindToFields(
-      final HttpRequest iRequest, final Map<String, String> iFields, final RecordId iRid)
+      final HttpRequest iRequest, final Map<String, String> iFields, RecordIdInternal iRid)
       throws Exception {
     if (iRequest.getContent() == null) {
       throw new IllegalArgumentException("HTTP Request content is empty");
@@ -47,7 +47,7 @@ public abstract class ServerCommandDocumentAbstract extends ServerCommandAuthent
         value = pairs.length == 1 ? null : pairs[1];
 
         if ("0".equals(pairs[0]) && iRid != null) {
-          iRid.fromString(value);
+          iRid = RecordIdInternal.fromString(value, false);
         } else if ("1".equals(pairs[0])) {
           className = value;
         } else if (pairs[0].startsWith("_") || pairs[0].equals("id")) {

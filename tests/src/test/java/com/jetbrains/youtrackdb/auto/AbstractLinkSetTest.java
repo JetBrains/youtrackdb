@@ -10,7 +10,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -29,15 +29,15 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
     session.begin();
     var set = (EntityLinkSetImpl) session.newLinkSet();
 
-    set.add(new RecordId("#77:1"));
-    assertTrue(set.contains(new RecordId("#77:1")));
-    Assert.assertFalse(set.contains(new RecordId("#78:2")));
+    set.add(RecordIdInternal.fromString("#77:1", false));
+    assertTrue(set.contains(RecordIdInternal.fromString("#77:1", false)));
+    Assert.assertFalse(set.contains(RecordIdInternal.fromString("#78:2", false)));
 
     var iterator = set.iterator();
     assertTrue(iterator.hasNext());
 
     var identifiable = iterator.next();
-    assertEquals(identifiable, new RecordId("#77:1"));
+    assertEquals(identifiable, RecordIdInternal.fromString("#77:1", false));
     Assert.assertFalse(iterator.hasNext());
     assertIsEmbedded(set);
     session.commit();
@@ -50,11 +50,11 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
     session.begin();
     var set = (EntityLinkSetImpl) session.newLinkSet();
 
-    set.add(new RecordId("#77:2"));
-    set.add(new RecordId("#77:2"));
+    set.add(RecordIdInternal.fromString("#77:2", false));
+    set.add(RecordIdInternal.fromString("#77:2", false));
 
-    assertTrue(set.contains(new RecordId("#77:2")));
-    Assert.assertFalse(set.contains(new RecordId("#77:3")));
+    assertTrue(set.contains(RecordIdInternal.fromString("#77:2", false)));
+    Assert.assertFalse(set.contains(RecordIdInternal.fromString("#77:3", false)));
 
     assertEquals(set.size(), 1);
     assertIsEmbedded(set);
@@ -665,11 +665,11 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
     session.begin();
     final Set<RID> expected = new HashSet<>(8);
 
-    expected.add(new RecordId("#77:12"));
-    expected.add(new RecordId("#77:13"));
-    expected.add(new RecordId("#77:14"));
-    expected.add(new RecordId("#77:15"));
-    expected.add(new RecordId("#77:16"));
+    expected.add(RecordIdInternal.fromString("#77:12", false));
+    expected.add(RecordIdInternal.fromString("#77:13", false));
+    expected.add(RecordIdInternal.fromString("#77:14", false));
+    expected.add(RecordIdInternal.fromString("#77:15", false));
+    expected.add(RecordIdInternal.fromString("#77:16", false));
 
     var set = (EntityLinkSetImpl) session.newLinkSet();
 
@@ -979,18 +979,18 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
   public void testRemove() {
     final var expected = new HashSet<RID>(8);
 
-    expected.add(new RecordId("#77:12"));
-    expected.add(new RecordId("#77:13"));
-    expected.add(new RecordId("#77:14"));
-    expected.add(new RecordId("#77:15"));
-    expected.add(new RecordId("#77:16"));
+    expected.add(RecordIdInternal.fromString("#77:12", false));
+    expected.add(RecordIdInternal.fromString("#77:13", false));
+    expected.add(RecordIdInternal.fromString("#77:14", false));
+    expected.add(RecordIdInternal.fromString("#77:15", false));
+    expected.add(RecordIdInternal.fromString("#77:16", false));
 
     final var set = (EntityLinkSetImpl) session.newLinkSet();
     assertIsEmbedded(set);
     set.addAll(expected);
     assertIsEmbedded(set);
 
-    set.remove(new RecordId("#77:23"));
+    set.remove(RecordIdInternal.fromString("#77:23", false));
     assertIsEmbedded(set);
 
     final var expectedTwo = new HashSet<Identifiable>(8);
@@ -1002,8 +1002,8 @@ public abstract class AbstractLinkSetTest extends BaseDBTest {
 
     assertTrue(expectedTwo.isEmpty());
 
-    expected.remove(new RecordId("#77:14"));
-    set.remove(new RecordId("#77:14"));
+    expected.remove(RecordIdInternal.fromString("#77:14", false));
+    set.remove(RecordIdInternal.fromString("#77:14", false));
 
     assertIsEmbedded(set);
 

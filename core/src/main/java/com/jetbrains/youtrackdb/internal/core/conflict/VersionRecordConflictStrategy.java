@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.conflict;
 
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
@@ -40,7 +40,7 @@ public class VersionRecordConflictStrategy implements RecordConflictStrategy {
   public byte[] onUpdate(
       Storage storage,
       final byte iRecordType,
-      final RecordId rid,
+      final RecordIdInternal rid,
       final int iRecordVersion,
       final byte[] iRecordContent,
       final AtomicInteger iDatabaseVersion) {
@@ -54,7 +54,8 @@ public class VersionRecordConflictStrategy implements RecordConflictStrategy {
   }
 
   protected static void checkVersions(
-      String dbName, final RecordId rid, final int iRecordVersion, final int iDatabaseVersion) {
+      String dbName, final RecordIdInternal rid, final int iRecordVersion,
+      final int iDatabaseVersion) {
     throw new ConcurrentModificationException(dbName
         , rid, iDatabaseVersion, iRecordVersion, RecordOperation.UPDATED);
 

@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.script.CommandScript;
 import com.jetbrains.youtrackdb.internal.core.command.script.ScriptDatabaseWrapper;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.query.BasicLegacyResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.query.LegacyResultSet;
 import java.io.IOException;
@@ -117,7 +117,7 @@ public class SQLScriptEngine implements ScriptEngine {
         var par = iArgs[i];
 
         if (par instanceof Identifiable
-            && ((RecordId) ((Identifiable) par).getIdentity()).isValidPosition())
+            && ((RecordIdInternal) ((Identifiable) par).getIdentity()).isValidPosition())
         // USE THE RID ONLY
         {
           par = ((Identifiable) par).getIdentity();

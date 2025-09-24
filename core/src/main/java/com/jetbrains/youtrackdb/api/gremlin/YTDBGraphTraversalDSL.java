@@ -8,15 +8,19 @@ import static com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClass
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.schema.YTDBSchemaProperty;
+import com.jetbrains.youtrackdb.api.gremlin.service.YTDBRemovePropertyService;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectObjectOutToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBDomainObjectPToken;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaPropertyPToken;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl;
 import com.jetbrains.youtrackdb.internal.annotations.gremlin.dsl.GremlinDsl.SkipAsAnonymousMethod;
+import java.util.HashSet;
+import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -156,5 +160,30 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, Edge> addE(final YTDBDomainObjectObjectOutToken<?> out) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.addE(out.name());
+  }
+
+  /// Removes one or several {@link Property}s from an element.
+  @SkipAsAnonymousMethod
+  default GraphTraversal<S, E> removeProperty(String key, String... otherKeys) {
+
+    if (key == null || key.isBlank()) {
+      throw new IllegalArgumentException("The provided name must not be null or blank");
+    }
+    final var allKeys = new HashSet<String>();
+    allKeys.add(key);
+
+    if (otherKeys != null) {
+      for (var k : otherKeys) {
+        if (k == null || k.isBlank()) {
+          throw new IllegalArgumentException("The provided name must not be null or blank");
+        }
+        allKeys.add(k);
+      }
+    }
+
+    return call(
+        YTDBRemovePropertyService.NAME,
+        Map.of(YTDBRemovePropertyService.PROPERTIES, allKeys)
+    );
   }
 }

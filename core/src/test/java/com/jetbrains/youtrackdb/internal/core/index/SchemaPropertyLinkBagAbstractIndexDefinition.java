@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.Arrays;
@@ -40,8 +40,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
   public void testCreateValueSingleParameter() {
     var ridBag = new LinkBag(session);
 
-    ridBag.add(new RecordId("#1:12"));
-    ridBag.add(new RecordId("#1:23"));
+    ridBag.add(RecordIdInternal.fromString("#1:12", false));
+    ridBag.add(RecordIdInternal.fromString("#1:23", false));
 
     final var result = propertyIndex.createValue(session.getActiveTransaction(),
         Collections.singletonList(ridBag));
@@ -51,8 +51,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:23")));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:12", false)));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:23", false)));
 
     assertEmbedded(ridBag);
   }
@@ -61,8 +61,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
   public void testCreateValueTwoParameters() {
     var ridBag = new LinkBag(session);
 
-    ridBag.add(new RecordId("#1:12"));
-    ridBag.add(new RecordId("#1:23"));
+    ridBag.add(RecordIdInternal.fromString("#1:12", false));
+    ridBag.add(RecordIdInternal.fromString("#1:23", false));
 
     final var result = propertyIndex.createValue(session.getActiveTransaction(),
         Arrays.asList(ridBag, "25"));
@@ -72,8 +72,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:23")));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:12", false)));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:23", false)));
 
     assertEmbedded(ridBag);
   }
@@ -88,8 +88,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
   public void testCreateValueSingleParameterArrayParams() {
     var ridBag = new LinkBag(session);
 
-    ridBag.add(new RecordId("#1:12"));
-    ridBag.add(new RecordId("#1:23"));
+    ridBag.add(RecordIdInternal.fromString("#1:12", false));
+    ridBag.add(RecordIdInternal.fromString("#1:23", false));
 
     final var result = propertyIndex.createValue(session.getActiveTransaction(), ridBag);
 
@@ -98,8 +98,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:23")));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:12", false)));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:23", false)));
 
     assertEmbedded(ridBag);
   }
@@ -109,8 +109,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
   public void testCreateValueTwoParametersArrayParams() {
     var ridBag = new LinkBag(session);
 
-    ridBag.add(new RecordId("#1:12"));
-    ridBag.add(new RecordId("#1:23"));
+    ridBag.add(RecordIdInternal.fromString("#1:12", false));
+    ridBag.add(RecordIdInternal.fromString("#1:23", false));
 
     final var result = propertyIndex.createValue(session.getActiveTransaction(), ridBag, "25");
 
@@ -119,8 +119,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:23")));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:12", false)));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:23", false)));
 
     assertEmbedded(ridBag);
   }
@@ -134,8 +134,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
   public void testGetDocumentValueToIndex() {
     var ridBag = new LinkBag(session);
 
-    ridBag.add(new RecordId("#1:12"));
-    ridBag.add(new RecordId("#1:23"));
+    ridBag.add(RecordIdInternal.fromString("#1:12", false));
+    ridBag.add(RecordIdInternal.fromString("#1:23", false));
 
     session.begin();
     final var document = (EntityImpl) session.newEntity();
@@ -150,8 +150,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var collectionResult = (Collection<?>) result;
     Assert.assertEquals(2, collectionResult.size());
 
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:12")));
-    Assert.assertTrue(collectionResult.contains(new RecordId("#1:23")));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:12", false)));
+    Assert.assertTrue(collectionResult.contains(RecordIdInternal.fromString("#1:23", false)));
 
     assertEmbedded(ridBag);
     session.rollback();
@@ -167,13 +167,13 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
 
     final var multiValueChangeEvent =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEvent,
         keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
-    addedKeys.put(new RecordId("#1:12"), 1);
+    addedKeys.put(RecordIdInternal.fromString("#1:12", false), 1);
 
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
 
@@ -191,12 +191,12 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
 
     final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
         keysToAdd, keysToRemove);
@@ -204,7 +204,7 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
         keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
-    addedKeys.put(new RecordId("#1:12"), 2);
+    addedKeys.put(RecordIdInternal.fromString("#1:12", false), 2);
 
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
 
@@ -222,12 +222,12 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
 
     final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:13"),
-            new RecordId("#1:13"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:13", false),
+            RecordIdInternal.fromString("#1:13", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
         keysToAdd, keysToRemove);
@@ -235,8 +235,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
         keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
-    addedKeys.put(new RecordId("#1:12"), 1);
-    addedKeys.put(new RecordId("#1:13"), 1);
+    addedKeys.put(RecordIdInternal.fromString("#1:12", false), 1);
+    addedKeys.put(RecordIdInternal.fromString("#1:13", false), 1);
 
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
 
@@ -255,9 +255,9 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var multiValueChangeEvent =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEvent,
         keysToAdd, keysToRemove);
@@ -265,7 +265,7 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
-    removedKeys.put(new RecordId("#1:12"), 1);
+    removedKeys.put(RecordIdInternal.fromString("#1:12", false), 1);
 
     Assert.assertEquals(keysToAdd, addedKeys);
     Assert.assertEquals(keysToRemove, removedKeys);
@@ -282,15 +282,15 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
         keysToAdd, keysToRemove);
@@ -300,7 +300,7 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
-    removedKeys.put(new RecordId("#1:12"), 2);
+    removedKeys.put(RecordIdInternal.fromString("#1:12", false), 2);
 
     Assert.assertEquals(keysToAdd, addedKeys);
     Assert.assertEquals(keysToRemove, removedKeys);
@@ -316,14 +316,14 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
 
     final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
         keysToAdd, keysToRemove);
@@ -347,14 +347,14 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
 
     final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:13"),
+            RecordIdInternal.fromString("#1:13", false),
             null,
-            new RecordId("#1:13"));
+            RecordIdInternal.fromString("#1:13", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
         keysToAdd, keysToRemove);
@@ -362,9 +362,9 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
         keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
-    addedKeys.put(new RecordId("#1:12"), 1);
+    addedKeys.put(RecordIdInternal.fromString("#1:12", false), 1);
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
-    removedKeys.put(new RecordId("#1:13"), 1);
+    removedKeys.put(RecordIdInternal.fromString("#1:13", false), 1);
 
     Assert.assertEquals(keysToAdd, addedKeys);
     Assert.assertEquals(keysToRemove, removedKeys);
@@ -380,18 +380,18 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
 
     final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventThree =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
         keysToAdd, keysToRemove);
@@ -401,7 +401,7 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
         keysToAdd, keysToRemove);
 
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
-    addedKeys.put(new RecordId("#1:12"), 1);
+    addedKeys.put(RecordIdInternal.fromString("#1:12", false), 1);
 
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
 
@@ -420,19 +420,19 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventThree =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
         keysToAdd, keysToRemove);
@@ -444,7 +444,7 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
-    removedKeys.put(new RecordId("#1:12"), 1);
+    removedKeys.put(RecordIdInternal.fromString("#1:12", false), 1);
 
     Assert.assertEquals(keysToAdd, addedKeys);
     Assert.assertEquals(keysToRemove, removedKeys);
@@ -461,19 +461,19 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final var multiValueChangeEventOne =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventTwo =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
             ChangeType.REMOVE,
-            new RecordId("#1:12"),
+            RecordIdInternal.fromString("#1:12", false),
             null,
-            new RecordId("#1:12"));
+            RecordIdInternal.fromString("#1:12", false));
     final var multiValueChangeEventThree =
         new MultiValueChangeEvent<Identifiable, Identifiable>(
-            ChangeType.ADD, new RecordId("#1:12"),
-            new RecordId("#1:12"));
+            ChangeType.ADD, RecordIdInternal.fromString("#1:12", false),
+            RecordIdInternal.fromString("#1:12", false));
 
     propertyIndex.processChangeEvent(session.getActiveTransaction(), multiValueChangeEventOne,
         keysToAdd, keysToRemove);
@@ -485,7 +485,7 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     final Map<Object, Integer> addedKeys = new HashMap<Object, Integer>();
 
     final Map<Object, Integer> removedKeys = new HashMap<Object, Integer>();
-    removedKeys.put(new RecordId("#1:12"), 1);
+    removedKeys.put(RecordIdInternal.fromString("#1:12", false), 1);
 
     Assert.assertEquals(keysToAdd, addedKeys);
     Assert.assertEquals(keysToRemove, removedKeys);

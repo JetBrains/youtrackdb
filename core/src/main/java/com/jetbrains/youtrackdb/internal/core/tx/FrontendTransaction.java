@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
@@ -96,7 +96,8 @@ public interface FrontendTransaction extends Transaction {
    * @param newRid Record identity after commit.
    * @return
    */
-  boolean assertIdentityChangedAfterCommit(final RecordId oldRid, final RecordId newRid);
+  boolean assertIdentityChangedAfterCommit(final RecordIdInternal oldRid,
+      final RecordIdInternal newRid);
 
   int amountOfNestedTxs();
 
@@ -225,27 +226,27 @@ public interface FrontendTransaction extends Transaction {
   RecordOperation addRecordOperation(RecordAbstract record, byte status);
 
   @Nullable
-  RecordId getFirstRid(int collectionId);
+  RecordIdInternal getFirstRid(int collectionId);
 
   @Nullable
-  RecordId getLastRid(int collectionId);
+  RecordIdInternal getLastRid(int collectionId);
 
   @Nullable
-  RecordId getNextRidInCollection(@Nonnull RecordId rid);
+  RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid);
 
   @Nullable
-  RecordId getPreviousRidInCollection(@Nonnull RecordId rid);
+  RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid);
 
   boolean isDeletedInTx(@Nonnull RID rid);
 
   @Nullable
-  default List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
+  default List<RecordIdInternal> preProcessRecordsAndExecuteCallCallbacks() {
     return null;
   }
 
   boolean isCallBackProcessingInProgress();
 
-  boolean isScheduledForCallbackProcessing(RecordId rid);
+  boolean isScheduledForCallbackProcessing(RecordIdInternal rid);
 
   @Nonnull
   RecordSerializationContext getRecordSerializationContext();

@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedCollection;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.UnsupportedEncodingException;
@@ -44,8 +45,10 @@ import javax.annotation.Nullable;
  *
  */
 public class HelperClasses {
+
   public static final String CHARSET_UTF_8 = "UTF-8";
-  protected static final RecordId NULL_RECORD_ID = new RecordId(-2, RID.COLLECTION_POS_INVALID);
+  protected static final RecordIdInternal NULL_RECORD_ID = new RecordId(-2,
+      RID.COLLECTION_POS_INVALID);
   public static final long MILLISEC_PER_DAY = 86400000;
 
   public static class Tuple<T1, T2> {
@@ -149,7 +152,8 @@ public class HelperClasses {
   }
 
   @Nullable
-  public static RecordId readOptimizedLink(final BytesContainer bytes, boolean justRunThrough) {
+  public static RecordIdInternal readOptimizedLink(final BytesContainer bytes,
+      boolean justRunThrough) {
     var collectionId = VarIntSerializer.readAsInteger(bytes);
     var collectionPos = VarIntSerializer.readAsLong(bytes);
     if (justRunThrough) {
@@ -341,10 +345,11 @@ public class HelperClasses {
 
   public static RID readLinkOptimizedEmbedded(DatabaseSessionInternal db,
       final BytesContainer bytes) {
-    var rid =
-        new RecordId(VarIntSerializer.readAsInteger(bytes), VarIntSerializer.readAsLong(bytes));
+    RID rid =
+        new RecordId(VarIntSerializer.readAsInteger(bytes),
+            VarIntSerializer.readAsLong(bytes));
     if (!rid.isPersistent()) {
-      rid = (RecordId) db.refreshRid(rid);
+      rid = db.refreshRid(rid);
     }
 
     return rid;

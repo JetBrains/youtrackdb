@@ -40,7 +40,7 @@ import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
@@ -425,7 +425,8 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public boolean assertIdentityChangedAfterCommit(RecordId oldRid, RecordId newRid) {
+  public boolean assertIdentityChangedAfterCommit(RecordIdInternal oldRid,
+      RecordIdInternal newRid) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
 
@@ -447,25 +448,25 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Nullable
   @Override
-  public RecordId getFirstRid(int collectionId) {
+  public RecordIdInternal getFirstRid(int collectionId) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
-  public RecordId getLastRid(int collectionId) {
+  public RecordIdInternal getLastRid(int collectionId) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
-  public RecordId getNextRidInCollection(@Nonnull RecordId rid) {
+  public RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
-  public RecordId getPreviousRidInCollection(@Nonnull RecordId rid) {
+  public RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
@@ -475,7 +476,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public boolean isScheduledForCallbackProcessing(RecordId rid) {
+  public boolean isScheduledForCallbackProcessing(RecordIdInternal rid) {
     return false;
   }
 

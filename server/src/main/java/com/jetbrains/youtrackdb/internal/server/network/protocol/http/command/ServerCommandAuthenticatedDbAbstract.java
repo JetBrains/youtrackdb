@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.LockException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
@@ -331,7 +331,7 @@ public abstract class ServerCommandAuthenticatedDbAbstract extends ServerCommand
         && localDatabase.getCurrentUser() != null) {
       if (!currentUserId.equals(
           localDatabase.getCurrentUser().getIdentity().toString())) {
-        EntityImpl userDoc = localDatabase.load(new RecordId(currentUserId));
+        EntityImpl userDoc = localDatabase.load(RecordIdInternal.fromString(currentUserId, false));
         localDatabase.setUser(new SecurityUserImpl(localDatabase, userDoc));
       }
     }

@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.util.PatternConst;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -295,8 +295,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
       final String operation,
       final String rid,
       final String className,
-      final Map<String, String> fields)
-       {
+      final Map<String, String> fields) {
     switch (operation) {
       case "edit" -> {
         iRequest.getData().commandInfo = "Studio edit entity";
@@ -305,7 +304,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
           throw new IllegalArgumentException("Record ID not found in request");
         }
 
-        var entity = (EntityImpl) session.loadEntity(new RecordId(rid));
+        var entity = (EntityImpl) session.loadEntity(RecordIdInternal.fromString(rid, false));
         if (!Objects.equals(entity.getSchemaClassName(), className)) {
           throw new IllegalArgumentException(
               "Record has different class name than the one provided in the request "
@@ -380,7 +379,7 @@ public class ServerCommandPostStudio extends ServerCommandAuthenticatedDbAbstrac
           throw new IllegalArgumentException("Record ID not found in request");
         }
 
-        var recordId = new RecordId(rid);
+        var recordId = RecordIdInternal.fromString(rid, false);
         var transaction = session.getActiveTransaction();
         final EntityImpl entity = transaction.load(recordId);
         entity.delete();

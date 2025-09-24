@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Collection;
 import java.util.List;
@@ -16,10 +16,10 @@ import java.util.stream.Collectors;
 
 public class FetchFromRidsStep extends AbstractExecutionStep {
 
-  private Collection<RecordId> rids;
+  private Collection<RecordIdInternal> rids;
 
   public FetchFromRidsStep(
-      Collection<RecordId> rids, CommandContext ctx, boolean profilingEnabled) {
+      Collection<RecordIdInternal> rids, CommandContext ctx, boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.rids = rids;
   }
@@ -46,7 +46,7 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
     var result = ExecutionStepInternal.basicSerialize(session, this);
     if (rids != null) {
       result.setProperty(
-          "rids", rids.stream().map(RecordId::toString).collect(Collectors.toList()));
+          "rids", rids.stream().map(RecordIdInternal::toString).collect(Collectors.toList()));
     }
     return result;
   }
@@ -57,7 +57,8 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
       ExecutionStepInternal.basicDeserialize(fromResult, this, session);
       if (fromResult.getProperty("rids") != null) {
         List<String> ser = fromResult.getProperty("rids");
-        rids = ser.stream().map(RecordId::new).collect(Collectors.toList());
+        rids = ser.stream().map(rid -> RecordIdInternal.fromString(rid, false))
+            .collect(Collectors.toList());
       }
       reset();
     } catch (Exception e) {

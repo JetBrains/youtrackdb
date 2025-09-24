@@ -17,7 +17,7 @@ package com.jetbrains.youtrackdb.internal.server.network.protocol.http.multipart
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpRequest;
 import java.io.IOException;
@@ -27,10 +27,10 @@ import java.util.Map;
  *
  */
 public class HttpMultipartFileToRecordContentParser implements
-    HttpMultipartContentParser<RecordId> {
+    HttpMultipartContentParser<RecordIdInternal> {
 
   @Override
-  public RecordId parse(
+  public RecordIdInternal parse(
       final HttpRequest iRequest,
       final Map<String, String> headers,
       final HttpMultipartContentInputStream in,

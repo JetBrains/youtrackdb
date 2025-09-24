@@ -1,12 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static java.util.stream.Collectors.toMap;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.google.common.collect.Lists;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -188,5 +191,58 @@ public class GraphTest extends GraphBaseTest {
 
     assertThat(Lists.newArrayList(v2.edges(Direction.IN, "label1")), Matchers.hasSize(0));
     assertThat(Lists.newArrayList(v2.edges(Direction.OUT, "label2")), Matchers.hasSize(0));
+  }
+
+
+  @Test
+  public void testHasAndRemoveProperty() {
+    final var propName = "name_hasAndRemoveProperty";
+    final var value = "value";
+
+    final var vertex = graph.addVertex();
+    final var anotherVertex = graph.addVertex();
+    final var edge = vertex.addEdge("EDGE_LABEL", anotherVertex);
+
+    vertex.property(propName, value);
+    edge.property(propName, value);
+
+    assertEquals(value, vertex.property(propName).value());
+    assertEquals(value, edge.property(propName).value());
+
+    assertTrue(vertex.hasProperty(propName));
+    assertTrue(edge.hasProperty(propName));
+    graph.tx().commit();
+
+    final var vertex1 = ((YTDBVertex) graph.vertices(vertex.id()).next());
+    final var edge1 = ((YTDBEdge) graph.edges(edge.id()).next());
+    assertEquals(value, vertex1.property(propName).value());
+    assertEquals(value, edge1.property(propName).value());
+
+    assertTrue(vertex1.hasProperty(propName));
+    assertTrue(edge1.hasProperty(propName));
+
+    vertex1.removeProperty(propName);
+    edge1.removeProperty(propName);
+
+    assertFalse(vertex1.hasProperty(propName));
+    assertFalse(vertex1.property(propName).isPresent());
+    assertFalse(edge1.hasProperty(propName));
+    assertFalse(edge1.property(propName).isPresent());
+
+    // calling it once again doesn't throw any error
+    vertex1.removeProperty(propName);
+    edge1.removeProperty(propName);
+
+    graph.tx().commit();
+
+    final var vertex2 = ((YTDBVertex) graph.vertices(vertex.id()).next());
+    final var edge2 = ((YTDBEdge) graph.edges(edge.id()).next());
+    assertFalse(vertex2.hasProperty(propName));
+    assertFalse(edge2.hasProperty(propName));
+
+    // calling it once again doesn't throw any error
+    vertex2.removeProperty(propName);
+    edge2.removeProperty(propName);
+    graph.tx().commit();
   }
 }

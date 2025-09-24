@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.List;
@@ -197,7 +197,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
       Assert.assertTrue(r.getPropertyNames().size() <= 1);
       Assert.assertNotNull(r.getProperty("rid"));
 
-      final RecordId rid = r.getProperty("rid");
+      final RecordIdInternal rid = r.getProperty("rid");
       Assert.assertTrue(rid.isValidPosition());
     }
   }

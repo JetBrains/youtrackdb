@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
 import javax.annotation.Nullable;
 
@@ -48,7 +48,7 @@ public class SQLFunctionThrowCME extends SQLFunctionAbstract {
       final Object[] iParams,
       CommandContext iContext) {
     throw new ConcurrentModificationException(iContext.getDatabaseSession().getDatabaseName()
-        , (RecordId) iParams[0], (int) iParams[1], (int) iParams[2], (int) iParams[3]);
+        , (RecordIdInternal) iParams[0], (int) iParams[1], (int) iParams[2], (int) iParams[3]);
   }
 
   public boolean aggregateResults(final Object[] configuredParameters) {

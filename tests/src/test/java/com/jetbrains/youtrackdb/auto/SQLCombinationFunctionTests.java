@@ -12,7 +12,7 @@ import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -303,7 +303,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     final var vertexes = session.query("SELECT FROM GraphVehicle_CF").entityStream().toList();
 
     final var insAndOuts = vertexes.stream().collect(Collectors.toMap(
-        r -> r.<RecordId>getProperty("@rid"),
+        r -> r.<RecordIdInternal>getProperty("@rid"),
         r -> {
 
           final var ins = ((EntityImpl) r).<LinkBag>getPropertyInternal("in_");
@@ -321,7 +321,7 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     }
 
     final var result = edgesAggregated.stream().collect(Collectors.toMap(
-        r -> r.<RecordId>getProperty("@rid"),
+        r -> r.<RecordIdInternal>getProperty("@rid"),
         r -> r.<Collection<Identifiable>>getProperty("edges")
     ));
     assertEquals(result.keySet(), insAndOuts.keySet());

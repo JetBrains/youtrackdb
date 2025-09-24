@@ -22,7 +22,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -457,8 +457,8 @@ public class SQLInsertTest extends BaseDBTest {
     try (var resultSet1 =
         session.execute("INSERT INTO Actor2 SET FirstName=\"Butch 1\" RETURN @rid")) {
       var res1 = resultSet1.next().getProperty("@rid");
-      Assert.assertTrue(res1 instanceof RecordId);
-      Assert.assertTrue(((RecordId) ((Identifiable) res1).getIdentity()).isValidPosition());
+      Assert.assertTrue(res1 instanceof RecordIdInternal);
+      Assert.assertTrue(((RecordIdInternal) ((Identifiable) res1).getIdentity()).isValidPosition());
       // Create many records and return @rid
       try (var resultSet2 =
           session.execute(
@@ -466,7 +466,7 @@ public class SQLInsertTest extends BaseDBTest {
                   + " ('Jay','Miner'),('Frank','Hermier'),('Emily','Saut')  RETURN @rid")) {
 
         var res2 = resultSet2.next().getProperty("@rid");
-        Assert.assertTrue(res2 instanceof RecordId);
+        Assert.assertTrue(res2 instanceof RecordIdInternal);
 
         // Create many records by INSERT INTO ...FROM and return wrapped field
         var another = ((Identifiable) res1).getIdentity();
@@ -497,7 +497,7 @@ public class SQLInsertTest extends BaseDBTest {
             + " return $var2";
     try (var resSql2ResultSet = session.execute(sql2)) {
       var res_sql2 = resSql2ResultSet.next().getProperty("$var2");
-      Assert.assertTrue(res_sql2 instanceof RecordId);
+      Assert.assertTrue(res_sql2 instanceof RecordIdInternal);
 
       // create record using content keyword and update it in sql batch passing recordID between
       // commands

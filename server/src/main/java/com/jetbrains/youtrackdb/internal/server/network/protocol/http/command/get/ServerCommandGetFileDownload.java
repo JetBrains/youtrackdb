@@ -19,7 +19,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Blob;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.util.PatternConst;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -63,7 +63,7 @@ public class ServerCommandGetFileDownload extends ServerCommandAuthenticatedDbAb
     var session = getProfiledDatabaseSessionInstance(iRequest);
     try {
       try {
-        response = session.load(new RecordId(rid));
+        response = session.load(RecordIdInternal.fromString(rid, false));
         if (response instanceof Blob) {
           sendORecordBinaryFileContent(
               iResponse,

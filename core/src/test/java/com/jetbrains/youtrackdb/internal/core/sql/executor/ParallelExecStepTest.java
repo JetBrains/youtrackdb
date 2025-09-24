@@ -32,9 +32,11 @@ public class ParallelExecStepTest {
 
     var plan = new SelectExecutionPlan(ctx);
     plan.getSteps()
-        .add(new FetchFromRidsStep(Collections.singleton(new RecordId(12, 100)), ctx, false));
+        .add(new FetchFromRidsStep(Collections.singleton(new RecordId(12, 100)), ctx,
+            false));
     plan.getSteps().add(step);
     plan.getSteps()
-        .add(new FetchFromRidsStep(Collections.singleton(new RecordId(12, 100)), ctx, false));
+        .add(new FetchFromRidsStep(Collections.singleton(new RecordId(12, 100)), ctx,
+            false));
   }
 }

@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.api.gremlin.tokens.schema.YTDBSchemaClassPToken;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -24,7 +24,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
 
   private SchemaClassImpl schemaClass;
   private String name;
-  private RecordId recordId;
+  private RecordIdInternal recordId;
 
   private final @Nonnull YTDBGraphInternal graph;
 
@@ -494,7 +494,7 @@ public class YTDBSchemaClassImpl implements YTDBSchemaClass {
     checkIfDeleted();
 
     if (recordId == null) {
-      recordId = RecordId.tempRecordId();
+      recordId = RecordIdInternal.tempRecordId();
     }
 
     return recordId;

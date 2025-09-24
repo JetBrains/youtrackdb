@@ -14,7 +14,8 @@ import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement.STATUS;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
@@ -50,7 +51,7 @@ public class TransactionRidAllocationTest {
 
     ((AbstractStorage) db.getStorage())
         .preallocateRids(db.getTransactionInternal());
-    var generated = (RecordId) v.getIdentity();
+    var generated = (RecordIdInternal) v.getIdentity();
     assertTrue(generated.isValidPosition());
 
     var db1 = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin",
@@ -125,10 +126,14 @@ public class TransactionRidAllocationTest {
       var record = recordOperation.value.value;
 
       var serializer = second.getSerializer();
-      var deserialized = new EntityImpl(new RecordId(), second, "V");
+      var entityRid = new ChangeableRecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
+      var deserialized = new EntityImpl(entityRid, second, "V");
       serializer.fromStream(second, record, deserialized, null);
 
-      deserialized.setIdentity(recordOperation.value.key.getIdentity());
+      entityRid.setCollectionId(recordOperation.value.key.getIdentity().getCollectionId());
+      entityRid.setCollectionPosition(
+          recordOperation.value.key.getIdentity().getCollectionPosition());
+
       deserialized.setInternalStatus(STATUS.LOADED);
 
       transactionOptimistic.addRecordOperation(deserialized, recordOperation.key);
@@ -196,9 +201,14 @@ public class TransactionRidAllocationTest {
       var record = recordOperation.value.value;
       var serializer = second.getSerializer();
 
-      var deserialized = new EntityImpl(new RecordId(), second, "V");
+      var entityRid = new ChangeableRecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
+      var deserialized = new EntityImpl(entityRid, second, "V");
       serializer.fromStream(second, record, deserialized, null);
-      deserialized.setIdentity(recordOperation.value.key.getIdentity());
+
+      entityRid.setCollectionId(recordOperation.value.key.getIdentity().getCollectionId());
+      entityRid.setCollectionPosition(
+          recordOperation.value.key.getIdentity().getCollectionPosition());
+
       deserialized.setInternalStatus(STATUS.LOADED);
       transactionOptimistic.addRecordOperation(deserialized, recordOperation.key);
     }
