@@ -53,6 +53,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.lang3.function.FailableConsumer;
 
 /**
  * No operation transaction.
@@ -69,6 +70,11 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   public FrontendTransactionNoTx(@Nonnull DatabaseSessionEmbedded session) {
     this.session = session;
+  }
+
+  @Override
+  public boolean isSchemaChanged() {
+    return false;
   }
 
   @Override
@@ -381,11 +387,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public boolean isReadOnly() {
-    return true;
-  }
-
-  @Override
   public Object getCustomData(String iName) {
     throw new UnsupportedOperationException("Operation not supported in no tx mode");
   }
@@ -442,7 +443,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
+  public void addRecordOperation(RecordAbstract record, byte status) {
     throw new UnsupportedOperationException("Can not modify record outside transaction");
   }
 
@@ -482,6 +483,12 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Override
   public @Nonnull RecordSerializationContext getRecordSerializationContext() {
+    throw new UnsupportedOperationException("Operation is not supported in no tx mode");
+  }
+
+  @Override
+  public <E extends Exception> void addRollbackAction(
+      FailableConsumer<DatabaseSessionEmbedded, E> rollbackAction) {
     throw new UnsupportedOperationException("Operation is not supported in no tx mode");
   }
 

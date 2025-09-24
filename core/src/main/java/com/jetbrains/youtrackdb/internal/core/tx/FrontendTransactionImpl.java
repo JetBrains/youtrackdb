@@ -53,6 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -75,37 +76,39 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.lang3.function.FailableConsumer;
 
-public class FrontendTransactionImpl implements
+public final class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
-
   private static final AtomicLong txSerial = new AtomicLong();
 
   @Nonnull
-  protected DatabaseSessionEmbedded session;
-  protected TXSTATUS status = TXSTATUS.INVALID;
+  private DatabaseSessionEmbedded session;
+  private TXSTATUS status = TXSTATUS.INVALID;
 
-  protected final HashMap<RecordIdInternal, RecordOperation> recordOperations = new HashMap<>();
+  private final HashMap<RecordIdInternal, RecordOperation> recordOperations = new HashMap<>();
   private final IdentityHashMap<RecordIdInternal, RecordOperation> recordOperationsIdentityMap =
       new IdentityHashMap<>();
-  protected final TreeSet<RecordIdInternal> recordsInTransaction = new TreeSet<>();
+  private final TreeSet<RecordIdInternal> recordsInTransaction = new TreeSet<>();
 
-  protected final HashMap<RecordIdInternal, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
+  private final HashMap<RecordIdInternal, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
   private final IdentityHashMap<RecordIdInternal, RecordOperation> operationsBetweenCallbacksIdentityMap =
       new IdentityHashMap<>();
   private final ArrayList<RecordOperation> operationsForCallbackIteration = new ArrayList<>();
 
-  protected HashMap<RecordIdInternal, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
+  private final HashMap<RecordIdInternal, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
       new HashMap<>();
   private final IdentityHashMap<RecordIdInternal, List<FrontendTransactionRecordIndexOperation>> recordIndexOperationsIdentityMap =
       new IdentityHashMap<>();
 
-  protected HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
+  private final HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
 
-  protected final HashMap<RecordIdInternal, RecordIdInternal> originalChangedRecordIdMap = new HashMap<>();
+  private final HashMap<RecordIdInternal, RecordIdInternal> originalChangedRecordIdMap = new HashMap<>();
 
-  protected long id;
-  protected int newRecordsPositionsGenerator = -2;
+  private final ArrayList<FailableConsumer<DatabaseSessionEmbedded, ?>> rollbackActions = new ArrayList<>();
+
+  private final long id;
+  private int newRecordsPositionsGenerator = -2;
   private final HashMap<String, Object> userData = new HashMap<>();
 
   private boolean callbacksInProgress = false;
@@ -114,10 +117,10 @@ public class FrontendTransactionImpl implements
   @Nullable
   private FrontendTransacationMetadataHolder metadata = null;
 
-
-  protected int txStartCounter;
+  private int txStartCounter;
   private final boolean readOnly;
 
+  private boolean isSchemaChanged = false;
   private final RecordSerializationContext recordSerializationContext = new RecordSerializationContext();
 
   public FrontendTransactionImpl(final DatabaseSessionEmbedded iDatabase) {
@@ -138,10 +141,9 @@ public class FrontendTransactionImpl implements
   }
 
 
-  protected FrontendTransactionImpl(@Nonnull final DatabaseSessionEmbedded session, long id) {
-    this.session = session;
-    this.id = id;
-    readOnly = false;
+  @Override
+  public boolean isSchemaChanged() {
+    return isSchemaChanged;
   }
 
   @Override
@@ -186,6 +188,7 @@ public class FrontendTransactionImpl implements
    * @param force commit transaction even
    * @return Map between generated rids of new records and ones generated during records commit.
    */
+  @Nullable
   @Override
   public Map<RID, RID> commitInternal(final boolean force) {
     checkTransactionValid();
@@ -216,6 +219,7 @@ public class FrontendTransactionImpl implements
     return null;
   }
 
+  @Nullable
   @Override
   public RecordAbstract getRecord(final RID rid) {
     final var e = getRecordEntry(rid);
@@ -367,6 +371,14 @@ public class FrontendTransactionImpl implements
     }
 
     if (txStartCounter == 0) {
+      for (var rollbackAction : rollbackActions) {
+        try {
+          rollbackAction.accept(session);
+        } catch (Throwable e) {
+          LogManager.instance().error(this, "Error during rollback action", e);
+        }
+      }
+
       close();
       status = TXSTATUS.ROLLED_BACK;
 
@@ -455,7 +467,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public RecordOperation addRecordOperation(RecordAbstract record, byte status) {
+  public void addRecordOperation(RecordAbstract record, byte status) {
     if (readOnly) {
       throw new DatabaseException(session, "Transaction is read-only");
     }
@@ -478,6 +490,8 @@ public class FrontendTransactionImpl implements
       }
       checkTransactionValid();
       var rid = record.getIdentity();
+
+      isSchemaChanged |= record instanceof SchemaEntity;
 
       if (rid.getCollectionId() == RID.COLLECTION_ID_INVALID) {
         var collectionId = session.assignAndCheckCollection(record);
@@ -572,8 +586,8 @@ public class FrontendTransactionImpl implements
       throw e;
     }
 
-    return txEntry;
   }
+
 
   private Map<RID, RID> doCommit() {
     if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
@@ -585,7 +599,13 @@ public class FrontendTransactionImpl implements
           "Given transaction was rolled back, and thus cannot be committed.");
     }
 
-    var result = new HashMap<RID, RID>(originalChangedRecordIdMap.size());
+    Map<RID, RID> result;
+    if (isWriteTransaction()) {
+      result = new HashMap<>(originalChangedRecordIdMap.size());
+    } else {
+      result = Collections.emptyMap();
+    }
+
     try {
       status = TXSTATUS.COMMITTING;
       if (isWriteTransaction()) {
@@ -962,11 +982,6 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public boolean isReadOnly() {
-    return readOnly;
-  }
-
-  @Override
   public Object getCustomData(String iName) {
     return userData.get(iName);
   }
@@ -1201,7 +1216,7 @@ public class FrontendTransactionImpl implements
     No
   }
 
-  protected void checkTransactionValid() {
+  private void checkTransactionValid() {
     if (status == TXSTATUS.INVALID) {
       throw new TransactionException(session,
           "Invalid state of the transaction. The transaction must be begun.");
@@ -1294,7 +1309,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nonnull
-  public final DatabaseSessionEmbedded getDatabaseSession() {
+  public DatabaseSessionEmbedded getDatabaseSession() {
     return session;
   }
 
@@ -1456,6 +1471,7 @@ public class FrontendTransactionImpl implements
     return session.loadEdge(id.getIdentity());
   }
 
+  @Nullable
   @Override
   public StatefulEdge loadEdgeOrNull(@Nonnull Identifiable id) throws DatabaseException {
     checkIfActive();
@@ -1509,6 +1525,7 @@ public class FrontendTransactionImpl implements
     return session.loadBlob(id.getIdentity());
   }
 
+  @Nullable
   @Override
   public Blob loadBlobOrNull(@Nonnull Identifiable id) throws DatabaseException {
     checkIfActive();
@@ -1790,6 +1807,17 @@ public class FrontendTransactionImpl implements
   @Override
   public @Nonnull RecordSerializationContext getRecordSerializationContext() {
     return recordSerializationContext;
+  }
+
+  @Override
+  public <E extends Exception> void addRollbackAction(
+      FailableConsumer<DatabaseSessionEmbedded, E> rollbackAction) {
+    rollbackActions.add(rollbackAction);
+  }
+
+  @Override
+  public int generateTempCollectionId() {
+    return newRecordsPositionsGenerator--;
   }
 
   private boolean isWriteTransaction() {

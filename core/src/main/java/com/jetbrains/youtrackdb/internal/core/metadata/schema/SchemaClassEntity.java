@@ -1,14 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassInToken;
-import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassOutToken;
+import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.CollectionId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -21,8 +22,11 @@ import org.apache.commons.collections4.IteratorUtils;
 import org.apache.commons.lang3.ArrayUtils;
 
 
-public class SchemaClassEntity extends EntityImpl {
+public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
+
   public static final String CUSTOM_PROPERTIES_PROPERTY_NAME = "customProperties";
+  public static final String SUPER_CLASSES_PROPERTY_NAME = "superClasses";
+  public static final String DECLARED_PROPERTIES_NAME = "declaredProperties";
 
   public SchemaClassEntity(@Nonnull RecordIdInternal recordId,
       @Nonnull DatabaseSessionEmbedded session) {
@@ -46,15 +50,22 @@ public class SchemaClassEntity extends EntityImpl {
   }
 
   public boolean hasSuperClasses() {
-    var backupWardLinkBag = getOppositeLinkBagPropertyName(
-        YTDBSchemaClassInToken.superClass.name());
-
-    LinkBag linkBag = getPropertyInternal(backupWardLinkBag);
-    if (linkBag == null) {
+    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+    if (superClasses == null) {
       return false;
     }
 
-    return !linkBag.isEmpty();
+    return !superClasses.isEmpty();
+  }
+
+  public boolean hasSubClasses() {
+    LinkBag subclasses = getPropertyInternal(
+        getOppositeLinkBagPropertyName(SUPER_CLASSES_PROPERTY_NAME));
+    if (subclasses == null) {
+      return false;
+    }
+
+    return !subclasses.isEmpty();
   }
 
   public String getName() {
@@ -62,6 +73,7 @@ public class SchemaClassEntity extends EntityImpl {
   }
 
   public void setName(String name) {
+    SchemaManager.checkClassNameIfValid(name);
     setString(YTDBSchemaClassPTokenInternal.name.name(), name);
   }
 
@@ -73,13 +85,21 @@ public class SchemaClassEntity extends EntityImpl {
     setString(YTDBSchemaClassPTokenInternal.description.name(), description);
   }
 
-  public List<Integer> getCollectionIds() {
+  public void setCollectionIds(@Nonnull List<CollectionId> collectionIds) {
+    newEmbeddedList(YTDBSchemaClassPTokenInternal.collectionIds.name(), collectionIds);
+  }
+
+  public List<CollectionId> getCollectionIds() {
     return getEmbeddedList(YTDBSchemaClassPTokenInternal.collectionIds.name());
   }
 
-  public Set<Integer> getPolymorphicCollectionIds() {
+  public void clearCollectionIds() {
+    removeProperty(YTDBSchemaClassPTokenInternal.collectionIds.name());
+  }
+
+  public Set<CollectionId> getPolymorphicCollectionIds() {
     var superClasses = getSuperClasses();
-    var polymorphicCollectionIds = new HashSet<Integer>();
+    var polymorphicCollectionIds = new HashSet<CollectionId>();
 
     while (superClasses.hasNext()) {
       var superClass = superClasses.next();
@@ -93,21 +113,25 @@ public class SchemaClassEntity extends EntityImpl {
   }
 
   public Iterator<SchemaClassEntity> getSuperClasses() {
-    var backupWardLinkBag = getOppositeLinkBagPropertyName(
-        YTDBSchemaClassInToken.superClass.name());
+    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
 
-    LinkBag linkBag = getPropertyInternal(backupWardLinkBag);
-    if (linkBag == null) {
+    if (superClasses == null) {
       return IteratorUtils.emptyIterator();
     }
 
-    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(linkBag.iterator(),
-        session::load);
+    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(superClasses.iterator(),
+        identifiable -> {
+          if (identifiable instanceof SchemaClassEntity schemaClassEntity) {
+            return schemaClassEntity;
+          }
+          return session.load(identifiable.getIdentity());
+        }
+    );
   }
 
 
-  public Iterator<SchemaClassEntity> getAscendants() {
-    return ascendantsInternal().iterator();
+  public Set<SchemaClassEntity> getAscendants() {
+    return ascendantsInternal();
   }
 
   private Set<SchemaClassEntity> ascendantsInternal() {
@@ -125,17 +149,18 @@ public class SchemaClassEntity extends EntityImpl {
   }
 
   public Iterator<SchemaClassEntity> getSubClasses() {
-    var subclasses = getLinkSet(YTDBSchemaClassOutToken.superClass.name());
+    LinkBag subclasses = getPropertyInternal(
+        getOppositeLinkBagPropertyName(SUPER_CLASSES_PROPERTY_NAME));
     if (subclasses == null) {
       return IteratorUtils.emptyIterator();
     }
 
     return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(subclasses.iterator(),
-        identifiable -> session.load(identifiable.getIdentity()));
+        session::load);
   }
 
-  public Iterator<SchemaClassEntity> getDescendants() {
-    return descendantsInternal().iterator();
+  public Set<SchemaClassEntity> getDescendants() {
+    return descendantsInternal();
   }
 
   private Set<SchemaClassEntity> descendantsInternal() {
@@ -153,81 +178,116 @@ public class SchemaClassEntity extends EntityImpl {
   }
 
   public boolean isEdgeType() {
-    var backupWardLinkBag = getOppositeLinkBagPropertyName(
-        YTDBSchemaClassInToken.superClass.name());
-    LinkBag linkBag = getPropertyInternal(backupWardLinkBag);
-    if (linkBag == null) {
+    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+    if (superClasses == null) {
       return false;
     }
 
-    var eRid = SchemaManager.getSchemaClassEntityRID(session, YTDBSchemaClass.EDGE_CLASS_NAME);
-    return linkBag.contains(eRid);
+    var eRid = SchemaManager.getClassLink(session, YTDBSchemaClass.EDGE_CLASS_NAME);
+    return superClasses.contains(eRid);
   }
 
   public boolean isVertexType() {
-    var backupWardLinkBag = getOppositeLinkBagPropertyName(
-        YTDBSchemaClassInToken.superClass.name());
-    LinkBag linkBag = getPropertyInternal(backupWardLinkBag);
-    if (linkBag == null) {
+    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+    if (superClasses == null) {
       return false;
     }
 
-    var vRid = SchemaManager.getSchemaClassEntityRID(session, YTDBSchemaClass.VERTEX_CLASS_NAME);
-    return linkBag.contains(vRid);
+    var vRid = SchemaManager.getClassLink(session, YTDBSchemaClass.VERTEX_CLASS_NAME);
+    return superClasses.contains(vRid);
   }
 
-  public void addChildClass(SchemaClassEntity schemaClass) {
-    var linkSet = getOrCreateLinkSet(YTDBSchemaClassOutToken.superClass.name());
+  public void addChildClass(@Nonnull SchemaClassEntity schemaClass) {
+    schemaClass.addSuperClass(this);
+  }
+
+  public void removeChildClass(@Nonnull SchemaClassEntity schemaClass) {
+    schemaClass.removeSuperClass(this);
+  }
+
+  public void addSuperClass(@Nonnull SchemaClassEntity schemaClass) {
+    var linkSet = getOrCreateLinkSet(SUPER_CLASSES_PROPERTY_NAME);
     linkSet.add(schemaClass);
   }
 
-  public void removeChildClass(SchemaClassEntity schemaClass) {
-    var linkSet = getLinkSet(YTDBSchemaClassOutToken.superClass.name());
+  public void removeSuperClass(SchemaClassEntity schemaClass) {
+    var linkSet = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+
     if (linkSet != null) {
       linkSet.remove(schemaClass);
     }
   }
 
   public boolean isSubClassOf(String className) {
-    var backupWardLinkBag = getOppositeLinkBagPropertyName(
-        YTDBSchemaClassInToken.superClass.name());
-    LinkBag linkBag = getPropertyInternal(backupWardLinkBag);
-    if (linkBag == null) {
+    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+    if (superClasses == null) {
       return false;
     }
 
-    var classRid = SchemaManager.getSchemaClassEntityRID(session, className);
-    return linkBag.contains(classRid);
+    var classRid = SchemaManager.getClassLink(session, className);
+    if (classRid == null) {
+      return false;
+    }
+
+    if (superClasses.contains(classRid)) {
+      return true;
+    }
+
+    for (var superClassIdentifiable : superClasses) {
+      SchemaClassEntity superClassEntity;
+
+      if (superClassIdentifiable instanceof SchemaClassEntity superClass) {
+        superClassEntity = superClass;
+      } else {
+        superClassEntity = session.load(superClassIdentifiable.getIdentity());
+      }
+
+      if (superClassEntity.isSubClassOf(className)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   public boolean isSubClassOf(SchemaClassEntity schemaClass) {
-    var backupWardLinkBag = getOppositeLinkBagPropertyName(
-        YTDBSchemaClassInToken.superClass.name());
-    LinkBag linkBag = getPropertyInternal(backupWardLinkBag);
-    if (linkBag == null) {
+    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+    if (superClasses == null) {
       return false;
     }
 
-    return linkBag.contains(schemaClass.getIdentity());
+    if (superClasses.contains(schemaClass)) {
+      return true;
+    }
+
+    for (var superClassIdentifiable : superClasses) {
+      SchemaClassEntity superClassEntity;
+
+      if (superClassIdentifiable instanceof SchemaClassEntity superClass) {
+        superClassEntity = superClass;
+      } else {
+        superClassEntity = session.load(superClassIdentifiable.getIdentity());
+      }
+
+      if (superClassEntity.isSubClassOf(schemaClass)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   public boolean isSuperClassOf(String className) {
-    var linkSet = getLinkSet(YTDBSchemaClassOutToken.superClass.name());
-    if (linkSet == null) {
-      return false;
+    var childClass = SchemaManager.getClass(session, className);
+    if (childClass == null) {
+      throw new DatabaseException("Class " + className + " not found");
     }
 
-    var classRid = SchemaManager.getSchemaClassEntityRID(session, className);
-    return linkSet.contains(classRid);
+    return childClass.isSubClassOf(this);
   }
 
   public boolean isSuperClassOf(SchemaClassEntity schemaClass) {
-    var linkSet = getLinkSet(YTDBSchemaClassOutToken.superClass.name());
-    if (linkSet == null) {
-      return false;
-    }
-
-    return linkSet.contains(schemaClass);
+    return schemaClass.isSubClassOf(this);
   }
 
   @Nullable
@@ -260,21 +320,21 @@ public class SchemaClassEntity extends EntityImpl {
     removeProperty(CUSTOM_PROPERTIES_PROPERTY_NAME);
   }
 
-  public Iterator<String> customPropertyNames() {
+  public Set<String> customPropertyNames() {
     var customProperties = this.<Map<String, String>>getEmbeddedMap(
         CUSTOM_PROPERTIES_PROPERTY_NAME);
     if (customProperties == null) {
-      return IteratorUtils.emptyIterator();
+      return Collections.emptySet();
     }
 
-    return customProperties.keySet().iterator();
+    return customProperties.keySet();
   }
 
-  public boolean hasCollectionId(int collectionId) {
+  public boolean hasCollectionId(CollectionId collectionId) {
     return getCollectionIds().contains(collectionId);
   }
 
-  public boolean hasPolymorphicCollectionId(int collectionId) {
+  public boolean hasPolymorphicCollectionId(CollectionId collectionId) {
     var collectionIds = getCollectionIds();
     if (collectionIds.contains(collectionId)) {
       return true;
@@ -292,8 +352,8 @@ public class SchemaClassEntity extends EntityImpl {
   }
 
   public Iterator<SchemaPropertyEntity> getDeclaredProperties(String... name) {
-    var declaredPropertiesLinks = getLinkSet(
-        YTDBSchemaClassOutTokenInternal.declaredProperty.name());
+    var declaredPropertiesLinks = getLinkSet(DECLARED_PROPERTIES_NAME);
+
     if (declaredPropertiesLinks == null) {
       return IteratorUtils.emptyIterator();
     }
@@ -310,7 +370,7 @@ public class SchemaClassEntity extends EntityImpl {
         property -> ArrayUtils.contains(name, property.getName()));
   }
 
-  public Iterator<SchemaPropertyEntity> getSchemaProperties(String... name) {
+  public Collection<SchemaPropertyEntity> getSchemaProperties(String... name) {
     var processedProperties = new HashMap<String, SchemaPropertyEntity>();
 
     var properties = getDeclaredProperties(name);
@@ -320,7 +380,7 @@ public class SchemaClassEntity extends EntityImpl {
     }
 
     if (name != null && name.length > 0 && processedProperties.size() == name.length) {
-      return processedProperties.values().iterator();
+      return processedProperties.values();
     }
 
     var superClasses = getSuperClasses();
@@ -328,35 +388,68 @@ public class SchemaClassEntity extends EntityImpl {
       var superClass = superClasses.next();
 
       var superProperties = superClass.getSchemaProperties(name);
-      while (superProperties.hasNext()) {
-        var superProperty = superProperties.next();
-
+      for (var superProperty : superProperties) {
         if (!processedProperties.containsKey(superProperty.getName())) {
           processedProperties.put(superProperty.getName(), superProperty);
         }
       }
 
       if (name != null && name.length > 0 && processedProperties.size() == name.length) {
-        return processedProperties.values().iterator();
+        return processedProperties.values();
       }
     }
 
-    return processedProperties.values().iterator();
+    return processedProperties.values();
   }
 
   public boolean existsSchemaProperty(String name) {
-    return getSchemaProperties(name).hasNext();
+    var declaredProperties = getLinkSet(DECLARED_PROPERTIES_NAME);
+    if (declaredProperties == null) {
+      return false;
+    }
+
+    for (var declaredPropertyLink : declaredProperties) {
+      SchemaPropertyEntity declaredProperty;
+      if (declaredPropertyLink instanceof SchemaPropertyEntity declaredPropertyEntity) {
+        declaredProperty = declaredPropertyEntity;
+      } else {
+        declaredProperty = session.load(declaredPropertyLink.getIdentity());
+      }
+
+      if (declaredProperty.getName().equals(name)) {
+        return true;
+      }
+    }
+
+    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+    if (superClasses == null) {
+      return false;
+    }
+
+    for (var superClassLink : superClasses) {
+      SchemaClassEntity superClass;
+      if (superClassLink instanceof SchemaClassEntity superClassEntity) {
+        superClass = superClassEntity;
+      } else {
+        superClass = session.load(superClassLink.getIdentity());
+      }
+
+      if (superClass.existsSchemaProperty(name)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   public void addSchemaProperty(SchemaPropertyEntity property) {
-    var declaredPropertiesLinks = getOrCreateLinkSet(
-        YTDBSchemaClassOutTokenInternal.declaredProperty.name());
+    var declaredPropertiesLinks = getOrCreateLinkSet(DECLARED_PROPERTIES_NAME);
     declaredPropertiesLinks.add(property);
   }
 
   public void removeSchemaProperty(SchemaPropertyEntity property) {
-    var declaredPropertiesLinks = getLinkSet(
-        YTDBSchemaClassOutTokenInternal.declaredProperty.name());
+    var declaredPropertiesLinks = getLinkSet(DECLARED_PROPERTIES_NAME);
+
     if (declaredPropertiesLinks != null) {
       declaredPropertiesLinks.remove(property);
     }
@@ -370,4 +463,5 @@ public class SchemaClassEntity extends EntityImpl {
       removeSchemaProperty(declaredProperty);
     }
   }
+
 }

@@ -891,7 +891,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       var createdCollectionId = name == null ? -1 : session.getCollectionIdByName(name);
       if (createdCollectionId == -1) {
-        createdCollectionId = session.addCollection(name);
+        createdCollectionId = session.allocateCollection(name);
       }
 
       collectionToCollectionMapping.put(collectionIdFromJson, createdCollectionId);

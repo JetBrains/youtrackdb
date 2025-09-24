@@ -9,7 +9,7 @@ import org.testng.annotations.Test;
 @Test
 public class DBMethodsTest extends BaseDBTest {
   public void testAddCollection() {
-    session.addCollection("addCollectionTest");
+    session.allocateCollection("addCollectionTest");
 
     Assert.assertTrue(session.existsCollection("addCollectionTest"));
     Assert.assertTrue(session.existsCollection("addcOllectiontESt"));

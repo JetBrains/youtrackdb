@@ -17,12 +17,11 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public final class SchemaClassProxy extends ProxedResource<SchemaClassShared> implements
+public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> implements
     SchemaClass {
-
   private int hashCode = 0;
 
-  public SchemaClassProxy(SchemaClassShared delegate,
+  public SchemaClassProxy(SchemaClassEntity delegate,
       @Nonnull DatabaseSessionEmbedded session) {
     super(delegate, session);
   }

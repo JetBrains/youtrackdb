@@ -439,15 +439,15 @@ public abstract class BaseDBTest extends BaseTest {
     createWhizClass();
 
     if (session.getCollectionIdByName("csv") == -1) {
-      session.addCollection("csv");
+      session.allocateCollection("csv");
     }
 
     if (session.getCollectionIdByName("flat") == -1) {
-      session.addCollection("flat");
+      session.allocateCollection("flat");
     }
 
     if (session.getCollectionIdByName("binary") == -1) {
-      session.addCollection("binary");
+      session.allocateCollection("binary");
     }
   }
 

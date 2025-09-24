@@ -351,8 +351,8 @@ public class TransactionConsistencyTest extends BaseDBTest {
   public void createLinkInTx() {
     session = createSessionInstance();
 
-    var profile = session.getMetadata().getSlowMutableSchema().createClass("MyProfile", 1);
-    var edge = session.getMetadata().getSlowMutableSchema().createClass("MyEdge", 1);
+    var profile = session.getMetadata().getSlowMutableSchema().createClass("MyProfile");
+    var edge = session.getMetadata().getSlowMutableSchema().createClass("MyEdge");
     profile
         .createProperty("name", PropertyType.STRING)
         .setMin("3")

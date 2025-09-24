@@ -263,9 +263,6 @@ public enum GlobalConfiguration {
       Integer.class,
       10),
 
-  STORAGE_BLOB_COLLECTIONS_COUNT("youtrackdb.storage.blob.collections.count",
-      "Amount storage collections allocated for storing blobs", Integer.class,
-      8),
 
   WAL_CACHE_SIZE(
       "youtrackdb.storage.wal.cacheSize",

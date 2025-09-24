@@ -274,7 +274,7 @@ public abstract class AbstractStorage
   protected final String url;
   protected final ScalableRWLock stateLock;
 
-  protected volatile StorageConfiguration configuration;
+  protected volatile CollectionBasedStorageConfiguration configuration;
   protected volatile CurrentStorageComponentsFactory componentsFactory;
   protected final String name;
   private final AtomicLong version = new AtomicLong();
@@ -384,8 +384,8 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public boolean dropCollection(DatabaseSessionInternal session, final String iCollectionName) {
-    return dropCollection(session, getCollectionIdByName(iCollectionName));
+  public boolean freeCollection(DatabaseSessionInternal session, final String iCollectionName) {
+    return freeCollection(session, getCollectionIdByName(iCollectionName));
   }
 
   @Override
@@ -555,7 +555,7 @@ public abstract class AbstractStorage
               atomicOperation -> {
                 if (CollectionBasedStorageConfiguration.exists(writeCache)) {
                   configuration = new CollectionBasedStorageConfiguration(this);
-                  ((CollectionBasedStorageConfiguration) configuration)
+                  configuration
                       .load(contextConfiguration, atomicOperation);
 
                   // otherwise delayed to disk based storage to convert old format to new format.
@@ -881,7 +881,7 @@ public abstract class AbstractStorage
         null,
         (atomicOperation) -> {
           configuration = new CollectionBasedStorageConfiguration(this);
-          ((CollectionBasedStorageConfiguration) configuration)
+          configuration
               .create(atomicOperation, contextConfiguration);
           configuration.setUuid(atomicOperation, uuid.toString());
 
@@ -896,13 +896,13 @@ public abstract class AbstractStorage
           // ADD THE METADATA COLLECTION TO STORE INTERNAL STUFF
           doAddCollection(atomicOperation, SessionMetadata.COLLECTION_INTERNAL_NAME);
 
-          ((CollectionBasedStorageConfiguration) configuration)
+          configuration
               .setCreationVersion(atomicOperation, YouTrackDBConstants.getVersion());
-          ((CollectionBasedStorageConfiguration) configuration)
+          configuration
               .setPageSize(
                   atomicOperation,
                   GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10);
-          ((CollectionBasedStorageConfiguration) configuration)
+          configuration
               .setMaxKeySize(
                   atomicOperation, GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
 
@@ -913,7 +913,7 @@ public abstract class AbstractStorage
   }
 
   protected void generateDatabaseInstanceId(AtomicOperation atomicOperation) {
-    ((CollectionBasedStorageConfiguration) configuration)
+    configuration
         .setProperty(atomicOperation, DATABASE_INSTANCE_ID, UUID.randomUUID().toString());
   }
 
@@ -1162,8 +1162,37 @@ public abstract class AbstractStorage
     }
   }
 
+
+  public final int allocateCollection() {
+    try {
+      checkBackupRunning();
+      stateLock.writeLock().lock();
+      try {
+        checkOpennessAndMigration();
+        makeStorageDirty();
+
+        return atomicOperationsManager.calculateInsideAtomicOperation(
+            null, this::doAddCollection);
+
+      } catch (final IOException e) {
+        throw BaseException.wrapException(
+            new StorageException(name,
+                "Error in creation of adding of new collection"), e,
+            name);
+      } finally {
+        stateLock.writeLock().unlock();
+      }
+    } catch (final RuntimeException ee) {
+      throw logAndPrepareForRethrow(ee);
+    } catch (final Error ee) {
+      throw logAndPrepareForRethrow(ee);
+    } catch (final Throwable t) {
+      throw logAndPrepareForRethrow(t);
+    }
+  }
+
   @Override
-  public final boolean dropCollection(DatabaseSessionInternal database, final int collectionId) {
+  public final boolean freeCollection(DatabaseSessionInternal database, final int collectionId) {
     try {
       checkBackupRunning();
       stateLock.writeLock().lock();
@@ -1191,7 +1220,7 @@ public abstract class AbstractStorage
                 return false;
               }
 
-              ((CollectionBasedStorageConfiguration) configuration)
+              configuration
                   .dropCollection(atomicOperation, collectionId);
               linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
                   collectionId);
@@ -2178,7 +2207,7 @@ public abstract class AbstractStorage
             atomicOperation -> {
               indexEngineNameMap.put(indexMetadata.getName(), engine);
               indexEngines.add(engine);
-              ((CollectionBasedStorageConfiguration) configuration)
+              configuration
                   .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
             });
         return generateIndexId(engineData.getIndexId(), engine);
@@ -2242,7 +2271,7 @@ public abstract class AbstractStorage
                   indexEngines.set(engine.getId(), null);
 
                   engine.delete(atomicOperation);
-                  ((CollectionBasedStorageConfiguration) configuration)
+                  configuration
                       .deleteIndexEngine(atomicOperation, indexMetadata.getName());
                 }
               }
@@ -2271,7 +2300,7 @@ public abstract class AbstractStorage
               indexEngineNameMap.put(indexMetadata.getName(), engine);
               indexEngines.add(engine);
 
-              ((CollectionBasedStorageConfiguration) configuration)
+              configuration
                   .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
 
               return generateIndexId(engineData.getIndexId(), engine);
@@ -2385,7 +2414,7 @@ public abstract class AbstractStorage
               final var engine =
                   deleteIndexEngineInternal(atomicOperation, internalIndexId);
               final var engineName = engine.getName();
-              ((CollectionBasedStorageConfiguration) configuration)
+              configuration
                   .deleteIndexEngine(atomicOperation, engineName);
             });
 
@@ -3686,7 +3715,7 @@ public abstract class AbstractStorage
         || !recordConflictStrategy.getName().equals(conflictResolver.getName())) {
 
       this.recordConflictStrategy = conflictResolver;
-      ((CollectionBasedStorageConfiguration) configuration)
+      configuration
           .setConflictStrategy(atomicOperation, conflictResolver.getName());
     }
   }
@@ -4394,7 +4423,7 @@ public abstract class AbstractStorage
       collection.create(atomicOperation);
       createdCollectionId = registerCollection(collection);
 
-      ((CollectionBasedStorageConfiguration) configuration)
+      configuration
           .updateCollection(atomicOperation, collection.generateCollectionConfig());
 
       linkCollectionsBTreeManager.createComponent(atomicOperation, createdCollectionId);
@@ -4402,6 +4431,36 @@ public abstract class AbstractStorage
 
     return createdCollectionId;
   }
+
+  private int doAddCollection(
+      final AtomicOperation atomicOperation) throws IOException {
+    final PaginatedCollection collection;
+
+    var nextIndex = collections.size();
+    var collectionName = "$entity_collection_" + nextIndex;
+    collection =
+        StorageCollectionFactory.createCollection(
+            collectionName,
+            configuration.getVersion(),
+            configuration
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
+            this);
+    collection.configure(collections.size(), collectionName);
+
+    var createdCollectionId = -1;
+    collection.create(atomicOperation);
+    createdCollectionId = registerCollection(collection);
+    assert createdCollectionId == nextIndex;
+
+    configuration
+        .updateCollection(atomicOperation, collection.generateCollectionConfig());
+
+    linkCollectionsBTreeManager.createComponent(atomicOperation, createdCollectionId);
+
+    return createdCollectionId;
+  }
+
 
   @Override
   public void setCollectionAttribute(final int id, final ATTRIBUTES attribute,
@@ -4462,7 +4521,7 @@ public abstract class AbstractStorage
             "Runtime change of attribute '" + attribute + "' is not supported");
     }
 
-    ((CollectionBasedStorageConfiguration) configuration)
+    configuration
         .updateCollection(atomicOperation,
             ((PaginatedCollection) collection).generateCollectionConfig());
     return true;
@@ -4516,7 +4575,7 @@ public abstract class AbstractStorage
                   engine.close();
                 }
               }
-              ((CollectionBasedStorageConfiguration) configuration).close(atomicOperation);
+              configuration.close(atomicOperation);
             });
 
         linkCollectionsBTreeManager.close();
@@ -5062,7 +5121,7 @@ public abstract class AbstractStorage
 
       checkOpennessAndMigration();
 
-      ((CollectionBasedStorageConfiguration) configuration)
+      configuration
           .setConfigurationUpdateListener(storageConfigurationUpdateListener);
     } finally {
       stateLock.readLock().unlock();
@@ -5075,7 +5134,7 @@ public abstract class AbstractStorage
 
       checkOpennessAndMigration();
 
-      ((CollectionBasedStorageConfiguration) configuration).pauseUpdateNotifications();
+      configuration.pauseUpdateNotifications();
     } finally {
       stateLock.readLock().unlock();
     }
@@ -5086,7 +5145,7 @@ public abstract class AbstractStorage
     try {
 
       checkOpennessAndMigration();
-      ((CollectionBasedStorageConfiguration) configuration).fireUpdateNotifications();
+      configuration.fireUpdateNotifications();
     } finally {
       stateLock.readLock().unlock();
     }
@@ -5212,7 +5271,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5239,7 +5298,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5264,7 +5323,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5288,12 +5347,9 @@ public abstract class AbstractStorage
     try {
 
       checkOpennessAndMigration();
-
-      final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+      final var storageConfiguration = configuration;
 
       makeStorageDirty();
-
       atomicOperationsManager.executeInsideAtomicOperation(
           null, atomicOperation -> storageConfiguration.setLocaleLanguage(atomicOperation, locale));
     } catch (final RuntimeException ee) {
@@ -5314,8 +5370,7 @@ public abstract class AbstractStorage
 
       checkOpennessAndMigration();
 
-      final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+      final var storageConfiguration = configuration;
 
       makeStorageDirty();
 
@@ -5340,7 +5395,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5367,7 +5422,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5394,7 +5449,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5420,7 +5475,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5447,7 +5502,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5471,7 +5526,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5496,7 +5551,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5521,7 +5576,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5547,7 +5602,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 
@@ -5576,7 +5631,7 @@ public abstract class AbstractStorage
       checkOpennessAndMigration();
 
       final var storageConfiguration =
-          (CollectionBasedStorageConfiguration) configuration;
+          configuration;
 
       makeStorageDirty();
 

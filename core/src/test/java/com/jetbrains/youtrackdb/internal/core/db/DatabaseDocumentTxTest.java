@@ -341,7 +341,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   public void selectDescTest() {
     var className = "bar";
     var schema = session.getMetadata().getSlowMutableSchema();
-    schema.createClass(className, 1, schema.getClass(SchemaClass.VERTEX_CLASS_NAME));
+    schema.createClass(className, schema.getClass(SchemaClass.VERTEX_CLASS_NAME));
     session.begin();
 
     var document = (EntityImpl) session.newVertex(className);

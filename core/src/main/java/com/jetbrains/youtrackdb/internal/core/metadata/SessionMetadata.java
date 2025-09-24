@@ -43,6 +43,7 @@ import java.util.Locale;
 import java.util.Set;
 
 public final class SessionMetadata {
+
   public static final String COLLECTION_INTERNAL_NAME = "internal";
 
   public static final String COLLECTION_NAME_SCHEMA_CLASS = "$schemaClassInternal";
@@ -69,10 +70,37 @@ public final class SessionMetadata {
 
   private SchemaSnapshot schemaSnapshot = null;
   private int immutableCount = 0;
-  private final DatabaseSessionEmbedded database;
+  private final DatabaseSessionEmbedded session;
 
-  public SessionMetadata(DatabaseSessionEmbedded databaseDocument) {
-    this.database = databaseDocument;
+  private final int collectionInternalId;
+  private final int collectionSchemaClassId;
+  private final int collectionSchemaPropertyId;
+  private final int collectionGlobalPropertyId;
+
+
+  public SessionMetadata(DatabaseSessionEmbedded session) {
+    this.session = session;
+
+    collectionInternalId = session.getCollectionIdByName(COLLECTION_INTERNAL_NAME);
+    collectionSchemaClassId = session.getCollectionIdByName(COLLECTION_NAME_SCHEMA_CLASS);
+    collectionSchemaPropertyId = session.getCollectionIdByName(COLLECTION_NAME_SCHEMA_PROPERTY);
+    collectionGlobalPropertyId = session.getCollectionIdByName(COLLECTION_NAME_GLOBAL_PROPERTY);
+  }
+
+  public int getCollectionInternalId() {
+    return collectionInternalId;
+  }
+
+  public int getCollectionSchemaClassId() {
+    return collectionSchemaClassId;
+  }
+
+  public int getCollectionSchemaPropertyId() {
+    return collectionSchemaPropertyId;
+  }
+
+  public int getCollectionGlobalPropertyId() {
+    return collectionGlobalPropertyId;
   }
 
   public SchemaProxy getSlowMutableSchema() {
@@ -80,7 +108,7 @@ public final class SessionMetadata {
   }
 
   public ImmutableSchema getFastImmutableSchema() {
-    var transaction = database.getTransactionInternal();
+    var transaction = session.getTransactionInternal();
 
     if (transaction.isSchemaChanged()) {
       return schema;
@@ -122,11 +150,11 @@ public final class SessionMetadata {
 
 
   public SharedContext init(SharedContext shared) {
-    schema = new SchemaProxy(shared.getSchema(), database);
-    security = new SecurityProxy(shared.getSecurity(), database);
-    functionLibrary = new FunctionLibraryProxy(shared.getFunctionLibrary(), database);
-    sequenceLibrary = new SequenceLibraryProxy(shared.getSequenceLibrary(), database);
-    scheduler = new SchedulerProxy(shared.getScheduler(), database);
+    schema = new SchemaProxy(session);
+    security = new SecurityProxy(shared.getSecurity(), session);
+    functionLibrary = new FunctionLibraryProxy(shared.getFunctionLibrary(), session);
+    sequenceLibrary = new SequenceLibraryProxy(shared.getSequenceLibrary(), session);
+    scheduler = new SchedulerProxy(shared.getScheduler(), session);
     return shared;
   }
 
@@ -135,7 +163,7 @@ public final class SessionMetadata {
    */
   public void reload() {
     // RELOAD ALL THE SHARED CONTEXT
-    database.getSharedContext().reload(database);
+    session.getSharedContext().reload(session);
     // ADD HERE THE RELOAD OF A PROXY OBJECT IF NEEDED
   }
 

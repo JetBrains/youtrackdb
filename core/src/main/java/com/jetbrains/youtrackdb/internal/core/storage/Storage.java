@@ -120,7 +120,7 @@ public interface Storage extends Backupable, StorageInfo {
    */
   int addCollection(DatabaseSessionInternal database, String iCollectionName, int iRequestedId);
 
-  boolean dropCollection(DatabaseSessionInternal session, String iCollectionName);
+  boolean freeCollection(DatabaseSessionInternal session, String iCollectionName);
 
   String getCollectionName(DatabaseSessionInternal database, final int collectionId);
 
@@ -133,7 +133,7 @@ public interface Storage extends Backupable, StorageInfo {
    * @param iId      id of the collection to delete
    * @return true if has been removed, otherwise false
    */
-  boolean dropCollection(DatabaseSessionInternal database, int iId);
+  boolean freeCollection(DatabaseSessionInternal database, int iId);
 
   String getCollectionNameById(final int collectionId);
 

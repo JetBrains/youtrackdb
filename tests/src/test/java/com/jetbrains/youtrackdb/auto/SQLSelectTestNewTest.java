@@ -54,7 +54,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @BeforeClass
   public void init() {
     if (!session.getMetadata().getSlowMutableSchema().existsClass("Profile")) {
-      session.getMetadata().getSlowMutableSchema().createClass("Profile", 1);
+      session.getMetadata().getSlowMutableSchema().createClass("Profile");
 
       for (var i = 0; i < 1000; ++i) {
         session.begin();
@@ -64,7 +64,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
     }
 
     if (!session.getMetadata().getSlowMutableSchema().existsClass("company")) {
-      session.getMetadata().getSlowMutableSchema().createClass("company", 1);
+      session.getMetadata().getSlowMutableSchema().createClass("company");
       for (var i = 0; i < 20; ++i) {
         session.begin();
         session.newEntity("company").setProperty("id", i);
@@ -1496,7 +1496,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testSelectFromListParameter() {
-    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place");
     placeClass.createProperty("id", PropertyType.STRING);
     placeClass.createProperty("descr", PropertyType.STRING);
     placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
@@ -1530,7 +1530,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testSelectRidFromListParameter() {
-    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place");
     placeClass.createProperty("id", PropertyType.STRING);
     placeClass.createProperty("descr", PropertyType.STRING);
     placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
@@ -1566,8 +1566,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
   @Test
   public void testSelectRidInList() {
-    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
-    session.getMetadata().getSlowMutableSchema().createClass("FamousPlace", 1, placeClass);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place");
+    session.getMetadata().getSlowMutableSchema().createClass("FamousPlace", placeClass);
 
     var firstPlace = ((EntityImpl) session.newEntity("Place"));
 

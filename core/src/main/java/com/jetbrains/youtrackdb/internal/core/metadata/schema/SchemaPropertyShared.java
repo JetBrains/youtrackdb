@@ -24,19 +24,18 @@ import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.common.comparator.CaseInsentiveComparator;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Collections;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.text.ParseException;
@@ -233,7 +232,7 @@ public final class SchemaPropertyShared {
     acquireSchemaReadLock();
     try {
       if (linkedClass == null && linkedClassName != null) {
-        linkedClass = owner.owner.getClass(linkedClassName);
+        linkedClass = owner.owner.getClass(, linkedClassName);
       }
       return linkedClass;
     } finally {
@@ -554,85 +553,6 @@ public final class SchemaPropertyShared {
     }
   }
 
-  public void fromStream(EntityImpl entity) {
-    String name = entity.getProperty("name");
-    PropertyTypeInternal type = null;
-    if (entity.getProperty("type") != null) {
-      type = PropertyTypeInternal.getById(((Integer) entity.getProperty("type")).byteValue());
-    }
-    Integer globalId = entity.getProperty("globalId");
-    if (globalId != null) {
-      globalRef = owner.owner.getGlobalPropertyById(globalId);
-    } else {
-      if (type == null) {
-        throw new UnsupportedOperationException("Type is not defined for property " + name);
-      }
-      globalRef = owner.owner.findOrCreateGlobalProperty(name, type);
-    }
-
-    if (entity.hasProperty("mandatory")) {
-      mandatory = entity.getProperty("mandatory");
-    } else {
-      mandatory = false;
-    }
-    if (entity.hasProperty("readonly")) {
-      readonly = entity.getProperty("readonly");
-    } else {
-      readonly = false;
-    }
-    if (entity.hasProperty("notNull")) {
-      notNull = entity.getProperty("notNull");
-    } else {
-      notNull = false;
-    }
-    if (entity.hasProperty("defaultValue")) {
-      defaultValue = entity.getProperty("defaultValue");
-    } else {
-      defaultValue = null;
-    }
-    if (entity.hasProperty("collate")) {
-      collate = SQLEngine.getCollate(entity.getProperty("collate"));
-    }
-
-    if (entity.hasProperty("min")) {
-      min = entity.getProperty("min");
-    } else {
-      min = null;
-    }
-    if (entity.hasProperty("max")) {
-      max = entity.getProperty("max");
-    } else {
-      max = null;
-    }
-    if (entity.hasProperty("regexp")) {
-      regexp = entity.getProperty("regexp");
-    } else {
-      regexp = null;
-    }
-    if (entity.hasProperty("linkedClass")) {
-      linkedClassName = entity.getProperty("linkedClass");
-    } else {
-      linkedClassName = null;
-    }
-    if (entity.getProperty("linkedType") != null) {
-      linkedType =
-          PropertyTypeInternal.getById(((Integer) entity.getProperty("linkedType")).byteValue());
-    } else {
-      linkedType =
-          null;
-    }
-    if (entity.hasProperty("customFields")) {
-      customFields = entity.getProperty("customFields");
-    } else {
-      customFields = null;
-    }
-    if (entity.hasProperty("description")) {
-      description = entity.getProperty("description");
-    } else {
-      description = null;
-    }
-  }
-
   public Collection<String> getAllIndexes(DatabaseSessionInternal session) {
     return getAllIndexesInternal(session).stream().map(Index::getName).toList();
   }
@@ -783,7 +703,7 @@ public final class SchemaPropertyShared {
             "Cannot change property type from " + globalRef.getType() + " to " + iType);
       }
 
-      this.globalRef = owner.owner.findOrCreateGlobalProperty(this.globalRef.getName(), iType);
+      this.globalRef = SchemaManager.findOrCreateGlobalProperty(this.globalRef.getName(), iType);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -810,7 +730,7 @@ public final class SchemaPropertyShared {
       checkEmbedded(session);
 
       owner.renameProperty(oldName, name);
-      this.globalRef = owner.owner.findOrCreateGlobalProperty(name,
+      this.globalRef = SchemaManager.findOrCreateGlobalProperty(name,
           PropertyTypeInternal.convertFromPublicType(this.globalRef.getType()));
     } finally {
       releaseSchemaWriteLock(session);

@@ -39,6 +39,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.CollectionId;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable;
@@ -1304,6 +1305,40 @@ public enum PropertyTypeInternal {
     @Override
     public PropertyType getPublicPropertyType() {
       return PropertyType.LINKBAG;
+    }
+  },
+
+  COLLECTION_ID("CollectionId", 23, CollectionId.class,
+      new Class<?>[]{Integer.class, Short.class}) {
+    @Override
+    public CollectionId convert(Object value, PropertyTypeInternal linkedType,
+        ImmutableSchemaClass linkedClass,
+        DatabaseSessionInternal session) {
+      return switch (value) {
+        case null -> null;
+        case CollectionId collectionId -> collectionId;
+        case String s -> new CollectionId(Integer.parseInt(s));
+        case Integer i -> new CollectionId(i);
+        case Short s -> new CollectionId(s);
+        default -> throw new DatabaseException(session != null ? session.getDatabaseName() : null,
+            conversionErrorMessage(value, this));
+      };
+    }
+
+    @Override
+    public Object copy(Object value, DatabaseSessionInternal session) {
+      value = convert(value, session);
+
+      if (value == null) {
+        return null;
+      }
+
+      return new CollectionId(((CollectionId) value).getId());
+    }
+
+    @Override
+    public PropertyType getPublicPropertyType() {
+      throw new UnsupportedOperationException("CollectionId is not a public property type");
     }
   };
 

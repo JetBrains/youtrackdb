@@ -68,9 +68,9 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaCla
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertySnapshot;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyAccess;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
@@ -1037,7 +1037,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
-    final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
+    final var c = SchemaManager.checkPropertyNameIfValid(propertyName);
     if (allowMetadata && propertyName.charAt(0) == '@') {
       return;
     }

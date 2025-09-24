@@ -28,7 +28,7 @@ import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -313,7 +313,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       throw new IllegalStateException("Cannot create a new index inside a transaction");
     }
 
-    final var c = SchemaShared.checkIndexNameIfValid(iName);
+    final var c = SchemaManager.checkIndexNameIfValid(iName);
     if (c != null) {
       throw new IllegalArgumentException(
           "Invalid index name '" + iName + "'. Character '" + c + "' is invalid");

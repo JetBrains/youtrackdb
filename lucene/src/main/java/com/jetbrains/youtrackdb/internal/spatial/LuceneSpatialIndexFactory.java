@@ -17,7 +17,6 @@ import static com.jetbrains.youtrackdb.internal.lucene.LuceneIndexFactory.LUCENE
 
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
@@ -27,7 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexFactory;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.spatial.engine.LuceneSpatialIndexEngineDelegator;
@@ -155,9 +154,4 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
       LogManager.instance().warn(this, "Error on dropping spatial indexes", e);
     }
   }
-
-  @Override
-  public void onDropClass(DatabaseSessionEmbedded session, SchemaClassShared iClass) {
-  }
-
 }

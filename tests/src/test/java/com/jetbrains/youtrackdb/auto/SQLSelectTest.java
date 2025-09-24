@@ -1319,7 +1319,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testSelectFromListParameter() {
-    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place");
     placeClass.createProperty("id", PropertyType.STRING);
     placeClass.createProperty("descr", PropertyType.STRING);
     placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
@@ -1355,7 +1355,7 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testSelectRidFromListParameter() {
-    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place");
     placeClass.createProperty("id", PropertyType.STRING);
     placeClass.createProperty("descr", PropertyType.STRING);
     placeClass.createIndex("place_id_index", INDEX_TYPE.UNIQUE, "id");
@@ -1391,8 +1391,8 @@ public class SQLSelectTest extends AbstractSelectTest {
 
   @Test
   public void testSelectRidInList() {
-    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place", 1);
-    session.getMetadata().getSlowMutableSchema().createClass("FamousPlace", 1, placeClass);
+    var placeClass = session.getMetadata().getSlowMutableSchema().createClass("Place");
+    session.getMetadata().getSlowMutableSchema().createClass("FamousPlace", placeClass);
 
     session.begin();
     var firstPlace = ((EntityImpl) session.newEntity("Place"));

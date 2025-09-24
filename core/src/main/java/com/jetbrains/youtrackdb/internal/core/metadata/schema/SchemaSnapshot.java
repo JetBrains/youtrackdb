@@ -32,6 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.jspecify.annotations.NonNull;
 
 /**
  * @since 10/21/14
@@ -44,12 +45,13 @@ public final class SchemaSnapshot implements ImmutableSchema {
   private final List<GlobalProperty> properties;
   private final Map<String, IndexDefinition> indexes;
 
-  public SchemaSnapshot(@Nonnull SchemaShared schemaShared,
+  public SchemaSnapshot(@Nonnull SchemaManager schemaManager,
       @Nonnull DatabaseSessionEmbedded session) {
-    collectionsToClasses = new Int2ObjectOpenHashMap<>(schemaShared.getClasses(session).size() * 3);
-    classes = new HashMap<>(schemaShared.getClasses(session).size());
+    collectionsToClasses = new Int2ObjectOpenHashMap<>(
+        schemaManager.getClasses(session).size() * 3);
+    classes = new HashMap<>(schemaManager.getClasses(session).size());
 
-    for (var oClass : schemaShared.getClasses(session)) {
+    for (var oClass : schemaManager.getClasses(session)) {
       final var immutableClass = new SchemaClassSnapshot(session, oClass, this);
 
       classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
@@ -60,7 +62,7 @@ public final class SchemaSnapshot implements ImmutableSchema {
     }
 
     properties = new ArrayList<>();
-    properties.addAll(schemaShared.getGlobalProperties());
+    properties.addAll(SchemaManager.getGlobalProperties());
 
     for (var cl : classes.values()) {
       cl.init(session);
@@ -97,51 +99,27 @@ public final class SchemaSnapshot implements ImmutableSchema {
   }
 
   @Override
-  public SchemaSnapshot makeSnapshot() {
-    return this;
+  public boolean existsClass(@Nonnull String className) {
+    return classes.containsKey(className.toLowerCase(Locale.ROOT));
   }
 
   @Override
-  public long countClasses() {
-    return classes.size();
+  public SchemaClassSnapshot getClass(@NonNull String className) {
+    return (SchemaClassSnapshot) classes.get(className);
   }
 
   @Override
-  public boolean existsClass(String iClassName) {
-    return classes.containsKey(iClassName.toLowerCase(Locale.ROOT));
-  }
-
-  @Override
-  public SchemaClassSnapshot getClass(Class<?> iClass) {
-    if (iClass == null) {
-      return null;
-    }
-
-    return getClass(iClass.getSimpleName());
-  }
-
-  @Override
-  public SchemaClassSnapshot getClass(String iClassName) {
-    return (SchemaClassSnapshot) classes.get(iClassName);
-  }
-
-  @Override
-  public Collection<SchemaClassSnapshot> getClasses() {
+  public @Nonnull Collection<? extends ImmutableSchemaClass> getClasses() {
     return new HashSet<>(classes.values());
   }
 
   @Override
-  public Collection<String> getIndexes() {
+  public @Nonnull Collection<String> getIndexes() {
     return indexes.keySet();
   }
 
   @Override
-  public boolean indexExists(String indexName) {
-    return indexes.containsKey(indexName.toLowerCase(Locale.ROOT));
-  }
-
-  @Override
-  public @Nonnull IndexDefinition getIndexDefinition(String indexName) {
+  public @Nonnull IndexDefinition getIndexDefinition(@Nonnull String indexName) {
     var indexDefinition = indexes.get(indexName.toLowerCase(Locale.ROOT));
     if (indexDefinition == null) {
       throw new IllegalArgumentException("Index '" + indexName + "' not found");
@@ -165,8 +143,4 @@ public final class SchemaSnapshot implements ImmutableSchema {
     return properties.get(id);
   }
 
-  @Override
-  public List<GlobalProperty> getGlobalProperties() {
-    return properties;
-  }
 }

@@ -21,8 +21,8 @@ package com.jetbrains.youtrackdb.api;
 
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.Map;
 import javax.annotation.Nullable;
 
@@ -52,7 +52,7 @@ public interface SessionListener {
   default void onCreateClass(DatabaseSession iDatabase, SchemaClass iClass) {
   }
 
-  default void onDropClass(DatabaseSession iDatabase, SchemaClass iClass) {
+  default void onDropClass(DatabaseSession iDatabase, String className) {
   }
 
   default void onCommandStart(DatabaseSession database, ResultSet resultSet) {

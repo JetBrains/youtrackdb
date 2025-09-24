@@ -26,9 +26,9 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -185,8 +185,8 @@ public class IndexTest extends BaseDBTest {
   }
 
   private void dropIndexes() {
-    for (var indexName : session.getMetadata().getSlowMutableSchema().getClassInternal("Profile")
-        .getPropertyInternal("nick").getAllIndexes()) {
+    for (var indexName : session.getMetadata().getSlowMutableSchema().getClass("Profile")
+        .getProperty("nick").getAllIndexes()) {
       session.getSharedContext().getIndexManager().dropIndex(session, indexName);
     }
   }
@@ -387,11 +387,11 @@ public class IndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "removeNotUniqueIndexOnNick")
   public void testQueryingWithoutNickIndex() {
     Assert.assertFalse(
-        session.getMetadata().getSlowMutableSchema().getClassInternal("Profile")
+        session.getMetadata().getSlowMutableSchema().getClass("Profile")
             .getInvolvedIndexes(session, "name").isEmpty());
 
     Assert.assertTrue(
-        session.getMetadata().getSlowMutableSchema().getClassInternal("Profile")
+        session.getMetadata().getSlowMutableSchema().getClass("Profile")
             .getInvolvedIndexes(session, "nick")
             .isEmpty());
 
@@ -426,7 +426,7 @@ public class IndexTest extends BaseDBTest {
   @Test(dependsOnMethods = {"createNotUniqueIndexOnNick", "populateIndexDocuments"})
   public void testIndexInNotUniqueIndex() {
     Assert.assertEquals(
-        session.getClassInternal("Profile").
+        session.getMetadata().getFastImmutableSchema().getClass("Profile").
             getInvolvedIndexesInternal(session, "nick").iterator()
             .next().getType(),
         SchemaClass.INDEX_TYPE.NOTUNIQUE.toString());
@@ -508,7 +508,7 @@ public class IndexTest extends BaseDBTest {
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSlowMutableSchema().existsClass("TestClass")) {
         var testClass =
-            db.getMetadata().getSlowMutableSchema().createClass("TestClass", 1);
+            db.getMetadata().getSlowMutableSchema().createClass("TestClass");
         var testLinkClass =
             db.getMetadata().getSlowMutableSchema().createClass("TestLinkClass", 1);
         testClass
@@ -579,7 +579,7 @@ public class IndexTest extends BaseDBTest {
 
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSlowMutableSchema().existsClass("MyFruit")) {
-        var fruitClass = db.getMetadata().getSlowMutableSchema().createClass("MyFruit", 1);
+        var fruitClass = db.getMetadata().getSlowMutableSchema().createClass("MyFruit");
         fruitClass.createProperty("name", PropertyType.STRING);
         fruitClass.createProperty("color", PropertyType.STRING);
 
@@ -654,7 +654,7 @@ public class IndexTest extends BaseDBTest {
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSlowMutableSchema().existsClass("IndexTestTerm")) {
         final var termClass =
-            db.getMetadata().getSlowMutableSchema().createClass("IndexTestTerm", 1);
+            db.getMetadata().getSlowMutableSchema().createClass("IndexTestTerm");
         termClass.createProperty("label", PropertyType.STRING);
         termClass.createIndex(
             "idxTerm",
@@ -689,7 +689,7 @@ public class IndexTest extends BaseDBTest {
       final var termClass =
           db.getMetadata()
               .getSlowMutableSchema()
-              .createClass("TransactionUniqueIndexTest", 1);
+              .createClass("TransactionUniqueIndexTest");
       termClass.createProperty("label", PropertyType.STRING);
       termClass.createIndex(
           "idxTransactionUniqueIndexTest",
@@ -729,7 +729,7 @@ public class IndexTest extends BaseDBTest {
       final var termClass =
           session.getMetadata()
               .getSlowMutableSchema()
-              .createClass("TransactionUniqueIndexTest", 1);
+              .createClass("TransactionUniqueIndexTest");
 
       termClass.createProperty("label", PropertyType.STRING);
       termClass.createIndex(
@@ -767,7 +767,7 @@ public class IndexTest extends BaseDBTest {
       final var termClass =
           db.getMetadata()
               .getSlowMutableSchema()
-              .createClass("TransactionUniqueIndexWithDotTest", 1);
+              .createClass("TransactionUniqueIndexWithDotTest");
       termClass.createProperty("label", PropertyType.STRING).createIndex(INDEX_TYPE.UNIQUE);
     }
 
@@ -810,7 +810,7 @@ public class IndexTest extends BaseDBTest {
       final var termClass =
           db.getMetadata()
               .getSlowMutableSchema()
-              .createClass("TransactionUniqueIndexWithDotTest", 1);
+              .createClass("TransactionUniqueIndexWithDotTest");
       termClass.createProperty("label", PropertyType.STRING)
           .createIndex(INDEX_TYPE.UNIQUE);
     }
@@ -867,11 +867,11 @@ public class IndexTest extends BaseDBTest {
     try (var db = acquireSession()) {
       if (!db.getMetadata().getSlowMutableSchema().existsClass("BaseTestClass")) {
         var baseClass =
-            db.getMetadata().getSlowMutableSchema().createClass("BaseTestClass", 1);
+            db.getMetadata().getSlowMutableSchema().createClass("BaseTestClass");
         var childClass =
-            db.getMetadata().getSlowMutableSchema().createClass("ChildTestClass", 1);
+            db.getMetadata().getSlowMutableSchema().createClass("ChildTestClass");
         var anotherChildClass =
-            db.getMetadata().getSlowMutableSchema().createClass("AnotherChildTestClass", 1);
+            db.getMetadata().getSlowMutableSchema().createClass("AnotherChildTestClass");
 
         if (!baseClass.isSuperClassOf(childClass)) {
           childClass.addSuperClass(baseClass);
@@ -1049,10 +1049,10 @@ public class IndexTest extends BaseDBTest {
   public void testIndexInCompositeQuery() {
     var classOne =
         session.getMetadata().getSlowMutableSchema()
-            .createClass("CompoundSQLIndexTest1", 1);
+            .createClass("CompoundSQLIndexTest1");
     var classTwo =
         session.getMetadata().getSlowMutableSchema()
-            .createClass("CompoundSQLIndexTest2", 1);
+            .createClass("CompoundSQLIndexTest2");
 
     classTwo.createProperty("address", PropertyType.LINK, classOne);
 
@@ -1078,7 +1078,7 @@ public class IndexTest extends BaseDBTest {
   public void testIndexWithLimitAndOffset() {
     final var schema = session.getMetadata().getSlowMutableSchema();
     final var indexWithLimitAndOffset =
-        schema.createClass("IndexWithLimitAndOffsetClass", 1);
+        schema.createClass("IndexWithLimitAndOffsetClass");
     indexWithLimitAndOffset.createProperty("val", PropertyType.INTEGER);
     indexWithLimitAndOffset.createProperty("index", PropertyType.INTEGER);
 
@@ -1111,7 +1111,7 @@ public class IndexTest extends BaseDBTest {
 
   public void testNullIndexKeysSupport() {
     final var schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupport", 1);
+    final var clazz = schema.createClass("NullIndexKeysSupport");
     clazz.createProperty("nullField", PropertyType.STRING);
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -1154,7 +1154,7 @@ public class IndexTest extends BaseDBTest {
 
   public void testNullHashIndexKeysSupport() {
     final var schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("NullHashIndexKeysSupport", 1);
+    final var clazz = schema.createClass("NullHashIndexKeysSupport");
     clazz.createProperty("nullField", PropertyType.STRING);
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -1201,7 +1201,7 @@ public class IndexTest extends BaseDBTest {
 
   public void testNullIndexKeysSupportInTx() {
     final var schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupportInTx", 1);
+    final var clazz = schema.createClass("NullIndexKeysSupportInTx");
     clazz.createProperty("nullField", PropertyType.STRING);
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -1250,7 +1250,7 @@ public class IndexTest extends BaseDBTest {
 
   public void testNullIndexKeysSupportInMiddleTx() {
     final var schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("NullIndexKeysSupportInMiddleTx", 1);
+    final var clazz = schema.createClass("NullIndexKeysSupportInMiddleTx");
     clazz.createProperty("nullField", PropertyType.STRING);
 
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
@@ -1345,7 +1345,7 @@ public class IndexTest extends BaseDBTest {
   public void testValuesContainerIsRemovedIfIndexIsRemoved() {
     final var schema = session.getMetadata().getSlowMutableSchema();
     var clazz =
-        schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass", 1);
+        schema.createClass("ValuesContainerIsRemovedIfIndexIsRemovedClass");
     clazz.createProperty("val", PropertyType.STRING);
 
     session
@@ -1450,7 +1450,7 @@ public class IndexTest extends BaseDBTest {
         session
             .getMetadata()
             .getSlowMutableSchema()
-            .createClass("EmptyNotUniqueIndexTest", 1);
+            .createClass("EmptyNotUniqueIndexTest");
     emptyNotUniqueIndexClazz.createProperty("prop", PropertyType.STRING);
 
     emptyNotUniqueIndexClazz.createIndex(

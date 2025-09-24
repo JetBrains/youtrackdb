@@ -66,16 +66,11 @@ import javax.annotation.Nullable;
  */
 @SuppressWarnings("unchecked")
 public final class SchemaClassShared {
-
   private static final Pattern PATTERN = Pattern.compile(",\\s*");
-  @Nonnull
-  private final SchemaShared owner;
   @Nonnull
   private final SchemaClassEntity schemaClassEntity;
 
-  public SchemaClassShared(@Nonnull final SchemaShared owner,
-      @Nonnull SchemaClassEntity schemaClassEntity) {
-    this.owner = owner;
+  public SchemaClassShared(@Nonnull SchemaClassEntity schemaClassEntity) {
     this.schemaClassEntity = schemaClassEntity;
   }
 
@@ -231,7 +226,7 @@ public final class SchemaClassShared {
 
     final List<SchemaClassShared> classes = new ArrayList<>(classNames.size());
     for (var className : classNames) {
-      classes.add(owner.getClass(decodeClassName(className)));
+      classes.add(owner.getClass(, decodeClassName(className)));
     }
 
     setSuperClasses(session, classes);
@@ -676,7 +671,7 @@ public final class SchemaClassShared {
   }
 
   public boolean isSuperClassOf(final String className) {
-    var clazz = owner.getClass(className);
+    var clazz = owner.getClass(, , className);
     if (clazz == null) {
       return false;
     }
@@ -1007,22 +1002,7 @@ public final class SchemaClassShared {
     return indexes;
   }
 
-  public void acquireSchemaReadLock() {
-    owner.acquireSchemaReadLock();
-  }
 
-  public void releaseSchemaReadLock() {
-    owner.releaseSchemaReadLock();
-  }
-
-  public void acquireSchemaWriteLock() {
-    owner.acquireSchemaWriteLock();
-  }
-
-
-  public void releaseSchemaWriteLock() {
-    owner.releaseSchemaWriteLock();
-  }
 
 
   public void fireDatabaseMigration(
@@ -1232,7 +1212,7 @@ public final class SchemaClassShared {
     return iName;
   }
 
-  public SchemaShared getOwner() {
+  public SchemaManager getOwner() {
     return owner;
   }
 
@@ -1346,6 +1326,7 @@ public final class SchemaClassShared {
         continue;
       }
       SchemaClassShared impl;
+
       impl = superClass;
       impl.propertiesMap(properties);
       for (var entry : properties.entrySet()) {
@@ -1687,14 +1668,14 @@ public final class SchemaClassShared {
   protected void setSuperClassesInternal(DatabaseSessionInternal session,
       final List<SchemaClassShared> classes, boolean validateIndexes) {
     if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType()) {
-      if (!classes.contains(owner.getClass(SchemaClass.EDGE_CLASS_NAME))) {
+      if (!classes.contains(owner.getClass(, , SchemaClass.EDGE_CLASS_NAME))) {
         throw new IllegalArgumentException(
             "Edge class must have super class " + SchemaClass.EDGE_CLASS_NAME
                 + ", its removal is not allowed.");
       }
     }
     if (!name.equals(SchemaClass.VERTEX_CLASS_NAME) && isVertexType()) {
-      if (!classes.contains(owner.getClass(SchemaClass.VERTEX_CLASS_NAME))) {
+      if (!classes.contains(owner.getClass(, , SchemaClass.VERTEX_CLASS_NAME))) {
         throw new IllegalArgumentException(
             "Vertex class must have super class " + SchemaClass.VERTEX_CLASS_NAME
                 + ", its removal is not allowed.");
@@ -1734,7 +1715,6 @@ public final class SchemaClassShared {
       return;
     }
     session.checkSecurity(Rule.ResourceGeneric.SCHEMA, Role.PERMISSION_UPDATE);
-    final var wrongCharacter = SchemaShared.checkClassNameIfValid(name);
     var oClass = session.getMetadata().getSlowMutableSchema().getClass(name);
     if (oClass != null) {
       var error =
@@ -1807,7 +1787,7 @@ public final class SchemaClassShared {
             "Class '" + this.name + "' already has property '" + name + "'");
       }
 
-      var global = owner.findOrCreateGlobalProperty(name, type);
+      var global = SchemaManager.findOrCreateGlobalProperty(name, type);
 
       prop = createPropertyInstance(global);
 

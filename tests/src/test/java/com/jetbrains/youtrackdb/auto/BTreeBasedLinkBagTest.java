@@ -77,7 +77,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
       return;
     }
 
-    final var collectionIdOne = session.addCollection("collectionOne");
+    final var collectionIdOne = session.allocateCollection("collectionOne");
 
     session.begin();
     var docCollectionOne = ((EntityImpl) session.newEntity());
@@ -240,7 +240,7 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     assertEmbedded(realDocRidBag.isEmbedded());
     session.commit();
 
-    final var collectionId = session.addCollection("ridBagDeleteTest");
+    final var collectionId = session.allocateCollection("ridBagDeleteTest");
 
     var testDocument = crateTestDeleteDoc(realDoc);
     session.freeze();

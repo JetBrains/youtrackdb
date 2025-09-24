@@ -69,17 +69,8 @@ public class SQLCreateClassStatement extends DDLStatement {
     if (abstractClass) {
       schema.createAbstractClass(name.getStringValue(), superclasses);
       result.setProperty("abstract", abstractClass);
-    } else if (totalCollectionNo != null) {
-      schema.createClass(
-          name.getStringValue(), totalCollectionNo.getValue().intValue(), superclasses);
-    } else if (collections != null) {
-      collections.stream().map(x -> x.getValue().intValue()).toList();
-      var collectionIds = new int[collections.size()];
-      for (var i = 0; i < collections.size(); i++) {
-        collectionIds[i] = collections.get(i).getValue().intValue();
-      }
-      schema.createClass(name.getStringValue(), collectionIds, superclasses);
-    } else {
+    }
+    {
       schema.createClass(name.getStringValue(), superclasses);
     }
 

@@ -8,10 +8,10 @@ import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
-import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHook;
@@ -21,35 +21,38 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryStats;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.StatementCache;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.core.storage.StorageInfo;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class SharedContext extends ListenerManger<MetadataUpdateListener> {
-  protected YouTrackDBInternalEmbedded youtrackDB;
-  protected Storage storage;
-  protected SchemaShared schema;
-  protected SecurityInternal security;
+public final class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
-  protected FunctionLibraryImpl functionLibrary;
-  protected SchedulerImpl scheduler;
-  protected SequenceLibraryImpl sequenceLibrary;
-  protected LiveQueryHook.LiveQueryOps liveQueryOps;
-  protected LiveQueryOps liveQueryOpsV2;
-  protected StatementCache statementCache;
-  protected ExecutionPlanCache executionPlanCache;
-  protected QueryStats queryStats;
-  protected volatile boolean loaded = false;
-  protected Map<String, Object> resources;
-  protected StringCache stringCache;
-  protected IndexManagerEmbedded indexManager;
+  YouTrackDBInternalEmbedded youtrackDB;
+  private AbstractStorage storage;
+  private SchemaManager schema;
+  private SecurityInternal security;
+
+  private FunctionLibraryImpl functionLibrary;
+  private SchedulerImpl scheduler;
+  private SequenceLibraryImpl sequenceLibrary;
+  private LiveQueryHook.LiveQueryOps liveQueryOps;
+  private LiveQueryOps liveQueryOpsV2;
+  private StatementCache statementCache;
+  private ExecutionPlanCache executionPlanCache;
+  private QueryStats queryStats;
+  private volatile boolean loaded = false;
+  private Map<String, Object> resources;
+  private StringCache stringCache;
+  private IndexManagerEmbedded indexManager;
 
   private final ReentrantLock lock = new ReentrantLock();
 
-  public SharedContext(Storage storage, YouTrackDBInternalEmbedded youtrackDB) {
+  private volatile SchemaSnapshot snapshot;
+  private final ReentrantLock snapshotLock = new ReentrantLock();
+
+  public SharedContext(AbstractStorage storage, YouTrackDBInternalEmbedded youtrackDB) {
     super(true);
 
     this.youtrackDB = youtrackDB;
@@ -58,14 +61,14 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     init(storage);
   }
 
-  protected void init(Storage storage) {
+  private void init(Storage storage) {
     stringCache =
         new StringCache(
             storage
                 .getConfiguration()
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.DB_STRING_CAHCE_SIZE));
-    schema = new SchemaShared();
+    schema = new SchemaManager();
     security = youtrackDB.getSecuritySystem().newSecurity(storage.getName());
     indexManager = new IndexManagerEmbedded(storage);
     functionLibrary = new FunctionLibraryImpl();
@@ -106,11 +109,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     lock.lock();
     try {
       database.executeInTx(transaction -> {
-        schema.forceSnapshot();
         indexManager.load(database);
-        // The Immutable snapshot should be after index and schema that require and before
-        // everything else that use it
-        schema.forceSnapshot();
         security.load(database);
         functionLibrary.load(database);
         scheduler.load(database);
@@ -147,9 +146,6 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     lock.lock();
     try {
       indexManager.reload(database);
-      // The Immutable snapshot should be after index and schema that require and before everything
-      // else that use it
-      schema.forceSnapshot();
       security.load(database);
       functionLibrary.load(database);
       sequenceLibrary.load(database);
@@ -162,27 +158,16 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   public void create(DatabaseSessionEmbedded session) {
     lock.lock();
     try {
-      schema.create(session);
       indexManager.create(session);
       security.create(session);
       FunctionLibraryImpl.create(session);
       SequenceLibraryImpl.create(session);
       SchedulerImpl.create(session);
-      schema.forceSnapshot();
 
       // CREATE BASE VERTEX AND EDGE CLASSES
       schema.createClass(session, Entity.DEFAULT_CLASS_NAME);
       schema.createClass(session, "V");
       schema.createClass(session, "E");
-
-      var config = storage.getConfiguration();
-      var blobCollectionsCount = config.getContextConfiguration()
-          .getValueAsInteger(GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT);
-
-      for (var i = 0; i < blobCollectionsCount; i++) {
-        var blobCollectionId = session.addCollection("$blob" + i);
-        schema.addBlobCollection(session, blobCollectionId);
-      }
 
       // create geospatial classes
       try {
@@ -207,7 +192,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
       this.close();
       this.storage = storage2;
       this.init(storage2);
-      ((SessionMetadata) database.getMetadata()).init(this);
+      database.getMetadata().init(this);
       this.load(database);
     } finally {
       lock.unlock();
@@ -250,7 +235,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     return queryStats;
   }
 
-  public StorageInfo getStorage() {
+  public AbstractStorage getStorage() {
     return storage;
   }
 
@@ -258,7 +243,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     return youtrackDB;
   }
 
-  public void setStorage(Storage storage) {
+  public void setStorage(AbstractStorage storage) {
     this.storage = storage;
   }
 
@@ -266,7 +251,7 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     return indexManager;
   }
 
-  public SchemaShared getSchema() {
+  public SchemaManager getSchema() {
     return schema;
   }
 
@@ -296,6 +281,37 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   public boolean isLoaded() {
     return loaded;
+  }
+
+  public SchemaSnapshot makeSnapshot(DatabaseSessionEmbedded session) {
+    var snapshot = this.snapshot;
+    if (snapshot == null) {
+      snapshotLock.lock();
+      try {
+        if (this.snapshot == null) {
+          this.snapshot = new SchemaSnapshot(this, session);
+        }
+
+        return this.snapshot;
+      } finally {
+        snapshotLock.unlock();
+      }
+    }
+
+    return snapshot;
+  }
+
+  public void forceSnapshot() {
+    if (snapshot == null) {
+      return;
+    }
+
+    snapshotLock.lock();
+    try {
+      snapshot = null;
+    } finally {
+      snapshotLock.unlock();
+    }
   }
 
 }

@@ -28,39 +28,39 @@ import javax.annotation.Nullable;
 
 public interface Schema extends ImmutableSchema {
   @Nonnull
-  SchemaClass createClass(String iClassName);
+  SchemaClass createClass(@Nonnull String className);
 
   @Nonnull
-  SchemaClass createClass(@Nonnull String iClassName, @Nonnull SchemaClass iSuperClass);
+  SchemaClass createClass(@Nonnull String className, @Nonnull SchemaClass iSuperClass);
 
-  SchemaClass createClass(String iClassName, SchemaClass... superClasses);
+  @Nonnull
+  SchemaClass createClass(@Nonnull String className, SchemaClass... superClasses);
 
-  SchemaClass createAbstractClass(String iClassName);
+  @Nonnull
+  SchemaClass createAbstractClass(@Nonnull String className);
 
-  SchemaClass createAbstractClass(String iClassName, SchemaClass iSuperClass);
+  @Nonnull
+  SchemaClass createAbstractClass(@Nonnull String className, @Nonnull SchemaClass superClass);
 
-  SchemaClass createAbstractClass(String iClassName, SchemaClass... superClasses);
+  @Nonnull
+  SchemaClass createAbstractClass(@Nonnull String className, SchemaClass... superClasses);
 
-  /**
-   * creates a new vertex class (a class that extends V)
-   *
-   * @param className the class name
-   * @return The object representing the class in the schema
-   * @throws SchemaException if the class already exists or if V class is not defined (Eg. if it was
-   *                         deleted from the schema)
-   */
+  /// creates a new vertex class (a class that extends V)
+  ///
+  /// @param className the class name
+  /// @return The object representing the class in the schema
+  /// @throws SchemaException if the class already exists or if V class is not defined (Eg. if it
+  ///                         was deleted from the schema)
   default SchemaClass createVertexClass(String className) throws SchemaException {
     return createClass(className, getClass(SchemaClass.VERTEX_CLASS_NAME));
   }
 
-  /**
-   * Creates a non-abstract new edge class (a class that extends E)
-   *
-   * @param className the class name
-   * @return The object representing the class in the schema
-   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
-   *                         deleted from the schema)
-   */
+  /// Creates a non-abstract new edge class (a class that extends E)
+  ///
+  /// @param className the class name
+  /// @return The object representing the class in the schema
+  /// @throws SchemaException if the class already exists or if E class is not defined (Eg. if it
+  ///                         was deleted from the schema)
   default SchemaClass createEdgeClass(String className) {
     var edgeClass = createClass(className, getClass(SchemaClass.EDGE_CLASS_NAME));
 
@@ -70,46 +70,28 @@ public interface Schema extends ImmutableSchema {
     return edgeClass;
   }
 
-  /**
-   * Creates a new edge class for lightweight edge (an abstract class that extends E)
-   *
-   * @param className the class name
-   * @return The object representing the class in the schema
-   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
-   *                         deleted from the schema)
-   */
+  /// Creates a new edge class for lightweight edge (an abstract class that extends E)
+  ///
+  /// @param className the class name
+  /// @return The object representing the class in the schema
+  /// @throws SchemaException if the class already exists or if E class is not defined (Eg. if it
+  ///                         was deleted from the schema)
   default SchemaClass createLightweightEdgeClass(String className) {
     return createAbstractClass(className, getClass(SchemaClass.EDGE_CLASS_NAME));
   }
 
-  void dropClass(String iClassName);
-
-  SchemaClass getOrCreateClass(String iClassName);
-
-  SchemaClass getOrCreateClass(String iClassName, SchemaClass iSuperClass);
-
-  SchemaClass getOrCreateClass(String iClassName, SchemaClass... superClasses);
-
-  GlobalProperty createGlobalProperty(String name, PropertyType type, Integer id);
-
+  void dropClass(@Nonnull String className);
 
   @Nonnull
-  SchemaClass createClass(@Nonnull String className, int collections,
-      @Nonnull SchemaClass... superClasses);
-
-  SchemaClass createClass(String iClassName, SchemaClass iSuperClass, int[] iCollectionIds);
-
-  SchemaClass createClass(String className, int[] collectionIds, SchemaClass... superClasses);
+  SchemaClass getOrCreateClass(@Nonnull String className);
 
   @Nullable
   @Override
-  SchemaClass getClass(Class<?> iClass);
+  SchemaClass getClass(@Nonnull String className);
 
   @Override
-  SchemaClass getClass(String iClassName);
-
-  @Override
-  Collection<SchemaClass> getClasses();
+  @Nonnull
+  Collection<? extends ImmutableSchemaClass> getClasses();
 
   @Nullable
   @Override

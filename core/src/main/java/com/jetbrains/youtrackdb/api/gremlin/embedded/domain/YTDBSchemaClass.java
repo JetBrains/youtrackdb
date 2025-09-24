@@ -75,9 +75,9 @@ public interface YTDBSchemaClass extends YTDBDomainVertex {
   @Nonnull
   Iterator<YTDBSchemaClass> ascendants();
 
-  void addChildClass(@Nonnull YTDBSchemaClass childClass);
+  void addSuperClass(@Nonnull YTDBSchemaClass childClass);
 
-  void removeChildClass(@Nonnull YTDBSchemaClass childClass);
+  void removeSuperClass(@Nonnull YTDBSchemaClass childClass);
 
   boolean isSubClassOf(@Nonnull String className);
 

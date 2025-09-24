@@ -2,47 +2,38 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
 import java.util.Collection;
-import java.util.List;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface ImmutableSchema {
-  long countClasses();
 
+  /// Returns the SchemaClass instance by class name.
+  ///
+  /// If the class is not configured and the database has an entity manager with the requested class
+  /// as registered, then creates a schema class for it at the fly.
+  ///
+  /// If the database nor the entity manager have not registered class with specified name, returns
+  /// null.
+  ///
+  /// @param className Name of the class to retrieve
+  /// @return class instance or null if class with given name is not configured.
   @Nullable
-  ImmutableSchemaClass getClass(Class<?> iClass);
+  ImmutableSchemaClass getClass(@Nonnull String className);
 
-  /**
-   * Returns the SchemaClass instance by class name.
-   *
-   * <p>If the class is not configured and the database has an entity manager with the requested
-   * class as registered, then creates a schema class for it at the fly.
-   *
-   * <p>If the database nor the entity manager have not registered class with specified name,
-   * returns null.
-   *
-   * @param iClassName Name of the class to retrieve
-   * @return class instance or null if class with given name is not configured.
-   */
-  ImmutableSchemaClass getClass(String iClassName);
-
-  boolean existsClass(String iClassName);
-
-  Collection<? extends ImmutableSchemaClass> getClasses();
-
-  Collection<String> getIndexes();
-
-  boolean indexExists(String indexName);
+  boolean existsClass(@Nonnull String className);
 
   @Nonnull
-  IndexDefinition getIndexDefinition(String indexName);
+  Collection<? extends ImmutableSchemaClass> getClasses();
+
+  @Nonnull
+  Collection<String> getIndexes();
+
+  @Nonnull
+  IndexDefinition getIndexDefinition(@Nonnull String indexName);
 
   @Nullable
   ImmutableSchemaClass getClassByCollectionId(int collectionId);
 
+  @Nullable
   GlobalProperty getGlobalPropertyById(int id);
-
-  List<GlobalProperty> getGlobalProperties();
-
-  SchemaSnapshot makeSnapshot();
 }

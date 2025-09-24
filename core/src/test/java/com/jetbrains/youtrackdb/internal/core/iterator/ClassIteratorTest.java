@@ -72,7 +72,7 @@ public class ClassIteratorTest extends DbTestBase {
 
   @Test
   public void testMultipleCollections() throws Exception {
-    session.getMetadata().getSlowMutableSchema().createClass("PersonMultipleCollections", 4);
+    session.getMetadata().getSlowMutableSchema().createClass("PersonMultipleCollections");
     for (var name : names) {
       createPerson("PersonMultipleCollections", name);
     }

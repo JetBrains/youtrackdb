@@ -185,7 +185,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     // /*** from issue #2743
     var schema = session.getMetadata().getSlowMutableSchema();
     if (!schema.existsClass("alphabet")) {
-      schema.createClass("alphabet", 1);
+      schema.createClass("alphabet");
     }
 
     session.begin();
@@ -360,7 +360,7 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
   }
 
   private static void initMassiveOrderSkipLimit(DatabaseSessionInternal db) {
-    db.getMetadata().getSlowMutableSchema().createClass("MassiveOrderSkipLimit", 1);
+    db.getMetadata().getSlowMutableSchema().createClass("MassiveOrderSkipLimit");
     var fieldValue =
         "laskdf lkajsd flaksjdf laksjd flakjsd flkasjd flkajsd flkajsd flkajsd flkajsd flkajsd"
             + " flkjas;lkj a;ldskjf laksdj asdklasdjf lskdaj fladsd";

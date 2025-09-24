@@ -340,12 +340,12 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public boolean dropCollection(DatabaseSessionInternal session, String iCollectionName) {
+        public boolean freeCollection(DatabaseSessionInternal session, String iCollectionName) {
           return false;
         }
 
         @Override
-        public boolean dropCollection(DatabaseSessionInternal database, int iId) {
+        public boolean freeCollection(DatabaseSessionInternal database, int iId) {
           return false;
         }
 

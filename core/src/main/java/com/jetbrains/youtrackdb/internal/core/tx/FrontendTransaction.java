@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.lang3.function.FailableConsumer;
 
 public interface FrontendTransaction extends Transaction {
 
@@ -96,7 +97,6 @@ public interface FrontendTransaction extends Transaction {
    *
    * @param oldRid Record identity before commit.
    * @param newRid Record identity after commit.
-   * @return
    */
   boolean assertIdentityChangedAfterCommit(final RecordIdInternal oldRid,
       final RecordIdInternal newRid);
@@ -180,14 +180,6 @@ public interface FrontendTransaction extends Transaction {
   void setCustomData(String name, Object value);
 
   /**
-   * @return this transaction ID as seen by the client of this transaction.
-   */
-  default long getClientTransactionId() {
-    return getId();
-  }
-
-
-  /**
    * Extract all the record operations for the current transaction
    *
    * @return the record operations, the collection should not be modified.
@@ -221,11 +213,9 @@ public interface FrontendTransaction extends Transaction {
 
   Iterator<byte[]> getSerializedOperations();
 
-  boolean isReadOnly();
-
   long getId();
 
-  RecordOperation addRecordOperation(RecordAbstract record, byte status);
+  void addRecordOperation(RecordAbstract record, byte status);
 
   @Nullable
   RecordIdInternal getFirstRid(int collectionId);
@@ -252,4 +242,9 @@ public interface FrontendTransaction extends Transaction {
 
   @Nonnull
   RecordSerializationContext getRecordSerializationContext();
+
+  <E extends Exception> void addRollbackAction(
+      FailableConsumer<DatabaseSessionEmbedded, E> rollbackAction);
+
+  int generateTempCollectionId();
 }

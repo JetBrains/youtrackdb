@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
-
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -19,7 +18,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.collections4.IteratorUtils;
 
-public class SchemaPropertyEntity extends EntityImpl {
+public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
 
   public static final String CUSTOM_PROPERTIES_PROPERTY_NAME = "customProperties";
   public static final String GLOBAL_PROPERTY_LINK_NAME = "globalProperty";
@@ -34,6 +33,7 @@ public class SchemaPropertyEntity extends EntityImpl {
   }
 
   public void setName(String name) {
+    SchemaManager.checkPropertyNameIfValid(name);
     setString(YTDBSchemaPropertyPTokenInternal.name.name(), name);
   }
 

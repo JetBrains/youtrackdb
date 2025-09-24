@@ -6,9 +6,10 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public class SchemaGlobalPropertyEntity extends EntityImpl {
+public class SchemaGlobalPropertyEntity extends EntityImpl implements SchemaEntity {
   public static final String NAME_PROPERTY = "name";
   public static final String TYPE_PROPERTY = "type";
+  public static final String ID = "id";
 
   public SchemaGlobalPropertyEntity(
       @Nonnull RecordIdInternal recordId,
@@ -37,5 +38,13 @@ public class SchemaGlobalPropertyEntity extends EntityImpl {
 
   public void setType(@Nonnull PropertyTypeInternal type) {
     setString(TYPE_PROPERTY, type.name());
+  }
+
+  public int getId() {
+    return getInt(ID);
+  }
+
+  public void setId(int id) {
+    setInt(ID, id);
   }
 }

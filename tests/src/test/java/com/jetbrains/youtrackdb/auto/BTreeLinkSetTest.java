@@ -56,7 +56,7 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
         || session.getStorage().getType().equals(EngineMemory.NAME)) {
       return;
     }
-    final var collectionId = session.addCollection("collectionOne");
+    final var collectionId = session.allocateCollection("collectionOne");
     session.begin();
     var entity = session.newEntity();
     var linkSet = session.newLinkSet();

@@ -37,7 +37,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdExce
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.index.iterator.IndexCursorStream;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -48,11 +47,9 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.lang.reflect.InvocationTargetException;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -279,149 +276,9 @@ public abstract class IndexAbstract implements Index {
   public void close() {
   }
 
-  /**
-   * @return number of entries in the index.
-   */
-  @Override
   @Deprecated
-  public long getSize(DatabaseSessionEmbedded session) {
-    return size(session);
-  }
-
-  /**
-   * Counts the entries for the key.
-   */
-  @Override
-  @Deprecated
-  public long count(DatabaseSessionEmbedded session, Object iKey) {
-    try (var stream =
-        streamEntriesBetween(session, iKey, true, iKey, true, true)) {
-      return stream.count();
-    }
-  }
-
-  /**
-   * @return Number of keys in index
-   */
-  @Override
-  @Deprecated
-  public long getKeySize() {
-    try (var stream = keyStream()) {
-      return stream.distinct().count();
-    }
-  }
-
-  /**
-   * Flushes in-memory changes to disk.
-   */
-  @Override
-  @Deprecated
-  public void flush() {
-    // do nothing
-  }
-
-  @Override
-  @Deprecated
-  public long getRebuildVersion() {
+  private long getRebuildVersion() {
     return 0;
-  }
-
-  /**
-   * @return Indicates whether index is rebuilding at the moment.
-   * @see #getRebuildVersion()
-   */
-  @Override
-  @Deprecated
-  public boolean isRebuilding() {
-    return false;
-  }
-
-  @Override
-  @Deprecated
-  @Nullable
-  public Object getFirstKey() {
-    try (final var stream = keyStream()) {
-      final var iterator = stream.iterator();
-      if (iterator.hasNext()) {
-        return iterator.next();
-      }
-
-      return null;
-    }
-  }
-
-  @Override
-  @Deprecated
-  @Nullable
-  public Object getLastKey(DatabaseSessionEmbedded session) {
-    try (final var stream = descStream(session)) {
-      final var iterator = stream.iterator();
-      if (iterator.hasNext()) {
-        return iterator.next().first();
-      }
-
-      return null;
-    }
-  }
-
-  @Override
-  @Deprecated
-  public IndexCursor cursor(DatabaseSessionEmbedded session) {
-    return new IndexCursorStream(stream(session));
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor descCursor(DatabaseSessionEmbedded session) {
-    return new IndexCursorStream(descStream(session));
-  }
-
-  @Deprecated
-  @Override
-  public IndexKeyCursor keyCursor() {
-    return new IndexKeyCursor() {
-      private final Iterator<Object> keyIterator = keyStream().iterator();
-
-      @Override
-      @Nullable
-      public Object next(int prefetchSize) {
-        if (keyIterator.hasNext()) {
-          return keyIterator.next();
-        }
-
-        return null;
-      }
-    };
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor iterateEntries(DatabaseSessionEmbedded session, Collection<?> keys,
-      boolean ascSortOrder) {
-    return new IndexCursorStream(streamEntries(session, keys, ascSortOrder));
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor iterateEntriesBetween(
-      DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
-      boolean toInclusive, boolean ascOrder) {
-    return new IndexCursorStream(
-        streamEntriesBetween(session, fromKey, fromInclusive, toKey, toInclusive, ascOrder));
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor iterateEntriesMajor(DatabaseSessionEmbedded session, Object fromKey,
-      boolean fromInclusive, boolean ascOrder) {
-    return new IndexCursorStream(streamEntriesMajor(session, fromKey, fromInclusive, ascOrder));
-  }
-
-  @Deprecated
-  @Override
-  public IndexCursor iterateEntriesMinor(DatabaseSessionEmbedded session, Object toKey,
-      boolean toInclusive, boolean ascOrder) {
-    return new IndexCursorStream(streamEntriesMajor(session, toKey, toInclusive, ascOrder));
   }
 
   /**

@@ -8,7 +8,7 @@ public class DatabaseCreateDropCollectionTest extends DbTestBase {
 
   @Test
   public void createDropCollection() {
-    session.addCollection("test");
+    session.allocateCollection("test");
     Assert.assertNotEquals(-1, session.getCollectionIdByName("test"));
     session.dropCollection("test");
     Assert.assertEquals(-1, session.getCollectionIdByName("test"));
