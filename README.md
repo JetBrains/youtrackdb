@@ -1,13 +1,12 @@
 ## YouTrackDB
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)</br>
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)[![official JetBrains project](https://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)</br>
 [![Bluesky](https://img.shields.io/badge/Bluesky-0285FF?style=for-the-badge&logo=Bluesky&logoColor=white)](https://bsky.app/profile/youtrackdb.io)
 [![Zulip](https://img.shields.io/badge/Zulip-50ADFF?style=for-the-badge&logo=Zulip&logoColor=white)](https://youtrackdb.zulipchat.com/)
 [![Medium](https://img.shields.io/badge/Medium-12100E?style=for-the-badge&logo=medium&logoColor=white)](https://medium.com/@youtrackdb)
 [![Reddit](https://img.shields.io/badge/Reddit-%23FF4500.svg?style=for-the-badge&logo=Reddit&logoColor=white)](https://www.reddit.com/r/youtrackdb/)<br/>
 
 ------
-
 [Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Knowledge base](https://youtrack.jetbrains.com/articles/YTDB) | [Roadmap](https://youtrack.jetbrains.com/articles/YTDB-A-3/Project-roadmap) | [Build server](https://youtrackdb.teamcity.com/project/YouTrackDB?mode=builds&guest=1)
 
 ### Join our Zulip community!
@@ -18,8 +17,7 @@ Tell us about exciting applications you are building, ask for help, or just chat
 ### What is YouTrackDB?
 
 YouTrackDB is an object-oriented graph database that supports full-text search, reactivity, and geospatial concepts.\
-YouTrackDB has been supported and developed by [YouTrack](https://www.jetbrains.com/youtrack)
-project from JetBrains.
+YouTrackDB is being supported and developed by JetBrains.
 
 YouTrackDB's key features are:
 
