@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Map;
 import org.testng.Assert;
@@ -24,7 +24,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     clazz.createIndex(
         "compositeIndexNullPointQueryIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"prop1", "prop2", "prop3"});
 
@@ -75,7 +75,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
     clazz.createIndex(
         "compositeIndexNullPointQueryInTxIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"prop1", "prop2", "prop3"});
 
@@ -130,7 +130,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     clazz.createIndex(
         "compositeIndexNullPointQueryInMiddleTxIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"prop1", "prop2", "prop3"});
 
@@ -183,7 +183,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     clazz.createIndex(
         "compositeIndexNullRangeQueryIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata,
         null, new String[]{"prop1", "prop2", "prop3"});
@@ -234,7 +234,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     clazz.createIndex(
         "compositeIndexNullRangeQueryInMiddleTxIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata,
         null, new String[]{"prop1", "prop2", "prop3"});
@@ -286,7 +286,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     clazz.createIndex(
         "compositeIndexNullPointQueryNullInTheMiddleIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata,
         null, new String[]{"prop1", "prop2", "prop3"});
@@ -349,7 +349,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
     clazz.createIndex(
         "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata,
         null, new String[]{"prop1", "prop2", "prop3"});
@@ -411,7 +411,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
     clazz.createIndex(
         "compositeIndexNullRangeQueryNullInTheMiddleIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"prop1", "prop2", "prop3"});
 
@@ -454,7 +454,7 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     var metadata = Map.<String, Object>of("ignoreNullValues", false);
     clazz.createIndex(
         "compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxIndex",
-        SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
         null,
         metadata, new String[]{"prop1", "prop2", "prop3"});
 

@@ -50,6 +50,8 @@ public final class SessionMetadata {
   public static final String COLLECTION_NAME_SCHEMA_PROPERTY = "$schemaPropertyInternal";
   public static final String COLLECTION_NAME_GLOBAL_PROPERTY = "$globalPropertyInternal";
 
+  public static final String COLLECTION_NAME_INDEX = "$schemaIndexInternal";
+
   public static Set<String> SYSTEM_COLLECTION =
       Collections.unmodifiableSet(
           new HashSet<>(

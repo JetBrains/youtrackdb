@@ -53,7 +53,7 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     return PropertyType.valueOf(getString(YTDBSchemaPropertyPTokenInternal.type.name()));
   }
 
-  public void setPropertyType(PropertyType type) {
+  public void setPropertyType(PropertyTypeInternal type) {
     setString(YTDBSchemaPropertyPTokenInternal.type.name(), type.name());
   }
 
@@ -83,7 +83,7 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     return PropertyType.valueOf(getString(YTDBSchemaPropertyPTokenInternal.linkedType.name()));
   }
 
-  public void setLinkedPropertyType(PropertyType type) {
+  public void setLinkedPropertyType(PropertyTypeInternal type) {
     if (type == null) {
       setLinkedType(null);
     }

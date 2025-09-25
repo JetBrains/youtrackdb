@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.auto;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -94,7 +94,7 @@ public class SchemaIndexTest extends BaseDBTest {
         .createClass("SchemaIndexTest_numberclass");
     oclass.createProperty("1", PropertyType.STRING).setMandatory(false);
     oclass.createProperty("2", PropertyType.STRING).setMandatory(false);
-    oclass.createIndex("SchemaIndexTest_numberclass_1_2", SchemaClass.INDEX_TYPE.UNIQUE,
+    oclass.createIndex("SchemaIndexTest_numberclass_1_2", SchemaManager.INDEX_TYPE.UNIQUE,
         "1",
         "2");
 

@@ -16,7 +16,7 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -28,9 +28,9 @@ public class GEOTest extends BaseDBTest {
   public void geoSchema() {
     final var mapPointClass = session.getMetadata().getSlowMutableSchema().createClass("MapPoint");
     mapPointClass.createProperty("x", PropertyType.DOUBLE)
-        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
     mapPointClass.createProperty("y", PropertyType.DOUBLE)
-        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
 
     final var xIndexes =
         session.getMetadata().getSlowMutableSchema().getClassInternal("MapPoint")

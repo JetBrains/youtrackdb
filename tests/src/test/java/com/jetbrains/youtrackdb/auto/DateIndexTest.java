@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.auto;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Date;
 import java.util.List;
@@ -32,44 +32,45 @@ public class DateIndexTest extends BaseDBTest {
 
     dateIndexTest.createProperty("value", PropertyType.STRING);
 
-    dateIndexTest.createIndex("DateIndexTestDateIndex", SchemaClass.INDEX_TYPE.UNIQUE,
+    dateIndexTest.createIndex("DateIndexTestDateIndex", SchemaManager.INDEX_TYPE.UNIQUE,
         "dateField");
     dateIndexTest.createIndex(
-        "DateIndexTestValueDateIndex", SchemaClass.INDEX_TYPE.UNIQUE, "value", "dateField");
+        "DateIndexTestValueDateIndex", SchemaManager.INDEX_TYPE.UNIQUE, "value", "dateField");
 
     dateIndexTest.createIndex(
-        "DateIndexTestDateTimeIndex", SchemaClass.INDEX_TYPE.UNIQUE, "dateTimeField");
+        "DateIndexTestDateTimeIndex", SchemaManager.INDEX_TYPE.UNIQUE, "dateTimeField");
     dateIndexTest.createIndex(
-        "DateIndexTestValueDateTimeIndex", SchemaClass.INDEX_TYPE.UNIQUE, "value", "dateTimeField");
+        "DateIndexTestValueDateTimeIndex", SchemaManager.INDEX_TYPE.UNIQUE, "value",
+        "dateTimeField");
 
     dateIndexTest.createIndex(
-        "DateIndexTestValueDateListIndex", SchemaClass.INDEX_TYPE.UNIQUE, "value", "dateList");
+        "DateIndexTestValueDateListIndex", SchemaManager.INDEX_TYPE.UNIQUE, "value", "dateList");
     dateIndexTest.createIndex(
-        "DateIndexTestValueDateTimeListIndex", SchemaClass.INDEX_TYPE.UNIQUE, "value",
+        "DateIndexTestValueDateTimeListIndex", SchemaManager.INDEX_TYPE.UNIQUE, "value",
         "dateTimeList");
 
     dateIndexTest.createIndex(
-        "DateIndexTestDateHashIndex", SchemaClass.INDEX_TYPE.UNIQUE, "dateField");
+        "DateIndexTestDateHashIndex", SchemaManager.INDEX_TYPE.UNIQUE, "dateField");
     dateIndexTest.createIndex(
         "DateIndexTestValueDateHashIndex",
-        SchemaClass.INDEX_TYPE.UNIQUE,
+        SchemaManager.INDEX_TYPE.UNIQUE,
         "value", "dateField");
 
     dateIndexTest.createIndex(
-        "DateIndexTestDateTimeHashIndex", SchemaClass.INDEX_TYPE.UNIQUE,
+        "DateIndexTestDateTimeHashIndex", SchemaManager.INDEX_TYPE.UNIQUE,
         "dateTimeField");
     dateIndexTest.createIndex(
         "DateIndexTestValueDateTimeHashIndex",
-        SchemaClass.INDEX_TYPE.UNIQUE,
+        SchemaManager.INDEX_TYPE.UNIQUE,
         "value", "dateTimeField");
 
     dateIndexTest.createIndex(
         "DateIndexTestValueDateListHashIndex",
-        SchemaClass.INDEX_TYPE.UNIQUE,
+        SchemaManager.INDEX_TYPE.UNIQUE,
         "value", "dateList");
     dateIndexTest.createIndex(
         "DateIndexTestValueDateTimeListHashIndex",
-        SchemaClass.INDEX_TYPE.UNIQUE,
+        SchemaManager.INDEX_TYPE.UNIQUE,
         "value", "dateTimeList");
   }
 

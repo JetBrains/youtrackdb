@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
@@ -370,6 +371,31 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
         property -> ArrayUtils.contains(name, property.getName()));
   }
 
+  @Nullable
+  public SchemaPropertyEntity getDeclaredProperty(String name) {
+    var declaredProperties = getLinkSet(DECLARED_PROPERTIES_NAME);
+
+    if (declaredProperties == null) {
+      return null;
+    }
+
+    for (var declaredPropertyLink : declaredProperties) {
+      SchemaPropertyEntity declaredProperty;
+
+      if (declaredPropertyLink instanceof SchemaPropertyEntity declaredPropertyEntity) {
+        declaredProperty = declaredPropertyEntity;
+      } else {
+        declaredProperty = session.load(declaredPropertyLink.getIdentity());
+      }
+
+      if (declaredProperty.getName().equals(name)) {
+        return declaredProperty;
+      }
+    }
+
+    return null;
+  }
+
   public Collection<SchemaPropertyEntity> getSchemaProperties(String... name) {
     var processedProperties = new HashMap<String, SchemaPropertyEntity>();
 
@@ -383,23 +409,74 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return processedProperties.values();
     }
 
-    var superClasses = getSuperClasses();
-    while (superClasses.hasNext()) {
-      var superClass = superClasses.next();
+    Set<Identifiable> superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+    Set<Identifiable> nextSuperClasses = new HashSet<>();
 
-      var superProperties = superClass.getSchemaProperties(name);
-      for (var superProperty : superProperties) {
-        if (!processedProperties.containsKey(superProperty.getName())) {
-          processedProperties.put(superProperty.getName(), superProperty);
+    while (!superClasses.isEmpty()) {
+      for (var superClassLink : superClasses) {
+        SchemaClassEntity superClass;
+        if (superClassLink instanceof SchemaClassEntity superClassEntity) {
+          superClass = superClassEntity;
+        } else {
+          superClass = session.load(superClassLink.getIdentity());
         }
+
+        var superProperties = superClass.getDeclaredProperties(name);
+        while (superProperties.hasNext()) {
+          var superProperty = superProperties.next();
+          if (!processedProperties.containsKey(superProperty.getName())) {
+            processedProperties.put(superProperty.getName(), superProperty);
+          }
+        }
+
+        if (name != null && name.length > 0 && processedProperties.size() == name.length) {
+          return processedProperties.values();
+        }
+
+        var superSuperClasses = superClass.getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+        nextSuperClasses.addAll(superSuperClasses);
       }
 
-      if (name != null && name.length > 0 && processedProperties.size() == name.length) {
-        return processedProperties.values();
-      }
+      superClasses = nextSuperClasses;
+      nextSuperClasses = new HashSet<>();
     }
 
     return processedProperties.values();
+  }
+
+  @Nullable
+  public SchemaPropertyEntity getSchemaProperty(String name) {
+    var property = getDeclaredProperty(name);
+    if (property != null) {
+      return property;
+    }
+
+    Set<Identifiable> superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+    Set<Identifiable> nextSuperClasses = new HashSet<>();
+
+    while (!superClasses.isEmpty()) {
+      for (var superClassLink : superClasses) {
+        SchemaClassEntity superClass;
+        if (superClassLink instanceof SchemaClassEntity superClassEntity) {
+          superClass = superClassEntity;
+        } else {
+          superClass = session.load(superClassLink.getIdentity());
+        }
+
+        property = superClass.getDeclaredProperty(name);
+        if (property != null) {
+          return property;
+        }
+
+        var superSuperClasses = superClass.getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+        nextSuperClasses.addAll(superSuperClasses);
+      }
+
+      superClasses = nextSuperClasses;
+      nextSuperClasses = new HashSet<>();
+    }
+
+    return null;
   }
 
   public boolean existsSchemaProperty(String name) {

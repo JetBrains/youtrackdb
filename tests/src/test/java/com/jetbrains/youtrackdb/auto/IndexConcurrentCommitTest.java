@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.annotations.Test;
 
@@ -12,9 +12,9 @@ public class IndexConcurrentCommitTest extends BaseDBTest {
   public void testConcurrentUpdate() {
     var personClass = session.getMetadata().getSlowMutableSchema().createClass("Person");
     personClass.createProperty("ssn", PropertyType.STRING)
-        .createIndex(SchemaClass.INDEX_TYPE.UNIQUE);
+        .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
     personClass.createProperty("name", PropertyType.STRING)
-        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
 
     try {
       // Transaction 1

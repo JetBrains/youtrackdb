@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.Map;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.junit.Before;
@@ -51,7 +51,7 @@ public class LuceneCreateJavaApiTest extends LuceneBaseTest {
 
     song.createIndex(
         "Song.title",
-        SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
+        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         null,
         meta,
         "LUCENE", new String[]{"title"});
@@ -72,7 +72,7 @@ public class LuceneCreateJavaApiTest extends LuceneBaseTest {
 
     song.createIndex(
         "Song.author_description",
-        SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
+        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         null,
         null,
         "LUCENE", new String[]{"author", "description"});

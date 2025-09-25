@@ -47,11 +47,10 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.SimpleKeyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -843,7 +842,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         name = null;
       }
 
-      name = SchemaClassShared.decodeClassName(name);
+      name = SchemaManager.decodeClassName(name);
 
       if (exporterVersion <= 13 && name != null &&
           (name.equals("index") || name.equals("manindex") || name.equals("default"))) {
@@ -1159,7 +1158,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
     cls.createProperty("key", PropertyType.STRING);
     cls.createProperty("value", PropertyType.STRING);
-    cls.createIndex(EXPORT_IMPORT_CLASS_NAME + "_key_unique", INDEX_TYPE.UNIQUE, "key");
+    cls.createIndex(EXPORT_IMPORT_CLASS_NAME + "_key_unique", SchemaManager.INDEX_TYPE.UNIQUE,
+        "key");
     final var begin = System.currentTimeMillis();
 
     long totalRecords = 0;

@@ -11,7 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.util.Random;
@@ -45,7 +45,7 @@ public class StorageBackupTest {
     backupClass.createProperty("num", PropertyType.INTEGER);
     backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "num");
 
     final var random = new Random();
     for (var i = 0; i < 1000; i++) {
@@ -124,7 +124,7 @@ public class StorageBackupTest {
     backupClass.createProperty("num", PropertyType.INTEGER);
     backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "num");
 
     final var random = new Random();
     for (var i = 0; i < 1000; i++) {
@@ -224,7 +224,7 @@ public class StorageBackupTest {
     backupClass.createProperty("num", PropertyType.INTEGER);
     backupClass.createProperty("data", PropertyType.BINARY);
 
-    backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    backupClass.createIndex("backupIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "num");
 
     final var random = new Random();
     for (var i = 0; i < 1000; i++) {

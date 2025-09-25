@@ -37,10 +37,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.index.NullOutputListener;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
@@ -915,13 +915,14 @@ public class SecurityShared implements SecurityInternal {
           .setCollate("ci")
           .setMin("1")
           .setRegexp("\\S+(.*\\S+)*");
-      userClass.createIndex("OUser.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
+      userClass.createIndex("OUser.name", SchemaManager.INDEX_TYPE.UNIQUE,
+          NullOutputListener.INSTANCE,
           "name");
     } else {
       var name = userClass.getPropertyInternal("name");
       if (name.getAllIndexes().isEmpty()) {
         userClass.createIndex(
-            "OUser.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
+            "OUser.name", SchemaManager.INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
       }
     }
     if (!userClass.existsProperty(SecurityUserImpl.PASSWORD_PROPERTY)) {
@@ -961,12 +962,14 @@ public class SecurityShared implements SecurityInternal {
           .setNotNull(true)
           .setCollate("ci");
       policyClass.createIndex(
-          "OSecurityPolicy.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
+          "OSecurityPolicy.name", SchemaManager.INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
+          "name");
     } else {
       var name = policyClass.getPropertyInternal("name");
       if (name.getAllIndexes().isEmpty()) {
         policyClass.createIndex(
-            "OSecurityPolicy.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
+            "OSecurityPolicy.name", SchemaManager.INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
+            "name");
       }
     }
 
@@ -1027,14 +1030,14 @@ public class SecurityShared implements SecurityInternal {
           .setMandatory(true)
           .setNotNull(true)
           .setCollate("ci");
-      roleClass.createIndex(Role.CLASS_NAME + "." + Role.NAME, INDEX_TYPE.UNIQUE,
+      roleClass.createIndex(Role.CLASS_NAME + "." + Role.NAME, SchemaManager.INDEX_TYPE.UNIQUE,
           NullOutputListener.INSTANCE,
           "name");
     } else {
       var name = roleClass.getProperty("name");
       if (name.getAllIndexes().isEmpty()) {
         roleClass.createIndex(
-            "ORole.name", INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
+            "ORole.name", SchemaManager.INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
       }
     }
 
@@ -1081,7 +1084,7 @@ public class SecurityShared implements SecurityInternal {
       }
 
       if (userClass.getInvolvedIndexes(session, "name") == null) {
-        p.createIndex(INDEX_TYPE.UNIQUE);
+        p.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
       }
 
       // ROLE

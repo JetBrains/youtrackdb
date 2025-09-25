@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
@@ -171,7 +170,7 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
 
       // create geospatial classes
       try {
-        var factory = Indexes.getFactory(SchemaClass.INDEX_TYPE.SPATIAL.toString(),
+        var factory = Indexes.getFactory(SchemaManager.INDEX_TYPE.SPATIAL.toString(),
             "LUCENE");
         if (factory instanceof DatabaseLifecycleListener) {
           ((DatabaseLifecycleListener) factory).onCreate(session);

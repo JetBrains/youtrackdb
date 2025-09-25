@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.Iterator;
 import java.util.Map;
 import org.testng.Assert;
@@ -27,15 +27,15 @@ public class MapIndexTest extends BaseDBTest {
     mapper.createProperty("id", PropertyType.STRING);
     mapper.createProperty("intMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
 
-    mapper.createIndex("mapIndexTestKey", SchemaClass.INDEX_TYPE.NOTUNIQUE, "intMap");
-    mapper.createIndex("mapIndexTestValue", SchemaClass.INDEX_TYPE.NOTUNIQUE,
+    mapper.createIndex("mapIndexTestKey", SchemaManager.INDEX_TYPE.NOTUNIQUE, "intMap");
+    mapper.createIndex("mapIndexTestValue", SchemaManager.INDEX_TYPE.NOTUNIQUE,
         "intMap by value");
 
     final var movie = session.getMetadata().getSlowMutableSchema().createClass("MapIndexTestMovie");
     movie.createProperty("title", PropertyType.STRING);
     movie.createProperty("thumbs", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
 
-    movie.createIndex("indexForMap", SchemaClass.INDEX_TYPE.NOTUNIQUE, "thumbs by key");
+    movie.createIndex("indexForMap", SchemaManager.INDEX_TYPE.NOTUNIQUE, "thumbs by key");
   }
 
   @AfterClass

@@ -59,7 +59,6 @@ import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxBiFunction;
@@ -102,9 +101,9 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaCla
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassEntity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaGlobalPropertyEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
@@ -1025,7 +1024,26 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return entity;
   }
 
-  public SchemaPropertyEntity newSchemaPropertyEntity(final String name, final PropertyType type) {
+  public SchemaIndexEntity newSchemaIndexEntity() {
+    assert assertIfNotActive();
+    checkOpenness();
+
+    var collectionId = getCollectionIdByName(SessionMetadata.COLLECTION_NAME_INDEX);
+    var rid = new ChangeableRecordId();
+
+    rid.setCollectionId(collectionId);
+
+    var entity = new SchemaIndexEntity(rid, this);
+    entity.setInternalStatus(RecordElement.STATUS.LOADED);
+
+    var tx = (FrontendTransactionImpl) currentTx;
+    tx.addRecordOperation(entity, RecordOperation.CREATED);
+
+    return entity;
+  }
+
+  public SchemaPropertyEntity newSchemaPropertyEntity(final String name,
+      final PropertyTypeInternal type) {
     assert assertIfNotActive();
     checkOpenness();
 
@@ -3590,13 +3608,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     if (isPolymorphic) {
       return countCollectionElements(
-          SchemaClassShared.readableCollections(this, cls.getPolymorphicCollectionIds(),
+          SchemaManager.readableCollections(this, cls.getPolymorphicCollectionIds(),
               cls.getName()));
     }
 
     return
         countCollectionElements(
-            SchemaClassShared.readableCollections(this, cls.getCollectionIds(), cls.getName()));
+            SchemaManager.readableCollections(this, cls.getCollectionIds(), cls.getName()));
   }
 
   /**

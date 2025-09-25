@@ -91,7 +91,7 @@ public final class SchemaSnapshot implements ImmutableSchema {
       indexes.put(indexName.toLowerCase(Locale.ROOT),
           new IndexDefinition(indexName, indexDefinition.getClassName(),
               Collections.unmodifiableList(indexDefinition.getProperties()),
-              ImmutableSchemaClass.INDEX_TYPE.valueOf(index.getType()),
+              SchemaManager.INDEX_TYPE.valueOf(index.getType()),
               indexDefinition.isNullValuesIgnored(), collateName, metadata));
     }
 

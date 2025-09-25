@@ -10,8 +10,6 @@ import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -19,6 +17,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.util.ArrayList;
@@ -199,9 +199,9 @@ public class StorageBackupMTStateTest {
     cls.createProperty("stringValue", PropertyType.STRING);
     cls.createProperty("linkedDocuments", PropertyType.LINKBAG);
 
-    cls.createIndex(cls.getName() + "IdIndex", SchemaClass.INDEX_TYPE.UNIQUE, "id");
+    cls.createIndex(cls.getName() + "IdIndex", SchemaManager.INDEX_TYPE.UNIQUE, "id");
     cls.createIndex(
-        cls.getName() + "IntValueIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "intValue");
+        cls.getName() + "IntValueIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "intValue");
 
     classInstancesCounters.put(cls.getName(), new AtomicInteger());
 

@@ -20,13 +20,13 @@ package com.jetbrains.youtrackdb.internal.spatial;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.record.Entity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrackdb.internal.server.handler.AutomaticBackup;
@@ -235,7 +235,7 @@ public class LuceneSpatialAutomaticBackupRestoreTest {
     var index = db.getSharedContext().getIndexManager().getIndex("City.location");
 
     assertThat(index).isNotNull();
-    assertThat(index.getType()).isEqualTo(SchemaClass.INDEX_TYPE.SPATIAL.name());
+    assertThat(index.getType()).isEqualTo(SchemaManager.INDEX_TYPE.SPATIAL.name());
 
     assertThat(db.query(query).stream()).hasSize(1);
   }

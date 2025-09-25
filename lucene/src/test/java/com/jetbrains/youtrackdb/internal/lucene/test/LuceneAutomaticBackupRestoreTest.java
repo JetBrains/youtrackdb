@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
@@ -213,7 +213,7 @@ public class LuceneAutomaticBackupRestoreTest {
     var index = db.getSharedContext().getIndexManager().getIndex("City.name");
 
     assertThat(index).isNotNull();
-    assertThat(index.getType()).isEqualTo(SchemaClass.INDEX_TYPE.FULLTEXT.name());
+    assertThat(index.getType()).isEqualTo(SchemaManager.INDEX_TYPE.FULLTEXT.name());
 
     assertThat(
         IteratorUtils.count(db.query("select from City where name lucene 'Rome'"))).isEqualTo(1);

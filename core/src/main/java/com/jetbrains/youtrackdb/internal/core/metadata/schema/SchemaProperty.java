@@ -22,7 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import java.util.Map;
 import javax.annotation.Nonnull;
 

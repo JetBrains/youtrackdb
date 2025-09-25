@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,7 +26,7 @@ public class BetweenConversionTest extends BaseDBTest {
     clazz.createProperty("a", PropertyType.INTEGER);
     clazz.createProperty("ai", PropertyType.INTEGER);
 
-    clazz.createIndex("BetweenConversionTestIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "ai");
+    clazz.createIndex("BetweenConversionTestIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "ai");
 
     for (var i = 0; i < 10; i++) {
 

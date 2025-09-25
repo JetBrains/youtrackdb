@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -117,7 +117,7 @@ public class IndexMetadata {
 
   public boolean isMultivalue() {
     var t = type.toUpperCase();
-    return SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(t);
+    return SchemaManager.INDEX_TYPE.NOTUNIQUE.toString().equals(t);
   }
 
   public int getVersion() {

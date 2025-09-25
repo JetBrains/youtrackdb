@@ -2,10 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
+import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
@@ -15,11 +17,13 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityPolicy;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -234,7 +238,7 @@ public final class SchemaManager {
     return index.getRids(session, className).findFirst().orElse(null);
   }
 
-
+  @Nonnull
   public static Collection<SchemaClassEntity> getClasses(@Nonnull DatabaseSessionEmbedded session) {
     var schemaClassIterator = new RecordIteratorCollection<SchemaClassEntity>(session,
         session.getMetadata().getCollectionSchemaClassId(), true);
@@ -246,6 +250,92 @@ public final class SchemaManager {
     }
 
     return classes;
+  }
+
+  @Nonnull
+  public static SchemaPropertyEntity createProperty(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull final String propertyName,
+      @Nonnull final PropertyTypeInternal type) {
+    return session.newSchemaPropertyEntity(propertyName, type);
+  }
+
+
+  @Nonnull
+  public static SchemaPropertyEntity createProperty(
+      @Nonnull DatabaseSessionEmbedded session, @Nonnull final String propertyName,
+      @Nonnull final PropertyTypeInternal type,
+      @Nonnull final SchemaClassEntity linkedClass) {
+    var entity = session.newSchemaPropertyEntity(propertyName, type);
+    entity.setLinkedClass(linkedClass);
+    return entity;
+  }
+
+
+  @Nonnull
+  public static SchemaPropertyEntity createProperty(
+      @Nonnull DatabaseSessionEmbedded session, @Nonnull final String propertyName,
+      @Nonnull final PropertyTypeInternal type,
+      @Nonnull final PropertyTypeInternal linkedType) {
+    var entity = session.newSchemaPropertyEntity(propertyName, type);
+    entity.setLinkedPropertyType(linkedType);
+
+    return entity;
+  }
+
+  public static void createIndex(
+      @Nonnull final DatabaseSessionEmbedded session,
+      @Nonnull final SchemaClassEntity schemaClassEntity,
+      @Nonnull final String indexName,
+      @Nonnull final INDEX_TYPE indexType,
+      final String... properties) {
+    if (properties.length == 0) {
+      throw new DatabaseException(session,
+          "Index" + indexName + " must have at least one property.");
+    }
+
+    createIndexEntityInternal(session, schemaClassEntity, indexName, indexType, properties);
+  }
+
+
+  public static void createIndex(
+      @Nonnull DatabaseSessionEmbedded session,
+      @Nonnull final SchemaClassEntity schemaClassEntity,
+      @Nonnull String indexName,
+      @Nonnull INDEX_TYPE indexType,
+      @Nonnull Map<String, Object> metadata,
+      String... properties) {
+    if (properties.length == 0) {
+      throw new DatabaseException(session,
+          "Index" + indexName + " must have at least one property");
+    }
+
+    var entity = createIndexEntityInternal(session, schemaClassEntity, indexName, indexType,
+        properties);
+    entity.setMetadata(metadata);
+  }
+
+  private static SchemaIndexEntity createIndexEntityInternal(
+      @Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaClassEntity schemaClassEntity,
+      @Nonnull String indexName, @Nonnull INDEX_TYPE indexType,
+      String[] properties) {
+    var entity = session.newSchemaIndexEntity();
+    entity.setName(indexName);
+    entity.setClassToIndex(schemaClassEntity);
+    entity.setIndexType(indexType);
+
+    var propertyEntities = schemaClassEntity.getSchemaProperties(properties);
+    if (propertyEntities.size() != properties.length) {
+      throw new DatabaseException(session,
+          "Class " + schemaClassEntity.getName()
+              + " must have all properties specified directly or through superclasses.");
+    }
+
+    for (var propertyEntity : propertyEntities) {
+      entity.addClassPropertyToIndex(propertyEntity);
+    }
+
+    return entity;
   }
 
   @Nullable
@@ -600,6 +690,60 @@ public final class SchemaManager {
     if (schemaClassNameIndex.getRids(session, className).findAny().isPresent()) {
       throw new IllegalArgumentException("Class '" + className + "' is already present in schema");
     }
+  }
+
+  public static int[] readableCollections(
+      final DatabaseSessionInternal db, final int[] iCollectionIds, String className) {
+    var listOfReadableIds = new IntArrayList();
+
+    var all = true;
+    for (var collectionId : iCollectionIds) {
+      try {
+        // This will exclude (filter out) any specific classes without explicit read permission.
+        if (className != null) {
+          db.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_READ, className);
+        }
+
+        final var collectionName = db.getCollectionNameById(collectionId);
+        db.checkSecurity(Rule.ResourceGeneric.COLLECTION, Role.PERMISSION_READ, collectionName);
+        listOfReadableIds.add(collectionId);
+      } catch (SecurityAccessException ignore) {
+        all = false;
+        // if the collection is inaccessible it's simply not processed in the list.add
+      }
+    }
+
+    // JUST RETURN INPUT ARRAY (FASTER)
+    if (all) {
+      return iCollectionIds;
+    }
+
+    final var readableCollectionIds = new int[listOfReadableIds.size()];
+    var index = 0;
+    for (var i = 0; i < listOfReadableIds.size(); i++) {
+      readableCollectionIds[index++] = listOfReadableIds.getInt(i);
+    }
+
+    return readableCollectionIds;
+  }
+
+  @Nullable
+  public static String decodeClassName(String s) {
+    if (s == null) {
+      return null;
+    }
+    s = s.trim();
+    if (!s.isEmpty() && s.charAt(0) == '`' && s.charAt(s.length() - 1) == '`') {
+      return s.substring(1, s.length() - 1);
+    }
+    return s;
+  }
+
+  public enum INDEX_TYPE {
+    UNIQUE,
+    NOTUNIQUE,
+    FULLTEXT,
+    SPATIAL
   }
 }
 

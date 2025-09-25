@@ -26,7 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexFactory;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.spatial.engine.LuceneSpatialIndexEngineDelegator;
@@ -49,7 +49,7 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
 
   static {
     final Set<String> types = new HashSet<String>();
-    types.add(SchemaClass.INDEX_TYPE.SPATIAL.toString());
+    types.add(SchemaManager.INDEX_TYPE.SPATIAL.toString());
     TYPES = Collections.unmodifiableSet(types);
   }
 
@@ -91,7 +91,7 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
   @Override
   public Index createIndex(String indexType, @Nonnull Storage storage)
       throws ConfigurationException {
-    if (SchemaClass.INDEX_TYPE.SPATIAL.toString().equals(indexType)) {
+    if (SchemaManager.INDEX_TYPE.SPATIAL.toString().equals(indexType)) {
       return new LuceneSpatialIndex(storage);
     }
 
@@ -102,7 +102,7 @@ public class LuceneSpatialIndexFactory implements IndexFactory, DatabaseLifecycl
   public Index createIndex(String indexType, @Nullable RID identity,
       @Nonnull FrontendTransaction transaction,
       @Nonnull Storage storage) throws ConfigurationException {
-    if (SchemaClass.INDEX_TYPE.SPATIAL.toString().equals(indexType)) {
+    if (SchemaManager.INDEX_TYPE.SPATIAL.toString().equals(indexType)) {
       return new LuceneSpatialIndex(identity, transaction, storage);
     }
 

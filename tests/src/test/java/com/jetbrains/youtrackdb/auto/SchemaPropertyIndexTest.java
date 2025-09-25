@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Map;
@@ -68,7 +68,7 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
     var oClass = schema.getClassInternal("PropertyIndexTestClass");
     final var propOne = oClass.getProperty("prop1");
 
-    propOne.createIndex(SchemaClass.INDEX_TYPE.UNIQUE,
+    propOne.createIndex(SchemaManager.INDEX_TYPE.UNIQUE,
         Map.of("ignoreNullValues", true));
 
     final Collection<Index> indexes = oClass.getInvolvedIndexesInternal(session, "prop1");
@@ -96,27 +96,27 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     oClass.createIndex(
         "propOne0",
-        SchemaClass.INDEX_TYPE.UNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop0", "prop1"});
     oClass.createIndex(
         "propOne1",
-        SchemaClass.INDEX_TYPE.UNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop1", "prop2"});
     oClass.createIndex(
         "propOne2",
-        SchemaClass.INDEX_TYPE.UNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop1", "prop3"});
     oClass.createIndex(
         "propOne3",
-        SchemaClass.INDEX_TYPE.UNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop2", "prop3"});
     oClass.createIndex(
         "propOne4",
-        SchemaClass.INDEX_TYPE.UNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop2", "prop1"});
   }
@@ -267,13 +267,13 @@ public class SchemaPropertyIndexTest extends BaseDBTest {
 
     oClass.createIndex(
         "PropertyIndexFirstIndex",
-        SchemaClass.INDEX_TYPE.UNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop4"});
 
     oClass.createIndex(
         "PropertyIndexSecondIndex",
-        SchemaClass.INDEX_TYPE.UNIQUE.toString(),
+        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop4"});
 

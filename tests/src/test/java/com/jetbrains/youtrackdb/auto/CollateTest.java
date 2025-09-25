@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Locale;
@@ -97,8 +97,8 @@ public class CollateTest extends BaseDBTest {
     var cip = clazz.createProperty("cip", PropertyType.STRING);
     cip.setCollate(CaseInsensitiveCollate.NAME);
 
-    clazz.createIndex("collateIndexCSP", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp");
-    clazz.createIndex("collateIndexCIP", SchemaClass.INDEX_TYPE.NOTUNIQUE, "cip");
+    clazz.createIndex("collateIndexCSP", SchemaManager.INDEX_TYPE.NOTUNIQUE, "csp");
+    clazz.createIndex("collateIndexCIP", SchemaManager.INDEX_TYPE.NOTUNIQUE, "cip");
 
     for (var i = 0; i < 10; i++) {
       final var upper = i % 2 == 0;
@@ -145,7 +145,7 @@ public class CollateTest extends BaseDBTest {
     var cp = clazz.createProperty("cp", PropertyType.STRING);
     cp.setCollate(DefaultCollate.NAME);
 
-    clazz.createIndex("collateWasChangedIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "cp");
+    clazz.createIndex("collateWasChangedIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "cp");
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -194,7 +194,7 @@ public class CollateTest extends BaseDBTest {
     var cip = clazz.createProperty("cip", PropertyType.STRING);
     cip.setCollate(CaseInsensitiveCollate.NAME);
 
-    clazz.createIndex("collateCompositeIndexCS", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp",
+    clazz.createIndex("collateCompositeIndexCS", SchemaManager.INDEX_TYPE.NOTUNIQUE, "csp",
         "cip");
 
     for (var i = 0; i < 10; i++) {
@@ -266,7 +266,7 @@ public class CollateTest extends BaseDBTest {
     clazz.createProperty("cip", PropertyType.STRING);
 
     clazz.createIndex(
-        "collateCompositeIndexCollateWasChanged", SchemaClass.INDEX_TYPE.NOTUNIQUE, "csp", "cip");
+        "collateCompositeIndexCollateWasChanged", SchemaManager.INDEX_TYPE.NOTUNIQUE, "csp", "cip");
 
     for (var i = 0; i < 10; i++) {
       session.begin();

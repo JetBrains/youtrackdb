@@ -22,7 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.index.engine.RemoteIndexEngine;
@@ -52,8 +52,8 @@ public class DefaultIndexFactory implements IndexFactory {
 
   static {
     final Set<String> types = new HashSet<>();
-    types.add(SchemaClass.INDEX_TYPE.UNIQUE.toString());
-    types.add(SchemaClass.INDEX_TYPE.NOTUNIQUE.toString());
+    types.add(SchemaManager.INDEX_TYPE.UNIQUE.toString());
+    types.add(SchemaManager.INDEX_TYPE.NOTUNIQUE.toString());
     TYPES = Collections.unmodifiableSet(types);
   }
 
@@ -78,9 +78,9 @@ public class DefaultIndexFactory implements IndexFactory {
   @Override
   public Index createIndex(String indexType, @Nonnull Storage storage)
       throws ConfigurationException {
-    if (SchemaClass.INDEX_TYPE.UNIQUE.toString().equals(indexType)) {
+    if (SchemaManager.INDEX_TYPE.UNIQUE.toString().equals(indexType)) {
       return new IndexUnique(storage);
-    } else if (SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(indexType)) {
+    } else if (SchemaManager.INDEX_TYPE.NOTUNIQUE.toString().equals(indexType)) {
       return new IndexNotUnique(storage);
     }
 
@@ -92,9 +92,9 @@ public class DefaultIndexFactory implements IndexFactory {
       @Nonnull FrontendTransaction transaction,
       @Nonnull Storage storage)
       throws ConfigurationException {
-    if (SchemaClass.INDEX_TYPE.UNIQUE.toString().equals(indexType)) {
+    if (SchemaManager.INDEX_TYPE.UNIQUE.toString().equals(indexType)) {
       return new IndexUnique(identity, transaction, storage);
-    } else if (SchemaClass.INDEX_TYPE.NOTUNIQUE.toString().equals(indexType)) {
+    } else if (SchemaManager.INDEX_TYPE.NOTUNIQUE.toString().equals(indexType)) {
       return new IndexNotUnique(identity, transaction, storage);
     }
 

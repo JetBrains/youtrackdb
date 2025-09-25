@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.api.record.EntityHookAbstract;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.UUID;
 import org.junit.Test;
@@ -26,7 +26,7 @@ public class CheckHookCallCountTest extends DbTestBase {
     var aClass = session.getMetadata().getSlowMutableSchema().createClass(CLASS_NAME);
     aClass.createProperty(FIELD_ID, PropertyType.STRING);
     aClass.createProperty(FIELD_STATUS, PropertyType.STRING);
-    aClass.createIndex("IDX", SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_ID);
+    aClass.createIndex("IDX", SchemaManager.INDEX_TYPE.NOTUNIQUE, FIELD_ID);
     var hook = new TestHook(session);
     session.registerHook(hook);
 

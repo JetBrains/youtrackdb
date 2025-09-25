@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.stream.Collectors;
@@ -41,7 +41,7 @@ public class IndexChangesQueryTest {
     final Schema schema = db.getMetadata().getSlowMutableSchema();
     final var cls = schema.createClass(CLASS_NAME);
     cls.createProperty(FIELD_NAME, PropertyType.INTEGER);
-    cls.createIndex(INDEX_NAME, SchemaClass.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
+    cls.createIndex(INDEX_NAME, SchemaManager.INDEX_TYPE.NOTUNIQUE, FIELD_NAME);
   }
 
   @After

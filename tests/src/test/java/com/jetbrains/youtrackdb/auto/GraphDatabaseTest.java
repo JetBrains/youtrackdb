@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.util.Collection;
@@ -85,7 +85,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
     if (!oc.existsProperty("name")) {
       oc.createProperty("name", PropertyType.STRING);
-      oc.createIndex("vertexA_name_idx", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+      oc.createIndex("vertexA_name_idx", SchemaManager.INDEX_TYPE.UNIQUE, "name");
     }
 
     session.begin();

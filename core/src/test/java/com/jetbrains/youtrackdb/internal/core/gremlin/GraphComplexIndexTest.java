@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
@@ -14,7 +14,7 @@ public class GraphComplexIndexTest extends GraphBaseTest {
     foo.createProperty("prop1", PropertyType.LONG);
     foo.createProperty("prop2", PropertyType.STRING);
 
-    foo.createIndex("V_Foo", SchemaClass.INDEX_TYPE.UNIQUE, "prop1", "prop2");
+    foo.createIndex("V_Foo", SchemaManager.INDEX_TYPE.UNIQUE, "prop1", "prop2");
 
     graph.addVertex(T.label, "Foo", "prop1", 1, "prop2", "4ab25da0-3602-4f4a-bc5e-28bfefa5ca4c");
     graph.tx().commit();
@@ -34,7 +34,7 @@ public class GraphComplexIndexTest extends GraphBaseTest {
     foo.createProperty("prop1", PropertyType.LONG);
     foo.createProperty("prop2", PropertyType.STRING);
 
-    foo.createIndex("V_Foo", SchemaClass.INDEX_TYPE.UNIQUE, "prop1", "prop2");
+    foo.createIndex("V_Foo", SchemaManager.INDEX_TYPE.UNIQUE, "prop1", "prop2");
 
     graph.addVertex(T.label, "Foo", "prop1", 1, "prop2", "4ab25da0-3602-4f4a-bc5e-28bfefa5ca4c");
     var traversal = graph.traversal().V().has("Foo", "prop1", 1);
@@ -50,7 +50,7 @@ public class GraphComplexIndexTest extends GraphBaseTest {
     foo.createProperty("prop1", PropertyType.LONG);
     foo.createProperty("prop2", PropertyType.STRING);
 
-    foo.createIndex("V_Foo", SchemaClass.INDEX_TYPE.UNIQUE, "prop1", "prop2");
+    foo.createIndex("V_Foo", SchemaManager.INDEX_TYPE.UNIQUE, "prop1", "prop2");
     graph.addVertex(T.label, "Foo", "prop1", 1,
         "prop2", "4ab25da0-3602-4f4a-bc5e-28bfefa5ca4c");
 

@@ -22,7 +22,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.Collections;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.util.HashSet;
@@ -172,8 +172,8 @@ public final class Indexes {
 
   public static String chooseDefaultIndexAlgorithm(String type) {
     String algorithm = null;
-    if (SchemaClass.INDEX_TYPE.NOTUNIQUE.name().equalsIgnoreCase(type)
-        || SchemaClass.INDEX_TYPE.UNIQUE.name().equalsIgnoreCase(type)) {
+    if (SchemaManager.INDEX_TYPE.NOTUNIQUE.name().equalsIgnoreCase(type)
+        || SchemaManager.INDEX_TYPE.UNIQUE.name().equalsIgnoreCase(type)) {
       algorithm = DefaultIndexFactory.BTREE_ALGORITHM;
     }
 

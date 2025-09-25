@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -50,7 +50,7 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
       final boolean polymorphic, boolean forwardDirection) {
     var collectionIds = polymorphic ? targetClass.getPolymorphicCollectionIds()
         : targetClass.getCollectionIds();
-    collectionIds = SchemaClassShared.readableCollections(session, collectionIds,
+    collectionIds = SchemaManager.readableCollections(session, collectionIds,
         targetClass.getName());
 
     iterator = new RecordIteratorCollections<>(session, collectionIds, forwardDirection);

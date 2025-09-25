@@ -4,7 +4,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
@@ -16,7 +16,7 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
   public void shouldUseMatchOptimization() {
     var cls = session.createClass("VMatch");
     var property = cls.createProperty("name", PropertyType.STRING);
-    property.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    property.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
 
     var traversal = graph.traversal();
     var admin =
@@ -40,7 +40,7 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
 
     var cls = session.createVertexClass("Person");
     var property = cls.createProperty("name", PropertyType.STRING);
-    property.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    property.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
 
     var traversal = graph.traversal();
 
@@ -79,7 +79,7 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
   public void shouldFetchDataUsingMatchOptimization() {
     var cls = session.createVertexClass("Person");
     var property = cls.createProperty("name", PropertyType.STRING);
-    property.createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    property.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
 
     var bar = graph.addVertex(T.label, "Person", "name", "Bar");
 

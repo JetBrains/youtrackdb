@@ -160,7 +160,7 @@ public final class SchemaProxy implements Schema {
 
     return new IndexDefinition(indexName, indexDefinition.getClassName(),
         Collections.unmodifiableList(indexDefinition.getProperties()),
-        SchemaClass.INDEX_TYPE.valueOf(index.getType()), indexDefinition.isNullValuesIgnored(),
+        SchemaManager.INDEX_TYPE.valueOf(index.getType()), indexDefinition.isNullValuesIgnored(),
         indexDefinition.getCollate().getName(), metadata);
   }
 

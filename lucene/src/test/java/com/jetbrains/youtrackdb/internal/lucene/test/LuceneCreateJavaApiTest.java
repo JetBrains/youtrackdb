@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
 import java.util.Map;
@@ -55,7 +56,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
     song.createIndex(
         "Song.title",
-        SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
+        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         null,
         meta,
         "LUCENE", new String[]{"title"});
@@ -73,7 +74,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
 
     song.createIndex(
         "Song.author_description",
-        SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
+        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         null,
         null,
         "LUCENE", new String[]{"author", "description"});
@@ -92,7 +93,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
     song.createProperty(PropertyType.EMBEDDED.name(), PropertyType.EMBEDDED);
     song.createIndex(
         SONG_CLASS + "." + PropertyType.EMBEDDED.name(),
-        SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
+        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         null,
         null,
         "LUCENE", new String[]{"description", PropertyType.EMBEDDED.name()});
@@ -185,7 +186,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
         PropertyType.STRING);
     song.createIndex(
         SONG_CLASS + "." + PropertyType.EMBEDDEDMAP.name(),
-        SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
+        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         null,
         null,
         "LUCENE", new String[]{"String" + PropertyType.EMBEDDEDMAP.name() + " by value"});
@@ -201,7 +202,7 @@ public class LuceneCreateJavaApiTest extends BaseLuceneTest {
         PropertyType.STRING);
     song.createIndex(
         SONG_CLASS + "." + PropertyType.EMBEDDEDMAP.name(),
-        SchemaClass.INDEX_TYPE.FULLTEXT.toString(),
+        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         "String" + PropertyType.EMBEDDEDMAP.name() + " by value");
     Assert.assertEquals(1, song.getIndexes().size());
     return song;

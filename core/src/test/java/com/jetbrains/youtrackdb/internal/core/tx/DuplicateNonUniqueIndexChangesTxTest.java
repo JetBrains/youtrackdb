@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -46,7 +46,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     var indexName =
         class_
             .createProperty("name", PropertyType.STRING)
-            .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+            .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
     index = session.getIndex(indexName);
   }
 

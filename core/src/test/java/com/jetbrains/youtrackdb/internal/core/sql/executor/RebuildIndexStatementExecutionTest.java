@@ -5,7 +5,7 @@ import static org.junit.Assert.assertEquals;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -20,7 +20,7 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
     var oclass = schema.createClass(className);
     oclass.createProperty("key", PropertyType.STRING);
     oclass.createProperty("value", PropertyType.INTEGER);
-    oclass.createIndex(className + "index1", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
+    oclass.createIndex(className + "index1", SchemaManager.INDEX_TYPE.NOTUNIQUE, "key");
 
     session.begin();
     while (true) {

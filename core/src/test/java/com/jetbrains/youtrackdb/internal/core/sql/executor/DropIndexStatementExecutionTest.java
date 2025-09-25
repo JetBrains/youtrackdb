@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -18,7 +18,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
         .getSlowMutableSchema()
         .createClass("testPlain")
         .createProperty("bar", PropertyType.STRING)
-        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
 
     session.getSharedContext().getIndexManager().reload(session);
     Assert.assertNotNull(
@@ -41,7 +41,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
         .getSlowMutableSchema()
         .createClass("testAll")
         .createProperty("baz", PropertyType.STRING)
-        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
 
     session.getSharedContext().getIndexManager().reload(session);
     Assert.assertNotNull(

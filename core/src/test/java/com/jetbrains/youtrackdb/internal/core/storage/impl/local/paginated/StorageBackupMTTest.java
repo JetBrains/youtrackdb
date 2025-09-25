@@ -14,7 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.nio.file.Path;
@@ -70,7 +70,7 @@ public class StorageBackupMTTest {
       backupClass.createProperty("num", PropertyType.INTEGER);
       backupClass.createProperty("data", PropertyType.BINARY);
 
-      backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+      backupClass.createIndex("backupIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "num");
       if (!backupDir.exists()) {
         Assert.assertTrue(backupDir.mkdirs());
       }
@@ -176,7 +176,7 @@ public class StorageBackupMTTest {
       backupClass.createProperty("num", PropertyType.INTEGER);
       backupClass.createProperty("data", PropertyType.BINARY);
 
-      backupClass.createIndex("backupIndex", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+      backupClass.createIndex("backupIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "num");
 
       if (!backupDir.exists()) {
         Assert.assertTrue(backupDir.mkdirs());

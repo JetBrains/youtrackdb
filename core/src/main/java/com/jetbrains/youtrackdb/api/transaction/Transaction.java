@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.Collection;
 import java.util.Date;
@@ -595,12 +594,4 @@ public interface Transaction {
     return getDatabaseSession().newLinkMap(source);
   }
 
-  /**
-   * Returns the schema of the database.
-   *
-   * @return the schema of the database
-   */
-  default Schema getSchema() {
-    return getDatabaseSession().getSchema();
-  }
 }

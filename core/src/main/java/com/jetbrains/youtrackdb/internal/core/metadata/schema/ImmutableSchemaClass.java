@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import static com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassShared.decodeClassName;
+import static com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.decodeClassName;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -26,13 +26,6 @@ public interface ImmutableSchemaClass {
     CUSTOM,
     ABSTRACT,
     DESCRIPTION
-  }
-
-  enum INDEX_TYPE {
-    UNIQUE,
-    NOTUNIQUE,
-    FULLTEXT,
-    SPATIAL
   }
 
   boolean isAbstract();
