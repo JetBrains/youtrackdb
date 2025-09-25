@@ -4,9 +4,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
@@ -105,14 +106,14 @@ public final class SQLNotBlock extends SQLBooleanExpression {
   @Override
   @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
-      SchemaClass iSchemaClass, DatabaseSessionEmbedded session) {
+      ImmutableSchemaClass schemaClass, DatabaseSessionEmbedded session) {
     if (sub == null) {
       return null;
     }
     if (negate) {
       return null;
     }
-    return sub.getIndexedFunctionConditions(iSchemaClass, session);
+    return sub.getIndexedFunctionConditions(schemaClass, session);
   }
 
   @Override

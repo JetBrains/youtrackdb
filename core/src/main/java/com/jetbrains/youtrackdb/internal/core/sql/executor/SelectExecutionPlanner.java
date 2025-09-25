@@ -13,7 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
@@ -945,7 +945,7 @@ public class SelectExecutionPlanner {
       if (!className.isEmpty() && className.charAt(0) == '$'
           && !ctx.getDatabaseSession()
           .getMetadata()
-          .getFastImmutableSchema(session)
+          .getFastImmutableSchema()
           .existsClass(className)) {
         handleVariableAsTarget(result, info, ctx, profilingEnabled);
       } else {
@@ -1338,7 +1338,7 @@ public class SelectExecutionPlanner {
       orderByRidAsc = false;
     }
     var className = identifier.getStringValue();
-    Schema schema = getSchemaFromContext(ctx);
+    var schema = getSchemaFromContext(ctx);
 
     AbstractExecutionStep fetcher;
     if (schema.getClass(className) != null) {
@@ -1357,7 +1357,7 @@ public class SelectExecutionPlanner {
   }
 
   private static IntArrayList classCollectionsFiltered(
-      DatabaseSessionInternal db, SchemaClass clazz, Set<String> filterCollections) {
+      DatabaseSessionInternal db, ImmutableSchemaClass clazz, Set<String> filterCollections) {
     var ids = clazz.getPolymorphicCollectionIds();
     var filtered = new IntArrayList();
     for (var id : ids) {
@@ -1378,7 +1378,7 @@ public class SelectExecutionPlanner {
       return false;
     }
     var schema = getSchemaFromContext(ctx);
-    var clazz = schema.getClassInternal(queryTarget.getStringValue());
+    var clazz = schema.getClass(queryTarget.getStringValue());
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Class not found: " + queryTarget);
@@ -1585,7 +1585,7 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled) {
     var schema = getSchemaFromContext(ctx);
-    var clazz = schema.getClassInternal(queryTarget.getStringValue());
+    var clazz = schema.getClass(queryTarget.getStringValue());
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Class not found: " + queryTarget);
@@ -1672,7 +1672,7 @@ public class SelectExecutionPlanner {
     }
 
     var schema = getSchemaFromContext(ctx);
-    var clazz = schema.getClassInternal(targetClass.getStringValue());
+    var clazz = schema.getClass(targetClass.getStringValue());
 
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
@@ -1710,9 +1710,9 @@ public class SelectExecutionPlanner {
   /**
    * checks if a class is the top of a diamond hierarchy
    */
-  private static boolean isDiamondHierarchy(SchemaClass clazz) {
-    Set<SchemaClass> traversed = new HashSet<>();
-    List<SchemaClass> stack = new ArrayList<>();
+  private static boolean isDiamondHierarchy(ImmutableSchemaClass clazz) {
+    Set<ImmutableSchemaClass> traversed = new HashSet<>();
+    List<ImmutableSchemaClass> stack = new ArrayList<>();
     stack.add(clazz);
     while (!stack.isEmpty()) {
       var current = stack.removeFirst();
@@ -1741,7 +1741,7 @@ public class SelectExecutionPlanner {
     var session = ctx.getDatabaseSession();
     if (result == null) {
       result = new ArrayList<>();
-      var clazz = getSchemaFromContext(ctx).getClassInternal(targetClass);
+      var clazz = getSchemaFromContext(ctx).getClass(targetClass);
       if (clazz == null) {
         throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Cannot find class " + targetClass);
@@ -1786,7 +1786,7 @@ public class SelectExecutionPlanner {
       return null;
     }
 
-    var clazz = getSchemaFromContext(ctx).getClassInternal(targetClass);
+    var clazz = getSchemaFromContext(ctx).getClass(targetClass);
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
           "Cannot find class " + targetClass);
@@ -1794,7 +1794,7 @@ public class SelectExecutionPlanner {
 
     var indexes = clazz.getIndexesInternal();
 
-    final SchemaClass c = clazz;
+    final var c = clazz;
     var indexSearchDescriptors =
         info.flattenedWhereClause.stream()
             .map(x -> findBestIndexFor(ctx, indexes, x, c))
@@ -1820,7 +1820,7 @@ public class SelectExecutionPlanner {
 
   private List<ExecutionStepInternal> executionStepFromIndexes(
       Set<String> filterCollections,
-      SchemaClass clazz,
+      ImmutableSchemaClass clazz,
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled,
@@ -1883,7 +1883,7 @@ public class SelectExecutionPlanner {
   }
 
   private static ImmutableSchema getSchemaFromContext(CommandContext ctx) {
-    return ctx.getDatabaseSession().getMetadata().getFastImmutableSchema(session);
+    return ctx.getDatabaseSession().getMetadata().getFastImmutableSchema();
   }
 
   private static boolean fullySorted(SQLOrderBy orderBy, IndexSearchDescriptor desc) {
@@ -1960,7 +1960,7 @@ public class SelectExecutionPlanner {
    */
   @Nullable
   private static IndexSearchDescriptor findBestIndexFor(
-      CommandContext ctx, Set<Index> indexes, SQLAndBlock block, SchemaClass clazz) {
+      CommandContext ctx, Set<Index> indexes, SQLAndBlock block, ImmutableSchemaClass clazz) {
     // get all valid index descriptors
     var descriptors =
         indexes.stream()
@@ -2019,7 +2019,7 @@ public class SelectExecutionPlanner {
    * class index prefer the target class.
    */
   private static List<IndexSearchDescriptor> removeGenericIndexes(
-      List<IndexSearchDescriptor> descriptors, SchemaClass clazz) {
+      List<IndexSearchDescriptor> descriptors, ImmutableSchemaClass clazz) {
     List<IndexSearchDescriptor> results = new ArrayList<>();
     for (var desc : descriptors) {
       IndexSearchDescriptor matching = null;
@@ -2093,7 +2093,7 @@ public class SelectExecutionPlanner {
    */
   @Nullable
   private static IndexSearchDescriptor buildIndexSearchDescriptor(
-      CommandContext ctx, Index index, SQLAndBlock block, SchemaClass clazz) {
+      CommandContext ctx, Index index, SQLAndBlock block, ImmutableSchemaClass clazz) {
     var indexProperties = index.getDefinition().getProperties();
 
     //copy as we will modify the list of expressions
@@ -2297,7 +2297,7 @@ public class SelectExecutionPlanner {
     return false;
   }
 
-  private static boolean isMap(SchemaClass clazz,
+  private static boolean isMap(ImmutableSchemaClass clazz,
       String indexField) {
     var prop = clazz.getProperty(indexField);
     if (prop == null) {

@@ -77,7 +77,7 @@ public class SchemaIndexEntity extends EntityImpl {
     });
   }
 
-  public boolean addClassPropertyToIndex(@Nonnull SchemaPropertyEntity property) {
+  public void addClassPropertyToIndex(@Nonnull SchemaPropertyEntity property) {
     var classLink = getLink(CLASS_TO_INDEX);
     var declaringClass = property.getDeclaringClass();
 
@@ -91,7 +91,7 @@ public class SchemaIndexEntity extends EntityImpl {
     }
 
     var linkSet = getOrCreateLinkSet(CLASS_PROPERTIES_TO_INDEX);
-    return linkSet.add(property);
+    linkSet.add(property);
   }
 
 

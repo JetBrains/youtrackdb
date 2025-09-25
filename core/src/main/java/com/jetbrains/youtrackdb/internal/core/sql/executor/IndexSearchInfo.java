@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import javax.annotation.Nonnull;
 
 public record IndexSearchInfo(
@@ -10,7 +10,7 @@ public record IndexSearchInfo(
     boolean isMap,
     boolean indexedByKey,
     boolean indexedByValue,
-    @Nonnull SchemaClass schemaClass,
+    @Nonnull ImmutableSchemaClass schemaClass,
     CommandContext ctx) {
 
 }

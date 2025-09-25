@@ -4,9 +4,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
@@ -132,13 +133,13 @@ public class SQLAndBlock extends SQLBooleanExpression {
   @Override
   @Nullable
   public List<SQLBinaryCondition> getIndexedFunctionConditions(
-      SchemaClass iSchemaClass, DatabaseSessionEmbedded session) {
+      ImmutableSchemaClass schemaClass, DatabaseSessionEmbedded session) {
     if (subBlocks == null) {
       return null;
     }
     List<SQLBinaryCondition> result = new ArrayList<SQLBinaryCondition>();
     for (var exp : subBlocks) {
-      var sub = exp.getIndexedFunctionConditions(iSchemaClass, session);
+      var sub = exp.getIndexedFunctionConditions(schemaClass, session);
       if (sub != null && !sub.isEmpty()) {
         result.addAll(sub);
       }
