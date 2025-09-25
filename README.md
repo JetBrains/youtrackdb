@@ -18,8 +18,7 @@ Tell us about exciting applications you are building, ask for help, or just chat
 ### What is YouTrackDB?
 
 YouTrackDB is an object-oriented graph database that supports full-text search, reactivity, and geospatial concepts.\
-YouTrackDB has been supported and developed by [YouTrack](https://www.jetbrains.com/youtrack)
-project from JetBrains.
+YouTrackDB has been supported and developed by JetBrains.
 
 YouTrackDB's key features are:
 
@@ -100,8 +99,6 @@ YourTrackDB requires at least JDK 21.
 To start to work with YouTrackDB:
 
 ```java
-package io.youtrackdb;
-
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBDemoGraphFactory;
