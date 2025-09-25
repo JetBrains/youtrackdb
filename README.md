@@ -1,6 +1,6 @@
 ## YouTrackDB
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)[![official JetBrains project](https://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)</br>
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![official JetBrains project](https://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)</br>
 [![Bluesky](https://img.shields.io/badge/Bluesky-0285FF?style=for-the-badge&logo=Bluesky&logoColor=white)](https://bsky.app/profile/youtrackdb.io)
 [![Zulip](https://img.shields.io/badge/Zulip-50ADFF?style=for-the-badge&logo=Zulip&logoColor=white)](https://youtrackdb.zulipchat.com/)
 [![Medium](https://img.shields.io/badge/Medium-12100E?style=for-the-badge&logo=medium&logoColor=white)](https://medium.com/@youtrackdb)
@@ -159,7 +159,7 @@ public class Example {
                         //create a vertex with class(label) "person" and properties' name and age.
                         var v1 = g.addV("person").property("name", "marko").property("age", 29).next();
                         System.out.println("output:" + jsonMapper.writeValueAsString(v1));
-                        //output: output:{
+                        // output : {
                         //        "id":{..},
                         //        "label":"person",
                         //        "type":"vertex",
