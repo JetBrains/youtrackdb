@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.index.CollectionId;
+import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Collections;
@@ -26,7 +26,7 @@ import org.apache.commons.lang3.ArrayUtils;
 public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   public static final String CUSTOM_PROPERTIES_PROPERTY_NAME = "customProperties";
-  public static final String SUPER_CLASSES_PROPERTY_NAME = "superClasses";
+  public static final String PARENT_CLASSES_PROPERTY_NAME = "parentClasses";
   public static final String DECLARED_PROPERTIES_NAME = "declaredProperties";
 
   public SchemaClassEntity(@Nonnull RecordIdInternal recordId,
@@ -50,18 +50,18 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     setBoolean(YTDBSchemaClassPTokenInternal.strictMode.name(), value);
   }
 
-  public boolean hasSuperClasses() {
-    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-    if (superClasses == null) {
+  public boolean hasParentClasses() {
+    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    if (parentClasses == null) {
       return false;
     }
 
-    return !superClasses.isEmpty();
+    return !parentClasses.isEmpty();
   }
 
   public boolean hasSubClasses() {
     LinkBag subclasses = getPropertyInternal(
-        getOppositeLinkBagPropertyName(SUPER_CLASSES_PROPERTY_NAME));
+        getOppositeLinkBagPropertyName(PARENT_CLASSES_PROPERTY_NAME));
     if (subclasses == null) {
       return false;
     }
@@ -86,11 +86,11 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     setString(YTDBSchemaClassPTokenInternal.description.name(), description);
   }
 
-  public void setCollectionIds(@Nonnull List<CollectionId> collectionIds) {
+  public void setCollectionIds(@Nonnull List<StorageComponentId> collectionIds) {
     newEmbeddedList(YTDBSchemaClassPTokenInternal.collectionIds.name(), collectionIds);
   }
 
-  public List<CollectionId> getCollectionIds() {
+  public List<StorageComponentId> getCollectionIds() {
     return getEmbeddedList(YTDBSchemaClassPTokenInternal.collectionIds.name());
   }
 
@@ -98,13 +98,13 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     removeProperty(YTDBSchemaClassPTokenInternal.collectionIds.name());
   }
 
-  public Set<CollectionId> getPolymorphicCollectionIds() {
-    var superClasses = getSuperClasses();
-    var polymorphicCollectionIds = new HashSet<CollectionId>();
+  public Set<StorageComponentId> getPolymorphicCollectionIds() {
+    var parentClasses = getParentClasses();
+    var polymorphicCollectionIds = new HashSet<StorageComponentId>();
 
-    while (superClasses.hasNext()) {
-      var superClass = superClasses.next();
-      polymorphicCollectionIds.addAll(superClass.getCollectionIds());
+    while (parentClasses.hasNext()) {
+      var parentClass = parentClasses.next();
+      polymorphicCollectionIds.addAll(parentClass.getCollectionIds());
     }
 
     var collectionIds = getCollectionIds();
@@ -113,14 +113,14 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return polymorphicCollectionIds;
   }
 
-  public Iterator<SchemaClassEntity> getSuperClasses() {
-    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+  public Iterator<SchemaClassEntity> getParentClasses() {
+    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
 
-    if (superClasses == null) {
+    if (parentClasses == null) {
       return IteratorUtils.emptyIterator();
     }
 
-    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(superClasses.iterator(),
+    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(parentClasses.iterator(),
         identifiable -> {
           if (identifiable instanceof SchemaClassEntity schemaClassEntity) {
             return schemaClassEntity;
@@ -138,20 +138,20 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   private Set<SchemaClassEntity> ascendantsInternal() {
     var parents = new HashSet<SchemaClassEntity>();
 
-    var superClasses = getSuperClasses();
-    while (superClasses.hasNext()) {
-      var superClass = superClasses.next();
-      parents.add(superClass);
+    var parentClasses = getParentClasses();
+    while (parentClasses.hasNext()) {
+      var parentClass = parentClasses.next();
+      parents.add(parentClass);
 
-      parents.addAll(superClass.ascendantsInternal());
+      parents.addAll(parentClass.ascendantsInternal());
     }
 
     return parents;
   }
 
-  public Iterator<SchemaClassEntity> getSubClasses() {
+  public Iterator<SchemaClassEntity> getChildClasses() {
     LinkBag subclasses = getPropertyInternal(
-        getOppositeLinkBagPropertyName(SUPER_CLASSES_PROPERTY_NAME));
+        getOppositeLinkBagPropertyName(PARENT_CLASSES_PROPERTY_NAME));
     if (subclasses == null) {
       return IteratorUtils.emptyIterator();
     }
@@ -166,7 +166,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   private Set<SchemaClassEntity> descendantsInternal() {
     var children = new HashSet<SchemaClassEntity>();
-    var subclasses = getSubClasses();
+    var subclasses = getChildClasses();
 
     while (subclasses.hasNext()) {
       var subclass = subclasses.next();
@@ -179,49 +179,55 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public boolean isEdgeType() {
-    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-    if (superClasses == null) {
+    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    if (parentClasses == null) {
       return false;
     }
 
     var eRid = SchemaManager.getClassLink(session, YTDBSchemaClass.EDGE_CLASS_NAME);
-    return superClasses.contains(eRid);
+    return parentClasses.contains(eRid);
   }
 
   public boolean isVertexType() {
-    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-    if (superClasses == null) {
+    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    if (parentClasses == null) {
       return false;
     }
 
     var vRid = SchemaManager.getClassLink(session, YTDBSchemaClass.VERTEX_CLASS_NAME);
-    return superClasses.contains(vRid);
+    return parentClasses.contains(vRid);
   }
 
   public void addChildClass(@Nonnull SchemaClassEntity schemaClass) {
-    schemaClass.addSuperClass(this);
+    schemaClass.addParentClass(this);
   }
 
   public void removeChildClass(@Nonnull SchemaClassEntity schemaClass) {
-    schemaClass.removeSuperClass(this);
+    schemaClass.removeParentClass(this);
   }
 
-  public void addSuperClass(@Nonnull SchemaClassEntity schemaClass) {
-    var linkSet = getOrCreateLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+  public void addParentClass(@Nonnull SchemaClassEntity schemaClass) {
+    if (schemaClass.isChildClassOf(this)) {
+      throw new DatabaseException(session,
+          "Recursion detected. Class : " + schemaClass.getName() + " is already a child of class "
+              + getName());
+    }
+
+    var linkSet = getOrCreateLinkSet(PARENT_CLASSES_PROPERTY_NAME);
     linkSet.add(schemaClass);
   }
 
-  public void removeSuperClass(SchemaClassEntity schemaClass) {
-    var linkSet = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
+  public void removeParentClass(SchemaClassEntity schemaClass) {
+    var linkSet = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
 
     if (linkSet != null) {
       linkSet.remove(schemaClass);
     }
   }
 
-  public boolean isSubClassOf(String className) {
-    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-    if (superClasses == null) {
+  public boolean isChildClassOf(String className) {
+    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    if (parentClasses == null) {
       return false;
     }
 
@@ -230,20 +236,20 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return false;
     }
 
-    if (superClasses.contains(classRid)) {
+    if (parentClasses.contains(classRid)) {
       return true;
     }
 
-    for (var superClassIdentifiable : superClasses) {
-      SchemaClassEntity superClassEntity;
+    for (var parentClassIdentifiable : parentClasses) {
+      SchemaClassEntity parentClassEntity;
 
-      if (superClassIdentifiable instanceof SchemaClassEntity superClass) {
-        superClassEntity = superClass;
+      if (parentClassIdentifiable instanceof SchemaClassEntity parentClass) {
+        parentClassEntity = parentClass;
       } else {
-        superClassEntity = session.load(superClassIdentifiable.getIdentity());
+        parentClassEntity = session.load(parentClassIdentifiable.getIdentity());
       }
 
-      if (superClassEntity.isSubClassOf(className)) {
+      if (parentClassEntity.isChildClassOf(className)) {
         return true;
       }
     }
@@ -251,26 +257,26 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return false;
   }
 
-  public boolean isSubClassOf(SchemaClassEntity schemaClass) {
-    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-    if (superClasses == null) {
+  public boolean isChildClassOf(SchemaClassEntity schemaClass) {
+    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    if (parentClasses == null) {
       return false;
     }
 
-    if (superClasses.contains(schemaClass)) {
+    if (parentClasses.contains(schemaClass)) {
       return true;
     }
 
-    for (var superClassIdentifiable : superClasses) {
-      SchemaClassEntity superClassEntity;
+    for (var parentClassIdentifiable : parentClasses) {
+      SchemaClassEntity parentClassEntity;
 
-      if (superClassIdentifiable instanceof SchemaClassEntity superClass) {
-        superClassEntity = superClass;
+      if (parentClassIdentifiable instanceof SchemaClassEntity parentClass) {
+        parentClassEntity = parentClass;
       } else {
-        superClassEntity = session.load(superClassIdentifiable.getIdentity());
+        parentClassEntity = session.load(parentClassIdentifiable.getIdentity());
       }
 
-      if (superClassEntity.isSubClassOf(schemaClass)) {
+      if (parentClassEntity.isChildClassOf(schemaClass)) {
         return true;
       }
     }
@@ -278,17 +284,17 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return false;
   }
 
-  public boolean isSuperClassOf(String className) {
+  public boolean isParentClassOf(String className) {
     var childClass = SchemaManager.getClass(session, className);
     if (childClass == null) {
       throw new DatabaseException("Class " + className + " not found");
     }
 
-    return childClass.isSubClassOf(this);
+    return childClass.isChildClassOf(this);
   }
 
-  public boolean isSuperClassOf(SchemaClassEntity schemaClass) {
-    return schemaClass.isSubClassOf(this);
+  public boolean isParentClassOf(SchemaClassEntity schemaClass) {
+    return schemaClass.isChildClassOf(this);
   }
 
   @Nullable
@@ -331,20 +337,20 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return customProperties.keySet();
   }
 
-  public boolean hasCollectionId(CollectionId collectionId) {
+  public boolean hasCollectionId(StorageComponentId collectionId) {
     return getCollectionIds().contains(collectionId);
   }
 
-  public boolean hasPolymorphicCollectionId(CollectionId collectionId) {
+  public boolean hasPolymorphicCollectionId(StorageComponentId collectionId) {
     var collectionIds = getCollectionIds();
     if (collectionIds.contains(collectionId)) {
       return true;
     }
 
-    var superClasses = getSuperClasses();
-    while (superClasses.hasNext()) {
-      var superClass = superClasses.next();
-      if (superClass.hasPolymorphicCollectionId(collectionId)) {
+    var parentClasses = getParentClasses();
+    while (parentClasses.hasNext()) {
+      var parentClass = parentClasses.next();
+      if (parentClass.hasPolymorphicCollectionId(collectionId)) {
         return true;
       }
     }
@@ -409,23 +415,23 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return processedProperties.values();
     }
 
-    Set<Identifiable> superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-    Set<Identifiable> nextSuperClasses = new HashSet<>();
+    Set<Identifiable> parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    Set<Identifiable> nextParentClasses = new HashSet<>();
 
-    while (!superClasses.isEmpty()) {
-      for (var superClassLink : superClasses) {
-        SchemaClassEntity superClass;
-        if (superClassLink instanceof SchemaClassEntity superClassEntity) {
-          superClass = superClassEntity;
+    while (!parentClasses.isEmpty()) {
+      for (var parentClassLink : parentClasses) {
+        SchemaClassEntity parentClass;
+        if (parentClassLink instanceof SchemaClassEntity parentClassEntity) {
+          parentClass = parentClassEntity;
         } else {
-          superClass = session.load(superClassLink.getIdentity());
+          parentClass = session.load(parentClassLink.getIdentity());
         }
 
-        var superProperties = superClass.getDeclaredProperties(name);
-        while (superProperties.hasNext()) {
-          var superProperty = superProperties.next();
-          if (!processedProperties.containsKey(superProperty.getName())) {
-            processedProperties.put(superProperty.getName(), superProperty);
+        var parentProperties = parentClass.getDeclaredProperties(name);
+        while (parentProperties.hasNext()) {
+          var parentProperty = parentProperties.next();
+          if (!processedProperties.containsKey(parentProperty.getName())) {
+            processedProperties.put(parentProperty.getName(), parentProperty);
           }
         }
 
@@ -433,12 +439,12 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
           return processedProperties.values();
         }
 
-        var superSuperClasses = superClass.getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-        nextSuperClasses.addAll(superSuperClasses);
+        var parentParentClasses = parentClass.getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+        nextParentClasses.addAll(parentParentClasses);
       }
 
-      superClasses = nextSuperClasses;
-      nextSuperClasses = new HashSet<>();
+      parentClasses = nextParentClasses;
+      nextParentClasses = new HashSet<>();
     }
 
     return processedProperties.values();
@@ -451,29 +457,29 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return property;
     }
 
-    Set<Identifiable> superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-    Set<Identifiable> nextSuperClasses = new HashSet<>();
+    Set<Identifiable> parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    Set<Identifiable> nextParentClasses = new HashSet<>();
 
-    while (!superClasses.isEmpty()) {
-      for (var superClassLink : superClasses) {
-        SchemaClassEntity superClass;
-        if (superClassLink instanceof SchemaClassEntity superClassEntity) {
-          superClass = superClassEntity;
+    while (!parentClasses.isEmpty()) {
+      for (var parentClassLink : parentClasses) {
+        SchemaClassEntity parentClass;
+        if (parentClassLink instanceof SchemaClassEntity parentClassEntity) {
+          parentClass = parentClassEntity;
         } else {
-          superClass = session.load(superClassLink.getIdentity());
+          parentClass = session.load(parentClassLink.getIdentity());
         }
 
-        property = superClass.getDeclaredProperty(name);
+        property = parentClass.getDeclaredProperty(name);
         if (property != null) {
           return property;
         }
 
-        var superSuperClasses = superClass.getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-        nextSuperClasses.addAll(superSuperClasses);
+        var parentParentClasses = parentClass.getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+        nextParentClasses.addAll(parentParentClasses);
       }
 
-      superClasses = nextSuperClasses;
-      nextSuperClasses = new HashSet<>();
+      parentClasses = nextParentClasses;
+      nextParentClasses = new HashSet<>();
     }
 
     return null;
@@ -498,20 +504,20 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       }
     }
 
-    var superClasses = getLinkSet(SUPER_CLASSES_PROPERTY_NAME);
-    if (superClasses == null) {
+    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    if (parentClasses == null) {
       return false;
     }
 
-    for (var superClassLink : superClasses) {
-      SchemaClassEntity superClass;
-      if (superClassLink instanceof SchemaClassEntity superClassEntity) {
-        superClass = superClassEntity;
+    for (var parentClassLink : parentClasses) {
+      SchemaClassEntity parentClass;
+      if (parentClassLink instanceof SchemaClassEntity parentClassEntity) {
+        parentClass = parentClassEntity;
       } else {
-        superClass = session.load(superClassLink.getIdentity());
+        parentClass = session.load(parentClassLink.getIdentity());
       }
 
-      if (superClass.existsSchemaProperty(name)) {
+      if (parentClass.existsSchemaProperty(name)) {
         return true;
       }
     }
@@ -539,6 +545,18 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       var declaredProperty = declaredProperties.next();
       removeSchemaProperty(declaredProperty);
     }
+  }
+
+  public Iterator<SchemaIndexEntity> getInvolvedIndexes() {
+    var involvedIndexesPropertyName = getOppositeLinkBagPropertyName(
+        SchemaIndexEntity.CLASS_PROPERTIES_TO_INDEX);
+    LinkBag involvedIndexes = getPropertyInternal(involvedIndexesPropertyName);
+    if (involvedIndexes == null) {
+      return Collections.emptyIterator();
+    }
+
+    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(involvedIndexes.iterator(),
+        session::load);
   }
 
 }

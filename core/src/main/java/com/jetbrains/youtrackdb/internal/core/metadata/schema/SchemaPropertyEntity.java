@@ -232,6 +232,19 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     setLink(GLOBAL_PROPERTY_LINK_NAME, rid);
   }
 
+  public Iterator<SchemaIndexEntity> getInvolvedIndexes() {
+    var oppositeIndexLinkName =
+        getOppositeLinkBagPropertyName(SchemaIndexEntity.CLASS_PROPERTIES_TO_INDEX);
+    LinkBag involvedIndexes = getPropertyInternal(oppositeIndexLinkName);
+
+    if (involvedIndexes == null || involvedIndexes.isEmpty()) {
+      return IteratorUtils.emptyIterator();
+    }
+
+    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(
+        involvedIndexes.iterator(), session::load);
+  }
+
   @Override
   protected void customValidationRules() throws ValidationException {
     var name = validateName();

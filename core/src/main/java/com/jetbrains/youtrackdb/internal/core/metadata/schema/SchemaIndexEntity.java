@@ -24,6 +24,8 @@ public class SchemaIndexEntity extends EntityImpl {
 
   public static final String PROPERTY_MODIFIERS_METADATA = "propertyModifiersMetadata";
 
+  public static final String INDEX_ID = "indexId";
+
   public static final String INDEX_BY_VALUE = "byValue";
   public static final String INDEX_BY_KEY = "byKey";
 
@@ -37,7 +39,22 @@ public class SchemaIndexEntity extends EntityImpl {
   }
 
   public void setName(@Nonnull String name) {
+    final var c = SchemaManager.checkIndexNameIfValid(name);
+    if (c != null) {
+      throw new IllegalArgumentException(
+          "Invalid index name '" + name + "'. Character '" + c + "' is invalid");
+    }
+
     setString(NAME, name);
+  }
+
+  public void setIndexId(int indexId) {
+    setProperty(INDEX_ID, indexId);
+  }
+
+  @Nullable
+  public Integer getIndexId() {
+    return getInt(INDEX_ID);
   }
 
   public void setClassToIndex(@Nonnull SchemaClassEntity classToIndex) {
@@ -49,10 +66,9 @@ public class SchemaIndexEntity extends EntityImpl {
     return session.load(getLink(CLASS_TO_INDEX));
   }
 
-  public Iterator<ObjectObjectImmutablePair<SchemaPropertyEntity, String>> getClassPropertiesToIndex() {
-    var linkSet = getLinkSet(CLASS_PROPERTIES_TO_INDEX);
-
-    return IteratorUtils.map(linkSet.iterator(), identifiable -> {
+  public Iterator<ObjectObjectImmutablePair<SchemaPropertyEntity, String>> getClassPropertiesToIndexWithModifiers() {
+    var linkList = getLinkList(CLASS_PROPERTIES_TO_INDEX);
+    return IteratorUtils.map(linkList.iterator(), identifiable -> {
       SchemaPropertyEntity property;
 
       if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {
@@ -77,21 +93,28 @@ public class SchemaIndexEntity extends EntityImpl {
     });
   }
 
-  public void addClassPropertyToIndex(@Nonnull SchemaPropertyEntity property) {
-    var classLink = getLink(CLASS_TO_INDEX);
-    var declaringClass = property.getDeclaringClass();
+  public Iterator<SchemaPropertyEntity> getClassPropertiesToIndex() {
+    var linkList = getLinkList(CLASS_PROPERTIES_TO_INDEX);
+    return IteratorUtils.map(linkList.iterator(), identifiable -> {
+      SchemaPropertyEntity property;
 
-    if (classLink != null) {
-      if (!classLink.equals(declaringClass)) {
-        throw new DatabaseException(session,
-            "Class that property belongs to is different from the one specified in index");
+      if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {
+        property = schemaPropertyEntity;
+      } else {
+        property = session.load(identifiable.getIdentity());
       }
-    } else {
-      setLink(CLASS_TO_INDEX, declaringClass);
+
+      return property;
+    });
+  }
+
+  public void addClassPropertyToIndex(@Nonnull SchemaPropertyEntity property) {
+    var linkList = getOrCreateLinkList(CLASS_PROPERTIES_TO_INDEX);
+    if (linkList.contains(property)) {
+      return;
     }
 
-    var linkSet = getOrCreateLinkSet(CLASS_PROPERTIES_TO_INDEX);
-    linkSet.add(property);
+    linkList.add(property);
   }
 
 

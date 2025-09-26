@@ -37,7 +37,6 @@ import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.lang3.function.FailableConsumer;
 
 public interface FrontendTransaction extends Transaction {
 
@@ -243,8 +242,5 @@ public interface FrontendTransaction extends Transaction {
   @Nonnull
   RecordSerializationContext getRecordSerializationContext();
 
-  <E extends Exception> void addRollbackAction(
-      FailableConsumer<DatabaseSessionEmbedded, E> rollbackAction);
-
-  int generateTempCollectionId();
+  int generateTempStorageComponentId();
 }

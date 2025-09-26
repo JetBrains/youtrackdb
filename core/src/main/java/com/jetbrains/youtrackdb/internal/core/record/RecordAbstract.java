@@ -302,7 +302,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Override
   @Nonnull
-  public DatabaseSessionInternal getSession() {
+  public DatabaseSessionEmbedded getSession() {
     assert session.assertIfNotActive();
     return session;
   }
@@ -494,7 +494,7 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
 
   @Nullable
   @Override
-  public DatabaseSession getBoundedToSession() {
+  public DatabaseSessionEmbedded getBoundedToSession() {
     assert session.assertIfNotActive();
     return session;
   }

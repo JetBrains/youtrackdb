@@ -225,11 +225,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   private final ThreadLocal<Boolean> activeSession = new ThreadLocal<>();
 
-  //those two fields are used in the remote session wrapper to track state when embedded session
-  //is opened in remote mode.
-  private boolean openedAsRemoteSession;
-  private int remoteCallsCount;
-
   public DatabaseSessionEmbedded(final AbstractStorage storage, boolean serverMode) {
     super(false);
     this.serverMode = serverMode;
@@ -3089,7 +3084,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    openedAsRemoteSession = true;
     return new RemoteDatabaseSessionWrapper(this);
   }
 
@@ -3690,10 +3684,23 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var operations = currentTx.getRecordOperationsInternal();
     for (var op : operations) {
       var record = op.record;
-      if (record instanceof SchemaClassEntity schemaClassEntity) {
-        SchemaManager.onSchemaClassBeforeCommit(this, schemaClassEntity, op);
+      if (op.type == RecordOperation.CREATED
+          || op.type == RecordOperation.UPDATED) {
+        if (record.isUnloaded()) {
+          throw new DatabaseException(this,
+              "Unloaded record " + record.getIdentity() + " cannot be committed");
+        }
+
+        if (record instanceof EntityImpl entity) {
+          entity.validate();
+
+          if (entity instanceof SchemaClassEntity schemaClassEntity) {
+            SchemaManager.onSchemaClassBeforeCommit(this, schemaClassEntity, op);
+          }
+        }
       }
     }
+
     for (var listener : browseListeners()) {
       try {
         listener.onBeforeTxCommit(currentTx);
@@ -3729,21 +3736,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  public int allocateCollection() {
-    assert assertIfNotActive();
 
-    checkOpenness();
-
-    return storage.allocateCollection();
-  }
-
-  public void freeCollection(int collectionId) {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    storage.freeCollection(this, collectionId);
-  }
 
   /**
    * {@inheritDoc}

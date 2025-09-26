@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
-
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
@@ -11,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenI
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassEntity;
-
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -51,7 +49,7 @@ public class YTDBSchemaClassImpl extends
   @Override
   public boolean hasSuperClasses() {
     var entity = propertyReadPreprocessing();
-    return entity.hasSuperClasses();
+    return entity.hasParentClasses();
   }
 
   @Nonnull
@@ -120,14 +118,14 @@ public class YTDBSchemaClassImpl extends
   @Override
   public @Nonnull Iterator<YTDBSchemaClass> superClasses() {
     var entity = propertyReadPreprocessing();
-    var superClasses = entity.getSuperClasses();
+    var superClasses = entity.getParentClasses();
     return mapToDomainClassIterator(superClasses);
   }
 
   @Override
   public @Nonnull Iterator<YTDBSchemaClass> subClasses() {
     var entity = propertyReadPreprocessing();
-    var subClasses = entity.getSubClasses();
+    var subClasses = entity.getChildClasses();
 
     return mapToDomainClassIterator(subClasses);
   }
@@ -165,27 +163,27 @@ public class YTDBSchemaClassImpl extends
   @Override
   public boolean isSubClassOf(@Nonnull String className) {
     var entity = propertyReadPreprocessing();
-    return entity.isSubClassOf(className);
+    return entity.isChildClassOf(className);
   }
 
   @Override
   public boolean isSubClassOf(@Nonnull YTDBSchemaClass classInstance) {
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
     var entity = propertyReadPreprocessing();
-    return entity.isSubClassOf(schemaClassImpl.getRawEntity());
+    return entity.isChildClassOf(schemaClassImpl.getRawEntity());
   }
 
   @Override
   public boolean isSuperClassOf(@Nonnull String className) {
     var entity = propertyReadPreprocessing();
-    return entity.isSubClassOf(className);
+    return entity.isChildClassOf(className);
   }
 
   @Override
   public boolean isSuperClassOf(@Nonnull YTDBSchemaClass classInstance) {
     var entity = propertyReadPreprocessing();
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
-    return entity.isSuperClassOf(schemaClassImpl.getRawEntity());
+    return entity.isParentClassOf(schemaClassImpl.getRawEntity());
   }
 
   @Override

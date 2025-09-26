@@ -11,27 +11,30 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
-import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
-import com.jetbrains.youtrackdb.internal.core.index.CollectionId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityPolicy;
+import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.schedule.ScheduledEvent;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
@@ -46,9 +49,10 @@ public final class SchemaManager {
   public static final String GLOBAL_PROPERTY_NAME_TYPE_INDEX = "$GlobalPropertyNameTypeIndex";
   public static final String GLOBAL_PROPERTY_ID_INDEX = "$GlobalPropertyNameTypeIndex";
 
+  public static final String INDEX_NAME_INDEX = "$IndexNameIndex";
+
   public static final String COLLECTION_IDS_TO_FREE_TRANSACTION_KEY = "$SchemaManager:CollectionIdsToFree";
   public static final String REMOVED_CLASSES_TRANSACTION_KEY = "$SchemaManager:RemovedClasses";
-
 
   private static final Set<String> INTERNAL_CLASSES = new HashSet<>();
 
@@ -149,7 +153,7 @@ public final class SchemaManager {
       @Nonnull DatabaseSessionEmbedded session, @Nonnull final String className,
       @Nonnull final SchemaClassEntity superClass) {
     var entity = session.newSchemaClassEntity(className);
-    entity.addSuperClass(superClass);
+    entity.addParentClass(superClass);
 
     return entity;
   }
@@ -160,7 +164,7 @@ public final class SchemaManager {
     var entity = session.newSchemaClassEntity(className);
 
     for (var superClass : superClasses) {
-      entity.addSuperClass(superClass);
+      entity.addParentClass(superClass);
     }
 
     return entity;
@@ -178,7 +182,7 @@ public final class SchemaManager {
       @Nonnull final SchemaClassEntity superClass) {
     var entity = session.newSchemaClassEntity(className);
     entity.setAbstractClass(true);
-    entity.addSuperClass(superClass);
+    entity.addParentClass(superClass);
     return entity;
   }
 
@@ -189,7 +193,7 @@ public final class SchemaManager {
     entity.setAbstractClass(true);
 
     for (var superClass : superClasses) {
-      entity.addSuperClass(superClass);
+      entity.addParentClass(superClass);
     }
 
     return entity;
@@ -338,6 +342,193 @@ public final class SchemaManager {
     return entity;
   }
 
+  public static boolean areIndexed(@Nonnull SchemaClassEntity schemaClassEntity,
+      @Nonnull final Collection<String> properties) {
+    if (properties.isEmpty()) {
+      return true;
+    }
+
+    var propertyEntities = schemaClassEntity.getSchemaProperties(properties.toArray(new String[0]));
+    if (propertyEntities.size() != properties.size()) {
+      return false;
+    }
+
+    Set<String> propertyNames;
+    if (properties instanceof Set<?>) {
+      propertyNames = (Set<String>) properties;
+    } else {
+      propertyNames = new HashSet<>(properties);
+    }
+
+    for (var propertyEntity : propertyEntities) {
+      var propertyInvolvedIndexes = propertyEntity.getInvolvedIndexes();
+      while (propertyInvolvedIndexes.hasNext()) {
+        var involvedIndex = propertyInvolvedIndexes.next();
+
+        if (filterPropertyIndex(involvedIndex, propertyNames)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private static boolean filterPropertyIndex(SchemaIndexEntity indexEntity,
+      Set<String> propertyNames) {
+    var propertiesToIndex = indexEntity.getClassPropertiesToIndex();
+    var propertyIndex = 0;
+    var containsRequiredProperties = true;
+
+    while (propertiesToIndex.hasNext() && propertyIndex < propertyNames.size()) {
+      var propertyToIndex = propertiesToIndex.next();
+      var propertyToIndexName = propertyToIndex.getName();
+
+      if (!propertyNames.contains(propertyToIndexName)) {
+        containsRequiredProperties = false;
+        break;
+      }
+
+      propertyIndex++;
+    }
+
+    containsRequiredProperties &= propertyIndex == propertyNames.size();
+
+    return containsRequiredProperties;
+  }
+
+  public static boolean areIndexed(
+      @Nonnull SchemaClassEntity schemaClassEntity, final String... properties) {
+    return areIndexed(schemaClassEntity, Arrays.asList(properties));
+  }
+
+  public static Set<String> getInvolvedIndexNames(@Nonnull SchemaClassEntity schemaClassEntity,
+      final String... properties) {
+    return getInvolvedIndexNames(schemaClassEntity, Arrays.asList(properties));
+  }
+
+  public static Set<SchemaIndexEntity> getInvolvedIndexes(
+      @Nonnull SchemaClassEntity schemaClassEntity, String... properties) {
+    return getInvolvedIndexes(schemaClassEntity, Arrays.asList(properties));
+  }
+
+  public static Set<String> getInvolvedIndexNames(@Nonnull SchemaClassEntity schemaClassEntity,
+      @Nonnull final Collection<String> properties) {
+    return getInvolvedIndexes(schemaClassEntity, properties).stream()
+        .map(SchemaIndexEntity::getName)
+        .collect(Collectors.toSet());
+  }
+
+  @Nonnull
+  public static Set<SchemaIndexEntity> getInvolvedIndexes(
+      @Nonnull SchemaClassEntity schemaClassEntity,
+      @Nonnull Collection<String> properties) {
+    if (properties.isEmpty()) {
+      return Collections.emptySet();
+    }
+
+    var propertyEntities = schemaClassEntity.getSchemaProperties(properties.toArray(new String[0]));
+    if (propertyEntities.size() != properties.size()) {
+      return Collections.emptySet();
+    }
+
+    Set<String> propertyNames;
+    if (properties instanceof Set<?>) {
+      propertyNames = (Set<String>) properties;
+    } else {
+      propertyNames = new HashSet<>(properties);
+    }
+
+    var involvedIndexes = new HashSet<SchemaIndexEntity>();
+    for (var propertyEntity : propertyEntities) {
+      var propertyInvolvedIndexes = propertyEntity.getInvolvedIndexes();
+      filterPropertyIndexes(propertyInvolvedIndexes, propertyNames, involvedIndexes);
+    }
+
+    return involvedIndexes;
+  }
+
+  public static Set<String> getClassInvolvedIndexNames(@Nonnull SchemaClassEntity schemaClassEntity,
+      @Nonnull final Collection<String> properties) {
+    return getClassInvolvedIndexes(schemaClassEntity, properties).stream()
+        .map(SchemaIndexEntity::getName)
+        .collect(Collectors.toSet());
+  }
+
+  public static Set<SchemaIndexEntity> getClassInvolvedIndexes(
+      @Nonnull SchemaClassEntity schemaClassEntity,
+      @Nonnull Collection<String> properties) {
+    if (properties.isEmpty()) {
+      return Collections.emptySet();
+    }
+
+    var propertyEntities = schemaClassEntity.getSchemaProperties(properties.toArray(new String[0]));
+    if (propertyEntities.size() != properties.size()) {
+      return Collections.emptySet();
+    }
+
+    Set<String> propertyNames;
+    if (properties instanceof Set<?>) {
+      propertyNames = (Set<String>) properties;
+    } else {
+      propertyNames = new HashSet<>(properties);
+    }
+
+    var involvedIndexes = new HashSet<SchemaIndexEntity>();
+    var classIndexes = schemaClassEntity.getInvolvedIndexes();
+    filterPropertyIndexes(classIndexes, propertyNames, involvedIndexes);
+
+    return involvedIndexes;
+  }
+
+  private static void filterPropertyIndexes(Iterator<SchemaIndexEntity> propertyInvolvedIndexes,
+      Set<String> propertyNames, HashSet<SchemaIndexEntity> involvedIndexes) {
+    while (propertyInvolvedIndexes.hasNext()) {
+      var involvedIndex = propertyInvolvedIndexes.next();
+
+      if (filterPropertyIndex(involvedIndex, propertyNames)) {
+        involvedIndexes.add(involvedIndex);
+      }
+    }
+  }
+
+  public static Set<String> getClassInvolvedIndexNames(@Nonnull SchemaClassEntity schemaClassEntity,
+      final String... properties) {
+    return getClassInvolvedIndexNames(schemaClassEntity, Arrays.asList(properties));
+  }
+
+  @Nullable
+  public static SchemaIndexEntity getClassIndex(@Nonnull SchemaClassEntity schemaClassEntity,
+      @Nonnull final String name) {
+    var session = schemaClassEntity.getSession();
+    var indexNamesIndex = session.getIndex(INDEX_NAME_INDEX);
+
+    var indexEntity = indexNamesIndex.getRids(session, name)
+        .map(rid -> (SchemaIndexEntity) session.load(rid)).findFirst()
+        .orElse(null);
+    if (indexEntity == null) {
+      return null;
+    }
+
+    if (name.equals(indexEntity.getName())) {
+      return indexEntity;
+    }
+
+    return null;
+  }
+
+  public static Set<String> getClassIndexNames(@Nonnull SchemaClassEntity schemaClassEntity) {
+    //noinspection unchecked
+    return (Set<String>) IteratorUtils.asSet(
+        IteratorUtils.map(schemaClassEntity.getInvolvedIndexes(), SchemaIndexEntity::getName));
+  }
+
+  public static Set<SchemaClassEntity> getClassIndexes(
+      @Nonnull SchemaClassEntity schemaClassEntity) {
+    //noinspection unchecked
+    return (Set<SchemaClassEntity>) IteratorUtils.asSet(schemaClassEntity.getInvolvedIndexes());
+  }
+
   @Nullable
   public static SchemaGlobalPropertyEntity getGlobalPropertyById(
       @Nonnull DatabaseSessionEmbedded session, int id) {
@@ -387,7 +578,6 @@ public final class SchemaManager {
         });
   }
 
-
   public static void dropClass(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final String className) {
     var classEntity = getClass(session, className);
@@ -399,13 +589,11 @@ public final class SchemaManager {
     classEntity.delete();
   }
 
-
-  private static void dropClassIndexes(DatabaseSessionEmbedded session,
-      final SchemaClassEntity cls) {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    for (final var index : indexManager.getClassIndexes(session, cls.getName())) {
-      indexManager.dropIndex(session, index.getName());
+  private static void dropClassIndexes(@Nonnull final SchemaClassEntity cls) {
+    var involvedIndexes = cls.getInvolvedIndexes();
+    while (involvedIndexes.hasNext()) {
+      var indexEntity = involvedIndexes.next();
+      indexEntity.delete();
     }
   }
 
@@ -415,6 +603,7 @@ public final class SchemaManager {
 
     var transaction = session.getActiveTransaction();
     var className = entity.getName();
+
     if (className != null && INTERNAL_CLASSES.contains(className)) {
       collectionsCount = 1;
     } else {
@@ -426,10 +615,10 @@ public final class SchemaManager {
     }
 
     if (collectionsCount > 0) {
-      var collectionIds = new ArrayList<CollectionId>(collectionsCount);
+      var collectionIds = new ArrayList<StorageComponentId>(collectionsCount);
 
       for (var i = 0; i < collectionsCount; i++) {
-        collectionIds.add(new CollectionId(transaction.generateTempCollectionId()));
+        collectionIds.add(new StorageComponentId(transaction.generateTempStorageComponentId()));
       }
 
       entity.setCollectionIds(collectionIds);
@@ -441,8 +630,6 @@ public final class SchemaManager {
       //skip not valid entity, TX will be rolled back on commit
       return;
     }
-
-    checkClassDoesNotExist(session, className);
 
     var schemaClassNameIndex = session.getIndex(SCHEMA_CLASS_NAME_INDEX);
     schemaClassNameIndex.put(transaction, className, entity.getIdentity());
@@ -472,7 +659,6 @@ public final class SchemaManager {
       var originalValue = entity.getOriginalValue(schemaClassNameProperty);
 
       var className = entity.getName();
-      checkClassDoesNotExist(session, className);
 
       var schemaClassNameIndex = session.getIndex(SCHEMA_CLASS_NAME_INDEX);
       var activeTransaction = session.getActiveTransaction();
@@ -484,21 +670,24 @@ public final class SchemaManager {
       if (entity.isAbstractClass()) {
         var collectionIds = entity.getCollectionIds();
 
-        for (var collectionId : collectionIds) {
-          if (!collectionId.isTemporary()) {
-            throw new DatabaseException(session,
-                "Cannot change abstract class to non-abstract as it "
-                    + "is associated with existing collections");
+        if (collectionIds != null) {
+          for (var collectionId : collectionIds) {
+            if (!collectionId.isTemporary()) {
+              throw new DatabaseException(session,
+                  "Cannot change abstract class to non-abstract as it "
+                      + "is associated with existing collections");
+            }
           }
         }
 
         entity.clearCollectionIds();
       } else {
-        var collectionsCount = session.getStorageInfo().getConfiguration().getMinimumCollections();
-        var collectionIds = new ArrayList<CollectionId>(collectionsCount);
+        var collectionsCount = session.getStorageInfo().getConfiguration()
+            .getMinimumCollections();
+        var collectionIds = new ArrayList<StorageComponentId>(collectionsCount);
 
         for (var i = 0; i < collectionsCount; i++) {
-          collectionIds.add(new CollectionId(transaction.generateTempCollectionId()));
+          collectionIds.add(new StorageComponentId(transaction.generateTempStorageComponentId()));
         }
 
         entity.setCollectionIds(collectionIds);
@@ -520,7 +709,7 @@ public final class SchemaManager {
           "Class " + entity.getName() + " has sub-classes and can not be deleted");
     }
 
-    dropClassIndexes(session, entity);
+    dropClassIndexes(entity);
 
     var activeTransaction = session.getActiveTransaction();
     var schemaClassNameIndex = session.getIndex(SCHEMA_CLASS_NAME_INDEX);
@@ -540,40 +729,8 @@ public final class SchemaManager {
     if (recordOperation.type == RecordOperation.CREATED
         || recordOperation.type == RecordOperation.UPDATED) {
       if (dirtyProperties.contains(YTDBSchemaClassOutTokenInternal.superClass.name())) {
-        var superClasses = entity.getSuperClasses();
+        var superClasses = entity.getParentClasses();
         checkParametersConflict(superClasses);
-      }
-
-      if (dirtyProperties.contains(YTDBSchemaClassPTokenInternal.collectionIds.name())) {
-        var collectionIds = entity.getCollectionIds();
-
-        if (!collectionIds.isEmpty() && collectionIds.getFirst().isTemporary()) {
-          var allocatedCollectionIds = new ArrayList<Integer>(collectionIds.size());
-
-          for (var collectionId : collectionIds) {
-            if (collectionId.isTemporary()) {
-              var realCollectionId = session.allocateCollection();
-
-              var collectionIterator = new RecordIteratorCollection<SchemaClassEntity>(session,
-                  realCollectionId, true);
-              while (collectionIterator.hasNext()) {
-                var record = collectionIterator.next();
-                ((ChangeableRecordId) record.getIdentity()).setCollectionId(realCollectionId);
-              }
-
-              collectionId.setId(realCollectionId);
-              allocatedCollectionIds.add(realCollectionId);
-            }
-          }
-
-          if (!allocatedCollectionIds.isEmpty()) {
-            transaction.addRollbackAction(dbSession -> {
-              for (var collectionId : allocatedCollectionIds) {
-                dbSession.freeCollection(collectionId);
-              }
-            });
-          }
-        }
       }
     } else if (recordOperation.type == RecordOperation.DELETED) {
       var collectionIds = entity.getCollectionIds();
@@ -655,8 +812,8 @@ public final class SchemaManager {
     }
   }
 
-
-  private static void checkParametersConflict(@Nonnull Iterator<SchemaClassEntity> superClasses) {
+  private static void checkParametersConflict
+      (@Nonnull Iterator<SchemaClassEntity> superClasses) {
     final Map<String, SchemaPropertyEntity> cumulative = new HashMap<>();
 
     while (superClasses.hasNext()) {
@@ -681,14 +838,6 @@ public final class SchemaManager {
           cumulative.put(superClassPropertyName, superClassProperty);
         }
       }
-    }
-  }
-
-  private static void checkClassDoesNotExist(@Nonnull DatabaseSessionEmbedded session,
-      @Nonnull String className) {
-    var schemaClassNameIndex = session.getIndex(SCHEMA_CLASS_NAME_INDEX);
-    if (schemaClassNameIndex.getRids(session, className).findAny().isPresent()) {
-      throw new IllegalArgumentException("Class '" + className + "' is already present in schema");
     }
   }
 
@@ -737,6 +886,78 @@ public final class SchemaManager {
       return s.substring(1, s.length() - 1);
     }
     return s;
+  }
+
+  private static void checkSecurityConstraintsForIndexCreate(
+      DatabaseSessionEmbedded database, SchemaIndexEntity schemaIndexEntity) {
+    var security = database.getSharedContext().getSecurity();
+
+    var indexClass = schemaIndexEntity.getName();
+    var indexedProperties = IteratorUtils.asSet(
+        IteratorUtils.map(schemaIndexEntity.getClassPropertiesToIndex(),
+            SchemaPropertyEntity::getName
+        )
+    );
+
+    if (indexedProperties.size() == 1) {
+      return;
+    }
+
+    Set<String> classesToCheck = new HashSet<>();
+    classesToCheck.add(indexClass);
+
+    var clazz = database.getMetadata().getFastImmutableSchema().getClass(indexClass);
+    if (clazz == null) {
+      return;
+    }
+
+    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
+    var allFilteredProperties =
+        security.getAllFilteredProperties(database);
+
+    for (var className : classesToCheck) {
+      Set<SecurityResourceProperty> indexedAndFilteredProperties;
+      try (var stream = allFilteredProperties.stream()) {
+        indexedAndFilteredProperties =
+            stream
+                .filter(x -> x.getClassName().equalsIgnoreCase(className))
+                .filter(x -> indexedProperties.contains(x.getPropertyName()))
+                .collect(Collectors.toSet());
+      }
+
+      if (!indexedAndFilteredProperties.isEmpty()) {
+        try (var stream = indexedAndFilteredProperties.stream()) {
+          throw new DatabaseException(database.getDatabaseName(),
+              "Cannot create index on "
+                  + indexClass
+                  + "["
+                  + (stream
+                  .map(SecurityResourceProperty::getPropertyName)
+                  .collect(Collectors.joining(", ")))
+                  + " because of existing property security rules");
+        }
+      }
+    }
+  }
+
+  public static void onSchemaBeforeIndexCreate(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaIndexEntity entity) {
+    try {
+      entity.validate();
+    } catch (ValidationException e) {
+      //skip not valid entity, TX will be rolled back on commit
+      return;
+    }
+
+    var indexNameIndex = session.getIndex(INDEX_NAME_INDEX);
+    var transaction = session.getActiveTransaction();
+    indexNameIndex.put(transaction, entity.getName(), entity.getIdentity());
+  }
+
+  public static void onSchemaIndexBeforeCommit(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaIndexEntity entity) {
+    checkSecurityConstraintsForIndexCreate(session, entity);
   }
 
   public enum INDEX_TYPE {

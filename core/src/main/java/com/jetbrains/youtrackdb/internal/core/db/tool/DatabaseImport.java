@@ -440,7 +440,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       if (!dbClass.isSuperClassOf(role)
           && !dbClass.isSuperClassOf(user)
           && !dbClass.isSuperClassOf(
-          identity) /*&& !dbClass.isSuperClassOf(oSecurityPolicy)*/) {
+          identity) /*&& !dbClass.isParentClassOf(oSecurityPolicy)*/) {
         classesToDrop.put(className, dbClass);
         indexNames.addAll(dbClass.getIndexes());
       }

@@ -7,12 +7,13 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import javax.annotation.Nonnull;
 
-public final class CollectionId implements ChangeableIdentity, Comparable<CollectionId> {
+public final class StorageComponentId implements ChangeableIdentity,
+    Comparable<StorageComponentId> {
 
   private Set<IdentityChangeListener> identityChangeListeners;
   private int id;
 
-  public CollectionId(int id) {
+  public StorageComponentId(int id) {
     this.id = id;
   }
 
@@ -94,7 +95,7 @@ public final class CollectionId implements ChangeableIdentity, Comparable<Collec
       return false;
     }
 
-    var that = (CollectionId) o;
+    var that = (StorageComponentId) o;
     return id == that.id;
   }
 
@@ -104,7 +105,7 @@ public final class CollectionId implements ChangeableIdentity, Comparable<Collec
   }
 
   @Override
-  public int compareTo(@Nonnull CollectionId o) {
+  public int compareTo(@Nonnull StorageComponentId o) {
     return Integer.compare(id, o.id);
   }
 }

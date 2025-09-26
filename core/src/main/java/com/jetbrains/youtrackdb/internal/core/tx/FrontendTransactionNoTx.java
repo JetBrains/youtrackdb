@@ -53,7 +53,6 @@ import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.lang3.function.FailableConsumer;
 
 /**
  * No operation transaction.
@@ -483,12 +482,6 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Override
   public @Nonnull RecordSerializationContext getRecordSerializationContext() {
-    throw new UnsupportedOperationException("Operation is not supported in no tx mode");
-  }
-
-  @Override
-  public <E extends Exception> void addRollbackAction(
-      FailableConsumer<DatabaseSessionEmbedded, E> rollbackAction) {
     throw new UnsupportedOperationException("Operation is not supported in no tx mode");
   }
 

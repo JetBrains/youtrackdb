@@ -217,7 +217,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   @Override
   public boolean hasSuperClasses() {
     assert session.assertIfNotActive();
-    return delegate.hasSuperClasses();
+    return delegate.hasParentClasses();
   }
 
   @Override
@@ -229,7 +229,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   @Override
   public Iterator<SchemaClass> getSuperClasses() {
     assert session.assertIfNotActive();
-    var result = delegate.getSuperClasses();
+    var result = delegate.getParentClasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
 
     for (var schemaClass : result) {
@@ -256,7 +256,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   @Override
   public SchemaClass addSuperClass(SchemaClass superClass) {
     assert session.assertIfNotActive();
-    delegate.addSuperClass(session,
+    delegate.addParentClass(session,
         superClass.getImplementation());
     return this;
   }
@@ -264,7 +264,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   @Override
   public void removeSuperClass(SchemaClass superClass) {
     assert session.assertIfNotActive();
-    delegate.removeSuperClass(this.session, superClass.getImplementation());
+    delegate.removeParentClass(this.session, superClass.getImplementation());
   }
 
   @Override
@@ -434,19 +434,19 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   @Override
   public boolean isSubClassOf(String iClassName) {
     assert session.assertIfNotActive();
-    return delegate.isSubClassOf(iClassName);
+    return delegate.isChildClassOf(iClassName);
   }
 
   @Override
   public boolean isSubClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
-    return delegate.isSubClassOf(iClass.getImplementation());
+    return delegate.isChildClassOf(iClass.getImplementation());
   }
 
   @Override
   public boolean isSuperClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
-    return delegate.isSuperClassOf(iClass.getImplementation());
+    return delegate.isParentClassOf(iClass.getImplementation());
   }
 
   @Override

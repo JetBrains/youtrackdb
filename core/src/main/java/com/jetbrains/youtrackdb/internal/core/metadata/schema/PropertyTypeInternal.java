@@ -39,7 +39,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.index.CollectionId;
+import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable;
@@ -1308,18 +1308,18 @@ public enum PropertyTypeInternal {
     }
   },
 
-  COLLECTION_ID("CollectionId", 23, CollectionId.class,
+  STORAGE_COMPONENT_ID("StorageComponentId", 23, StorageComponentId.class,
       new Class<?>[]{Integer.class, Short.class}) {
     @Override
-    public CollectionId convert(Object value, PropertyTypeInternal linkedType,
+    public StorageComponentId convert(Object value, PropertyTypeInternal linkedType,
         ImmutableSchemaClass linkedClass,
         DatabaseSessionInternal session) {
       return switch (value) {
         case null -> null;
-        case CollectionId collectionId -> collectionId;
-        case String s -> new CollectionId(Integer.parseInt(s));
-        case Integer i -> new CollectionId(i);
-        case Short s -> new CollectionId(s);
+        case StorageComponentId collectionId -> collectionId;
+        case String s -> new StorageComponentId(Integer.parseInt(s));
+        case Integer i -> new StorageComponentId(i);
+        case Short s -> new StorageComponentId(s);
         default -> throw new DatabaseException(session != null ? session.getDatabaseName() : null,
             conversionErrorMessage(value, this));
       };
@@ -1333,7 +1333,7 @@ public enum PropertyTypeInternal {
         return null;
       }
 
-      return new CollectionId(((CollectionId) value).getId());
+      return new StorageComponentId(((StorageComponentId) value).getId());
     }
 
     @Override

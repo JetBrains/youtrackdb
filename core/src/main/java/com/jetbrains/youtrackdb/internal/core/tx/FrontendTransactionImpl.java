@@ -76,7 +76,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.lang3.function.FailableConsumer;
 
 public final class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
@@ -104,8 +103,6 @@ public final class FrontendTransactionImpl implements
   private final HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
 
   private final HashMap<RecordIdInternal, RecordIdInternal> originalChangedRecordIdMap = new HashMap<>();
-
-  private final ArrayList<FailableConsumer<DatabaseSessionEmbedded, ?>> rollbackActions = new ArrayList<>();
 
   private final long id;
   private int newRecordsPositionsGenerator = -2;
@@ -1810,13 +1807,7 @@ public final class FrontendTransactionImpl implements
   }
 
   @Override
-  public <E extends Exception> void addRollbackAction(
-      FailableConsumer<DatabaseSessionEmbedded, E> rollbackAction) {
-    rollbackActions.add(rollbackAction);
-  }
-
-  @Override
-  public int generateTempCollectionId() {
+  public int generateTempStorageComponentId() {
     return newRecordsPositionsGenerator--;
   }
 
