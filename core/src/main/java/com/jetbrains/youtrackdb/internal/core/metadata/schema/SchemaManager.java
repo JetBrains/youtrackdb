@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseTask;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
@@ -42,8 +41,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.jspecify.annotations.NonNull;
 
 public final class SchemaManager {
 
@@ -962,23 +960,28 @@ public final class SchemaManager {
     checkSecurityConstraintsForIndexCreate(session, entity);
   }
 
+  public static void onSchemaPropertyBeforeCreate(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaPropertyEntity entity) {
+    updateGlobalPropertyLink(session, entity);
+  }
+
+  public static void onSchemaPropertyBeforeUpdate(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaPropertyEntity entity) {
+    if (entity.isPropertyTypeChanged() || entity.isNameChanged()) {
+      updateGlobalPropertyLink(session, entity);
+    }
+  }
+
+  private static void updateGlobalPropertyLink(@NonNull DatabaseSessionEmbedded session,
+      @NonNull SchemaPropertyEntity entity) {
+    var globalProperty = findOrCreateGlobalProperty(session, entity.getName(),
+        entity.getPropertyType());
+    entity.setGlobalPropertyLink(globalProperty);
+  }
+
   public static void onSchemaPropertyAfterCommit(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaPropertyEntity property, RecordOperation recordOperation) {
-    if (recordOperation.type == RecordOperation.CREATED) {
-      var declaringClass = property.getDeclaringClass();
-      var linkedClass = property.getLinkedClass();
-      String linkedClassName;
-      if (linkedClass != null) {
-        linkedClassName = linkedClass.getName();
-      } else {
-        linkedClassName = null;
-      }
-
-      var youTrackDb = session.getSharedContext().getYouTrackDB();
-      youTrackDb.executeNoAuthorizationAsync(session.getDatabaseName(),
-          new PropertyTypeMigrationTask(declaringClass.getName(), property.getName(),
-              property.getPropertyType(), property.getLinkedPropertyType(), linkedClassName));
-    } else if (recordOperation.type == RecordOperation.UPDATED) {
+    if (recordOperation.type == RecordOperation.UPDATED) {
       if (property.isPropertyTypeChanged()
           || property.isLinkedTypeChanged() || property.isLinkedClassChanged()) {
         var declaringClass = property.getDeclaringClass();
@@ -990,14 +993,14 @@ public final class SchemaManager {
           linkedClassName = null;
         }
 
-        checkPersistentPropertiesOnTypeCompatibility(session, declaringClass.getName(),
-            property.getName(), property.getPropertyType(), property.getLinkedPropertyType(),
-            linkedClassName);
+        var className = declaringClass.getName();
+        var propertyName = property.getName();
+        var type = property.getPropertyType();
 
-        var youTrackDb = session.getSharedContext().getYouTrackDB();
-        youTrackDb.executeNoAuthorizationAsync(session.getDatabaseName(),
-            new PropertyTypeMigrationTask(declaringClass.getName(), property.getName(),
-                property.getPropertyType(), property.getLinkedPropertyType(), linkedClassName));
+        checkPersistentPropertiesOnTypeCompatibility(session, className,
+            propertyName, type, property.getLinkedPropertyType(),
+            linkedClassName);
+        firePropertyTypeMigration(session, className, propertyName, type);
       }
     }
   }
@@ -1042,20 +1045,18 @@ public final class SchemaManager {
           .append(".size() <> 0 limit 1");
     }
 
-    session.executeInTx(transaction -> {
-      try (final var res = session.query(builder.toString())) {
-        if (res.hasNext()) {
-          throw new DatabaseException(session,
-              "The database contains some schema-less data in the property '"
-                  + className
-                  + "."
-                  + propertyName
-                  + "' that is not compatible with the type "
-                  + type
-                  + ". Fix those records and change the schema again");
-        }
+    try (final var res = session.query(builder.toString())) {
+      if (res.hasNext()) {
+        throw new DatabaseException(session,
+            "The database contains some schema-less data in the property '"
+                + className
+                + "."
+                + propertyName
+                + "' that is not compatible with the type "
+                + type
+                + ". Fix those records and change the schema again");
       }
-    });
+    }
 
     if (linkedClassName != null) {
       checkAllLikedObjects(session, className, propertyName, type, linkedClassName);
@@ -1063,7 +1064,8 @@ public final class SchemaManager {
   }
 
   private static void checkAllLikedObjects(
-      DatabaseSessionEmbedded db, String className, String propertyName, PropertyTypeInternal type,
+      DatabaseSessionEmbedded session, String className, String propertyName,
+      PropertyTypeInternal type,
       String linkedClassName) {
     final var builder = new StringBuilder(256);
     builder.append("select from ");
@@ -1074,54 +1076,53 @@ public final class SchemaManager {
       builder.append(" and ").append(getEscapedName(propertyName, true)).append(".size() > 0");
     }
 
-    db.executeInTx(tx -> {
-      try (final var res = tx.query(builder.toString())) {
-        while (res.hasNext()) {
-          var item = res.next();
-          switch (type) {
-            case EMBEDDEDLIST:
-            case LINKLIST:
-            case EMBEDDEDSET:
-            case LINKSET:
-              Collection<?> emb = item.getProperty(propertyName);
-              emb.stream()
-                  .filter(x -> !matchesType(db, x, linkedClassName))
-                  .findFirst()
-                  .ifPresent(
-                      x -> {
-                        throw new SchemaException(db.getDatabaseName(),
-                            "The database contains some schema-less data in the property '"
-                                + className
-                                + "."
-                                + propertyName
-                                + "' that is not compatible with the type "
-                                + type
-                                + " "
-                                + linkedClassName
-                                + ". Fix those records and change the schema again. "
-                                + x);
-                      });
-              break;
-            case EMBEDDED:
-            case LINK:
-              var elem = item.getProperty(propertyName);
-              if (!matchesType(db, elem, linkedClassName)) {
-                throw new SchemaException(db.getDatabaseName(),
-                    "The database contains some schema-less data in the property '"
-                        + className
-                        + "."
-                        + propertyName
-                        + "' that is not compatible with the type "
-                        + type
-                        + " "
-                        + linkedClassName
-                        + ". Fix those records and change the schema again!");
-              }
-              break;
-          }
+    try (final var res = session.query(builder.toString())) {
+      while (res.hasNext()) {
+        var item = res.next();
+        switch (type) {
+          case EMBEDDEDLIST:
+          case LINKLIST:
+          case EMBEDDEDSET:
+          case LINKSET:
+            Collection<?> emb = item.getProperty(propertyName);
+            emb.stream()
+                .filter(x -> !matchesType(session, x, linkedClassName))
+                .findFirst()
+                .ifPresent(
+                    x -> {
+                      throw new SchemaException(session.getDatabaseName(),
+                          "The database contains some schema-less data in the property '"
+                              + className
+                              + "."
+                              + propertyName
+                              + "' that is not compatible with the type "
+                              + type
+                              + " "
+                              + linkedClassName
+                              + ". Fix those records and change the schema again. "
+                              + x);
+                    });
+            break;
+          case EMBEDDED:
+          case LINK:
+            var elem = item.getProperty(propertyName);
+            if (!matchesType(session, elem, linkedClassName)) {
+              throw new SchemaException(session.getDatabaseName(),
+                  "The database contains some schema-less data in the property '"
+                      + className
+                      + "."
+                      + propertyName
+                      + "' that is not compatible with the type "
+                      + type
+                      + " "
+                      + linkedClassName
+                      + ". Fix those records and change the schema again!");
+            }
+            break;
         }
       }
-    });
+    }
+
   }
 
   private static boolean matchesType(DatabaseSessionEmbedded db, Object x,
@@ -1187,22 +1188,18 @@ public final class SchemaManager {
     final var strictSQL =
         session.getStorageInfo().getConfiguration().isStrictSql();
 
-    var recordsToUpdate = session.computeInTx(transaction -> {
-      try (var result =
-          session.query(
-              "select from "
-                  + getEscapedName(className, strictSQL)
-                  + " where "
-                  + getEscapedName(propertyName, strictSQL)
-                  + ".type() <> \""
-                  + type.name()
-                  + "\"")) {
-        return result.toRidList();
-      }
-    });
+    var recordsToUpdate =
+        session.query(
+            "select from "
+                + getEscapedName(className, strictSQL)
+                + " where "
+                + getEscapedName(propertyName, strictSQL)
+                + ".type() <> \""
+                + type.name()
+                + "\"").toRidList();
 
-    session.executeInTxBatches(recordsToUpdate, (s, rid) -> {
-      var entity = (EntityImpl) s.loadEntity(rid);
+    for (var rid : recordsToUpdate) {
+      var entity = (EntityImpl) session.loadEntity(rid);
       var value = entity.getPropertyInternal(propertyName);
       if (value == null) {
         return;
@@ -1212,7 +1209,7 @@ public final class SchemaManager {
       if (valueType != type) {
         entity.setPropertyInternal(propertyName, value, type);
       }
-    });
+    }
   }
 
   private static void checkPersistentPropertiesOnTypeCompatibility(DatabaseSessionEmbedded session,
@@ -1231,48 +1228,6 @@ public final class SchemaManager {
     }
 
     firePropertyTypeMigration(session, className, propertyName, type);
-  }
-
-
-  private static final class PropertyTypeMigrationTask implements DatabaseTask<Void> {
-
-    private static final Logger logger = LoggerFactory.getLogger(PropertyTypeMigrationTask.class);
-    @Nonnull
-    private final String className;
-    @Nonnull
-    private final String propertyName;
-    @Nonnull
-    private final PropertyTypeInternal type;
-    @Nullable
-    private final String linkedClassName;
-    @Nullable
-    private final PropertyTypeInternal linkedType;
-
-    private PropertyTypeMigrationTask(@Nonnull String className, @Nonnull String propertyName,
-        @Nonnull PropertyTypeInternal type,
-        @Nullable PropertyTypeInternal linkedType,
-        @Nullable String linkedClassName) {
-
-      this.className = className;
-      this.propertyName = propertyName;
-      this.type = type;
-      this.linkedType = linkedType;
-      this.linkedClassName = linkedClassName;
-    }
-
-    @Override
-    public Void call(DatabaseSessionEmbedded session) {
-      try {
-        checkPersistentPropertiesOnTypeCompatibility(session, className, propertyName, type,
-            linkedType, linkedClassName);
-        firePropertyTypeMigration(session, className, propertyName, type);
-      } catch (Exception e) {
-        logger.error("Error during migration of values of property {}.{}", className, propertyName,
-            e);
-      }
-
-      return null;
-    }
   }
 }
 

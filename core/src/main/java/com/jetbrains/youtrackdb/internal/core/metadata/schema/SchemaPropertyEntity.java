@@ -281,8 +281,8 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     return getLinkPropertyInternal(PropertyNames.GLOBAL_PROPERTY);
   }
 
-  public void setGlobalPropertyLink(@Nonnull RID rid) {
-    setPropertyInternal(PropertyNames.GLOBAL_PROPERTY, rid);
+  public void setGlobalPropertyLink(@Nonnull SchemaGlobalPropertyEntity globalPropertyEntity) {
+    setPropertyInternal(PropertyNames.GLOBAL_PROPERTY, globalPropertyEntity);
   }
 
   public Iterator<SchemaIndexEntity> getInvolvedIndexes() {
