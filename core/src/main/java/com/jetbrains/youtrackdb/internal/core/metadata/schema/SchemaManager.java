@@ -5,9 +5,9 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaCl
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
+import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -44,7 +45,6 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.jspecify.annotations.NonNull;
 
 public final class SchemaManager {
-
   public static final int CURRENT_VERSION_NUMBER = 5;
 
   public static final String SCHEMA_CLASS_NAME_INDEX = "$SchemaClassNameIndex";
@@ -962,11 +962,25 @@ public final class SchemaManager {
 
   public static void onSchemaPropertyBeforeCreate(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaPropertyEntity entity) {
+    try {
+      entity.validate();
+    } catch (ValidationException e) {
+      //skip not valid entity, TX will be rolled back on commit
+      return;
+    }
+
     updateGlobalPropertyLink(session, entity);
   }
 
   public static void onSchemaPropertyBeforeUpdate(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaPropertyEntity entity) {
+    try {
+      entity.validate();
+    } catch (ValidationException e) {
+      //skip not valid entity, TX will be rolled back on commit
+      return;
+    }
+
     if (entity.isPropertyTypeChanged() || entity.isNameChanged()) {
       updateGlobalPropertyLink(session, entity);
     }
@@ -1018,44 +1032,23 @@ public final class SchemaManager {
       @Nonnull final String propertyName,
       @Nonnull final PropertyTypeInternal type,
       @Nullable String linkedClassName) {
-    final var strictSQL = session.getStorageInfo().getConfiguration().isStrictSql();
+    var classIterator = new RecordIteratorClass(session, className, true, true);
+    var castableTypes = type.getCastable();
 
-    final var builder = new StringBuilder(256);
-    builder.append("select from ");
-    builder.append(getEscapedName(className, strictSQL));
-    builder.append(" where ");
-    builder.append(getEscapedName(propertyName, strictSQL));
-    builder.append(".type() not in [");
+    var entities = IteratorUtils.filter(classIterator, entity -> {
+      var propertyType = entity.getPropertyTypeInternal(propertyName);
+      return propertyType != null && !castableTypes.contains(propertyType);
+    });
 
-    final var cur = type.getCastable().iterator();
-    while (cur.hasNext()) {
-      builder.append('"').append(cur.next().name()).append('"');
-      if (cur.hasNext()) {
-        builder.append(",");
-      }
-    }
-    builder
-        .append("] and ")
-        .append(getEscapedName(propertyName, strictSQL))
-        .append(" is not null ");
-    if (type.isMultiValue()) {
-      builder
-          .append(" and ")
-          .append(getEscapedName(propertyName, strictSQL))
-          .append(".size() <> 0 limit 1");
-    }
-
-    try (final var res = session.query(builder.toString())) {
-      if (res.hasNext()) {
-        throw new DatabaseException(session,
-            "The database contains some schema-less data in the property '"
-                + className
-                + "."
-                + propertyName
-                + "' that is not compatible with the type "
-                + type
-                + ". Fix those records and change the schema again");
-      }
+    if (entities.hasNext()) {
+      throw new DatabaseException(session,
+          "The database contains some schema-less data in the property '"
+              + className
+              + "."
+              + propertyName
+              + "' that is not compatible with the type "
+              + type
+              + ". Fix those records and change the schema again");
     }
 
     if (linkedClassName != null) {
@@ -1067,69 +1060,62 @@ public final class SchemaManager {
       DatabaseSessionEmbedded session, String className, String propertyName,
       PropertyTypeInternal type,
       String linkedClassName) {
-    final var builder = new StringBuilder(256);
-    builder.append("select from ");
-    builder.append(getEscapedName(className, true));
-    builder.append(" where ");
-    builder.append(getEscapedName(propertyName, true)).append(" is not null ");
-    if (type.isMultiValue()) {
-      builder.append(" and ").append(getEscapedName(propertyName, true)).append(".size() > 0");
-    }
+    var classIterator = new RecordIteratorClass(session, className, true, true);
+    var entities = IteratorUtils.filter(classIterator, entity -> {
+      var value = entity.getPropertyInternal(propertyName);
+      return value != null && (!MultiValue.isMultiValue(value) || !MultiValue.isEmpty(value));
+    });
 
-    try (final var res = session.query(builder.toString())) {
-      while (res.hasNext()) {
-        var item = res.next();
-        switch (type) {
-          case EMBEDDEDLIST:
-          case LINKLIST:
-          case EMBEDDEDSET:
-          case LINKSET:
-            Collection<?> emb = item.getProperty(propertyName);
-            emb.stream()
-                .filter(x -> !matchesType(session, x, linkedClassName))
-                .findFirst()
-                .ifPresent(
-                    x -> {
-                      throw new SchemaException(session.getDatabaseName(),
-                          "The database contains some schema-less data in the property '"
-                              + className
-                              + "."
-                              + propertyName
-                              + "' that is not compatible with the type "
-                              + type
-                              + " "
-                              + linkedClassName
-                              + ". Fix those records and change the schema again. "
-                              + x);
-                    });
-            break;
-          case EMBEDDED:
-          case LINK:
-            var elem = item.getProperty(propertyName);
-            if (!matchesType(session, elem, linkedClassName)) {
-              throw new SchemaException(session.getDatabaseName(),
-                  "The database contains some schema-less data in the property '"
-                      + className
-                      + "."
-                      + propertyName
-                      + "' that is not compatible with the type "
-                      + type
-                      + " "
-                      + linkedClassName
-                      + ". Fix those records and change the schema again!");
-            }
-            break;
-        }
+    while (entities.hasNext()) {
+      var entity = entities.next();
+      switch (type) {
+        case EMBEDDEDLIST:
+        case LINKLIST:
+        case EMBEDDEDSET:
+        case LINKSET:
+          Collection<?> emb = entity.getProperty(propertyName);
+          emb.stream()
+              .filter(x -> !matchesType(session, x, linkedClassName))
+              .findFirst()
+              .ifPresent(
+                  x -> {
+                    throw new SchemaException(session.getDatabaseName(),
+                        "The database contains some schema-less data in the property '"
+                            + className
+                            + "."
+                            + propertyName
+                            + "' that is not compatible with the type "
+                            + type
+                            + " "
+                            + linkedClassName
+                            + ". Fix those records and change the schema again. "
+                            + x);
+                  });
+          break;
+        case EMBEDDED:
+        case LINK:
+          var elem = entity.getProperty(propertyName);
+          if (!matchesType(session, elem, linkedClassName)) {
+            throw new SchemaException(session.getDatabaseName(),
+                "The database contains some schema-less data in the property '"
+                    + className
+                    + "."
+                    + propertyName
+                    + "' that is not compatible with the type "
+                    + type
+                    + " "
+                    + linkedClassName
+                    + ". Fix those records and change the schema again!");
+          }
+          break;
       }
     }
+
 
   }
 
   private static boolean matchesType(DatabaseSessionEmbedded db, Object x,
       String linkedClassName) {
-    if (x instanceof Result) {
-      x = ((Result) x).asEntity();
-    }
     if (x instanceof RID) {
       try {
         var transaction = db.getActiveTransaction();
@@ -1146,16 +1132,6 @@ public final class SchemaManager {
     }
     return !(x instanceof EntityImpl)
         || linkedClassName.equalsIgnoreCase(((EntityImpl) x).getSchemaClassName());
-  }
-
-
-  private static String getEscapedName(final String iName, final boolean iStrictSQL) {
-    if (iStrictSQL)
-    // ESCAPE NAME
-    {
-      return "`" + iName + "`";
-    }
-    return iName;
   }
 
   public static void checkLinkTypeSupport(PropertyTypeInternal type) {
@@ -1185,21 +1161,14 @@ public final class SchemaManager {
       @Nonnull final String className,
       @Nonnull final String propertyName,
       @Nonnull final PropertyTypeInternal type) {
-    final var strictSQL =
-        session.getStorageInfo().getConfiguration().isStrictSql();
+    var classIterator = new RecordIteratorClass(session, className, true, true);
+    var entities = IteratorUtils.filter(classIterator, entity -> {
+      var propertyType = entity.getPropertyTypeInternal(propertyName);
+      return propertyType != type;
+    });
 
-    var recordsToUpdate =
-        session.query(
-            "select from "
-                + getEscapedName(className, strictSQL)
-                + " where "
-                + getEscapedName(propertyName, strictSQL)
-                + ".type() <> \""
-                + type.name()
-                + "\"").toRidList();
-
-    for (var rid : recordsToUpdate) {
-      var entity = (EntityImpl) session.loadEntity(rid);
+    while (entities.hasNext()) {
+      var entity = entities.next();
       var value = entity.getPropertyInternal(propertyName);
       if (value == null) {
         return;
