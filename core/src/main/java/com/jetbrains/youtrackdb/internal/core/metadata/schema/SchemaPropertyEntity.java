@@ -1,27 +1,41 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaPropertyInTokenInternal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaPropertyOutTokenInternal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaPropertyPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Iterator;
-import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.collections4.IteratorUtils;
 
 public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
 
-  public static final String CUSTOM_PROPERTIES_PROPERTY_NAME = "customProperties";
-  public static final String GLOBAL_PROPERTY_LINK_NAME = "globalProperty";
+  public interface PropertyNames {
+
+    String CUSTOM_PROPERTIES = "customProperties";
+    String GLOBAL_PROPERTY = "globalProperty";
+    String NAME = "name";
+    String TYPE = "type";
+    String LINKED_CLASS = "linkedClass";
+    String LINKED_TYPE = "linkedType";
+    String NOT_NULL = "notNull";
+    String COLLATE = "collate";
+    String MAX = "max";
+    String MIN = "min";
+    String DEFAULT_VALUE = "defaultValue";
+    String READ_ONLY = "readOnly";
+    String REG_EXP = "regexp";
+    String MANDATORY = "mandatory";
+    String DESCRIPTION = "description";
+  }
 
   public SchemaPropertyEntity(
       @Nonnull RecordIdInternal recordId, @Nonnull DatabaseSessionEmbedded session) {
@@ -29,17 +43,17 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
   }
 
   public String getName() {
-    return getString(YTDBSchemaPropertyPTokenInternal.name.name());
+    return getPropertyInternal(PropertyNames.NAME);
   }
 
   public void setName(String name) {
     SchemaManager.checkPropertyNameIfValid(name);
-    setString(YTDBSchemaPropertyPTokenInternal.name.name(), name);
+    setPropertyInternal(PropertyNames.NAME, name);
   }
 
   public String getFullName() {
     var declaringClassLinkName = getOppositeLinkBagPropertyName(
-        YTDBSchemaPropertyInTokenInternal.declaredProperty.name());
+        SchemaClassEntity.PropertyNames.DECLARED_PROPERTIES);
     LinkBag declaringClassLink = getPropertyInternal(declaringClassLinkName);
     if (declaringClassLink == null) {
       throw new IllegalStateException("Property '" + declaringClassLinkName + "' not found");
@@ -49,29 +63,41 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     return declaringClass.getName() + "." + getName();
   }
 
-  public PropertyType getPropertyType() {
-    return PropertyType.valueOf(getString(YTDBSchemaPropertyPTokenInternal.type.name()));
+  @Nullable
+  public PropertyTypeInternal getPropertyType() {
+    String type = getPropertyInternal(PropertyNames.TYPE);
+    if (type == null) {
+      return null;
+    }
+
+    return PropertyTypeInternal.valueOf(type);
   }
 
-  public void setPropertyType(PropertyTypeInternal type) {
-    setString(YTDBSchemaPropertyPTokenInternal.type.name(), type.name());
+  public void setPropertyType(@Nonnull PropertyTypeInternal type) {
+    setPropertyInternal(PropertyNames.TYPE, type.name());
   }
 
   public String getType() {
-    return getString(YTDBSchemaPropertyPTokenInternal.type.name());
+    return getPropertyInternal(PropertyNames.TYPE);
   }
 
   public void setType(String type) {
-    setString(YTDBSchemaPropertyPTokenInternal.type.name(), type);
+    try {
+      PropertyTypeInternal.valueOf(type);
+    } catch (IllegalArgumentException e) {
+      throw new DatabaseException(session, "Invalid property type '" + type + "'");
+    }
+
+    setString(PropertyNames.TYPE, type);
   }
 
-  public void setLinkedClass(SchemaClassEntity entity) {
-    setLink(YTDBSchemaPropertyOutTokenInternal.linkedClass.name(), entity);
+  public void setLinkedClass(@Nullable SchemaClassEntity entity) {
+    setPropertyInternal(PropertyNames.LINKED_CLASS, entity);
   }
 
   @Nullable
   public SchemaClassEntity getLinkedClass() {
-    var link = getLink(YTDBSchemaPropertyOutTokenInternal.linkedClass.name());
+    RID link = getPropertyInternal(PropertyNames.LINKED_CLASS);
     if (link == null) {
       return null;
     }
@@ -79,11 +105,17 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     return session.load(link);
   }
 
-  public PropertyType getLinkedPropertyType() {
-    return PropertyType.valueOf(getString(YTDBSchemaPropertyPTokenInternal.linkedType.name()));
+  @Nullable
+  public PropertyTypeInternal getLinkedPropertyType() {
+    String linkedType = getPropertyInternal(PropertyNames.LINKED_TYPE);
+    if (linkedType == null) {
+      return null;
+    }
+
+    return PropertyTypeInternal.valueOf(linkedType);
   }
 
-  public void setLinkedPropertyType(PropertyTypeInternal type) {
+  public void setLinkedPropertyType(@Nullable PropertyTypeInternal type) {
     if (type == null) {
       setLinkedType(null);
     }
@@ -92,88 +124,103 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
   }
 
   public String getLinkedType() {
-    return getString(YTDBSchemaPropertyPTokenInternal.linkedType.name());
+    return getPropertyInternal(PropertyNames.LINKED_TYPE);
   }
 
-  public void setLinkedType(String type) {
-    setString(YTDBSchemaPropertyPTokenInternal.linkedType.name(), type);
+  public void setLinkedType(@Nullable String type) {
+    try {
+      PropertyTypeInternal.valueOf(type);
+    } catch (IllegalArgumentException e) {
+      throw new DatabaseException(session, "Invalid property type '" + type + "'");
+    }
+
+    setString(PropertyNames.LINKED_TYPE, type);
   }
 
   public boolean isNotNull() {
-    return getBoolean(YTDBSchemaPropertyPTokenInternal.notNull.name());
+    Boolean notNull = getProperty(PropertyNames.NOT_NULL);
+    return Boolean.TRUE.equals(notNull);
   }
 
   public void setNotNull(boolean notNull) {
-    setBoolean(YTDBSchemaPropertyPTokenInternal.notNull.name(), notNull);
+    setPropertyInternal(PropertyNames.NOT_NULL, notNull);
   }
 
-  public String getCollateName() {
-    return getString(YTDBSchemaPropertyPTokenInternal.collateName.name());
+  @Nullable
+  public String getCollate() {
+    return getPropertyInternal(PropertyNames.COLLATE);
   }
 
-  public void setCollateName(String collateName) {
-    setString(YTDBSchemaPropertyPTokenInternal.collateName.name(), collateName);
+  public void setCollateName(@Nullable String collateName) {
+    setPropertyInternal(PropertyNames.COLLATE, collateName);
   }
 
+  @Nullable
   public String getMax() {
-    return getString(YTDBSchemaPropertyPTokenInternal.max.name());
+    return getPropertyInternal(PropertyNames.MAX);
   }
 
-  public void setMax(String max) {
-    setString(YTDBSchemaPropertyPTokenInternal.max.name(), max);
+  public void setMax(@Nullable String max) {
+    setPropertyInternal(PropertyNames.MAX, max);
   }
 
+  @Nullable
   public String getDefaultValue() {
-    return getString(YTDBSchemaPropertyPTokenInternal.defaultValue.name());
+    return getPropertyInternal(PropertyNames.DEFAULT_VALUE);
   }
 
-  public void setDefaultValue(String defaultValue) {
-    setString(YTDBSchemaPropertyPTokenInternal.defaultValue.name(), defaultValue);
+  public void setDefaultValue(@Nullable String defaultValue) {
+    setPropertyInternal(PropertyNames.DEFAULT_VALUE, defaultValue);
   }
 
   public boolean isReadonly() {
-    return getBoolean(YTDBSchemaPropertyPTokenInternal.readonly.name());
+    Boolean readonly = getPropertyInternal(PropertyNames.READ_ONLY);
+    return Boolean.TRUE.equals(readonly);
   }
 
   public void setReadonly(boolean readonly) {
-    setBoolean(YTDBSchemaPropertyPTokenInternal.readonly.name(), readonly);
+    setPropertyInternal(PropertyNames.READ_ONLY, readonly);
   }
 
+  @Nullable
   public String getMin() {
-    return getString(YTDBSchemaPropertyPTokenInternal.min.name());
+    return getPropertyInternal(PropertyNames.MIN);
   }
 
-  public void setMin(String min) {
-    setString(YTDBSchemaPropertyPTokenInternal.min.name(), min);
+  public void setMin(@Nullable String min) {
+    setPropertyInternal(PropertyNames.MIN, min);
   }
 
+  @Nullable
   public String getRegexp() {
-    return getString(YTDBSchemaPropertyPTokenInternal.regexp.name());
+    return getPropertyInternal(PropertyNames.REG_EXP);
   }
 
   public void setRegexp(String regexp) {
-    setString(YTDBSchemaPropertyPTokenInternal.regexp.name(), regexp);
+    setPropertyInternal(PropertyNames.REG_EXP, regexp);
   }
 
   public boolean isMandatory() {
-    return getBoolean(YTDBSchemaPropertyPTokenInternal.mandatory.name());
+    Boolean mandatory = getPropertyInternal(PropertyNames.MANDATORY);
+    return Boolean.TRUE.equals(mandatory);
   }
 
   public void setMandatory(boolean mandatory) {
-    setBoolean(YTDBSchemaPropertyPTokenInternal.mandatory.name(), mandatory);
+    setPropertyInternal(PropertyNames.MANDATORY, mandatory);
   }
 
+  @Nullable
   public String getDescription() {
-    return getString(YTDBSchemaPropertyPTokenInternal.description.name());
+    return getPropertyInternal(PropertyNames.DESCRIPTION);
   }
 
-  public void setDescription(String description) {
-    setString(YTDBSchemaPropertyPTokenInternal.description.name(), description);
+  public void setDescription(@Nullable String description) {
+    setPropertyInternal(PropertyNames.DESCRIPTION, description);
   }
 
   public SchemaClassEntity getDeclaringClass() {
     var declaringClassLinkName = getOppositeLinkBagPropertyName(
-        YTDBSchemaPropertyInTokenInternal.declaredProperty.name());
+        SchemaClassEntity.PropertyNames.DECLARED_PROPERTIES);
     LinkBag link = getPropertyInternal(declaringClassLinkName);
 
     if (link == null || link.isEmpty()) {
@@ -181,12 +228,14 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
           "Declaring class link not found for property '" + getName() + "'");
     }
 
+    assert link.size() == 1;
     return session.load(link.iterator().next());
   }
 
   @Nullable
   public String getCustomProperty(String name) {
-    var customProperties = this.<String>getEmbeddedMap(CUSTOM_PROPERTIES_PROPERTY_NAME);
+    EmbeddedMap<String> customProperties = getPropertyInternal(
+        PropertyNames.CUSTOM_PROPERTIES);
 
     if (customProperties == null) {
       return null;
@@ -196,12 +245,17 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
   }
 
   public void setCustomProperty(String name, String value) {
-    var customProperties = this.<String>getOrCreateEmbeddedMap(CUSTOM_PROPERTIES_PROPERTY_NAME);
+    EmbeddedMap<String> customProperties = getPropertyInternal(PropertyNames.CUSTOM_PROPERTIES);
+    if (customProperties == null) {
+      customProperties = session.newEmbeddedMap();
+      setPropertyInternal(PropertyNames.CUSTOM_PROPERTIES, customProperties);
+    }
+
     customProperties.put(name, value);
   }
 
   public void removeCustomProperty(String name) {
-    var customProperties = this.<String>getEmbeddedMap(CUSTOM_PROPERTIES_PROPERTY_NAME);
+    EmbeddedMap<String> customProperties = getPropertyInternal(PropertyNames.CUSTOM_PROPERTIES);
 
     if (customProperties == null) {
       return;
@@ -211,12 +265,11 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
   }
 
   public void clearCustomProperties() {
-    removeProperty(CUSTOM_PROPERTIES_PROPERTY_NAME);
+    removeProperty(PropertyNames.CUSTOM_PROPERTIES);
   }
 
   public Iterator<String> customPropertyNames() {
-    var customProperties = this.<Map<String, String>>getEmbeddedMap(
-        CUSTOM_PROPERTIES_PROPERTY_NAME);
+    EmbeddedMap<String> customProperties = getPropertyInternal(PropertyNames.CUSTOM_PROPERTIES);
     if (customProperties == null) {
       return IteratorUtils.emptyIterator();
     }
@@ -225,16 +278,16 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
   }
 
   public RID getGlobalPropertyLink() {
-    return getLink(GLOBAL_PROPERTY_LINK_NAME);
+    return getLinkPropertyInternal(PropertyNames.GLOBAL_PROPERTY);
   }
 
-  public void setGlobalPropertyLink(RID rid) {
-    setLink(GLOBAL_PROPERTY_LINK_NAME, rid);
+  public void setGlobalPropertyLink(@Nonnull RID rid) {
+    setPropertyInternal(PropertyNames.GLOBAL_PROPERTY, rid);
   }
 
   public Iterator<SchemaIndexEntity> getInvolvedIndexes() {
     var oppositeIndexLinkName =
-        getOppositeLinkBagPropertyName(SchemaIndexEntity.CLASS_PROPERTIES_TO_INDEX);
+        getOppositeLinkBagPropertyName(SchemaIndexEntity.PROPERTIES_TO_INDEX);
     LinkBag involvedIndexes = getPropertyInternal(oppositeIndexLinkName);
 
     if (involvedIndexes == null || involvedIndexes.isEmpty()) {
@@ -261,33 +314,53 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     validateMinEntity();
   }
 
+  public boolean isNameChanged() {
+    var entry = properties.get(PropertyNames.NAME);
+    return entry != null && entry.isTxChanged();
+  }
+
+  public boolean isPropertyTypeChanged() {
+    var entry = properties.get(PropertyNames.TYPE);
+    return entry != null && entry.isTxChanged();
+  }
+
+  public boolean isLinkedTypeChanged() {
+    var entry = properties.get(PropertyNames.LINKED_TYPE);
+    return entry != null && entry.isTxChanged();
+  }
+
+  public boolean isLinkedClassChanged() {
+    var entry = properties.get(PropertyNames.LINKED_CLASS);
+    return entry != null && entry.isTxChanged();
+  }
+
   private void validateMinEntity() {
-    var minEntity = properties.get(YTDBSchemaPropertyPTokenInternal.min.name());
+    var minEntity = properties.get(PropertyNames.MIN);
     if (minEntity != null && minEntity.isTxChanged() && minEntity.value != null) {
       checkCorrectLimitValue(session, minEntity.value.toString());
     }
   }
 
   private void validateMaxEntity() {
-    var maxEntity = properties.get(YTDBSchemaPropertyPTokenInternal.max.name());
+    var maxEntity = properties.get(PropertyNames.MAX);
     if (maxEntity != null && maxEntity.isTxChanged() && maxEntity.value != null) {
       checkCorrectLimitValue(session, maxEntity.value.toString());
     }
   }
 
-  private void validateLinkedClass(PropertyType propertyType) {
-    var linkedClassEntity = properties.get(YTDBSchemaPropertyOutTokenInternal.linkedClass.name());
+  private void validateLinkedClass(PropertyTypeInternal propertyType) {
+    var linkedClassEntity = properties.get(PropertyNames.LINKED_CLASS);
     if (linkedClassEntity != null && linkedClassEntity.isTxChanged()) {
-      checkSupportLinkedClass(propertyType);
+      SchemaManager.checkSupportLinkedClass(propertyType);
     }
   }
 
-  private void validateLinkedType(PropertyType propertyType, String name) {
-    var linkedTypeEntity = properties.get(YTDBSchemaPropertyPTokenInternal.linkedType.name());
+  private void validateLinkedType(PropertyTypeInternal propertyType, String name) {
+    var linkedTypeEntity = properties.get(PropertyNames.LINKED_TYPE);
     if (linkedTypeEntity != null && linkedTypeEntity.isTxChanged()) {
       var linkedTypeStr = linkedTypeEntity.value.toString();
       if (linkedTypeStr != null) {
-        checkLinkTypeSupport(propertyType);
+        SchemaManager.checkLinkTypeSupport(propertyType);
         try {
           PropertyType.valueOf(linkedTypeStr);
         } catch (Exception e) {
@@ -298,22 +371,21 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     }
   }
 
-  private PropertyType validatePropertyType(String name) {
-    var typeEntity = properties.get(YTDBSchemaPropertyPTokenInternal.type.name());
+  private PropertyTypeInternal validatePropertyType(String name) {
+    var typeEntity = properties.get(PropertyNames.TYPE);
     if (typeEntity == null || typeEntity.value == null) {
       throw new ValidationException(session,
           "Type is absent in property of schema with name " + name);
     }
 
     var type = typeEntity.value.toString();
-    PropertyType propertyType;
+    PropertyTypeInternal propertyType;
     try {
-      propertyType = PropertyType.valueOf(type);
+      propertyType = PropertyTypeInternal.valueOf(type);
     } catch (Exception e) {
       throw BaseException.wrapException(new ValidationException(session,
           "Invalid property type for property with name " + name), e, session);
     }
-
 
     if (typeEntity.isTxChanged()) {
       var onloadValue = typeEntity.getOnLoadValue(session);
@@ -321,7 +393,7 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
       if (onloadValue != null) {
         var originalValue = PropertyTypeInternal.valueOf(onloadValue.toString());
         if (!originalValue.getCastable()
-            .contains(PropertyTypeInternal.convertFromPublicType(propertyType))) {
+            .contains(propertyType)) {
           throw new ValidationException(session,
               "Cannot change property type from " + originalValue + " to " + propertyType);
         }
@@ -332,7 +404,7 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
 
   private void validateDeclaringClass(String name) {
     var declaringClassLinkName = getOppositeLinkBagPropertyName(
-        YTDBSchemaPropertyInTokenInternal.declaredProperty.name());
+        SchemaClassEntity.PropertyNames.DECLARED_PROPERTIES);
 
     LinkBag link = getPropertyInternal(declaringClassLinkName);
     if (link == null || link.isEmpty()) {
@@ -350,54 +422,37 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
   }
 
   private String validateName() {
-    var name = getString(YTDBSchemaPropertyPTokenInternal.name.name());
+    String name = getPropertyInternal(PropertyNames.NAME);
     if (name == null) {
       throw new ValidationException(session, "Name is absent in property of schema");
     }
     return name;
   }
 
-  private void checkSupportLinkedClass(PropertyType type) {
-    if (type != PropertyType.LINK
-        && type != PropertyType.LINKSET
-        && type != PropertyType.LINKLIST
-        && type != PropertyType.LINKMAP
-        && type != PropertyType.LINKBAG) {
-      throw new ValidationException(session, "Linked class is not supported for type: " + type);
-    }
-  }
-
-  private void checkLinkTypeSupport(PropertyType type) {
-    if (type != PropertyType.EMBEDDEDSET && type != PropertyType.EMBEDDEDLIST
-        && type != PropertyType.EMBEDDEDMAP) {
-      throw new ValidationException(session, "Linked type is not supported for type: " + type);
-    }
-  }
-
   private void checkCorrectLimitValue(DatabaseSessionInternal session, final String value) {
     var propertyType = getPropertyType();
     if (value != null) {
-      if (propertyType == PropertyType.STRING
-          || propertyType == PropertyType.LINKBAG
-          || propertyType == PropertyType.BINARY
-          || propertyType == PropertyType.EMBEDDEDLIST
-          || propertyType == PropertyType.EMBEDDEDSET
-          || propertyType == PropertyType.LINKLIST
-          || propertyType == PropertyType.LINKSET
-          || propertyType == PropertyType.EMBEDDEDMAP
-          || propertyType == PropertyType.LINKMAP) {
+      if (propertyType == PropertyTypeInternal.STRING
+          || propertyType == PropertyTypeInternal.LINKBAG
+          || propertyType == PropertyTypeInternal.BINARY
+          || propertyType == PropertyTypeInternal.EMBEDDEDLIST
+          || propertyType == PropertyTypeInternal.EMBEDDEDSET
+          || propertyType == PropertyTypeInternal.LINKLIST
+          || propertyType == PropertyTypeInternal.LINKSET
+          || propertyType == PropertyTypeInternal.EMBEDDEDMAP
+          || propertyType == PropertyTypeInternal.LINKMAP) {
         PropertyTypeInternal.convert(session, value, Integer.class);
-      } else if (propertyType == PropertyType.DATE
-          || propertyType == PropertyType.BYTE
-          || propertyType == PropertyType.SHORT
-          || propertyType == PropertyType.INTEGER
-          || propertyType == PropertyType.LONG
-          || propertyType == PropertyType.FLOAT
-          || propertyType == PropertyType.DOUBLE
-          || propertyType == PropertyType.DECIMAL
-          || propertyType == PropertyType.DATETIME) {
+      } else if (propertyType == PropertyTypeInternal.DATE
+          || propertyType == PropertyTypeInternal.BYTE
+          || propertyType == PropertyTypeInternal.SHORT
+          || propertyType == PropertyTypeInternal.INTEGER
+          || propertyType == PropertyTypeInternal.LONG
+          || propertyType == PropertyTypeInternal.FLOAT
+          || propertyType == PropertyTypeInternal.DOUBLE
+          || propertyType == PropertyTypeInternal.DECIMAL
+          || propertyType == PropertyTypeInternal.DATETIME) {
         PropertyTypeInternal.convert(session, value,
-            PropertyTypeInternal.convertFromPublicType(propertyType).getDefaultJavaType());
+            propertyType.getDefaultJavaType());
       }
     }
   }

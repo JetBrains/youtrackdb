@@ -122,7 +122,7 @@ public class YTDBSchemaPropertyImpl extends
   @Override
   public String collateName() {
     var entity = propertyReadPreprocessing();
-    return entity.getCollateName();
+    return entity.getCollate();
   }
 
   @Override

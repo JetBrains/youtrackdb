@@ -1,13 +1,17 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.api.query.Result;
+import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseTask;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
@@ -38,6 +42,8 @@ import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class SchemaManager {
 
@@ -91,9 +97,7 @@ public final class SchemaManager {
 
   }
 
-  @SuppressWarnings("JavaExistingMethodCanBeUsed")
-  @Nullable
-  public static Character checkPropertyNameIfValid(String iName) {
+  public static void checkPropertyNameIfValid(String iName) {
     if (iName == null) {
       throw new IllegalArgumentException("Name is null");
     }
@@ -111,11 +115,9 @@ public final class SchemaManager {
       if (c == ':' || c == ',' || c == ';' || c == ' ' || c == '=')
       // INVALID CHARACTER
       {
-        return c;
+        throw new IllegalArgumentException("Invalid character ':' in property name '" + c + "'");
       }
     }
-
-    return null;
   }
 
   @Nullable
@@ -376,7 +378,7 @@ public final class SchemaManager {
 
   private static boolean filterPropertyIndex(SchemaIndexEntity indexEntity,
       Set<String> propertyNames) {
-    var propertiesToIndex = indexEntity.getClassPropertiesToIndex();
+    var propertiesToIndex = indexEntity.getClassProperties();
     var propertyIndex = 0;
     var containsRequiredProperties = true;
 
@@ -894,7 +896,7 @@ public final class SchemaManager {
 
     var indexClass = schemaIndexEntity.getName();
     var indexedProperties = IteratorUtils.asSet(
-        IteratorUtils.map(schemaIndexEntity.getClassPropertiesToIndex(),
+        IteratorUtils.map(schemaIndexEntity.getClassProperties(),
             SchemaPropertyEntity::getName
         )
     );
@@ -960,11 +962,317 @@ public final class SchemaManager {
     checkSecurityConstraintsForIndexCreate(session, entity);
   }
 
+  public static void onSchemaPropertyAfterCommit(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaPropertyEntity property, RecordOperation recordOperation) {
+    if (recordOperation.type == RecordOperation.CREATED) {
+      var declaringClass = property.getDeclaringClass();
+      var linkedClass = property.getLinkedClass();
+      String linkedClassName;
+      if (linkedClass != null) {
+        linkedClassName = linkedClass.getName();
+      } else {
+        linkedClassName = null;
+      }
+
+      var youTrackDb = session.getSharedContext().getYouTrackDB();
+      youTrackDb.executeNoAuthorizationAsync(session.getDatabaseName(),
+          new PropertyTypeMigrationTask(declaringClass.getName(), property.getName(),
+              property.getPropertyType(), property.getLinkedPropertyType(), linkedClassName));
+    } else if (recordOperation.type == RecordOperation.UPDATED) {
+      if (property.isPropertyTypeChanged()
+          || property.isLinkedTypeChanged() || property.isLinkedClassChanged()) {
+        var declaringClass = property.getDeclaringClass();
+        var linkedClass = property.getLinkedClass();
+        String linkedClassName;
+        if (linkedClass != null) {
+          linkedClassName = linkedClass.getName();
+        } else {
+          linkedClassName = null;
+        }
+
+        checkPersistentPropertiesOnTypeCompatibility(session, declaringClass.getName(),
+            property.getName(), property.getPropertyType(), property.getLinkedPropertyType(),
+            linkedClassName);
+
+        var youTrackDb = session.getSharedContext().getYouTrackDB();
+        youTrackDb.executeNoAuthorizationAsync(session.getDatabaseName(),
+            new PropertyTypeMigrationTask(declaringClass.getName(), property.getName(),
+                property.getPropertyType(), property.getLinkedPropertyType(), linkedClassName));
+      }
+    }
+  }
+
   public enum INDEX_TYPE {
     UNIQUE,
     NOTUNIQUE,
     FULLTEXT,
     SPATIAL
+  }
+
+  private static void checkPersistentPropertyType(
+      @Nonnull final DatabaseSessionEmbedded session,
+      @Nonnull final String className,
+      @Nonnull final String propertyName,
+      @Nonnull final PropertyTypeInternal type,
+      @Nullable String linkedClassName) {
+    final var strictSQL = session.getStorageInfo().getConfiguration().isStrictSql();
+
+    final var builder = new StringBuilder(256);
+    builder.append("select from ");
+    builder.append(getEscapedName(className, strictSQL));
+    builder.append(" where ");
+    builder.append(getEscapedName(propertyName, strictSQL));
+    builder.append(".type() not in [");
+
+    final var cur = type.getCastable().iterator();
+    while (cur.hasNext()) {
+      builder.append('"').append(cur.next().name()).append('"');
+      if (cur.hasNext()) {
+        builder.append(",");
+      }
+    }
+    builder
+        .append("] and ")
+        .append(getEscapedName(propertyName, strictSQL))
+        .append(" is not null ");
+    if (type.isMultiValue()) {
+      builder
+          .append(" and ")
+          .append(getEscapedName(propertyName, strictSQL))
+          .append(".size() <> 0 limit 1");
+    }
+
+    session.executeInTx(transaction -> {
+      try (final var res = session.query(builder.toString())) {
+        if (res.hasNext()) {
+          throw new DatabaseException(session,
+              "The database contains some schema-less data in the property '"
+                  + className
+                  + "."
+                  + propertyName
+                  + "' that is not compatible with the type "
+                  + type
+                  + ". Fix those records and change the schema again");
+        }
+      }
+    });
+
+    if (linkedClassName != null) {
+      checkAllLikedObjects(session, className, propertyName, type, linkedClassName);
+    }
+  }
+
+  private static void checkAllLikedObjects(
+      DatabaseSessionEmbedded db, String className, String propertyName, PropertyTypeInternal type,
+      String linkedClassName) {
+    final var builder = new StringBuilder(256);
+    builder.append("select from ");
+    builder.append(getEscapedName(className, true));
+    builder.append(" where ");
+    builder.append(getEscapedName(propertyName, true)).append(" is not null ");
+    if (type.isMultiValue()) {
+      builder.append(" and ").append(getEscapedName(propertyName, true)).append(".size() > 0");
+    }
+
+    db.executeInTx(tx -> {
+      try (final var res = tx.query(builder.toString())) {
+        while (res.hasNext()) {
+          var item = res.next();
+          switch (type) {
+            case EMBEDDEDLIST:
+            case LINKLIST:
+            case EMBEDDEDSET:
+            case LINKSET:
+              Collection<?> emb = item.getProperty(propertyName);
+              emb.stream()
+                  .filter(x -> !matchesType(db, x, linkedClassName))
+                  .findFirst()
+                  .ifPresent(
+                      x -> {
+                        throw new SchemaException(db.getDatabaseName(),
+                            "The database contains some schema-less data in the property '"
+                                + className
+                                + "."
+                                + propertyName
+                                + "' that is not compatible with the type "
+                                + type
+                                + " "
+                                + linkedClassName
+                                + ". Fix those records and change the schema again. "
+                                + x);
+                      });
+              break;
+            case EMBEDDED:
+            case LINK:
+              var elem = item.getProperty(propertyName);
+              if (!matchesType(db, elem, linkedClassName)) {
+                throw new SchemaException(db.getDatabaseName(),
+                    "The database contains some schema-less data in the property '"
+                        + className
+                        + "."
+                        + propertyName
+                        + "' that is not compatible with the type "
+                        + type
+                        + " "
+                        + linkedClassName
+                        + ". Fix those records and change the schema again!");
+              }
+              break;
+          }
+        }
+      }
+    });
+  }
+
+  private static boolean matchesType(DatabaseSessionEmbedded db, Object x,
+      String linkedClassName) {
+    if (x instanceof Result) {
+      x = ((Result) x).asEntity();
+    }
+    if (x instanceof RID) {
+      try {
+        var transaction = db.getActiveTransaction();
+        x = transaction.load(((RID) x));
+      } catch (RecordNotFoundException e) {
+        return true;
+      }
+    }
+    if (x == null) {
+      return true;
+    }
+    if (!(x instanceof Entity)) {
+      return false;
+    }
+    return !(x instanceof EntityImpl)
+        || linkedClassName.equalsIgnoreCase(((EntityImpl) x).getSchemaClassName());
+  }
+
+
+  private static String getEscapedName(final String iName, final boolean iStrictSQL) {
+    if (iStrictSQL)
+    // ESCAPE NAME
+    {
+      return "`" + iName + "`";
+    }
+    return iName;
+  }
+
+  public static void checkLinkTypeSupport(PropertyTypeInternal type) {
+    if (type != PropertyTypeInternal.EMBEDDEDSET && type != PropertyTypeInternal.EMBEDDEDLIST
+        && type != PropertyTypeInternal.EMBEDDEDMAP) {
+      throw new SchemaException("Linked type is not supported for type: " + type);
+    }
+  }
+
+
+  public static void checkSupportLinkedClass(PropertyTypeInternal type) {
+    if (type != PropertyTypeInternal.LINK
+        && type != PropertyTypeInternal.LINKSET
+        && type != PropertyTypeInternal.LINKLIST
+        && type != PropertyTypeInternal.LINKMAP
+        && type != PropertyTypeInternal.EMBEDDED
+        && type != PropertyTypeInternal.EMBEDDEDSET
+        && type != PropertyTypeInternal.EMBEDDEDLIST
+        && type != PropertyTypeInternal.EMBEDDEDMAP
+        && type != PropertyTypeInternal.LINKBAG) {
+      throw new SchemaException("Linked class is not supported for type: " + type);
+    }
+  }
+
+  private static void firePropertyTypeMigration(
+      @Nonnull final DatabaseSessionEmbedded session,
+      @Nonnull final String className,
+      @Nonnull final String propertyName,
+      @Nonnull final PropertyTypeInternal type) {
+    final var strictSQL =
+        session.getStorageInfo().getConfiguration().isStrictSql();
+
+    var recordsToUpdate = session.computeInTx(transaction -> {
+      try (var result =
+          session.query(
+              "select from "
+                  + getEscapedName(className, strictSQL)
+                  + " where "
+                  + getEscapedName(propertyName, strictSQL)
+                  + ".type() <> \""
+                  + type.name()
+                  + "\"")) {
+        return result.toRidList();
+      }
+    });
+
+    session.executeInTxBatches(recordsToUpdate, (s, rid) -> {
+      var entity = (EntityImpl) s.loadEntity(rid);
+      var value = entity.getPropertyInternal(propertyName);
+      if (value == null) {
+        return;
+      }
+
+      var valueType = PropertyTypeInternal.getTypeByValue(value);
+      if (valueType != type) {
+        entity.setPropertyInternal(propertyName, value, type);
+      }
+    });
+  }
+
+  private static void checkPersistentPropertiesOnTypeCompatibility(DatabaseSessionEmbedded session,
+      @Nonnull final String className,
+      @Nonnull final String propertyName,
+      @Nonnull final PropertyTypeInternal type,
+      @Nullable final PropertyTypeInternal linkedType,
+      @Nullable final String linkedClassName) {
+    checkPersistentPropertyType(session, className, propertyName, type, linkedClassName);
+
+    if (linkedType != null) {
+      checkLinkTypeSupport(type);
+    }
+    if (linkedClassName != null) {
+      checkSupportLinkedClass(type);
+    }
+
+    firePropertyTypeMigration(session, className, propertyName, type);
+  }
+
+
+  private static final class PropertyTypeMigrationTask implements DatabaseTask<Void> {
+
+    private static final Logger logger = LoggerFactory.getLogger(PropertyTypeMigrationTask.class);
+    @Nonnull
+    private final String className;
+    @Nonnull
+    private final String propertyName;
+    @Nonnull
+    private final PropertyTypeInternal type;
+    @Nullable
+    private final String linkedClassName;
+    @Nullable
+    private final PropertyTypeInternal linkedType;
+
+    private PropertyTypeMigrationTask(@Nonnull String className, @Nonnull String propertyName,
+        @Nonnull PropertyTypeInternal type,
+        @Nullable PropertyTypeInternal linkedType,
+        @Nullable String linkedClassName) {
+
+      this.className = className;
+      this.propertyName = propertyName;
+      this.type = type;
+      this.linkedType = linkedType;
+      this.linkedClassName = linkedClassName;
+    }
+
+    @Override
+    public Void call(DatabaseSessionEmbedded session) {
+      try {
+        checkPersistentPropertiesOnTypeCompatibility(session, className, propertyName, type,
+            linkedType, linkedClassName);
+        firePropertyTypeMigration(session, className, propertyName, type);
+      } catch (Exception e) {
+        logger.error("Error during migration of values of property {}.{}", className, propertyName,
+            e);
+      }
+
+      return null;
+    }
   }
 }
 

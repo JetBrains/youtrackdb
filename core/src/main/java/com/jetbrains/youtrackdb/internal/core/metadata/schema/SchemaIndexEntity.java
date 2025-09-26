@@ -15,7 +15,7 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 public class SchemaIndexEntity extends EntityImpl {
 
   public static final String NAME = "name";
-  public static final String CLASS_PROPERTIES_TO_INDEX = "classPropertiesToIndex";
+  public static final String PROPERTIES_TO_INDEX = "classPropertiesToIndex";
   public static final String CLASS_TO_INDEX = "classToIndex";
   public static final String METADATA = "metadata";
   public static final String COLLATE = "collate";
@@ -66,8 +66,8 @@ public class SchemaIndexEntity extends EntityImpl {
     return session.load(getLink(CLASS_TO_INDEX));
   }
 
-  public Iterator<ObjectObjectImmutablePair<SchemaPropertyEntity, String>> getClassPropertiesToIndexWithModifiers() {
-    var linkList = getLinkList(CLASS_PROPERTIES_TO_INDEX);
+  public Iterator<ObjectObjectImmutablePair<SchemaPropertyEntity, String>> getClassPropertiesWithModifiers() {
+    var linkList = getLinkList(PROPERTIES_TO_INDEX);
     return IteratorUtils.map(linkList.iterator(), identifiable -> {
       SchemaPropertyEntity property;
 
@@ -93,8 +93,8 @@ public class SchemaIndexEntity extends EntityImpl {
     });
   }
 
-  public Iterator<SchemaPropertyEntity> getClassPropertiesToIndex() {
-    var linkList = getLinkList(CLASS_PROPERTIES_TO_INDEX);
+  public Iterator<SchemaPropertyEntity> getClassProperties() {
+    var linkList = getLinkList(PROPERTIES_TO_INDEX);
     return IteratorUtils.map(linkList.iterator(), identifiable -> {
       SchemaPropertyEntity property;
 
@@ -109,7 +109,7 @@ public class SchemaIndexEntity extends EntityImpl {
   }
 
   public void addClassPropertyToIndex(@Nonnull SchemaPropertyEntity property) {
-    var linkList = getOrCreateLinkList(CLASS_PROPERTIES_TO_INDEX);
+    var linkList = getOrCreateLinkList(PROPERTIES_TO_INDEX);
     if (linkList.contains(property)) {
       return;
     }

@@ -25,9 +25,12 @@ import org.apache.commons.lang3.ArrayUtils;
 
 public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
-  public static final String CUSTOM_PROPERTIES_PROPERTY_NAME = "customProperties";
-  public static final String PARENT_CLASSES_PROPERTY_NAME = "parentClasses";
-  public static final String DECLARED_PROPERTIES_NAME = "declaredProperties";
+  public interface PropertyNames {
+
+    String CUSTOM_PROPERTIES = "customProperties";
+    String PARENT_CLASSES = "parentClasses";
+    String DECLARED_PROPERTIES = "declaredProperties";
+  }
 
   public SchemaClassEntity(@Nonnull RecordIdInternal recordId,
       @Nonnull DatabaseSessionEmbedded session) {
@@ -51,7 +54,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public boolean hasParentClasses() {
-    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     if (parentClasses == null) {
       return false;
     }
@@ -61,7 +64,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   public boolean hasSubClasses() {
     LinkBag subclasses = getPropertyInternal(
-        getOppositeLinkBagPropertyName(PARENT_CLASSES_PROPERTY_NAME));
+        getOppositeLinkBagPropertyName(PropertyNames.PARENT_CLASSES));
     if (subclasses == null) {
       return false;
     }
@@ -114,7 +117,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public Iterator<SchemaClassEntity> getParentClasses() {
-    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
 
     if (parentClasses == null) {
       return IteratorUtils.emptyIterator();
@@ -151,7 +154,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   public Iterator<SchemaClassEntity> getChildClasses() {
     LinkBag subclasses = getPropertyInternal(
-        getOppositeLinkBagPropertyName(PARENT_CLASSES_PROPERTY_NAME));
+        getOppositeLinkBagPropertyName(PropertyNames.PARENT_CLASSES));
     if (subclasses == null) {
       return IteratorUtils.emptyIterator();
     }
@@ -179,7 +182,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public boolean isEdgeType() {
-    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     if (parentClasses == null) {
       return false;
     }
@@ -189,7 +192,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public boolean isVertexType() {
-    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     if (parentClasses == null) {
       return false;
     }
@@ -213,12 +216,12 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
               + getName());
     }
 
-    var linkSet = getOrCreateLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var linkSet = getOrCreateLinkSet(PropertyNames.PARENT_CLASSES);
     linkSet.add(schemaClass);
   }
 
   public void removeParentClass(SchemaClassEntity schemaClass) {
-    var linkSet = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var linkSet = getLinkSet(PropertyNames.PARENT_CLASSES);
 
     if (linkSet != null) {
       linkSet.remove(schemaClass);
@@ -226,7 +229,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public boolean isChildClassOf(String className) {
-    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     if (parentClasses == null) {
       return false;
     }
@@ -258,7 +261,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public boolean isChildClassOf(SchemaClassEntity schemaClass) {
-    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     if (parentClasses == null) {
       return false;
     }
@@ -299,7 +302,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   @Nullable
   public String getCustomProperty(String name) {
-    var customProperties = this.<String>getEmbeddedMap(CUSTOM_PROPERTIES_PROPERTY_NAME);
+    var customProperties = this.<String>getEmbeddedMap(PropertyNames.CUSTOM_PROPERTIES);
 
     if (customProperties == null) {
       return null;
@@ -309,12 +312,12 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public void setCustomProperty(String name, String value) {
-    var customProperties = this.<String>getOrCreateEmbeddedMap(CUSTOM_PROPERTIES_PROPERTY_NAME);
+    var customProperties = this.<String>getOrCreateEmbeddedMap(PropertyNames.CUSTOM_PROPERTIES);
     customProperties.put(name, value);
   }
 
   public void removeCustomProperty(String name) {
-    var customProperties = this.<String>getEmbeddedMap(CUSTOM_PROPERTIES_PROPERTY_NAME);
+    var customProperties = this.<String>getEmbeddedMap(PropertyNames.CUSTOM_PROPERTIES);
 
     if (customProperties == null) {
       return;
@@ -324,12 +327,12 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public void clearCustomProperties() {
-    removeProperty(CUSTOM_PROPERTIES_PROPERTY_NAME);
+    removeProperty(PropertyNames.CUSTOM_PROPERTIES);
   }
 
   public Set<String> customPropertyNames() {
     var customProperties = this.<Map<String, String>>getEmbeddedMap(
-        CUSTOM_PROPERTIES_PROPERTY_NAME);
+        PropertyNames.CUSTOM_PROPERTIES);
     if (customProperties == null) {
       return Collections.emptySet();
     }
@@ -359,7 +362,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public Iterator<SchemaPropertyEntity> getDeclaredProperties(String... name) {
-    var declaredPropertiesLinks = getLinkSet(DECLARED_PROPERTIES_NAME);
+    var declaredPropertiesLinks = getLinkSet(PropertyNames.DECLARED_PROPERTIES);
 
     if (declaredPropertiesLinks == null) {
       return IteratorUtils.emptyIterator();
@@ -379,7 +382,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   @Nullable
   public SchemaPropertyEntity getDeclaredProperty(String name) {
-    var declaredProperties = getLinkSet(DECLARED_PROPERTIES_NAME);
+    var declaredProperties = getLinkSet(PropertyNames.DECLARED_PROPERTIES);
 
     if (declaredProperties == null) {
       return null;
@@ -415,7 +418,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return processedProperties.values();
     }
 
-    Set<Identifiable> parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    Set<Identifiable> parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     Set<Identifiable> nextParentClasses = new HashSet<>();
 
     while (!parentClasses.isEmpty()) {
@@ -439,7 +442,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
           return processedProperties.values();
         }
 
-        var parentParentClasses = parentClass.getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+        var parentParentClasses = parentClass.getLinkSet(PropertyNames.PARENT_CLASSES);
         nextParentClasses.addAll(parentParentClasses);
       }
 
@@ -457,7 +460,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return property;
     }
 
-    Set<Identifiable> parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    Set<Identifiable> parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     Set<Identifiable> nextParentClasses = new HashSet<>();
 
     while (!parentClasses.isEmpty()) {
@@ -474,7 +477,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
           return property;
         }
 
-        var parentParentClasses = parentClass.getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+        var parentParentClasses = parentClass.getLinkSet(PropertyNames.PARENT_CLASSES);
         nextParentClasses.addAll(parentParentClasses);
       }
 
@@ -486,7 +489,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public boolean existsSchemaProperty(String name) {
-    var declaredProperties = getLinkSet(DECLARED_PROPERTIES_NAME);
+    var declaredProperties = getLinkSet(PropertyNames.DECLARED_PROPERTIES);
     if (declaredProperties == null) {
       return false;
     }
@@ -504,7 +507,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       }
     }
 
-    var parentClasses = getLinkSet(PARENT_CLASSES_PROPERTY_NAME);
+    var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     if (parentClasses == null) {
       return false;
     }
@@ -526,12 +529,12 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public void addSchemaProperty(SchemaPropertyEntity property) {
-    var declaredPropertiesLinks = getOrCreateLinkSet(DECLARED_PROPERTIES_NAME);
+    var declaredPropertiesLinks = getOrCreateLinkSet(PropertyNames.DECLARED_PROPERTIES);
     declaredPropertiesLinks.add(property);
   }
 
   public void removeSchemaProperty(SchemaPropertyEntity property) {
-    var declaredPropertiesLinks = getLinkSet(DECLARED_PROPERTIES_NAME);
+    var declaredPropertiesLinks = getLinkSet(PropertyNames.DECLARED_PROPERTIES);
 
     if (declaredPropertiesLinks != null) {
       declaredPropertiesLinks.remove(property);
@@ -549,7 +552,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   public Iterator<SchemaIndexEntity> getInvolvedIndexes() {
     var involvedIndexesPropertyName = getOppositeLinkBagPropertyName(
-        SchemaIndexEntity.CLASS_PROPERTIES_TO_INDEX);
+        SchemaIndexEntity.PROPERTIES_TO_INDEX);
     LinkBag involvedIndexes = getPropertyInternal(involvedIndexesPropertyName);
     if (involvedIndexes == null) {
       return Collections.emptyIterator();
