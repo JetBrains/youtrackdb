@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
@@ -25,11 +24,16 @@ import org.apache.commons.lang3.ArrayUtils;
 
 
 public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
-
   public interface PropertyNames {
+
+    String NAME = "name";
+    String DESCRIPTION = "description";
     String CUSTOM_PROPERTIES = "customProperties";
     String PARENT_CLASSES = "parentClasses";
     String DECLARED_PROPERTIES = "declaredProperties";
+    String ABSTRACT_CLASS = "abstractClass";
+    String STRICT_MODE = "strictMode";
+    String COLLECTION_IDS = "collectionIds";
   }
 
   public SchemaClassEntity(@Nonnull RecordIdInternal recordId,
@@ -38,19 +42,21 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public boolean isAbstractClass() {
-    return getBoolean(YTDBSchemaClassPTokenInternal.abstractClass.name());
+    var isAbstract = getBoolean(PropertyNames.ABSTRACT_CLASS);
+    return Boolean.TRUE.equals(isAbstract);
   }
 
   public void setAbstractClass(boolean value) {
-    setBoolean(YTDBSchemaClassPTokenInternal.abstractClass.name(), value);
+    setBoolean(PropertyNames.ABSTRACT_CLASS, value);
   }
 
   public boolean isStrictMode() {
-    return getBoolean(YTDBSchemaClassPTokenInternal.strictMode.name());
+    var setStrictMode = getBoolean(PropertyNames.STRICT_MODE);
+    return Boolean.TRUE.equals(setStrictMode);
   }
 
   public void setStrictMode(boolean value) {
-    setBoolean(YTDBSchemaClassPTokenInternal.strictMode.name(), value);
+    setBoolean(PropertyNames.STRICT_MODE, value);
   }
 
   public boolean hasParentClasses() {
@@ -73,32 +79,32 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public String getName() {
-    return getString(YTDBSchemaClassPTokenInternal.name.name());
+    return getString(PropertyNames.NAME);
   }
 
   public void setName(String name) {
     SchemaManager.checkClassNameIfValid(name);
-    setString(YTDBSchemaClassPTokenInternal.name.name(), name);
+    setString(PropertyNames.NAME, name);
   }
 
   public String getDescription() {
-    return getString(YTDBSchemaClassPTokenInternal.description.name());
+    return getString(PropertyNames.DESCRIPTION);
   }
 
   public void setDescription(String description) {
-    setString(YTDBSchemaClassPTokenInternal.description.name(), description);
+    setString(PropertyNames.DESCRIPTION, description);
   }
 
   public void setCollectionIds(@Nonnull List<StorageComponentId> collectionIds) {
-    newEmbeddedList(YTDBSchemaClassPTokenInternal.collectionIds.name(), collectionIds);
+    newEmbeddedList(PropertyNames.COLLECTION_IDS, collectionIds);
   }
 
   public List<StorageComponentId> getCollectionIds() {
-    return getEmbeddedList(YTDBSchemaClassPTokenInternal.collectionIds.name());
+    return getEmbeddedList(PropertyNames.COLLECTION_IDS);
   }
 
   public void clearCollectionIds() {
-    removeProperty(YTDBSchemaClassPTokenInternal.collectionIds.name());
+    removeProperty(PropertyNames.COLLECTION_IDS);
   }
 
   public Set<StorageComponentId> getPolymorphicCollectionIds() {
