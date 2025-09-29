@@ -316,22 +316,22 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     validateMinEntity();
   }
 
-  public boolean isNameChangedInCallback() {
+  public boolean isNameChangedBetweenCallbacks() {
     var entry = properties.get(PropertyNames.NAME);
     return entry != null && entry.isChanged();
   }
 
-  public boolean isPropertyTypeChangedInCallback() {
+  public boolean isPropertyTypeChangedBetweenCallbacks() {
     var entry = properties.get(PropertyNames.TYPE);
     return entry != null && entry.isChanged();
   }
 
-  public boolean isLinkedTypeChangedInCallback() {
+  public boolean isLinkedTypeChangedBetweenCallbacks() {
     var entry = properties.get(PropertyNames.LINKED_TYPE);
     return entry != null && entry.isChanged();
   }
 
-  public boolean isLinkedClassChangedInCallback() {
+  public boolean isLinkedClassChangedBetweenCallbacks() {
     var entry = properties.get(PropertyNames.LINKED_CLASS);
     return entry != null && entry.isChanged();
   }

@@ -977,11 +977,22 @@ public final class SchemaManager {
       return;
     }
 
-    if (entity.isPropertyTypeChangedInCallback() || entity.isNameChangedInCallback()) {
+    if (entity.isPropertyTypeChangedBetweenCallbacks()) {
+      var originalPropertyType = PropertyTypeInternal.valueOf(
+          entity.getOriginalValue(SchemaPropertyEntity.PropertyNames.TYPE).toString());
+      var propertyType = entity.getPropertyType();
+
+      if (!propertyType.getCastable()
+          .contains(originalPropertyType)) {
+        throw new DatabaseException(session,
+            "Cannot change property type from " + originalPropertyType + " to " + propertyType);
+      }
+    }
+    if (entity.isPropertyTypeChangedBetweenCallbacks() || entity.isNameChangedBetweenCallbacks()) {
       updateGlobalPropertyLink(session, entity);
     }
 
-    if (entity.isNameChangedInCallback()) {
+    if (entity.isNameChangedBetweenCallbacks()) {
       var declaringClass = entity.getDeclaringClass();
       var className = declaringClass.getName();
       var propertyName = entity.getName();
@@ -991,8 +1002,9 @@ public final class SchemaManager {
           (String) entity.getOriginalValue(SchemaPropertyEntity.PropertyNames.NAME);
 
       firePropertyNameMigration(session, className, originalPropertyName, propertyName, type);
-    } else if (entity.isPropertyTypeChangedInCallback()
-        || entity.isLinkedTypeChangedInCallback() || entity.isLinkedClassChangedInCallback()) {
+    } else if (entity.isPropertyTypeChangedBetweenCallbacks()
+        || entity.isLinkedTypeChangedBetweenCallbacks()
+        || entity.isLinkedClassChangedBetweenCallbacks()) {
       var declaringClass = entity.getDeclaringClass();
       var linkedClass = entity.getLinkedClass();
       String linkedClassName;

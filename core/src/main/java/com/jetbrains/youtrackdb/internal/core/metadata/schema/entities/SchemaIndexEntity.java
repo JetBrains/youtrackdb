@@ -14,13 +14,12 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 
-public class SchemaIndexEntity extends EntityImpl {
+public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
 
   public static final String NAME = "name";
   public static final String PROPERTIES_TO_INDEX = "classPropertiesToIndex";
   public static final String CLASS_TO_INDEX = "classToIndex";
   public static final String METADATA = "metadata";
-  public static final String COLLATE = "collate";
   public static final String NULL_VALUES_IGNORED = "nullValuesIgnored";
   public static final String INDEX_TYPE = "indexType";
 
@@ -147,14 +146,6 @@ public class SchemaIndexEntity extends EntityImpl {
 
   public Map<String, Object> getMetadata() {
     return getEmbeddedMap(METADATA);
-  }
-
-  public void setCollate(String collate) {
-    setString(COLLATE, collate);
-  }
-
-  public String getCollate() {
-    return getString(COLLATE);
   }
 
   public boolean isNullValuesIgnored() {
