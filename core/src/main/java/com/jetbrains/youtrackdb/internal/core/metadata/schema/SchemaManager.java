@@ -988,7 +988,17 @@ public final class SchemaManager {
       updateGlobalPropertyLink(session, entity);
     }
 
-    if (entity.isPropertyTypeChangedInCallback()
+    if (entity.isNameChangedInCallback()) {
+      var declaringClass = entity.getDeclaringClass();
+      var className = declaringClass.getName();
+      var propertyName = entity.getName();
+      var type = entity.getPropertyType();
+
+      var originalPropertyName =
+          (String) entity.getOriginalValue(SchemaPropertyEntity.PropertyNames.NAME);
+
+      firePropertyNameMigration(session, className, originalPropertyName, propertyName, type);
+    } else if (entity.isPropertyTypeChangedInCallback()
         || entity.isLinkedTypeChangedInCallback() || entity.isLinkedClassChangedInCallback()) {
       var declaringClass = entity.getDeclaringClass();
       var linkedClass = entity.getLinkedClass();
@@ -1175,6 +1185,19 @@ public final class SchemaManager {
       var valueType = PropertyTypeInternal.getTypeByValue(value);
       if (valueType != type) {
         entity.setPropertyInternal(propertyName, value, type);
+      }
+    }
+  }
+
+  private static void firePropertyNameMigration(@Nonnull final DatabaseSessionEmbedded session,
+      @Nonnull String schemaClassName, @Nonnull final String originalPropertyName,
+      @Nonnull String newPropertyName, @Nonnull PropertyTypeInternal type) {
+    var classIterator = new RecordIteratorClass(session, schemaClassName, true, true);
+    while (classIterator.hasNext()) {
+      var entity = classIterator.next();
+      if (entity.hasProperty(originalPropertyName)) {
+        entity.setPropertyInternal(newPropertyName,
+            entity.getPropertyInternal(originalPropertyName), type);
       }
     }
   }
