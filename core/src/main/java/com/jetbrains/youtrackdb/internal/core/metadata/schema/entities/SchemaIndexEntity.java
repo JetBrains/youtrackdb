@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
@@ -11,7 +12,7 @@ import java.util.Iterator;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
+
 
 public class SchemaIndexEntity extends EntityImpl {
 
@@ -69,7 +70,7 @@ public class SchemaIndexEntity extends EntityImpl {
 
   public Iterator<ObjectObjectImmutablePair<SchemaPropertyEntity, String>> getClassPropertiesWithModifiers() {
     var linkList = getLinkList(PROPERTIES_TO_INDEX);
-    return IteratorUtils.map(linkList.iterator(), identifiable -> {
+    return YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
       SchemaPropertyEntity property;
 
       if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {
@@ -96,7 +97,7 @@ public class SchemaIndexEntity extends EntityImpl {
 
   public Iterator<SchemaPropertyEntity> getClassProperties() {
     var linkList = getLinkList(PROPERTIES_TO_INDEX);
-    return IteratorUtils.map(linkList.iterator(), identifiable -> {
+    return YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
       SchemaPropertyEntity property;
 
       if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {

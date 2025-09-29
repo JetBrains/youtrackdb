@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -130,14 +131,14 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return IteratorUtils.emptyIterator();
     }
 
-    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(parentClasses.iterator(),
+    return IteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(parentClasses.iterator(),
         identifiable -> {
           if (identifiable instanceof SchemaClassEntity schemaClassEntity) {
             return schemaClassEntity;
           }
           return session.load(identifiable.getIdentity());
         }
-    );
+    ));
   }
 
 
@@ -166,8 +167,8 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return IteratorUtils.emptyIterator();
     }
 
-    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(subclasses.iterator(),
-        session::load);
+    return IteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(subclasses.iterator(),
+        session::load));
   }
 
   public Set<SchemaClassEntity> getDescendants() {
@@ -216,22 +217,21 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     schemaClass.removeParentClass(this);
   }
 
-  public void addParentClass(@Nonnull SchemaClassEntity schemaClass) {
-    if (schemaClass.isChildClassOf(this)) {
+  public void addParentClass(@Nonnull SchemaClassEntity parentClass) {
+    if (parentClass.isChildClassOf(this)) {
       throw new DatabaseException(session,
-          "Recursion detected. Class : " + schemaClass.getName() + " is already a child of class "
+          "Recursion detected. Class : " + parentClass.getName() + " is already a child of class "
               + getName());
     }
 
     var linkSet = getOrCreateLinkSet(PropertyNames.PARENT_CLASSES);
-    linkSet.add(schemaClass);
+    linkSet.add(parentClass);
   }
 
-  public void removeParentClass(SchemaClassEntity schemaClass) {
+  public void removeParentClass(SchemaClassEntity parentClass) {
     var linkSet = getLinkSet(PropertyNames.PARENT_CLASSES);
-
     if (linkSet != null) {
-      linkSet.remove(schemaClass);
+      linkSet.remove(parentClass);
     }
   }
 
@@ -375,7 +375,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return IteratorUtils.emptyIterator();
     }
 
-    Iterator<SchemaPropertyEntity> properties = org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(
+    Iterator<SchemaPropertyEntity> properties = YTDBIteratorUtils.map(
         declaredPropertiesLinks.iterator(),
         identifiable -> session.load(identifiable.getIdentity()));
 
@@ -383,7 +383,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return properties;
     }
 
-    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.filter(properties,
+    return YTDBIteratorUtils.filter(properties,
         property -> ArrayUtils.contains(name, property.getName()));
   }
 
@@ -565,8 +565,8 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return Collections.emptyIterator();
     }
 
-    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(involvedIndexes.iterator(),
-        session::load);
+    return IteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(involvedIndexes.iterator(),
+        session::load));
   }
 
   public boolean isNameChangedInCallback() {
@@ -576,6 +576,11 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   public boolean isAbstractChangedInCallback() {
     var property = properties.get(PropertyNames.ABSTRACT_CLASS);
+    return property != null && property.isChanged();
+  }
+
+  public boolean isParentClassesChangedInCallback() {
+    var property = properties.get(PropertyNames.PARENT_CLASSES);
     return property != null && property.isChanged();
   }
 }

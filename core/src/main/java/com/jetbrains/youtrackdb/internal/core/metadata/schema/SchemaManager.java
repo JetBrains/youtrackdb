@@ -12,7 +12,6 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
@@ -593,14 +592,6 @@ public final class SchemaManager {
     classEntity.delete();
   }
 
-  private static void dropClassIndexes(@Nonnull final SchemaClassEntity cls) {
-    var involvedIndexes = cls.getInvolvedIndexes();
-    while (involvedIndexes.hasNext()) {
-      var indexEntity = involvedIndexes.next();
-      indexEntity.delete();
-    }
-  }
-
   public static void onSchemaBeforeClassCreate(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaClassEntity entity) {
     int collectionsCount;
@@ -655,9 +646,7 @@ public final class SchemaManager {
       return;
     }
 
-    var dirtyFields = entity.getDirtyPropertiesBetweenCallbacks();
     var transaction = session.getActiveTransaction();
-
     if (entity.isNameChangedInCallback()) {
       var originalValue = entity.getOriginalValue(SchemaClassEntity.PropertyNames.NAME);
 
@@ -712,7 +701,13 @@ public final class SchemaManager {
           "Class " + entity.getName() + " has sub-classes and can not be deleted");
     }
 
-    dropClassIndexes(entity);
+    var properties = entity.getDeclaredProperties();
+
+    while (properties.hasNext()) {
+      var property = properties.next();
+      property.validate();
+      property.delete();
+    }
 
     var activeTransaction = session.getActiveTransaction();
     var schemaClassNameIndex = session.getIndex(SCHEMA_CLASS_NAME_INDEX);
@@ -726,12 +721,11 @@ public final class SchemaManager {
 
   public static void onSchemaClassBeforeCommit(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaClassEntity entity, RecordOperation recordOperation) {
-    var dirtyProperties = entity.getDirtyProperties();
     var transaction = session.getActiveTransaction();
 
     if (recordOperation.type == RecordOperation.CREATED
         || recordOperation.type == RecordOperation.UPDATED) {
-      if (dirtyProperties.contains(YTDBSchemaClassOutTokenInternal.superClass.name())) {
+      if (entity.isParentClassesChangedInCallback()) {
         var superClasses = entity.getParentClasses();
         checkParametersConflict(superClasses);
       }

@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
@@ -295,8 +296,8 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
       return IteratorUtils.emptyIterator();
     }
 
-    return org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(
-        involvedIndexes.iterator(), session::load);
+    return IteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(
+        involvedIndexes.iterator(), session::load));
   }
 
   @Override
