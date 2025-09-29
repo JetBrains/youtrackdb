@@ -1,8 +1,9 @@
-package com.jetbrains.youtrackdb.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.ObjectObjectImmutablePair;

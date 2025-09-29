@@ -19,6 +19,10 @@ import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaGlobalPropertyEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityPolicy;
@@ -45,6 +49,7 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.jspecify.annotations.NonNull;
 
 public final class SchemaManager {
+
   public static final int CURRENT_VERSION_NUMBER = 5;
 
   public static final String SCHEMA_CLASS_NAME_INDEX = "$SchemaClassNameIndex";
@@ -941,7 +946,7 @@ public final class SchemaManager {
     }
   }
 
-  public static void onSchemaBeforeIndexCreate(@Nonnull DatabaseSessionEmbedded session,
+  public static void onSchemaIndexBeforeCreate(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaIndexEntity entity) {
     try {
       entity.validate();
@@ -981,8 +986,28 @@ public final class SchemaManager {
       return;
     }
 
-    if (entity.isPropertyTypeChanged() || entity.isNameChanged()) {
+    if (entity.isPropertyTypeChangedInCallback() || entity.isNameChangedInCallback()) {
       updateGlobalPropertyLink(session, entity);
+    }
+    if (entity.isPropertyTypeChangedInCallback()
+        || entity.isLinkedTypeChangedInCallback() || entity.isLinkedClassChangedInCallback()) {
+      var declaringClass = entity.getDeclaringClass();
+      var linkedClass = entity.getLinkedClass();
+      String linkedClassName;
+      if (linkedClass != null) {
+        linkedClassName = linkedClass.getName();
+      } else {
+        linkedClassName = null;
+      }
+
+      var className = declaringClass.getName();
+      var propertyName = entity.getName();
+      var type = entity.getPropertyType();
+
+      checkPersistentPropertiesOnTypeCompatibility(session, className,
+          propertyName, type, entity.getLinkedPropertyType(),
+          linkedClassName);
+      firePropertyTypeMigration(session, className, propertyName, type);
     }
   }
 
@@ -991,32 +1016,6 @@ public final class SchemaManager {
     var globalProperty = findOrCreateGlobalProperty(session, entity.getName(),
         entity.getPropertyType());
     entity.setGlobalPropertyLink(globalProperty);
-  }
-
-  public static void onSchemaPropertyAfterCommit(@Nonnull DatabaseSessionEmbedded session,
-      @Nonnull SchemaPropertyEntity property, RecordOperation recordOperation) {
-    if (recordOperation.type == RecordOperation.UPDATED) {
-      if (property.isPropertyTypeChanged()
-          || property.isLinkedTypeChanged() || property.isLinkedClassChanged()) {
-        var declaringClass = property.getDeclaringClass();
-        var linkedClass = property.getLinkedClass();
-        String linkedClassName;
-        if (linkedClass != null) {
-          linkedClassName = linkedClass.getName();
-        } else {
-          linkedClassName = null;
-        }
-
-        var className = declaringClass.getName();
-        var propertyName = property.getName();
-        var type = property.getPropertyType();
-
-        checkPersistentPropertiesOnTypeCompatibility(session, className,
-            propertyName, type, property.getLinkedPropertyType(),
-            linkedClassName);
-        firePropertyTypeMigration(session, className, propertyName, type);
-      }
-    }
   }
 
   public enum INDEX_TYPE {

@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 
 import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
@@ -10,6 +10,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -19,7 +21,6 @@ import org.apache.commons.collections4.IteratorUtils;
 public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
 
   public interface PropertyNames {
-
     String CUSTOM_PROPERTIES = "customProperties";
     String GLOBAL_PROPERTY = "globalProperty";
     String NAME = "name";
@@ -314,24 +315,24 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     validateMinEntity();
   }
 
-  public boolean isNameChanged() {
+  public boolean isNameChangedInCallback() {
     var entry = properties.get(PropertyNames.NAME);
-    return entry != null && entry.isTxChanged();
+    return entry != null && entry.isChanged();
   }
 
-  public boolean isPropertyTypeChanged() {
+  public boolean isPropertyTypeChangedInCallback() {
     var entry = properties.get(PropertyNames.TYPE);
-    return entry != null && entry.isTxChanged();
+    return entry != null && entry.isChanged();
   }
 
-  public boolean isLinkedTypeChanged() {
+  public boolean isLinkedTypeChangedInCallback() {
     var entry = properties.get(PropertyNames.LINKED_TYPE);
-    return entry != null && entry.isTxChanged();
+    return entry != null && entry.isChanged();
   }
 
-  public boolean isLinkedClassChanged() {
+  public boolean isLinkedClassChangedInCallback() {
     var entry = properties.get(PropertyNames.LINKED_CLASS);
-    return entry != null && entry.isTxChanged();
+    return entry != null && entry.isChanged();
   }
 
   private void validateMinEntity() {

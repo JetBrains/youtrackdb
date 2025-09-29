@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import javax.annotation.Nonnull;
 
 /**

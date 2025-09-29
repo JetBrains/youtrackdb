@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbs
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;

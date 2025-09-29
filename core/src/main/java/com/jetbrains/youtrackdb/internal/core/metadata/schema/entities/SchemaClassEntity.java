@@ -1,4 +1,4 @@
-package com.jetbrains.youtrackdb.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Collections;
@@ -26,7 +27,6 @@ import org.apache.commons.lang3.ArrayUtils;
 public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   public interface PropertyNames {
-
     String CUSTOM_PROPERTIES = "customProperties";
     String PARENT_CLASSES = "parentClasses";
     String DECLARED_PROPERTIES = "declaredProperties";

@@ -100,12 +100,12 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryI
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaGlobalPropertyEntity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaGlobalPropertyEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.ImmutableUser;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryptionNone;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;

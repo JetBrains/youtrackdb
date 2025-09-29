@@ -5,9 +5,8 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbstract;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassEntity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyEntity;
-
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;

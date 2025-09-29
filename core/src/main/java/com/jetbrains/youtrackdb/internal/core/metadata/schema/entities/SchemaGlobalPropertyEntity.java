@@ -1,7 +1,8 @@
-package com.jetbrains.youtrackdb.internal.core.metadata.schema;
+package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
