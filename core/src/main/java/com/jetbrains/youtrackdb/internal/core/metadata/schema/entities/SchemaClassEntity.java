@@ -24,6 +24,7 @@ import org.apache.commons.lang3.ArrayUtils;
 
 
 public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
+
   public interface PropertyNames {
 
     String NAME = "name";
@@ -568,4 +569,13 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
         session::load);
   }
 
+  public boolean isNameChangedInCallback() {
+    var property = properties.get(PropertyNames.NAME);
+    return property != null && property.isChanged();
+  }
+
+  public boolean isAbstractChangedInCallback() {
+    var property = properties.get(PropertyNames.ABSTRACT_CLASS);
+    return property != null && property.isChanged();
+  }
 }

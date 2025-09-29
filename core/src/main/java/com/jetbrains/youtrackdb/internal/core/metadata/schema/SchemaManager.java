@@ -13,7 +13,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassOutTokenInternal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
@@ -659,9 +658,8 @@ public final class SchemaManager {
     var dirtyFields = entity.getDirtyPropertiesBetweenCallbacks();
     var transaction = session.getActiveTransaction();
 
-    var schemaClassNameProperty = YTDBSchemaClassPTokenInternal.name.name();
-    if (dirtyFields.contains(schemaClassNameProperty)) {
-      var originalValue = entity.getOriginalValue(schemaClassNameProperty);
+    if (entity.isNameChangedInCallback()) {
+      var originalValue = entity.getOriginalValue(SchemaClassEntity.PropertyNames.NAME);
 
       var className = entity.getName();
 
@@ -671,7 +669,7 @@ public final class SchemaManager {
       schemaClassNameIndex.put(activeTransaction, className, entity.getIdentity());
     }
 
-    if (dirtyFields.contains(YTDBSchemaClassPTokenInternal.abstractClass.name())) {
+    if (entity.isAbstractChangedInCallback()) {
       if (entity.isAbstractClass()) {
         var collectionIds = entity.getCollectionIds();
 
@@ -989,6 +987,7 @@ public final class SchemaManager {
     if (entity.isPropertyTypeChangedInCallback() || entity.isNameChangedInCallback()) {
       updateGlobalPropertyLink(session, entity);
     }
+
     if (entity.isPropertyTypeChangedInCallback()
         || entity.isLinkedTypeChangedInCallback() || entity.isLinkedClassChangedInCallback()) {
       var declaringClass = entity.getDeclaringClass();
