@@ -70,44 +70,47 @@ public class SchemaIndexEntity extends EntityImpl {
 
   public Iterator<ObjectObjectImmutablePair<SchemaPropertyEntity, String>> getClassPropertiesWithModifiers() {
     var linkList = getLinkList(PROPERTIES_TO_INDEX);
-    return YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
-      SchemaPropertyEntity property;
+    return YTDBIteratorUtils.unmodifiableIterator(
+        YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
+          SchemaPropertyEntity property;
 
-      if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {
-        property = schemaPropertyEntity;
-      } else {
-        property = session.load(identifiable.getIdentity());
-      }
+          if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {
+            property = schemaPropertyEntity;
+          } else {
+            property = session.load(identifiable.getIdentity());
+          }
 
-      var metadataMap = this.getEmbeddedMap(METADATA);
-      if (metadataMap != null && metadataMap.containsKey(PROPERTY_MODIFIERS_METADATA)) {
-        @SuppressWarnings("unchecked")
-        var valueModifierMap = (Map<String, String>) metadataMap.get(PROPERTY_MODIFIERS_METADATA);
-        var valueModifier = valueModifierMap.get(property.getName());
-        if (valueModifier != null) {
-          return ObjectObjectImmutablePair.of(property, valueModifier);
-        } else {
-          return ObjectObjectImmutablePair.of(property, "");
-        }
-      } else {
-        return ObjectObjectImmutablePair.of(property, "");
-      }
-    });
+          var metadataMap = this.getEmbeddedMap(METADATA);
+          if (metadataMap != null && metadataMap.containsKey(PROPERTY_MODIFIERS_METADATA)) {
+            @SuppressWarnings("unchecked")
+            var valueModifierMap = (Map<String, String>) metadataMap.get(
+                PROPERTY_MODIFIERS_METADATA);
+            var valueModifier = valueModifierMap.get(property.getName());
+            if (valueModifier != null) {
+              return ObjectObjectImmutablePair.of(property, valueModifier);
+            } else {
+              return ObjectObjectImmutablePair.of(property, "");
+            }
+          } else {
+            return ObjectObjectImmutablePair.of(property, "");
+          }
+        }));
   }
 
   public Iterator<SchemaPropertyEntity> getClassProperties() {
     var linkList = getLinkList(PROPERTIES_TO_INDEX);
-    return YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
-      SchemaPropertyEntity property;
+    return YTDBIteratorUtils.unmodifiableIterator(
+        YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
+          SchemaPropertyEntity property;
 
-      if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {
-        property = schemaPropertyEntity;
-      } else {
-        property = session.load(identifiable.getIdentity());
-      }
+          if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {
+            property = schemaPropertyEntity;
+          } else {
+            property = session.load(identifiable.getIdentity());
+          }
 
-      return property;
-    });
+          return property;
+        }));
   }
 
   public void addClassPropertyToIndex(@Nonnull SchemaPropertyEntity property) {

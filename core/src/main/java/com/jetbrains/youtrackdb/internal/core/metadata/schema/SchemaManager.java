@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.api.exception.ValidationException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -521,15 +522,13 @@ public final class SchemaManager {
   }
 
   public static Set<String> getClassIndexNames(@Nonnull SchemaClassEntity schemaClassEntity) {
-    //noinspection unchecked
-    return (Set<String>) IteratorUtils.asSet(
+    return YTDBIteratorUtils.set(
         IteratorUtils.map(schemaClassEntity.getInvolvedIndexes(), SchemaIndexEntity::getName));
   }
 
-  public static Set<SchemaClassEntity> getClassIndexes(
+  public static Set<SchemaIndexEntity> getClassIndexes(
       @Nonnull SchemaClassEntity schemaClassEntity) {
-    //noinspection unchecked
-    return (Set<SchemaClassEntity>) IteratorUtils.asSet(schemaClassEntity.getInvolvedIndexes());
+    return YTDBIteratorUtils.set(schemaClassEntity.getInvolvedIndexes());
   }
 
   @Nullable
@@ -551,7 +550,7 @@ public final class SchemaManager {
 
     var globalPropertyIterator = new RecordIteratorCollection<SchemaGlobalPropertyEntity>(session,
         globalPropertyCollectionId, true);
-    return IteratorUtils.list(globalPropertyIterator);
+    return YTDBIteratorUtils.list(globalPropertyIterator);
   }
 
   static SchemaGlobalPropertyEntity findOrCreateGlobalProperty(
@@ -890,8 +889,8 @@ public final class SchemaManager {
     var security = database.getSharedContext().getSecurity();
 
     var indexClass = schemaIndexEntity.getName();
-    var indexedProperties = IteratorUtils.asSet(
-        IteratorUtils.map(schemaIndexEntity.getClassProperties(),
+    var indexedProperties = YTDBIteratorUtils.set(
+        YTDBIteratorUtils.map(schemaIndexEntity.getClassProperties(),
             SchemaPropertyEntity::getName
         )
     );
@@ -1037,7 +1036,7 @@ public final class SchemaManager {
     var classIterator = new RecordIteratorClass(session, className, true, true);
     var castableTypes = type.getCastable();
 
-    var entities = IteratorUtils.filter(classIterator, entity -> {
+    var entities = YTDBIteratorUtils.filter(classIterator, entity -> {
       var propertyType = entity.getPropertyTypeInternal(propertyName);
       return propertyType != null && !castableTypes.contains(propertyType);
     });
@@ -1063,7 +1062,7 @@ public final class SchemaManager {
       PropertyTypeInternal type,
       String linkedClassName) {
     var classIterator = new RecordIteratorClass(session, className, true, true);
-    var entities = IteratorUtils.filter(classIterator, entity -> {
+    var entities = YTDBIteratorUtils.filter(classIterator, entity -> {
       var value = entity.getPropertyInternal(propertyName);
       return value != null && (!MultiValue.isMultiValue(value) || !MultiValue.isEmpty(value));
     });
@@ -1164,7 +1163,7 @@ public final class SchemaManager {
       @Nonnull final String propertyName,
       @Nonnull final PropertyTypeInternal type) {
     var classIterator = new RecordIteratorClass(session, className, true, true);
-    var entities = IteratorUtils.filter(classIterator, entity -> {
+    var entities = YTDBIteratorUtils.filter(classIterator, entity -> {
       var propertyType = entity.getPropertyTypeInternal(propertyName);
       return propertyType != type;
     });

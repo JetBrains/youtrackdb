@@ -296,7 +296,7 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
       return IteratorUtils.emptyIterator();
     }
 
-    return IteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(
+    return YTDBIteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(
         involvedIndexes.iterator(), session::load));
   }
 

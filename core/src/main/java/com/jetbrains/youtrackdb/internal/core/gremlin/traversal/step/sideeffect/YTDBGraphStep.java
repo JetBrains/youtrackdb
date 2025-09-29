@@ -4,11 +4,13 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.query.Result;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -26,7 +28,6 @@ import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.DefaultCloseableIterator;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
-import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.apache.tinkerpop.gremlin.util.iterator.MultiIterator;
 
 public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
@@ -101,7 +102,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
 
     if (this.ids != null && this.ids.length > 0) {
       /* Got some element IDs, so just get the elements using those */
-      return IteratorUtils.filter(
+      return YTDBIteratorUtils.filter(
           getElementsByIds.apply(graph, this.ids),
           element -> HasContainer.testAll(element, this.hasContainers)
       );
@@ -147,8 +148,8 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
         var tx = graph.tx();
         var session = tx.getDatabaseSession();
 
-        return IteratorUtils.map(
-            SchemaManager.getSchemaClassEntities(session),
+        return YTDBIteratorUtils.map(
+            SchemaManager.getClasses(session).iterator(),
             schemaClassEntity -> new YTDBSchemaClassImpl(graph, schemaClassEntity));
       }
     }

@@ -8,12 +8,12 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBDomainVertex;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -21,7 +21,6 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nullable;
-
 import org.apache.commons.collections4.IteratorUtils;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -291,7 +290,7 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
         var inToken = inToken(edgeLabel);
         if (inToken != null) {
           var vIterator = inToken.apply(this);
-          var edgeIterator = org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(vIterator,
+          var edgeIterator = YTDBIteratorUtils.map(vIterator,
               v
                   -> (Edge) new YTDBDomainEdgeImpl(graph, (YTDBDomainVertex) v, this,
                   inToken.name()));
@@ -301,7 +300,7 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
         var outToken = outToken(edgeLabel);
         if (outToken != null) {
           var vIterator = outToken.apply(this);
-          var edgeIterator = org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(vIterator,
+          var edgeIterator = YTDBIteratorUtils.map(vIterator,
               v -> (Edge) new YTDBDomainEdgeImpl(graph, this, (YTDBDomainVertex) v,
                   outToken.name()));
           multiIterator.addIterator(edgeIterator);
@@ -326,7 +325,7 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
         @SuppressWarnings("unchecked")
         var vIterator = (Iterator<YTDBDomainVertex>) inToken.apply(
             this);
-        var edgeIterator = org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(vIterator,
+        var edgeIterator = YTDBIteratorUtils.map(vIterator,
             v
                 -> (Edge) new YTDBDomainEdgeImpl(graph, v, this, inToken.name()));
         multiIterator.addIterator(edgeIterator);
@@ -339,7 +338,7 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
       for (var outToken : outTokens) {
         @SuppressWarnings("unchecked")
         var vIterator = (Iterator<YTDBDomainVertex>) outToken.apply(this);
-        var edgeIterator = org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils.map(vIterator,
+        var edgeIterator = YTDBIteratorUtils.map(vIterator,
             v -> (Edge) new YTDBDomainEdgeImpl(graph, this, v, outToken.name()));
         multiIterator.addIterator(edgeIterator);
       }

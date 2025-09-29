@@ -131,7 +131,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return IteratorUtils.emptyIterator();
     }
 
-    return IteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(parentClasses.iterator(),
+    return YTDBIteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(parentClasses.iterator(),
         identifiable -> {
           if (identifiable instanceof SchemaClassEntity schemaClassEntity) {
             return schemaClassEntity;
@@ -167,7 +167,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return IteratorUtils.emptyIterator();
     }
 
-    return IteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(subclasses.iterator(),
+    return YTDBIteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(subclasses.iterator(),
         session::load));
   }
 
@@ -383,8 +383,8 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return properties;
     }
 
-    return YTDBIteratorUtils.filter(properties,
-        property -> ArrayUtils.contains(name, property.getName()));
+    return YTDBIteratorUtils.unmodifiableIterator(YTDBIteratorUtils.filter(properties,
+        property -> ArrayUtils.contains(name, property.getName())));
   }
 
   @Nullable
@@ -565,7 +565,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
       return Collections.emptyIterator();
     }
 
-    return IteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(involvedIndexes.iterator(),
+    return YTDBIteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(involvedIndexes.iterator(),
         session::load));
   }
 

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.driver;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import io.netty.channel.ChannelHandlerContext;
@@ -23,7 +24,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedElement;
 import org.apache.tinkerpop.gremlin.util.Tokens;
-import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.apache.tinkerpop.gremlin.util.message.ResponseMessage;
 import org.apache.tinkerpop.gremlin.util.message.ResponseStatusCode;
 import org.apache.tinkerpop.gremlin.util.ser.SerializationException;
@@ -189,7 +189,7 @@ public class YTDBGremlinResponseHandler extends SimpleChannelInboundHandler<Resp
     changeableRIDs.clear();
 
     // serialization exceptions should not close the channel - that's worth a retry
-    if (!IteratorUtils.anyMatch(
+    if (!YTDBIteratorUtils.anyMatch(
         ExceptionUtils.getThrowableList(cause).iterator(),
         t -> t instanceof SerializationException)) {
       if (ctx.channel().isActive()) {
