@@ -140,8 +140,8 @@ public class TestSchemaImportExport extends DbTestBase {
       imp.importDatabase();
 
       var clas1 = sessionOne.getMetadata().getSlowMutableSchema().getClass("Test");
-      Assert.assertTrue(clas1.isSubClassOf("OIdentity"));
-      Assert.assertTrue(clas1.isSubClassOf("O"));
+      Assert.assertTrue(clas1.isChildOf("OIdentity"));
+      Assert.assertTrue(clas1.isChildOf("O"));
     } finally {
       youTrackDB.drop("imp_" + TestSchemaImportExport.class.getSimpleName());
     }

@@ -61,7 +61,7 @@ public class CheckClassTypeStep extends AbstractExecutionStep {
     if (parentClazz.equals(targetClazz)) {
       found = true;
     } else {
-      for (var sublcass : parentClazz.getAllSubclasses()) {
+      for (var sublcass : parentClazz.getDescendants()) {
         if (sublcass.equals(targetClazz)) {
           found = true;
           break;

@@ -91,7 +91,7 @@ import javax.annotation.Nullable;
 public final class BTree<K> extends DurableComponent implements CellBTreeSingleValue<K> {
 
   private static final int SPLITERATOR_CACHE_SIZE =
-      GlobalConfiguration.INDEX_CURSOR_PREFETCH_SIZE.getValueAsInteger();
+      GlobalConfiguration.INDEX_ITERATOR_PREFETCH_SIZE.getValueAsInteger();
   private static final int MAX_KEY_SIZE =
       GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();

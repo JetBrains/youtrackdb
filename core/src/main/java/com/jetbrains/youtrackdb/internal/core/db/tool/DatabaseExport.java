@@ -490,9 +490,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         if (cls.isStrictMode()) {
           jsonGenerator.writeBooleanField("strictMode", cls.isStrictMode());
         }
-        if (!cls.getSuperClasses().isEmpty()) {
+        if (!cls.getParents().isEmpty()) {
           jsonGenerator.writeArrayFieldStart("super-classes");
-          for (var superClass : cls.getSuperClasses()) {
+          for (var superClass : cls.getParents()) {
             jsonGenerator.writeString(superClass.getName());
           }
           jsonGenerator.writeEndArray();

@@ -24,14 +24,11 @@ import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
-import java.util.Map;
-import javax.annotation.Nonnull;
 
 /**
  * Abstract index definition implementation.
  */
 public abstract class AbstractIndexDefinition implements IndexDefinition {
-
   protected Collate collate = new DefaultCollate();
   private boolean nullValuesIgnored = true;
 
@@ -43,7 +40,6 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
     return collate;
   }
 
-  @Override
   public void setCollate(final Collate collate) {
     if (collate == null) {
       throw new IllegalArgumentException("COLLATE cannot be null");
@@ -89,16 +85,8 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
     return nullValuesIgnored;
   }
 
-  @Override
   public void setNullValuesIgnored(boolean value) {
     nullValuesIgnored = value;
-  }
-
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
-  }
-
-
-  protected void serializeFromMap(@Nonnull Map<String, ?> map) {
   }
 
   protected static <T> T refreshRid(DatabaseSessionInternal session, T value) {
@@ -106,6 +94,7 @@ public abstract class AbstractIndexDefinition implements IndexDefinition {
       //noinspection unchecked
       return (T) session.refreshRid(rid);
     }
+
     return value;
   }
 }

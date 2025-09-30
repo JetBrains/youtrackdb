@@ -228,7 +228,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Iterator<SchemaClass> getSuperClasses() {
+  public Iterator<SchemaClass> getParents() {
     assert session.assertIfNotActive();
     var result = delegate.getParentClasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
@@ -393,7 +393,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Collection<SchemaClass> getSubclasses() {
+  public Collection<SchemaClass> getChildren() {
     assert session.assertIfNotActive();
     var result = delegate.getSubclasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
@@ -406,7 +406,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Collection<SchemaClass> getAllSubclasses() {
+  public Collection<SchemaClass> getDescendants() {
     assert session.assertIfNotActive();
     var result = delegate.getAllSubclasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
@@ -420,7 +420,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Collection<SchemaClass> getAllSuperClasses() {
+  public Collection<SchemaClass> getAscendants() {
     assert session.assertIfNotActive();
     var result = delegate.getAllSuperClasses();
     var resultProxy = new ArrayList<SchemaClass>(result.size());
@@ -433,13 +433,12 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public boolean isSubClassOf(String iClassName) {
+  public boolean isChildOf(String iClassName) {
     assert session.assertIfNotActive();
     return delegate.isChildClassOf(iClassName);
   }
 
-  @Override
-  public boolean isSubClassOf(SchemaClass iClass) {
+  public boolean isChildOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
     return delegate.isChildClassOf(iClass.getImplementation());
   }

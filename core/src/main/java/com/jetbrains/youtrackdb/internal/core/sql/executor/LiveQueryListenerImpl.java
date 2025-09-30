@@ -202,7 +202,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
           return false;
         }
         if (!recordClass.getName().equalsIgnoreCase(className)
-            && !recordClass.isSubClassOf(className)) {
+            && !recordClass.isChildOf(className)) {
           return false;
         }
       }

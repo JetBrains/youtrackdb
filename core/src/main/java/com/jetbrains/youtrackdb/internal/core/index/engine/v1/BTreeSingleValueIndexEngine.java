@@ -153,7 +153,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> ascEntries(IndexEngineValuesTransformer valuesTransformer) {
     final var firstKey = sbTree.firstKey();
     if (firstKey == null) {
       return Stream.empty();
@@ -162,7 +162,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descStream(
+  public Stream<RawPair<Object, RID>> descEntries(
       IndexEngineValuesTransformer valuesTransformer) {
     final var lastKey = sbTree.lastKey();
     if (lastKey == null) {
@@ -172,7 +172,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<Object> keyStream() {
+  public Stream<Object> keys() {
     return sbTree.keyStream();
   }
 

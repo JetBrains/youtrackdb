@@ -45,11 +45,11 @@ public class CheckSafeDeleteStep extends AbstractExecutionStep {
       SchemaClass clazz = res;
 
       if (clazz != null) {
-        if (clazz.getName().equalsIgnoreCase("V") || clazz.isSubClassOf("V")) {
+        if (clazz.getName().equalsIgnoreCase("V") || clazz.isChildOf("V")) {
           throw new CommandExecutionException(ctx.getDatabaseSession(),
               "Cannot safely delete a vertex, please use DELETE VERTEX or UNSAFE");
         }
-        if (clazz.getName().equalsIgnoreCase("E") || clazz.isSubClassOf("E")) {
+        if (clazz.getName().equalsIgnoreCase("E") || clazz.isChildOf("E")) {
           throw new CommandExecutionException(ctx.getDatabaseSession(),
               "Cannot safely delete an edge, please use DELETE EDGE or UNSAFE");
         }

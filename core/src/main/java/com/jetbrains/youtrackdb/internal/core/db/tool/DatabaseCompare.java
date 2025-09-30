@@ -486,7 +486,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       if (((compareEntriesForAutomaticIndexes && !indexOne.getType().equals("DICTIONARY"))
           || !indexOne.isAutomatic())) {
 
-        try (final var keyStream = indexOne.keyStream()) {
+        try (final var keyStream = indexOne.keys()) {
           final var indexKeyIteratorOne = keyStream.iterator();
           while (indexKeyIteratorOne.hasNext()) {
             final var indexKey = indexKeyIteratorOne.next();

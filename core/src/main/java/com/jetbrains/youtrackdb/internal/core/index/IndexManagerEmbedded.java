@@ -413,8 +413,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     if (clazz == null) {
       return;
     }
-    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
-    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getDescendants().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAscendants().forEach(x -> classesToCheck.add(x.getName()));
     var allFilteredProperties =
         security.getAllFilteredProperties(database);
 

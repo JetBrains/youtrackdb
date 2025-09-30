@@ -16,7 +16,7 @@ import org.testng.annotations.Test;
 @Test
 public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
-  public IndexTxAwareMultiValueGetEntriesTest() {
+  public IndexTxAwareMultiValueGetAscEntriesTest() {
     super(false);
   }
 
@@ -35,7 +35,7 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
     session.commit();
 
     Set<Identifiable> resultOne = new HashSet<>();
-    var stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    var stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
@@ -44,14 +44,14 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     verifyTxIndexPut(Map.of(2, Set.of(doc4.getIdentity())));
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 4);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
@@ -76,7 +76,7 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
@@ -93,14 +93,14 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
     ));
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 1);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
@@ -126,7 +126,7 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 3);
 
@@ -140,14 +140,14 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
     ));
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 2);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 3);
   }
@@ -177,14 +177,14 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
@@ -208,7 +208,7 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 2);
     session.commit();
@@ -218,7 +218,7 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 3);
   }
@@ -241,13 +241,13 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 1);
 
     result = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 1);
@@ -270,14 +270,14 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 1);
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 1);
@@ -304,14 +304,14 @@ public class IndexTxAwareMultiValueGetEntriesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);

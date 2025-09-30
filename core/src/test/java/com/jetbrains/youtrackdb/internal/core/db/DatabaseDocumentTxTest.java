@@ -89,7 +89,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var clazz = session.createClass("TestCreateClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateClass", clazz.getName());
-    var superclasses = clazz.getSuperClasses();
+    var superclasses = clazz.getParents();
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
@@ -104,7 +104,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var subclazz = session.createClass("TestCreateClass_subclass", "TestCreateClass");
     Assert.assertNotNull(subclazz);
     Assert.assertEquals("TestCreateClass_subclass", subclazz.getName());
-    var sub_superclasses = subclazz.getSuperClasses();
+    var sub_superclasses = subclazz.getParents();
     Assert.assertEquals(1, sub_superclasses.size());
     Assert.assertEquals("TestCreateClass", sub_superclasses.getFirst().getName());
   }
@@ -176,7 +176,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var clazz = session.createClassIfNotExist("TestCreateClassIfNotExists");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateClassIfNotExists", clazz.getName());
-    var superclasses = clazz.getSuperClasses();
+    var superclasses = clazz.getParents();
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
@@ -184,7 +184,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var clazz2 = session.createClassIfNotExist("TestCreateClassIfNotExists_non_existing");
     Assert.assertNotNull(clazz2);
     Assert.assertEquals("TestCreateClassIfNotExists_non_existing", clazz2.getName());
-    var superclasses2 = clazz2.getSuperClasses();
+    var superclasses2 = clazz2.getParents();
     if (superclasses2 != null) {
       assertTrue(superclasses2.isEmpty());
     }
@@ -198,7 +198,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     clazz = session.getClass("TestCreateVertexClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateVertexClass", clazz.getName());
-    var superclasses = clazz.getSuperClasses();
+    var superclasses = clazz.getParents();
     Assert.assertEquals(1, superclasses.size());
     Assert.assertEquals("V", superclasses.getFirst().getName());
   }
@@ -211,7 +211,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     clazz = session.getClass("TestCreateEdgeClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateEdgeClass", clazz.getName());
-    var superclasses = clazz.getSuperClasses();
+    var superclasses = clazz.getParents();
     Assert.assertEquals(1, superclasses.size());
     Assert.assertEquals("E", superclasses.getFirst().getName());
   }

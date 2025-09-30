@@ -245,7 +245,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> ascEntries(IndexEngineValuesTransformer valuesTransformer) {
     final var firstKey = svTree.firstKey();
     if (firstKey == null) {
       return emptyStream();
@@ -264,7 +264,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descStream(
+  public Stream<RawPair<Object, RID>> descEntries(
       IndexEngineValuesTransformer valuesTransformer) {
     final var lastKey = svTree.lastKey();
     if (lastKey == null) {
@@ -274,7 +274,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<Object> keyStream() {
+  public Stream<Object> keys() {
     return svTree.keyStream().map(BTreeMultiValueIndexEngine::extractKey);
   }
 

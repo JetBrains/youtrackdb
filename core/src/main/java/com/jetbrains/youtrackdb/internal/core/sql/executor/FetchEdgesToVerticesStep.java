@@ -128,7 +128,7 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     var schemaClass = edge.getSchemaClass();
 
     assert schemaClass != null;
-    return schemaClass.isSubClassOf(targetClass.getStringValue());
+    return schemaClass.isChildOf(targetClass.getStringValue());
   }
 
   @Override

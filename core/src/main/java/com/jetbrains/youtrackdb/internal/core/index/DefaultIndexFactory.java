@@ -23,11 +23,11 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.index.engine.RemoteIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -39,35 +39,21 @@ import javax.annotation.Nullable;
  * <ul>
  *   <li>UNIQUE
  *   <li>NOTUNIQUE
- *   <li>FULLTEXT
- *   <li>DICTIONARY
  * </ul>
  */
 public class DefaultIndexFactory implements IndexFactory {
 
-  static final String BTREE_ALGORITHM = "BTREE";
-
-  private static final Set<String> TYPES;
-  private static final Set<String> ALGORITHMS;
-
+  private static final Set<INDEX_TYPE> SUPPORTED_TYPES;
   static {
-    final Set<String> types = new HashSet<>();
-    types.add(SchemaManager.INDEX_TYPE.UNIQUE.toString());
-    types.add(SchemaManager.INDEX_TYPE.NOTUNIQUE.toString());
-    TYPES = Collections.unmodifiableSet(types);
+    var types = new HashSet<INDEX_TYPE>();
+    types.add(SchemaManager.INDEX_TYPE.UNIQUE);
+    types.add(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+    SUPPORTED_TYPES = types;
   }
-
-  static {
-    final Set<String> algorithms = new HashSet<>();
-    algorithms.add(BTREE_ALGORITHM);
-
-    ALGORITHMS = Collections.unmodifiableSet(algorithms);
-  }
-
 
   @Override
-  public Set<String> getTypes() {
-    return TYPES;
+  public Set<INDEX_TYPE> getSupportedIndexTypes() {
+    return SUPPORTED_TYPES;
   }
 
   @Override

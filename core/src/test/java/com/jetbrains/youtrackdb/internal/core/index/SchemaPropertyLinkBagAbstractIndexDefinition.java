@@ -143,7 +143,8 @@ public abstract class SchemaPropertyLinkBagAbstractIndexDefinition extends DbTes
     document.setProperty("fOne", ridBag);
     document.setProperty("fTwo", 10);
 
-    final var result = propertyIndex.getDocumentValueToIndex(session.getActiveTransaction(),
+    final var result = propertyIndex.convertEntityPropertiesToIndexKey(
+        session.getActiveTransaction(),
         document);
     Assert.assertTrue(result instanceof Collection);
 

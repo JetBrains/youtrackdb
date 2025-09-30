@@ -19,11 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -33,14 +29,12 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
@@ -153,7 +147,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
    */
   @Override
   @Nullable
-  public Object getDocumentValueToIndex(
+  public Object convertEntityPropertiesToIndexKey(
       FrontendTransaction transaction, final EntityImpl entity) {
     return documentValueToIndexKeyFast(transaction, entity);
   }
@@ -164,7 +158,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     for (var i = 0; i < indexDefinitions.size(); i++) {
       final var indexDefinition = indexDefinitions.get(i);
 
-      final var result = indexDefinition.getDocumentValueToIndex(transaction, entity);
+      final var result = indexDefinition.convertEntityPropertiesToIndexKey(transaction, entity);
       if (result == null && isNullValuesIgnored()) {
         return null;
       }
@@ -197,7 +191,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
     for (var i = indexDefinitionIndex; i < indexDefinitions.size(); i++) {
       var indexDefinition = indexDefinitions.get(i);
-      final var result = indexDefinition.getDocumentValueToIndex(transaction, entity);
+      final var result = indexDefinition.convertEntityPropertiesToIndexKey(transaction, entity);
       if (result == null && isNullValuesIgnored()) {
         return null;
       }
@@ -460,153 +454,6 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
         + className
         + '\''
         + '}';
-  }
-
-  @Nonnull
-  @Override
-  public EmbeddedMap<Object> toMap(DatabaseSessionInternal session) {
-    var result = session.newEmbeddedMap();
-    serializeToMap(result, session);
-    return result;
-  }
-
-  @Override
-  public void toJson(@Nonnull JsonGenerator jsonGenerator) {
-    try {
-      jsonGenerator.writeStartObject();
-      jsonGenerator.writeStringField("className", className);
-      jsonGenerator.writeArrayFieldStart("indexDefinitions");
-
-      for (final var indexDefinition : indexDefinitions) {
-        indexDefinition.toJson(jsonGenerator);
-      }
-      jsonGenerator.writeEndArray();
-
-      jsonGenerator.writeArrayFieldStart("indClasses");
-      for (final var indexDefinition : indexDefinitions) {
-        jsonGenerator.writeString(indexDefinition.getClass().getName());
-      }
-      jsonGenerator.writeEndArray();
-
-      jsonGenerator.writeBooleanField("nullValuesIgnored", isNullValuesIgnored());
-      jsonGenerator.writeEndObject();
-    } catch (final Exception e) {
-      throw BaseException.wrapException(
-          new IndexException((String) null, "Error during composite index serialization"), e,
-          (String) null);
-    }
-  }
-
-  @Override
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal
-      session) {
-    super.serializeToMap(map, session);
-
-    final List<Map<String, Object>> inds = session.newEmbeddedList(indexDefinitions.size());
-    final List<String> indClasses = session.newEmbeddedList(indexDefinitions.size());
-
-    map.put("className", className);
-    for (final var indexDefinition : indexDefinitions) {
-      final var indexEntity = indexDefinition.toMap(session);
-      inds.add(indexEntity);
-
-      indClasses.add(indexDefinition.getClass().getName());
-    }
-
-    map.put("indexDefinitions", inds);
-    map.put("indClasses", indClasses);
-    map.put("nullValuesIgnored", isNullValuesIgnored());
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public String toCreateIndexDDL(final String indexName, final String indexType, String engine) {
-    final var ddl = new StringBuilder("create index ");
-    ddl.append('`').append(indexName).append('`').append(" on ").append(className).append(" ( ");
-
-    final var fieldIterator = getFieldsToIndex().iterator();
-    if (fieldIterator.hasNext()) {
-      ddl.append(quoteFieldName(fieldIterator.next()));
-      while (fieldIterator.hasNext()) {
-        ddl.append(", ").append(quoteFieldName(fieldIterator.next()));
-      }
-    }
-    ddl.append(" ) ").append(indexType).append(' ');
-
-    if (engine != null) {
-      ddl.append("ENGINE ").append(engine).append(' ');
-    }
-
-    return ddl.toString();
-  }
-
-  @Nullable
-  private static String quoteFieldName(String next) {
-    if (next == null) {
-      return null;
-    }
-    next = next.trim();
-    if (!next.isEmpty() && next.charAt(0) == '`') {
-      return next;
-    }
-    if (next.toLowerCase(Locale.ENGLISH).endsWith("collate ci")) {
-      next = next.substring(0, next.length() - "collate ci".length());
-      return "`" + next.trim() + "` collate ci";
-    }
-    return "`" + next + "`";
-  }
-
-  @Override
-  public void fromMap(@Nonnull Map<String, ?> map) {
-    serializeFromMap(map);
-  }
-
-  @Override
-  protected void serializeFromMap(@Nonnull Map<String, ?> map) {
-    super.serializeFromMap(map);
-
-    try {
-      className = (String) map.get("className");
-
-      @SuppressWarnings("unchecked") final var inds = (List<Map<String, Object>>) map.get(
-          "indexDefinitions");
-      @SuppressWarnings("unchecked") final var indClasses = (List<String>) map.get("indClasses");
-
-      indexDefinitions.clear();
-
-      collate = new CompositeCollate(this);
-
-      for (var i = 0; i < indClasses.size(); i++) {
-        final var clazz = Class.forName(indClasses.get(i));
-        final var indEntity = inds.get(i);
-
-        final var indexDefinition =
-            (IndexDefinition) clazz.getDeclaredConstructor().newInstance();
-        indexDefinition.fromMap(indEntity);
-
-        indexDefinitions.add(indexDefinition);
-        collate.addCollate(indexDefinition.getCollate());
-
-        if (indexDefinition instanceof IndexDefinitionMultiValue) {
-          if (multiValueDefinitionIndexes == null) {
-            multiValueDefinitionIndexes = new IntOpenHashSet();
-          }
-
-          multiValueDefinitionIndexes.add(indexDefinitions.size() - 1);
-        }
-      }
-
-      setNullValuesIgnored(!Boolean.FALSE.equals(map.get("nullValuesIgnored")));
-    } catch (final ClassNotFoundException
-                   | InvocationTargetException
-                   | InstantiationException
-                   | IllegalAccessException
-                   | NoSuchMethodException e) {
-      throw BaseException.wrapException(
-          new IndexException("Error during composite index deserialization"), e, (String) null);
-    }
   }
 
   @Override

@@ -33,7 +33,6 @@ YouTrackDB's key features are:
 5. **Strong security**: A strong security profiling system based on user, role, and predicate
    security.
 6. **Encryption of data at rest**: Optionally encrypts all data stored on disk.
-7. **GEO-queries and full-text search**: GEO-queries and full-text search are supported using Lucene integration.
 
 ### Easy to install and use
 YouTrackDB can run on any platform without configuration and installation.

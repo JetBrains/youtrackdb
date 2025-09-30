@@ -232,7 +232,7 @@ public class YTDBSchemaPropertyImpl extends
   @Override
   public Iterator<String> customPropertyNames() {
     var entity = propertyReadPreprocessing();
-    return entity.customPropertyNames();
+    return entity.getCustomPropertyNames();
   }
 
   @Nonnull

@@ -22,12 +22,11 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquality;
@@ -37,251 +36,116 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Map;
+import java.util.Iterator;
 import java.util.Set;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
-/**
- * Basic interface to handle index.
- */
+/// Basic interface to handle snapshot of current index in schema. In this context snapshot of index
+/// means that metadata of snapshot are frozen and used to interact with storage to reflect changes
+/// in entities in storage indexes.
 public interface Index extends Comparable<Index> {
-  String getDatabaseName();
 
-  /**
-   * Types of the keys that index can accept, if index contains composite key, list of types of
-   * elements from which this index consist will be returned, otherwise single element (key type
-   * obviously) will be returned.
-   */
-  @Nullable
-  PropertyTypeInternal[] getKeyTypes();
-
-  /**
-   * Inserts a new entry in the index. The behaviour depends by the index implementation.
-   *
-   * @param transaction
-   * @param key         Entry's key
-   * @param value       Entry's value as Identifiable instance
-   * @return The index instance itself to allow in chain calls
-   */
+  /// Inserts a new entry in the storage index. The behaviour depends by the index implementation.
+  ///
+  /// @param key   Entry's key
+  /// @param value Entry's value as Identifiable instance
+  /// @return The index instance itself to allow in chain calls
   Index put(FrontendTransaction transaction, Object key, Identifiable value);
 
-  /**
-   * Removes an entry by its key.
-   *
-   * @param transaction
-   * @param key         The entry's key to remove
-   * @return True if the entry has been found and removed, otherwise false
-   */
-  boolean remove(FrontendTransaction transaction, Object key);
+  /// Removes an entry by its key.
+  ///
+  /// @param key The entry's key to remove
+  void remove(FrontendTransaction transaction, Object key);
 
-  /**
-   * Removes an entry by its key and value.
-   *
-   * @param key The entry's key to remove
-   * @return True if the entry has been found and removed, otherwise false
-   */
-  boolean remove(FrontendTransaction transaction, Object key, Identifiable rid);
+  /// Removes an entry by its key and value.
+  ///
+  /// @param key The entry's key to remove
+  void remove(FrontendTransaction transaction, Object key, Identifiable rid);
 
-  /**
-   * Delete the index.
-   *
-   * @return The index instance itself to allow in chain calls
-   */
-  Index delete(FrontendTransaction transaction);
-
-  /**
-   * Returns the index name.
-   *
-   * @return The name of the index
-   */
+  /// Returns the index name.
+  ///
+  /// @return The name of the index
   String getName();
 
-  /**
-   * Returns the type of the index as string.
-   */
-  String getType();
+  /// Returns the type of the index as string.
+  INDEX_TYPE getType();
 
-  /**
-   * Returns the engine of the index as string.
-   */
-  String getAlgorithm();
-
-  /**
-   * Returns binary format version for this index. Index format changes during system development
-   * but old formats are supported for binary compatibility. This method may be used to detect
-   * version of binary format which is used by current index and upgrade index to new one.
-   *
-   * @return Returns binary format version for this index if possible, otherwise -1.
-   */
-  int getVersion();
-
-  /**
-   * Tells if the index is automatic. Automatic means it's maintained automatically by YouTrackDB.
-   * This is the case of indexes created against schema properties. Automatic indexes can always
-   * been rebuilt.
-   *
-   * @return True if the index is automatic, otherwise false
-   */
-  boolean isAutomatic();
-
-  /**
-   * Rebuilds an automatic index.
-   *
-   * @return The number of entries rebuilt
-   */
-  long rebuild(DatabaseSessionEmbedded session);
-
-  /**
-   * Populate the index with all the existent records.
-   */
-  long rebuild(DatabaseSessionEmbedded session, ProgressListener progressListener);
-
-  /**
-   * Returns the index configuration.
-   *
-   * @return An EntityImpl object containing all the index properties
-   */
-  Map<String, Object> getConfiguration(DatabaseSessionInternal session);
+  /// Rebuilds an automatic index.
+  void rebuild(DatabaseSessionEmbedded session);
 
 
   IndexDefinition getDefinition();
 
-  /**
-   * Returns Names of collections that will be indexed.
-   *
-   * @return Names of collections that will be indexed.
-   */
-  Set<String> getCollections();
-
-  Map<String, Object> getMetadata();
-
-  boolean supportsOrderedIterations();
-
   boolean isUnique();
-
-  String CONFIG_TYPE = "type";
-  String ALGORITHM = "algorithm";
-  String CONFIG_NAME = "name";
-  String INDEX_DEFINITION = "indexDefinition";
-  String INDEX_DEFINITION_CLASS = "indexDefinitionClass";
-  String INDEX_VERSION = "indexVersion";
-  String METADATA = "metadata";
-  String MERGE_KEYS = "mergeKeys";
 
   Object getCollatingValue(final Object key);
 
-  /**
-   * Add given collection to the list of collections that should be automatically indexed.
-   *
-   * @param transaction
-   * @param collectionName Collection to add.
-   * @param requireEmpty Whether the collection has to be empty.
-   * @return Current index instance.
-   */
-  Index addCollection(FrontendTransaction transaction, final String collectionName,
-      boolean requireEmpty);
-
-  /**
-   * Remove given collection from the list of collections that should be automatically indexed.
-   *
-   * @param transaction
-   * @param collectionName Collection to remove.
-   */
-  void removeCollection(FrontendTransaction transaction, final String collectionName);
-
-  /**
-   * Indicates whether given index can be used to calculate result of {@link QueryOperatorEquality}
-   * operators.
-   *
-   * @return {@code true} if given index can be used to calculate result of
-   * {@link QueryOperatorEquality} operators.
-   */
+  /// Indicates whether given index can be used to calculate result of [QueryOperatorEquality]
+  /// operators.
+  ///
+  /// @return `true` if given index can be used to calculate result of [QueryOperatorEquality]
+  /// operators.
   boolean canBeUsedInEqualityOperators();
 
-  boolean hasRangeQuerySupport();
-
-  IndexMetadata loadMetadata(FrontendTransaction transaction, Map<String, Object> config);
-
-  void close();
-
-  /**
-   * Acquires exclusive lock in the active atomic operation running on the current thread for this
-   * index.
-   */
-  boolean acquireAtomicExclusiveLock();
-
-  /**
-   * @return number of entries in the index.
-   */
+  /// @return number of entries in the index.
   long size(DatabaseSessionEmbedded session);
 
-  Stream<RID> getRids(DatabaseSessionEmbedded session, final Object key);
+  Iterator<RID> getRids(DatabaseSessionEmbedded session, final Object key);
 
-  Stream<RawPair<Object, RID>> stream(DatabaseSessionEmbedded session);
+  Iterator<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session);
 
-  Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session);
+  Iterator<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session);
 
-  Stream<Object> keyStream();
+  Iterator<Object> keys();
 
-  /**
-   * Returns stream which presents subset of index data between passed in keys.
-   *
-   * @param session
-   * @param fromKey       Lower border of index data.
-   * @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
-   * @param toKey         Upper border of index data.
-   * @param toInclusive   Indicates whether upper border should be inclusive or exclusive.
-   * @param ascOrder      Flag which determines whether data iterated by stream should be in
-   *                      ascending or descending order.
-   * @return Cursor which presents subset of index data between passed in keys.
-   */
-  Stream<RawPair<Object, RID>> streamEntriesBetween(
+  /// Returns [Iterator] which presents subset of index data between passed in keys.
+  ///
+  /// @param fromKey       Lower border of index data.
+  /// @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
+  /// @param toKey         Upper border of index data.
+  /// @param toInclusive   Indicates whether upper border should be inclusive or exclusive.
+  /// @param ascOrder      Flag which determines whether data iterated should be in ascending or
+  ///                      descending order.
+  /// @return [Iterator] which presents subset of index data between passed in keys.
+  Iterator<RawPair<Object, RID>> entriesBetween(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder);
 
-  /**
-   * Returns stream which presents data associated with passed in keys.
-   *
-   * @param session
-   * @param keys         Keys data of which should be returned.
-   * @param ascSortOrder Flag which determines whether data iterated by stream should be in
-   *                     ascending or descending order.
-   * @return stream which presents data associated with passed in keys.
-   */
-  Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
+  /// Returns [Iterator] which presents data associated with passed in keys.
+  ///
+  /// @param keys         Keys data of which should be returned.
+  /// @param ascSortOrder Flag which determines whether data iterated should be in ascending or
+  ///                     descending order.
+  /// @return iterator which presents data associated with passed in keys.
+  Iterator<RawPair<Object, RID>> entries(DatabaseSessionEmbedded session,
       Collection<?> keys,
       boolean ascSortOrder);
 
-  /**
-   * Returns stream which presents subset of data which associated with key which is greater than
-   * passed in key.
-   *
-   * @param session
-   * @param fromKey       Lower border of index data.
-   * @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
-   * @param ascOrder      Flag which determines whether data iterated by stream should be in
-   *                      ascending or descending order.
-   * @return stream which presents subset of data which associated with key which is greater than
-   * passed in key.
-   */
-  Stream<RawPair<Object, RID>> streamEntriesMajor(
+  /// Returns [Iterator] which presents subset of data which associated with key which is greater
+  /// than passed in key.
+  ///
+  /// @param fromKey       Lower border of index data.
+  /// @param fromInclusive Indicates whether lower border should be inclusive or exclusive.
+  /// @param ascOrder      Flag which determines whether data iterated should be in ascending or
+  ///                      descending order.
+  /// @return [Iterator] which presents subset of data which associated with key which is greater
+  /// than passed in key.
+  Iterator<RawPair<Object, RID>> entriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder);
 
-  /**
-   * Returns stream which presents subset of data which associated with key which is less than
-   * passed in key.
-   *
-   * @param session
-   * @param toKey       Upper border of index data.
-   * @param toInclusive Indicates Indicates whether upper border should be inclusive or exclusive.
-   * @param ascOrder    Flag which determines whether data iterated by stream should be in ascending
-   *                    or descending order.
-   * @return stream which presents subset of data which associated with key which is less than
-   * passed in key.
-   */
-  Stream<RawPair<Object, RID>> streamEntriesMinor(
+  /// Returns [Iterator] which presents subset of data which associated with key which is less than
+  /// passed in key.
+  ///
+  /// @param toKey       Upper border of index data.
+  /// @param toInclusive Indicates Indicates whether upper border should be inclusive or exclusive.
+  /// @param ascOrder    Flag which determines whether data iterated should be in ascending or
+  ///                    descending order.
+  /// @return [Iterator] which presents subset of data which associated with key which is less than
+  /// passed in key.
+  Iterator<RawPair<Object, RID>> entriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder);
+
+  boolean supportsOrderedIterations();
 
   @Nullable
   static Identifiable securityFilterOnRead(DatabaseSessionEmbedded session, Index idx,
@@ -340,12 +204,12 @@ public interface Index extends Comparable<Index> {
       String propertyName) {
     Set<String> classesToCheck = new HashSet<>();
     classesToCheck.add(indexClass);
-    var clazz = session.getClass(indexClass);
+    var clazz = session.getMetadata().getFastImmutableSchema().getClass(indexClass);
     if (clazz == null) {
       return false;
     }
-    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
-    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getDescendants().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAscendants().forEach(x -> classesToCheck.add(x.getName()));
     var allFilteredProperties =
         security.getAllFilteredProperties(session);
 
@@ -369,9 +233,9 @@ public interface Index extends Comparable<Index> {
       return true;
     }
 
-    var clazz = session.getClass(indexClass);
+    var clazz = session.getMetadata().getFastImmutableSchema().getClass(indexClass);
     if (clazz != null) {
-      var sub = clazz.getSubclasses();
+      var sub = clazz.getChildren();
       for (var subClass : sub) {
         if (isReadRestrictedBySecurityPolicy(subClass.getName(), session, security)) {
           return true;
@@ -389,19 +253,16 @@ public interface Index extends Comparable<Index> {
       RID rid)
       throws InvalidIndexEngineIdException;
 
-  boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage, Object key,
+  void doRemove(DatabaseSessionInternal session, AbstractStorage storage, Object key,
       RID rid)
       throws InvalidIndexEngineIdException;
 
-  boolean doRemove(AbstractStorage storage, Object key, DatabaseSessionInternal session)
+  void doRemove(AbstractStorage storage, Object key, DatabaseSessionInternal session)
       throws InvalidIndexEngineIdException;
 
-  Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key);
+  Iterator<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key);
 
   Index create(FrontendTransaction transaction, IndexMetadata metadata);
 
   int getIndexId();
-
-  @Nullable
-  RID getIdentity();
 }

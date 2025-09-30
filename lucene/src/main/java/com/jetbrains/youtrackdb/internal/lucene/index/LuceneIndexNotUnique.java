@@ -153,7 +153,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public boolean doRemove(AbstractStorage storage, Object key,
+  public void doRemove(AbstractStorage storage, Object key,
       DatabaseSessionInternal session) {
     while (true) {
       try {
@@ -170,11 +170,10 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
         doReloadIndexEngine();
       }
     }
-    return false;
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
+  public void doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     while (true) {
@@ -192,7 +191,6 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
         doReloadIndexEngine();
       }
     }
-    return false;
   }
 
   @Override
@@ -374,7 +372,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
+  public Stream<RawPair<Object, RID>> entries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
 
     @SuppressWarnings("resource")
@@ -391,7 +389,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesBetween(
+  public Stream<RawPair<Object, RID>> entriesBetween(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     while (true) {
@@ -407,7 +405,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesMajor(
+  public Stream<RawPair<Object, RID>> entriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
     while (true) {
       try {
@@ -422,7 +420,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesMinor(
+  public Stream<RawPair<Object, RID>> entriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
     while (true) {
       try {
@@ -436,7 +434,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(DatabaseSessionEmbedded session) {
+  public Stream<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session) {
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(
@@ -448,7 +446,7 @@ public class LuceneIndexNotUnique extends IndexAbstract implements OLuceneIndex 
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session) {
+  public Stream<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session) {
     while (true) {
       try {
         return IndexStreamSecurityDecorator.decorateStream(

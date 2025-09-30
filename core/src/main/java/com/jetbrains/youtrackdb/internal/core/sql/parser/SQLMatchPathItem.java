@@ -171,7 +171,7 @@ public class SQLMatchPathItem extends SimpleNode {
         SchemaClassSnapshot result;
         result = ((EntityImpl) record).getImmutableSchemaClass(session);
         return result
-            .isSubClassOf(oClass);
+            .isChildOf(oClass);
       }
     } catch (RecordNotFoundException rnf) {
       return false;

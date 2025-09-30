@@ -81,7 +81,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -119,7 +119,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -168,7 +168,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -220,7 +220,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -266,7 +266,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -310,7 +310,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 3);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -359,7 +359,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 3);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -403,7 +403,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 2);
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -446,7 +446,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 1);
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -483,7 +483,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -523,7 +523,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 1);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -613,7 +613,7 @@ public class LinkBagIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     final Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {

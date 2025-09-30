@@ -30,7 +30,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexEngineException;
-import com.jetbrains.youtrackdb.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
@@ -124,14 +123,6 @@ public class LuceneFullTextIndexEngine extends LuceneIndexEngineAbstract {
   @Override
   public Object get(DatabaseSessionEmbedded db, final Object key) {
     return getInTx(db, key, null);
-  }
-
-  @Override
-  public void update(
-      DatabaseSessionInternal db, final AtomicOperation atomicOperation,
-      final Object key,
-      final IndexKeyUpdater<Object> updater) {
-    put(db, atomicOperation, key, updater.update(null, bonsayFileId).getValue());
   }
 
   @Override

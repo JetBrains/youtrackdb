@@ -175,7 +175,7 @@ public interface SchemaClass extends ImmutableSchemaClass {
   SchemaClass set(final ATTRIBUTES attribute, final Object value);
 
   @Override
-  List<SchemaClass> getSuperClasses();
+  List<SchemaClass> getParents();
 
   @Override
   Collection<SchemaProperty> getDeclaredProperties();
@@ -187,16 +187,16 @@ public interface SchemaClass extends ImmutableSchemaClass {
   Map<String, SchemaProperty> getPropertiesMap();
 
   @Override
-  Collection<SchemaClass> getSubclasses();
+  Collection<SchemaClass> getChildren();
 
   @Override
-  Collection<SchemaClass> getAllSuperClasses();
+  Collection<SchemaClass> getAscendants();
 
   @Override
   SchemaProperty getProperty(String propertyName);
 
   @Override
-  Collection<SchemaClass> getAllSubclasses();
+  Collection<SchemaClass> getDescendants();
 
   SchemaClassEntity getImplementation();
 }

@@ -437,9 +437,15 @@ public enum GlobalConfiguration {
       Boolean.class,
       false),
 
-  INDEX_CURSOR_PREFETCH_SIZE(
-      "youtrackdb.index.stream.prefetchSize", "Default prefetch size of index stream",
+  INDEX_ITERATOR_PREFETCH_SIZE(
+      "youtrackdb.index.iterator.prefetchSize", "Default prefetch size of index iterator",
       Integer.class, 10),
+
+  INDEX_REPORT_INTERVAL("youtrackdb.index.reportInterval",
+      "Interval of reporting of index processing progress, in amount of processed entities, "
+          + "in case of long running operations such as reindexing. value<=0 means that no reporting will be performed."
+          + " 1_000 by default",
+      Integer.class, 1_000),
 
   // SBTREE
   BTREE_MAX_DEPTH(

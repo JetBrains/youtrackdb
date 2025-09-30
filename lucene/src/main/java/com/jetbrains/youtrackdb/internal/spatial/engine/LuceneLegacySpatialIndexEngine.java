@@ -30,7 +30,6 @@ import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexEngineException;
-import com.jetbrains.youtrackdb.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -213,13 +212,6 @@ public class LuceneLegacySpatialIndexEngine extends LuceneSpatialIndexEngineAbst
               legacyBuilder.makeShape(db, compositeKey, ctx),
               compositeKey.toEntity(db)));
     }
-  }
-
-  @Override
-  public void update(
-      DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
-      IndexKeyUpdater<Object> updater) {
-    throw new UnsupportedOperationException();
   }
 
   @Override

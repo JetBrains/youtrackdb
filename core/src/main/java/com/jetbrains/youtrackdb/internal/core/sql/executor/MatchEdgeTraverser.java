@@ -244,7 +244,7 @@ public class MatchEdgeTraverser {
       if (clazz == null) {
         return false;
       }
-      return clazz.isSubClassOf(className);
+      return clazz.isChildOf(className);
     }
 
     return false;

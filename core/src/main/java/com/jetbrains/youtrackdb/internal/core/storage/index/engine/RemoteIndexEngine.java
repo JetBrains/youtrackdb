@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
@@ -108,12 +107,6 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public void update(
-      DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
-      IndexKeyUpdater<Object> updater) {
-  }
-
-  @Override
   public boolean validatedPut(
       AtomicOperation atomicOperation,
       Object key,
@@ -162,18 +155,18 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> ascEntries(IndexEngineValuesTransformer valuesTransformer) {
     throw new UnsupportedOperationException("stream");
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descStream(
+  public Stream<RawPair<Object, RID>> descEntries(
       IndexEngineValuesTransformer valuesTransformer) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Stream<Object> keyStream() {
+  public Stream<Object> keys() {
     throw new UnsupportedOperationException("keyStream");
   }
 

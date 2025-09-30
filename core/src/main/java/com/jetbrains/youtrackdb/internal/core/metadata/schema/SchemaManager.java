@@ -48,7 +48,6 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.jspecify.annotations.NonNull;
 
 public final class SchemaManager {
-
   public static final int CURRENT_VERSION_NUMBER = 5;
 
   public static final String SCHEMA_CLASS_NAME_INDEX = "$SchemaClassNameIndex";
@@ -566,7 +565,7 @@ public final class SchemaManager {
         .orElseGet(() -> {
           var idIndex = session.getIndex(GLOBAL_PROPERTY_ID_INDEX);
           var nextId =
-              idIndex.descStream(session).findFirst().map(pair -> (Integer) pair.getFirst())
+              idIndex.descEntries(session).findFirst().map(pair -> (Integer) pair.getFirst())
                   .orElse(-1) + 1;
           var entity = session.newSchemaGlobalPropertyEntity(name, type, nextId);
 
@@ -907,8 +906,8 @@ public final class SchemaManager {
       return;
     }
 
-    clazz.getAllSubclasses().forEach(x -> classesToCheck.add(x.getName()));
-    clazz.getAllSuperClasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getDescendants().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAscendants().forEach(x -> classesToCheck.add(x.getName()));
     var allFilteredProperties =
         security.getAllFilteredProperties(database);
 

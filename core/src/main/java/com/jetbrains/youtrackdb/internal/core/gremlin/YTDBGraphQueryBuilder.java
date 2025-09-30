@@ -312,7 +312,7 @@ public class YTDBGraphQueryBuilder {
       if (clazz == null) {
         superClasses = Set.of();
       } else {
-        superClasses = clazz.getAllSuperClasses().stream()
+        superClasses = clazz.getAscendants().stream()
             .map(SchemaClass::getName)
             .collect(Collectors.toSet());
       }

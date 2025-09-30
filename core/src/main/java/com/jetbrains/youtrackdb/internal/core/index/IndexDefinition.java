@@ -19,16 +19,11 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.util.List;
-import java.util.Map;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -38,7 +33,6 @@ import javax.annotation.Nullable;
  * SchemaClass} manipulation method instead.
  */
 public interface IndexDefinition extends IndexCallback {
-
   /**
    * @return Names of fields which given index is used to calculate key value. Order of fields is
    * important.
@@ -117,30 +111,9 @@ public interface IndexDefinition extends IndexCallback {
    */
   PropertyTypeInternal[] getTypes();
 
-  /**
-   * Serializes internal index state to map.
-   */
-  @Nonnull
-  EmbeddedMap<Object> toMap(DatabaseSessionInternal session);
-
-  void toJson(@Nonnull JsonGenerator jsonGenerator);
-
-  /**
-   * Deserialize internal index state from map.
-   *
-   * @param map Serialized index presentation.
-   */
-  void fromMap(@Nonnull Map<String, ?> map);
-
-  String toCreateIndexDDL(String indexName, String indexType, String engine);
-
   boolean isAutomatic();
 
   Collate getCollate();
 
-  void setCollate(Collate collate);
-
   boolean isNullValuesIgnored();
-
-  void setNullValuesIgnored(boolean value);
 }

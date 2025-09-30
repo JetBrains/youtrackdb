@@ -4,41 +4,35 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.index.IndexOneValue;
-import com.jetbrains.youtrackdb.internal.core.index.comparator.AscComparator;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges;
-import java.util.Comparator;
-import java.util.Spliterator;
-import java.util.function.Consumer;
-import javax.annotation.Nullable;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
-public class PureTxBetweenIndexForwardSpliterator implements Spliterator<RawPair<Object, RID>> {
+public class PureTxBetweenIndexForwardIterator implements Iterator<RawPair<Object, RID>> {
 
-  /**
-   *
-   */
-  private final IndexOneValue oIndexTxAwareOneValue;
-
+  private final IndexOneValue indexTxAwareOneValue;
   private final FrontendTransactionIndexChanges indexChanges;
+
   private Object lastKey;
-
   private Object nextKey;
+  private RawPair<Object, RID> nextResult;
 
-  public PureTxBetweenIndexForwardSpliterator(
-      IndexOneValue oIndexTxAwareOneValue,
+  public PureTxBetweenIndexForwardIterator(
+      IndexOneValue indexTxAwareOneValue,
       Object fromKey,
       boolean fromInclusive,
       Object toKey,
       boolean toInclusive,
       FrontendTransactionIndexChanges indexChanges) {
-    this.oIndexTxAwareOneValue = oIndexTxAwareOneValue;
+    this.indexTxAwareOneValue = indexTxAwareOneValue;
     this.indexChanges = indexChanges;
 
     if (fromKey != null) {
       fromKey =
-          this.oIndexTxAwareOneValue.enhanceFromCompositeKeyBetweenAsc(fromKey, fromInclusive);
+          this.indexTxAwareOneValue.enhanceFromCompositeKeyBetweenAsc(fromKey, fromInclusive);
     }
     if (toKey != null) {
-      toKey = this.oIndexTxAwareOneValue.enhanceToCompositeKeyBetweenAsc(toKey, toInclusive);
+      toKey = this.indexTxAwareOneValue.enhanceToCompositeKeyBetweenAsc(toKey, toInclusive);
     }
 
     final var keys = indexChanges.firstAndLastKeys(fromKey, fromInclusive, toKey, toInclusive);
@@ -53,15 +47,18 @@ public class PureTxBetweenIndexForwardSpliterator implements Spliterator<RawPair
   }
 
   @Override
-  public boolean tryAdvance(Consumer<? super RawPair<Object, RID>> action) {
+  public boolean hasNext() {
+    if (nextResult != null) {
+      return true;
+    }
+
     if (nextKey == null) {
       return false;
     }
 
     RawPair<Object, RID> result;
-
     do {
-      result = this.oIndexTxAwareOneValue.calculateTxIndexEntry(nextKey, null, indexChanges);
+      result = this.indexTxAwareOneValue.calculateTxIndexEntry(nextKey, null, indexChanges);
       nextKey = indexChanges.getHigherKey(nextKey);
 
       if (nextKey != null && DefaultComparator.INSTANCE.compare(nextKey, lastKey) > 0) {
@@ -71,31 +68,22 @@ public class PureTxBetweenIndexForwardSpliterator implements Spliterator<RawPair
     } while (result == null && nextKey != null);
 
     if (result == null) {
+      nextKey = null;
       return false;
     }
 
-    action.accept(result);
+    nextResult = result;
     return true;
   }
 
-  @Nullable
   @Override
-  public Spliterator<RawPair<Object, RID>> trySplit() {
-    return null;
-  }
+  public RawPair<Object, RID> next() {
+    if (!hasNext()) {
+      throw new NoSuchElementException();
+    }
 
-  @Override
-  public long estimateSize() {
-    return Long.MAX_VALUE;
-  }
-
-  @Override
-  public int characteristics() {
-    return NONNULL | SORTED | ORDERED;
-  }
-
-  @Override
-  public Comparator<? super RawPair<Object, RID>> getComparator() {
-    return AscComparator.INSTANCE;
+    var result = nextResult;
+    nextResult = null;
+    return result;
   }
 }

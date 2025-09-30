@@ -6,9 +6,9 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
@@ -59,9 +59,9 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
       return false;
     }
     if (right != null) {
-      return clazz.isSubClassOf(right.getStringValue());
+      return clazz.isChildOf(right.getStringValue());
     } else if (rightString != null) {
-      return clazz.isSubClassOf(decode(rightString));
+      return clazz.isChildOf(decode(rightString));
     }
     return false;
   }
@@ -91,9 +91,9 @@ public class SQLInstanceofCondition extends SQLBooleanExpression {
       return false;
     }
     if (right != null) {
-      return clazz.isSubClassOf(right.getStringValue());
+      return clazz.isChildOf(right.getStringValue());
     } else if (rightString != null) {
-      return clazz.isSubClassOf(decode(rightString));
+      return clazz.isChildOf(decode(rightString));
     }
     return false;
   }

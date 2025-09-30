@@ -47,7 +47,7 @@ public class ServerCommandGetDatabase extends ServerCommandGetConnect {
     json.writeAttribute(session, "name", cls.getName());
     json.beginCollection(session, "superClasses");
     var i = 0;
-    for (var oClass : cls.getSuperClasses()) {
+    for (var oClass : cls.getParents()) {
       json.write((i > 0 ? "," : "") + "\"" + oClass.getName() + "\"");
       i++;
     }

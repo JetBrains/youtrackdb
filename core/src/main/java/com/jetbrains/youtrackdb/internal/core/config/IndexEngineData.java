@@ -54,7 +54,7 @@ public final class IndexEngineData {
     this.algorithm = metadata.getAlgorithm();
     this.indexType = metadata.getType();
     this.durableInNonTxMode = durableInNonTxMode;
-    this.version = metadata.getVersion();
+    this.version = metadata.getBinaryFormatVersion();
     this.multivalue = metadata.isMultivalue();
     this.valueSerializerId = valueSerializerId;
     this.keySerializedId = keySerializedId;

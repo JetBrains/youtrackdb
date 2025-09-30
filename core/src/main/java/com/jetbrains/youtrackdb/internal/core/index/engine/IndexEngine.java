@@ -23,7 +23,6 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
@@ -39,10 +38,6 @@ public interface IndexEngine extends BaseIndexEngine {
 
   void put(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
       Object value) throws IOException;
-
-  void update(DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
-      IndexKeyUpdater<Object> updater)
-      throws IOException;
 
   boolean remove(Storage storage, AtomicOperation atomicOperation, Object key) throws IOException;
 

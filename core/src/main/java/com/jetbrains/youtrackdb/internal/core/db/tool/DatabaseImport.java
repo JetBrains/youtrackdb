@@ -44,7 +44,6 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
-import com.jetbrains.youtrackdb.internal.core.index.SimpleKeyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -437,9 +436,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     final Set<String> indexNames = new HashSet<>();
     for (final var dbClass : classes) {
       final var className = dbClass.getName();
-      if (!dbClass.isSuperClassOf(role)
-          && !dbClass.isSuperClassOf(user)
-          && !dbClass.isSuperClassOf(
+      if (!dbClass.isParentOf(role)
+          && !dbClass.isParentOf(user)
+          && !dbClass.isParentOf(
           identity) /*&& !dbClass.isParentClassOf(oSecurityPolicy)*/) {
         classesToDrop.put(className, dbClass);
         indexNames.addAll(dbClass.getIndexes());
@@ -458,7 +457,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       for (final var className : classesToDrop.keySet()) {
         var isSuperClass = false;
         for (var dbClass : classesToDrop.values()) {
-          final var parentClasses = dbClass.getSuperClasses();
+          final var parentClasses = dbClass.getParents();
           if (parentClasses != null) {
             for (var parentClass : parentClasses) {
               if (className.equalsIgnoreCase(parentClass.getName())) {
@@ -735,7 +734,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         final var superClass = session.getMetadata().getSlowMutableSchema()
             .getClass(superClassName);
 
-        if (!cls.getSuperClasses().contains(superClass)) {
+        if (!cls.getParents().contains(superClass)) {
           cls.addSuperClass(superClass);
         }
       }
@@ -1392,10 +1391,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         var collectionId = collectionIds.getInt(n);
         collectionIdsToIndex[i] = collectionId;
         i++;
-      }
-
-      if (indexDefinition == null) {
-        indexDefinition = new SimpleKeyIndexDefinition(PropertyTypeInternal.STRING);
       }
 
       var oldValue = GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT.getValueAsBoolean();

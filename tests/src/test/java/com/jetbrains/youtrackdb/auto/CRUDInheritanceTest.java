@@ -117,8 +117,8 @@ public class CRUDInheritanceTest extends BaseDBTest {
         .getClass("InheritanceTestBaseClass");
     var testClass = session.getMetadata().getSlowMutableSchema().getClass("InheritanceTestClass");
 
-    Assert.assertTrue(baseClass.getSuperClasses().contains(abstractClass));
-    Assert.assertTrue(testClass.getSuperClasses().contains(baseClass));
+    Assert.assertTrue(baseClass.getParents().contains(abstractClass));
+    Assert.assertTrue(testClass.getParents().contains(baseClass));
   }
 
   @Test
@@ -139,8 +139,8 @@ public class CRUDInheritanceTest extends BaseDBTest {
     var klass = session.getMetadata().getSlowMutableSchema().createClass("Not");
 
     var klass1 = session.getMetadata().getSlowMutableSchema().createClass("Extends_Not", klass);
-    Assert.assertEquals(klass1.getSuperClasses().size(), 1, 1);
-    Assert.assertEquals(klass1.getSuperClasses().getFirst().getName(), "Not");
+    Assert.assertEquals(klass1.getParents().size(), 1, 1);
+    Assert.assertEquals(klass1.getParents().getFirst().getName(), "Not");
   }
 
   @Test

@@ -32,20 +32,20 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
   }
 
   private void testClassCreationBranch(SchemaClass aClass, SchemaClass bClass, SchemaClass cClass) {
-    assertNotNull(aClass.getSuperClasses());
-    assertEquals(0, aClass.getSuperClasses().size());
+    assertNotNull(aClass.getParents());
+    assertEquals(0, aClass.getParents().size());
     assertNotNull(bClass.getSuperClassesNames());
     assertEquals(0, bClass.getSuperClassesNames().size());
     assertNotNull(cClass.getSuperClassesNames());
     assertEquals(2, cClass.getSuperClassesNames().size());
 
-    List<? extends SchemaClass> superClasses = cClass.getSuperClasses();
+    List<? extends SchemaClass> superClasses = cClass.getParents();
     assertTrue(superClasses.contains(aClass));
     assertTrue(superClasses.contains(bClass));
-    assertTrue(cClass.isSubClassOf(aClass));
-    assertTrue(cClass.isSubClassOf(bClass));
-    assertTrue(aClass.isSuperClassOf(cClass));
-    assertTrue(bClass.isSuperClassOf(cClass));
+    assertTrue(cClass.isChildOf(aClass));
+    assertTrue(cClass.isChildOf(bClass));
+    assertTrue(aClass.isParentOf(cClass));
+    assertTrue(bClass.isParentOf(cClass));
 
     var property = cClass.getProperty("propertyInt");
     assertEquals(PropertyType.INTEGER, property.getType());
@@ -66,8 +66,8 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     var bClass = oSchema.createAbstractClass("sqlB");
     var cClass = oSchema.createClass("sqlC");
     session.execute("alter class sqlC superclasses sqlA, sqlB").close();
-    assertTrue(cClass.isSubClassOf(aClass));
-    assertTrue(cClass.isSubClassOf(bClass));
+    assertTrue(cClass.isChildOf(aClass));
+    assertTrue(cClass.isChildOf(bClass));
   }
 
   @Test
@@ -84,8 +84,8 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     assertNotNull(aClass);
     assertNotNull(bClass);
     assertNotNull(cClass);
-    assertTrue(cClass.isSubClassOf(aClass));
-    assertTrue(cClass.isSubClassOf(bClass));
+    assertTrue(cClass.isChildOf(aClass));
+    assertTrue(cClass.isChildOf(bClass));
   }
 
   @Test(

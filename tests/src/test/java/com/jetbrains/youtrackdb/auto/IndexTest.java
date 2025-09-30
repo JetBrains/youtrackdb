@@ -124,7 +124,7 @@ public class IndexTest extends BaseDBTest {
   }
 
   @Test(dependsOnMethods = "testDuplicatedIndexOnUnique")
-  public void testIndexEntries() {
+  public void testIndexAscEntries() {
 
     var resultSet = executeQuery("select * from Profile where nick is not null");
 
@@ -845,7 +845,7 @@ public class IndexTest extends BaseDBTest {
 
     Iterator<RawPair<Object, RID>> streamIterator;
     Object key;
-    try (var stream = index.stream(session)) {
+    try (var stream = index.ascEntries(session)) {
       streamIterator = stream.iterator();
       Assert.assertTrue(streamIterator.hasNext());
 
@@ -873,10 +873,10 @@ public class IndexTest extends BaseDBTest {
         var anotherChildClass =
             db.getMetadata().getSlowMutableSchema().createClass("AnotherChildTestClass");
 
-        if (!baseClass.isSuperClassOf(childClass)) {
+        if (!baseClass.isParentOf(childClass)) {
           childClass.addSuperClass(baseClass);
         }
-        if (!baseClass.isSuperClassOf(anotherChildClass)) {
+        if (!baseClass.isParentOf(anotherChildClass)) {
           anotherChildClass.addSuperClass(baseClass);
         }
 
@@ -944,7 +944,7 @@ public class IndexTest extends BaseDBTest {
       keys.add(key);
     }
 
-    try (var stream = idx.stream(session)) {
+    try (var stream = idx.ascEntries(session)) {
       Assert.assertEquals(stream.map(RawPair::first).distinct().count(), keys.size());
     }
   }
@@ -1575,7 +1575,7 @@ public class IndexTest extends BaseDBTest {
 
     // we support first and last keys check only for embedded storage
     // we support first and last keys check only for embedded storage
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1584,7 +1584,7 @@ public class IndexTest extends BaseDBTest {
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
     }
-    try (var descStream = index.descStream(session)) {
+    try (var descStream = index.descEntries(session)) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
@@ -1613,7 +1613,7 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
@@ -1639,7 +1639,7 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStreamAsc = index.keyStream()) {
+    try (var keyStreamAsc = index.keys()) {
       Assert.assertEquals(
           keyStreamAsc.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
@@ -1661,7 +1661,7 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndex");
 
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
@@ -1684,7 +1684,7 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1693,7 +1693,7 @@ public class IndexTest extends BaseDBTest {
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       }
     }
-    try (var descStream = index.descStream(session)) {
+    try (var descStream = index.descEntries(session)) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
@@ -1720,7 +1720,7 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndex");
     Assert.assertEquals(index.size(session), 1);
 
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, null, 12L, 14L, 12));
     }
@@ -1784,7 +1784,7 @@ public class IndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     // we support first and last keys check only for embedded storage
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid1, 12L, 14L, 12));
@@ -1793,7 +1793,7 @@ public class IndexTest extends BaseDBTest {
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
       }
     }
-    try (var descStream = index.descStream(session)) {
+    try (var descStream = index.descEntries(session)) {
       if (rid1.compareTo(rid2) < 0) {
         Assert.assertEquals(
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
@@ -1821,7 +1821,7 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 1);
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid2, 12L, 14L, 12));
     }
@@ -1862,7 +1862,7 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 1);
 
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       Assert.assertEquals(
           keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
     }
@@ -1886,7 +1886,7 @@ public class IndexTest extends BaseDBTest {
             .getIndex("MultikeyWithoutFieldIndexNoNullSupport");
     Assert.assertEquals(index.size(session), 2);
 
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid3, 12L, 14L, 12));
@@ -1895,7 +1895,7 @@ public class IndexTest extends BaseDBTest {
             keyStream.iterator().next(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
       }
     }
-    try (var descStream = index.descStream(session)) {
+    try (var descStream = index.descEntries(session)) {
       if (rid3.compareTo(rid4) < 0) {
         Assert.assertEquals(
             descStream.iterator().next().first(), new CompositeKey((byte) 1, rid4, 12L, 14L, 12));
@@ -1945,7 +1945,7 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("NullValuesCountSBTreeUniqueIndex");
     Assert.assertEquals(index.size(session), 2);
-    try (var stream = index.stream(session)) {
+    try (var stream = index.ascEntries(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
@@ -1977,7 +1977,7 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("NullValuesCountSBTreeNotUniqueOneIndex");
     Assert.assertEquals(index.size(session), 2);
-    try (var stream = index.stream(session)) {
+    try (var stream = index.ascEntries(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
@@ -2008,7 +2008,7 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("NullValuesCountSBTreeNotUniqueTwoIndex");
-    try (var stream = index.stream(session)) {
+    try (var stream = index.ascEntries(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map(RawPair::first).distinct().count()
@@ -2040,7 +2040,7 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("NullValuesCountHashUniqueIndex");
     Assert.assertEquals(index.size(session), 2);
-    try (var stream = index.stream(session)) {
+    try (var stream = index.ascEntries(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
@@ -2071,7 +2071,7 @@ public class IndexTest extends BaseDBTest {
             .getIndexManager()
             .getIndex("NullValuesCountHashNotUniqueOneIndex");
     Assert.assertEquals(index.size(session), 2);
-    try (var stream = index.stream(session)) {
+    try (var stream = index.ascEntries(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map(RawPair::first).distinct().count() + nullStream.count(), 2);
@@ -2101,7 +2101,7 @@ public class IndexTest extends BaseDBTest {
             .getSharedContext()
             .getIndexManager()
             .getIndex("NullValuesCountHashNotUniqueTwoIndex");
-    try (var stream = index.stream(session)) {
+    try (var stream = index.ascEntries(session)) {
       try (var nullStream = index.getRids(session, null)) {
         Assert.assertEquals(
             stream.map(RawPair::first).distinct().count()

@@ -112,7 +112,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           result1 = entity.getImmutableSchemaClass(session);
           if (iClassName == null
               || result1
-              .isSubClassOf(iClassName)) {
+              .isChildOf(iClassName)) {
             if (i <= beginIndex) {
               if (items == 1) {
                 return record;
@@ -135,7 +135,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
           if (iClassName == null
               || result1
-              .isSubClassOf(iClassName)) {
+              .isChildOf(iClassName)) {
             if (i <= beginIndex) {
               if (items == 1) {
                 return record;
@@ -166,7 +166,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
           if (iClassName == null
               || result1
-              .isSubClassOf(iClassName)) {
+              .isChildOf(iClassName)) {
             if (i >= beginIndex) {
               if (items == 1) {
                 return record;
@@ -189,7 +189,7 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
           if (iClassName == null
               || result1
-              .isSubClassOf(iClassName)) {
+              .isChildOf(iClassName)) {
             if (i >= beginIndex) {
               if (items == 1) {
                 return record;

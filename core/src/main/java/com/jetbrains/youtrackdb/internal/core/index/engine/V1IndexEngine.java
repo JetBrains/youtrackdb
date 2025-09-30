@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import java.util.stream.Stream;
+import java.util.Iterator;
 
 public interface V1IndexEngine extends BaseIndexEngine {
 
@@ -10,7 +10,7 @@ public interface V1IndexEngine extends BaseIndexEngine {
 
   void put(AtomicOperation atomicOperation, Object key, RID value);
 
-  Stream<RID> get(Object key);
+  Iterator<RID> get(Object key);
 
   @Override
   default int getEngineAPIVersion() {

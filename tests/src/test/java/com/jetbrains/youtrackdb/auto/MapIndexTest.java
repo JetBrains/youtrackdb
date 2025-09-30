@@ -70,7 +70,7 @@ public class MapIndexTest extends BaseDBTest {
 
     final var keyIndex = getIndex("mapIndexTestKey");
     Assert.assertEquals(keyIndex.size(session), 2);
-    try (final var keyStream = keyIndex.keyStream()) {
+    try (final var keyStream = keyIndex.keys()) {
       final var keyIterator = keyStream.iterator();
       while (keyIterator.hasNext()) {
         final var key = (String) keyIterator.next();
@@ -82,7 +82,7 @@ public class MapIndexTest extends BaseDBTest {
 
     final var valueIndex = getIndex("mapIndexTestValue");
     Assert.assertEquals(valueIndex.size(session), 2);
-    try (final var valueStream = valueIndex.keyStream()) {
+    try (final var valueStream = valueIndex.keys()) {
       final var valuesIterator = valueStream.iterator();
       while (valuesIterator.hasNext()) {
         final var value = (Integer) valuesIterator.next();
@@ -114,7 +114,7 @@ public class MapIndexTest extends BaseDBTest {
 
     Assert.assertEquals(keyIndex.size(session), 2);
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -129,7 +129,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -171,7 +171,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -186,7 +186,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -231,7 +231,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -246,7 +246,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -285,7 +285,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -300,7 +300,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -333,7 +333,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -348,7 +348,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 3);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -387,7 +387,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 3);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -402,7 +402,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 3);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -436,7 +436,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -451,7 +451,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -483,7 +483,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -499,7 +499,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -537,7 +537,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -552,7 +552,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -586,7 +586,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -601,7 +601,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -635,7 +635,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -650,7 +650,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -689,7 +689,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -704,7 +704,7 @@ public class MapIndexTest extends BaseDBTest {
 
     Assert.assertEquals(valueIndex.size(session), 2);
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -739,7 +739,7 @@ public class MapIndexTest extends BaseDBTest {
 
     Assert.assertEquals(keyIndex.size(session), 3);
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -754,7 +754,7 @@ public class MapIndexTest extends BaseDBTest {
 
     Assert.assertEquals(valueIndex.size(session), 3);
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {
@@ -843,7 +843,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(keyIndex.size(session), 2);
 
     Iterator<Object> keysIterator;
-    try (var keyStream = keyIndex.keyStream()) {
+    try (var keyStream = keyIndex.keys()) {
       keysIterator = keyStream.iterator();
 
       while (keysIterator.hasNext()) {
@@ -858,7 +858,7 @@ public class MapIndexTest extends BaseDBTest {
     Assert.assertEquals(valueIndex.size(session), 2);
 
     Iterator<Object> valuesIterator;
-    try (var valueStream = valueIndex.keyStream()) {
+    try (var valueStream = valueIndex.keys()) {
       valuesIterator = valueStream.iterator();
 
       while (valuesIterator.hasNext()) {

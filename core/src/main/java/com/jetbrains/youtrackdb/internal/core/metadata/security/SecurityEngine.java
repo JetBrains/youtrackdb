@@ -282,13 +282,13 @@ public class SecurityEngine {
     var classPolicy = definedPolicies.get(resource);
 
     var predicateString = classPolicy != null ? classPolicy.get(scope, session) : null;
-    if (predicateString == null && !clazz.getSuperClasses().isEmpty()) {
-      if (clazz.getSuperClasses().size() == 1) {
+    if (predicateString == null && !clazz.getParents().isEmpty()) {
+      if (clazz.getParents().size() == 1) {
         return getPredicateForClassHierarchy(
-            session, security, role, clazz.getSuperClasses().getFirst(), scope);
+            session, security, role, clazz.getParents().getFirst(), scope);
       }
       var result = new SQLAndBlock(-1);
-      for (var superClass : clazz.getSuperClasses()) {
+      for (var superClass : clazz.getParents()) {
         var superClassPredicate =
             getPredicateForClassHierarchy(session, security, role, superClass, scope);
         if (superClassPredicate == null) {
@@ -326,18 +326,18 @@ public class SecurityEngine {
     var classPolicy = definedPolicies.get(resource);
 
     var predicateString = classPolicy != null ? classPolicy.get(scope, session) : null;
-    if (predicateString == null && !clazz.getSuperClasses().isEmpty()) {
-      if (clazz.getSuperClasses().size() == 1) {
+    if (predicateString == null && !clazz.getParents().isEmpty()) {
+      if (clazz.getParents().size() == 1) {
         return getPredicateForClassHierarchy(
             session,
             security,
             role,
-            clazz.getSuperClasses().getFirst(),
+            clazz.getParents().getFirst(),
             propertyName,
             scope);
       }
       var result = new SQLAndBlock(-1);
-      for (var superClass : clazz.getSuperClasses()) {
+      for (var superClass : clazz.getParents()) {
         var superClassPredicate =
             getPredicateForClassHierarchy(session, security, role, superClass, propertyName, scope);
         if (superClassPredicate == null) {

@@ -58,9 +58,9 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
     if (schemaClass == null) {
       return false;
     } else if (vertexStep) {
-      return schemaClass.isSubClassOf(SchemaClass.VERTEX_CLASS_NAME);
+      return schemaClass.isChildOf(SchemaClass.VERTEX_CLASS_NAME);
     } else {
-      return schemaClass.isSubClassOf(SchemaClass.EDGE_CLASS_NAME);
+      return schemaClass.isChildOf(SchemaClass.EDGE_CLASS_NAME);
     }
   }
 

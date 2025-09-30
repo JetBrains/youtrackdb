@@ -396,7 +396,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
         allClassNames.add(clazz.getName());
 
-        var subClasses = clazz.getAllSubclasses();
+        var subClasses = clazz.getDescendants();
         for (var subClass : subClasses) {
           allClassNames.add(subClass.getName());
         }
@@ -462,7 +462,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           // GO DOWN THROUGH THE INHERITANCE TREE
           var type = schema.getClass(clsName);
           if (type != null) {
-            for (var subType : type.getAllSubclasses()) {
+            for (var subType : type.getDescendants()) {
               clsName = subType.getName();
 
               if (fieldName.equals(DIRECTION_OUT_PREFIX + clsName)) {
@@ -491,7 +491,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           // GO DOWN THROUGH THE INHERITANCE TREE
           var type = schema.getClass(clsName);
           if (type != null) {
-            for (var subType : type.getAllSubclasses()) {
+            for (var subType : type.getDescendants()) {
               clsName = subType.getName();
               if (fieldName.equals(DIRECTION_IN_PREFIX + clsName)) {
                 return new Pair<>(Direction.IN, clsName);

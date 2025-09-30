@@ -162,7 +162,7 @@ public abstract class EntityHookAbstract implements RecordHook {
     if (includeClasses != null) {
       // FILTER BY CLASSES
       for (var cls : includeClasses) {
-        if (clazz.isSubClassOf(cls)) {
+        if (clazz.isChildOf(cls)) {
           return true;
         }
       }
@@ -172,7 +172,7 @@ public abstract class EntityHookAbstract implements RecordHook {
     if (excludeClasses != null) {
       // FILTER BY CLASSES
       for (var cls : excludeClasses) {
-        if (clazz.isSubClassOf(cls)) {
+        if (clazz.isChildOf(cls)) {
           return false;
         }
       }

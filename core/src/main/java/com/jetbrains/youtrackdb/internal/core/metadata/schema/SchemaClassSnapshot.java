@@ -140,14 +140,14 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
       this.allProperties = Collections.unmodifiableCollection(allProperties);
       this.allPropertiesMap = Collections.unmodifiableMap(allPropsMap);
-      this.isVertexType = isSubClassOf(SchemaClass.VERTEX_CLASS_NAME);
-      this.isEdgeType = isSubClassOf(SchemaClass.EDGE_CLASS_NAME);
-      this.function = isSubClassOf(FunctionLibraryImpl.CLASSNAME);
-      this.scheduler = isSubClassOf(ScheduledEvent.CLASS_NAME);
-      this.sequence = isSubClassOf(DBSequence.CLASS_NAME);
-      this.user = isSubClassOf(SecurityUserImpl.CLASS_NAME);
-      this.role = isSubClassOf(Role.CLASS_NAME);
-      this.securityPolicy = isSubClassOf(SecurityPolicy.CLASS_NAME);
+      this.isVertexType = isChildOf(SchemaClass.VERTEX_CLASS_NAME);
+      this.isEdgeType = isChildOf(SchemaClass.EDGE_CLASS_NAME);
+      this.function = isChildOf(FunctionLibraryImpl.CLASSNAME);
+      this.scheduler = isChildOf(ScheduledEvent.CLASS_NAME);
+      this.sequence = isChildOf(DBSequence.CLASS_NAME);
+      this.user = isChildOf(SecurityUserImpl.CLASS_NAME);
+      this.role = isChildOf(Role.CLASS_NAME);
+      this.securityPolicy = isChildOf(SecurityPolicy.CLASS_NAME);
       this.indexes = new HashSet<>();
       getRawIndexes(session, indexes);
     }
@@ -170,7 +170,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public List<SchemaClassSnapshot> getSuperClasses() {
+  public List<SchemaClassSnapshot> getParents() {
     return superClasses;
   }
 
@@ -258,26 +258,26 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Collection<SchemaClassSnapshot> getSubclasses() {
+  public Collection<SchemaClassSnapshot> getChildren() {
     initBaseClasses();
     return subclasses;
   }
 
   @Override
-  public Collection<SchemaClassSnapshot> getAllSubclasses() {
+  public Collection<SchemaClassSnapshot> getDescendants() {
     initBaseClasses();
 
-    var set = new HashSet<>(getSubclasses());
+    var set = new HashSet<>(getChildren());
 
     for (var c : subclasses) {
-      set.addAll(c.getAllSubclasses());
+      set.addAll(c.getDescendants());
     }
 
     return set;
   }
 
   @Override
-  public Collection<ImmutableSchemaClass> getAllSuperClasses() {
+  public Collection<ImmutableSchemaClass> getAscendants() {
     var ret = new HashSet<ImmutableSchemaClass>();
     getAllSuperClasses(ret);
     return ret;
@@ -303,7 +303,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public boolean isSubClassOf(final String iClassName) {
+  public boolean isChildOf(final String iClassName) {
     if (iClassName == null) {
       return false;
     }
@@ -313,7 +313,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     }
 
     for (var superClass : superClasses) {
-      if (superClass.isSubClassOf(iClassName)) {
+      if (superClass.isChildOf(iClassName)) {
         return true;
       }
     }
@@ -322,7 +322,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public boolean isSubClassOf(final ImmutableSchemaClass clazz) {
+  public boolean isChildOf(final ImmutableSchemaClass clazz) {
     if (clazz == null) {
       return false;
     }
@@ -331,7 +331,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     }
 
     for (var superClass : superClasses) {
-      if (superClass.isSubClassOf(clazz)) {
+      if (superClass.isChildOf(clazz)) {
         return true;
       }
     }
@@ -339,8 +339,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public boolean isSuperClassOf(ImmutableSchemaClass clazz) {
-    return clazz != null && clazz.isSubClassOf(this);
+  public boolean isParentOf(ImmutableSchemaClass clazz) {
+    return clazz != null && clazz.isChildOf(this);
   }
 
   @Override
@@ -355,7 +355,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
     return switch (iAttribute) {
       case NAME -> name;
-      case SUPERCLASSES -> getSuperClasses();
+      case SUPERCLASSES -> getParents();
       case STRICT_MODE -> strictMode;
       case ABSTRACT -> isAbstract;
       case CUSTOM -> customFields;

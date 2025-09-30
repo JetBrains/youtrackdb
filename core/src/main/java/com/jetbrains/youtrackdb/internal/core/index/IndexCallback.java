@@ -24,5 +24,5 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 
 public interface IndexCallback {
 
-  Object getDocumentValueToIndex(FrontendTransaction transaction, EntityImpl entity);
+  Object convertEntityPropertiesToIndexKey(FrontendTransaction transaction, EntityImpl entity);
 }

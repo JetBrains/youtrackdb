@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
-import com.jetbrains.youtrackdb.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
@@ -139,20 +138,6 @@ public class LuceneSpatialIndexEngineDelegator
       throw BaseException.wrapException(
           new IndexException(session,
               "Error during insertion of key " + key + " in index " + indexName),
-          e, session);
-    }
-  }
-
-  @Override
-  public void update(
-      DatabaseSessionInternal session, AtomicOperation atomicOperation, Object key,
-      IndexKeyUpdater<Object> updater) {
-    try {
-      delegate.update(session, atomicOperation, key, updater);
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new IndexException(session,
-              "Error during update of key " + key + " in index " + indexName),
           e, session);
     }
   }

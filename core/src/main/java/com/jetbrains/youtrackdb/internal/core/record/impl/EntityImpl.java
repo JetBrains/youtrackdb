@@ -1862,7 +1862,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     final var schemaClass = p.getLinkedClass();
-    if (schemaClass != null && !schemaClass.isSubClassOf(Identity.CLASS_NAME)) {
+    if (schemaClass != null && !schemaClass.isChildOf(Identity.CLASS_NAME)) {
       // DON'T VALIDATE OUSER AND OROLE FOR SECURITY RESTRICTIONS
       final var rid = identifiable.getIdentity();
       if (!schemaClass.hasPolymorphicCollectionId(rid.getCollectionId())) {
@@ -1878,7 +1878,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           cls = null;
         }
 
-        if (cls != null && !schemaClass.isSuperClassOf(cls)) {
+        if (cls != null && !schemaClass.isParentOf(cls)) {
           throw new ValidationException(session.getDatabaseName(),
               "The property '"
                   + p.getFullName()
@@ -1976,7 +1976,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
                     + "' but the record has no class");
           }
 
-          if (!(cls.isSubClassOf(embeddedClass))) {
+          if (!(cls.isChildOf(embeddedClass))) {
             throw new ValidationException(session.getDatabaseName(),
                 "The property '"
                     + p.getFullName()

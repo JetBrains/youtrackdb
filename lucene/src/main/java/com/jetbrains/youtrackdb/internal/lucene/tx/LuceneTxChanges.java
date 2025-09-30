@@ -27,11 +27,7 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 
-/**
- *
- */
 public interface LuceneTxChanges {
-
   void put(Object key, Identifiable value, Document doc);
 
   void remove(DatabaseSessionInternal session, Object key, Identifiable value);

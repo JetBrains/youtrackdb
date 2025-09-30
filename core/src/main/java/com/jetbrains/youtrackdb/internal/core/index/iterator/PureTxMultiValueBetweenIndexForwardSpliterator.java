@@ -16,10 +16,6 @@ import javax.annotation.Nullable;
 
 public class PureTxMultiValueBetweenIndexForwardSpliterator
     implements Spliterator<RawPair<Object, RID>> {
-
-  /**
-   *
-   */
   private final IndexMultiValues index;
 
   private final FrontendTransactionIndexChanges indexChanges;

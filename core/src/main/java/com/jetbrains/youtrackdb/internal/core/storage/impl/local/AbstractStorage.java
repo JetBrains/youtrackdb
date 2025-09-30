@@ -180,7 +180,6 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import java.util.zip.ZipOutputStream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -197,6 +196,7 @@ public abstract class AbstractStorage
     FreezableStorageComponent,
     PageIsBrokenListener,
     Storage {
+
   private static final Logger logger = LoggerFactory.getLogger(AbstractStorage.class);
   private static final int WAL_RESTORE_REPORT_INTERVAL = 30 * 1000; // milliseconds
 
@@ -2603,8 +2603,7 @@ public abstract class AbstractStorage
     return ((IndexEngine) engine).get(db, key);
   }
 
-  public Stream<RID> getIndexValues(int indexId, final Object key)
-      throws InvalidIndexEngineIdException {
+  public Iterator<RID> getIndexValues(int indexId, final Object key) {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     if (engineAPIVersion != 1) {
       throw new IllegalStateException(
@@ -2627,8 +2626,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2638,7 +2635,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RID> doGetIndexValues(final int indexId, final Object key)
+  private Iterator<RID> doGetIndexValues(final int indexId, final Object key)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
@@ -2678,7 +2675,7 @@ public abstract class AbstractStorage
 
   @Nullable
   public <T> T callIndexEngine(
-      final boolean readOperation, int indexId, final IndexEngineCallback<T> callback)
+      final boolean writeOperation, int indexId, final IndexEngineCallback<T> callback)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
 
@@ -2688,7 +2685,7 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        if (readOperation) {
+        if (writeOperation) {
           makeStorageDirty();
         }
 
@@ -2861,15 +2858,14 @@ public abstract class AbstractStorage
     }
   }
 
-  public Stream<RawPair<Object, RID>> iterateIndexEntriesBetween(
+  public Iterator<RawPair<Object, RID>> iterateIndexEntriesBetween(
       DatabaseSessionEmbedded db, int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
       final Object rangeTo,
       final boolean toInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
-      throws InvalidIndexEngineIdException {
+      final IndexEngineValuesTransformer transformer) {
     indexId = extractInternalId(indexId);
 
     try {
@@ -2888,8 +2884,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2899,7 +2893,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RawPair<Object, RID>> doIterateIndexEntriesBetween(
+  private Iterator<RawPair<Object, RID>> doIterateIndexEntriesBetween(
       DatabaseSessionEmbedded db, final int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
@@ -2917,15 +2911,13 @@ public abstract class AbstractStorage
         , rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer);
   }
 
-  public Stream<RawPair<Object, RID>> iterateIndexEntriesMajor(
+  public Iterator<RawPair<Object, RID>> iterateIndexEntriesMajor(
       int indexId,
       final Object fromKey,
       final boolean isInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
-      throws InvalidIndexEngineIdException {
+      final IndexEngineValuesTransformer transformer) {
     indexId = extractInternalId(indexId);
-
     try {
       if (transaction.get() != null) {
         return doIterateIndexEntriesMajor(indexId, fromKey, isInclusive, ascSortOrder,
@@ -2942,8 +2934,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2953,7 +2943,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RawPair<Object, RID>> doIterateIndexEntriesMajor(
+  private Iterator<RawPair<Object, RID>> doIterateIndexEntriesMajor(
       final int indexId,
       final Object fromKey,
       final boolean isInclusive,
@@ -2968,13 +2958,12 @@ public abstract class AbstractStorage
     return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, transformer);
   }
 
-  public Stream<RawPair<Object, RID>> iterateIndexEntriesMinor(
+  public Iterator<RawPair<Object, RID>> iterateIndexEntriesMinor(
       int indexId,
       final Object toKey,
       final boolean isInclusive,
       final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
-      throws InvalidIndexEngineIdException {
+      final IndexEngineValuesTransformer transformer) {
     indexId = extractInternalId(indexId);
 
     try {
@@ -3004,7 +2993,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RawPair<Object, RID>> doIterateIndexEntriesMinor(
+  private Iterator<RawPair<Object, RID>> doIterateIndexEntriesMinor(
       final int indexId,
       final Object toKey,
       final boolean isInclusive,
@@ -3019,14 +3008,13 @@ public abstract class AbstractStorage
     return engine.iterateEntriesMinor(toKey, isInclusive, ascSortOrder, transformer);
   }
 
-  public Stream<RawPair<Object, RID>> getIndexStream(
-      int indexId, final IndexEngineValuesTransformer valuesTransformer)
-      throws InvalidIndexEngineIdException {
+  public Iterator<RawPair<Object, RID>> getIndexIterator(
+      int indexId, final IndexEngineValuesTransformer valuesTransformer) {
     indexId = extractInternalId(indexId);
 
     try {
       if (transaction.get() != null) {
-        return doGetIndexStream(indexId, valuesTransformer);
+        return doGetIndexAscIterator(indexId, valuesTransformer);
       }
 
       stateLock.readLock().lock();
@@ -3034,12 +3022,10 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        return doGetIndexStream(indexId, valuesTransformer);
+        return doGetIndexAscIterator(indexId, valuesTransformer);
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3049,7 +3035,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RawPair<Object, RID>> doGetIndexStream(
+  private Iterator<RawPair<Object, RID>> doGetIndexAscIterator(
       final int indexId, final IndexEngineValuesTransformer valuesTransformer)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
@@ -3057,12 +3043,11 @@ public abstract class AbstractStorage
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.stream(valuesTransformer);
+    return engine.ascEntries(valuesTransformer);
   }
 
-  public Stream<RawPair<Object, RID>> getIndexDescStream(
-      int indexId, final IndexEngineValuesTransformer valuesTransformer)
-      throws InvalidIndexEngineIdException {
+  public Iterator<RawPair<Object, RID>> getIndexDescIterator(
+      int indexId, final IndexEngineValuesTransformer valuesTransformer) {
     indexId = extractInternalId(indexId);
 
     try {
@@ -3079,8 +3064,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3090,7 +3073,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<RawPair<Object, RID>> doGetIndexDescStream(
+  private Iterator<RawPair<Object, RID>> doGetIndexDescStream(
       final int indexId, final IndexEngineValuesTransformer valuesTransformer)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
@@ -3098,15 +3081,15 @@ public abstract class AbstractStorage
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.descStream(valuesTransformer);
+    return engine.descEntries(valuesTransformer);
   }
 
-  public Stream<Object> getIndexKeyStream(int indexId) throws InvalidIndexEngineIdException {
+  public Iterator<Object> getIndexKeys(int indexId) {
     indexId = extractInternalId(indexId);
 
     try {
       if (transaction.get() != null) {
-        return doGetIndexKeyStream(indexId);
+        return doGetIndexKeys(indexId);
       }
 
       stateLock.readLock().lock();
@@ -3114,12 +3097,10 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        return doGetIndexKeyStream(indexId);
+        return doGetIndexKeys(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3129,18 +3110,17 @@ public abstract class AbstractStorage
     }
   }
 
-  private Stream<Object> doGetIndexKeyStream(final int indexId)
+  private Iterator<Object> doGetIndexKeys(final int indexId)
       throws InvalidIndexEngineIdException {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.keyStream();
+    return engine.keys();
   }
 
-  public long getIndexSize(int indexId, final IndexEngineValuesTransformer transformer)
-      throws InvalidIndexEngineIdException {
+  public long getIndexSize(int indexId, final IndexEngineValuesTransformer transformer) {
     indexId = extractInternalId(indexId);
 
     try {
@@ -3157,8 +3137,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -5197,10 +5175,12 @@ public abstract class AbstractStorage
     return ridsPerCollection;
   }
 
-  private static void lockIndexes(
+  private void lockIndexes(
       final TreeMap<String, FrontendTransactionIndexChanges> indexes) {
     for (final var changes : indexes.values()) {
-      changes.getIndex().acquireAtomicExclusiveLock();
+      var indexId = changes.getIndex().getIndexId();
+      var indexEngine = indexEngines.get(indexId);
+      indexEngine.acquireAtomicExclusiveLock();
     }
   }
 

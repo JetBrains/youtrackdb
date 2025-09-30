@@ -167,7 +167,7 @@ public class SQLWhereClause extends SimpleNode {
         final Spliterator<RawPair<Object, RID>> spliterator;
 
         try (var stream =
-            index.streamEntriesBetween(session, key, true, key, true, true)) {
+            index.entriesBetween(session, key, true, key, true, true)) {
           spliterator = stream.spliterator();
           return spliterator.estimateSize();
         }

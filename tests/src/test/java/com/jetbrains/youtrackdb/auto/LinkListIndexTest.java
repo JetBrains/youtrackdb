@@ -70,7 +70,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -109,7 +109,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -145,7 +145,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -190,7 +190,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -231,7 +231,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -273,7 +273,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -317,7 +317,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 3);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -356,7 +356,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -397,7 +397,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -432,7 +432,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -467,7 +467,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 1);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {
@@ -555,7 +555,7 @@ public class LinkListIndexTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 2);
 
     Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keyStream()) {
+    try (var indexKeyStream = index.keys()) {
       keyIterator = indexKeyStream.iterator();
 
       while (keyIterator.hasNext()) {

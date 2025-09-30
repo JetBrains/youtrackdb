@@ -804,10 +804,10 @@ public class MatchExecutionPlanner {
     var schema = db.getMetadata().getFastImmutableSchema();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
-    if (class1.isSubClassOf(class2)) {
+    if (class1.isChildOf(class2)) {
       return class1.getName();
     }
-    if (class2.isSubClassOf(class1)) {
+    if (class2.isChildOf(class1)) {
       return class2.getName();
     }
     return null;

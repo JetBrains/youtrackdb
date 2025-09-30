@@ -484,7 +484,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
         if (schemaClass == null) {
           return false;
         }
-        return schemaClass.isSubClassOf(oClass);
+        return schemaClass.isChildOf(oClass);
       }
       return false;
     } catch (RecordNotFoundException rnf) {
@@ -604,10 +604,10 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       throw new CommandExecutionException(session,
           "Class " + className2 + " not found in the schema");
     }
-    if (class1.isSubClassOf(class2)) {
+    if (class1.isChildOf(class2)) {
       return class1.getName();
     }
-    if (class2.isSubClassOf(class1)) {
+    if (class2.isChildOf(class1)) {
       return class2.getName();
     }
     return null;

@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexEngineException;
-import com.jetbrains.youtrackdb.internal.core.index.IndexKeyUpdater;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -127,13 +126,6 @@ public class LuceneGeoSpatialIndexEngine extends LuceneSpatialIndexEngineAbstrac
       updateLastAccess();
       addDocument(newGeoDocument((Identifiable) value, factory.fromResult(location), location));
     }
-  }
-
-  @Override
-  public void update(
-      DatabaseSessionInternal db, AtomicOperation atomicOperation, Object key,
-      IndexKeyUpdater<Object> updater) {
-    throw new UnsupportedOperationException();
   }
 
   @Override

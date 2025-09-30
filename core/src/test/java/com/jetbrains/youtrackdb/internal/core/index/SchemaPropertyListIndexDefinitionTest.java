@@ -106,14 +106,15 @@ public class SchemaPropertyListIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testGetDocumentValueToIndex() {
+  public void testConvertEntityPropertiesToIndexKey() {
     session.begin();
     final var document = (EntityImpl) session.newEntity();
 
     document.newEmbeddedList("fOne").addAll(Arrays.asList("12", "23"));
     document.setProperty("fTwo", 10);
 
-    final var result = propertyIndex.getDocumentValueToIndex(session.getActiveTransaction(),
+    final var result = propertyIndex.convertEntityPropertiesToIndexKey(
+        session.getActiveTransaction(),
         document);
     Assert.assertTrue(result instanceof Collection);
 

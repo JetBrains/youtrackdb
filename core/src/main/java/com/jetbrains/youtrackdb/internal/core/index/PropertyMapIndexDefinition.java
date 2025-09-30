@@ -73,7 +73,8 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   }
 
   @Override
-  public Object getDocumentValueToIndex(FrontendTransaction transaction, EntityImpl entity) {
+  public Object convertEntityPropertiesToIndexKey(FrontendTransaction transaction,
+      EntityImpl entity) {
     return createValue(transaction, entity.<Object>getProperty(field));
   }
 

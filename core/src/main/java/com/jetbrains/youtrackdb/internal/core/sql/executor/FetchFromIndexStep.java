@@ -274,7 +274,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       streams.add(stream);
     }
 
-    stream = isOrderAsc ? index.stream(session) : index.descStream(session);
+    stream = isOrderAsc ? index.ascEntries(session) : index.descEntries(session);
     if (acquiredStreams.add(stream)) {
       streams.add(stream);
     }
@@ -360,7 +360,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                         }
                       } else {
                         stream =
-                            index.streamEntriesBetween(session,
+                            index.entriesBetween(session,
                                 from, fromKeyIncluded, to, toKeyIncluded, isOrderAsc);
                         if (acquiredStreams.add(stream)) {
                           streams.add(stream);
@@ -370,7 +370,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                     } else if (additionalRangeCondition == null
                         && allEqualities((SQLAndBlock) condition)) {
                       stream =
-                          index.streamEntries(session,
+                          index.entries(session,
                               toIndexKey(transaction, indexDef, itemVal), isOrderAsc);
 
                       if (acquiredStreams.add(stream)) {
@@ -379,7 +379,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
                     } else if (isFullTextIndex(index)) {
                       stream =
-                          index.streamEntries(session,
+                          index.entries(session,
                               toIndexKey(transaction, indexDef, itemVal), isOrderAsc);
                       if (acquiredStreams.add(stream)) {
                         streams.add(stream);
@@ -423,7 +423,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
               var fromVal = fromIter.next();
               var toVal = toIter.next();
 
-              stream = index.streamEntriesBetween(session, fromVal, fromKeyIncluded, toVal,
+              stream = index.entriesBetween(session, fromVal, fromKeyIncluded, toVal,
                   toKeyIncluded,
                   isOrderAsc);
               if (acquiredStreams.add(stream)) {
@@ -431,7 +431,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
               }
             }
           } else {
-            stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
+            stream = index.entriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
                 isOrderAsc);
             if (acquiredStreams.add(stream)) {
               streams.add(stream);
@@ -442,7 +442,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
 
       } else if (additionalRangeCondition == null && allEqualities((SQLAndBlock) condition)) {
         stream =
-            index.streamEntries(session,
+            index.entries(session,
                 toIndexKey(transaction, indexDef, secondValue),
                 isOrderAsc);
         if (acquiredStreams.add(stream)) {
@@ -450,7 +450,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         }
       } else if (isFullTextIndex(index)) {
         stream =
-            index.streamEntries(session,
+            index.entries(session,
                 toIndexKey(transaction, indexDef, secondValue),
                 isOrderAsc);
         if (acquiredStreams.add(stream)) {
@@ -625,7 +625,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     var transaction = session.getActiveTransaction();
     var stream =
-        index.streamEntriesBetween(session,
+        index.entriesBetween(session,
             toBetweenIndexKey(transaction, definition, secondValue),
             true,
             toBetweenIndexKey(transaction, definition, thirdValue),
@@ -708,15 +708,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     if (operator instanceof SQLEqualsOperator
         || operator instanceof SQLContainsKeyOperator
         || operator instanceof SQLContainsValueOperator) {
-      return index.streamEntries(session, toIndexKey(transaction, definition, value), orderAsc);
+      return index.entries(session, toIndexKey(transaction, definition, value), orderAsc);
     } else if (operator instanceof SQLGeOperator) {
-      return index.streamEntriesMajor(session, value, true, orderAsc);
+      return index.entriesMajor(session, value, true, orderAsc);
     } else if (operator instanceof SQLGtOperator) {
-      return index.streamEntriesMajor(session, value, false, orderAsc);
+      return index.entriesMajor(session, value, false, orderAsc);
     } else if (operator instanceof SQLLeOperator) {
-      return index.streamEntriesMinor(session, value, true, orderAsc);
+      return index.entriesMinor(session, value, true, orderAsc);
     } else if (operator instanceof SQLLtOperator) {
-      return index.streamEntriesMinor(session, value, false, orderAsc);
+      return index.entriesMinor(session, value, false, orderAsc);
     } else {
       throw new CommandExecutionException(session,
           "search for index for " + condition + " is not supported yet");

@@ -2673,7 +2673,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
       var entity = session.loadEntity(rid);
       var expectedKeys = createCompositeKeysFromEntity(entity);
-      var actualKeys = index.keyStream();
+      var actualKeys = index.keys();
 
       actualKeys.forEach(key -> Assert.assertTrue(expectedKeys.remove((CompositeKey) key)));
       Assert.assertTrue(expectedKeys.isEmpty());

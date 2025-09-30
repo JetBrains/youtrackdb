@@ -2,12 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import it.unimi.dsi.fastutil.objects.ObjectObjectImmutablePair;
 import java.util.Iterator;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -67,7 +67,7 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
     return session.load(getLink(CLASS_TO_INDEX));
   }
 
-  public Iterator<ObjectObjectImmutablePair<SchemaPropertyEntity, String>> getClassPropertiesWithModifiers() {
+  public Iterator<RawPair<SchemaPropertyEntity, String>> getClassPropertiesWithModifiers() {
     var linkList = getLinkList(PROPERTIES_TO_INDEX);
     return YTDBIteratorUtils.unmodifiableIterator(
         YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
@@ -86,12 +86,12 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
                 PROPERTY_MODIFIERS_METADATA);
             var valueModifier = valueModifierMap.get(property.getName());
             if (valueModifier != null) {
-              return ObjectObjectImmutablePair.of(property, valueModifier);
+              return new RawPair<>(property, valueModifier);
             } else {
-              return ObjectObjectImmutablePair.of(property, "");
+              return new RawPair<>(property, "");
             }
           } else {
-            return ObjectObjectImmutablePair.of(property, "");
+            return new RawPair<>(property, "");
           }
         }));
   }

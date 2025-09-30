@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.validation.ValidationBinaryComparable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.validation.ValidationCollectionComparable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.validation.ValidationLinkbagComparable;
@@ -41,11 +42,7 @@ import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-/**
- * @since 10/21/14
- */
 public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
-
   private final String name;
   private final String fullName;
   private final PropertyTypeInternal type;
@@ -58,7 +55,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
 
   private final PropertyTypeInternal linkedType;
   private final boolean notNull;
-  private final Collate collate;
+  private final String collate;
   private final boolean mandatory;
   private final String min;
   private final String max;
@@ -75,20 +72,21 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
   private int hashCode;
 
   public SchemaPropertySnapshot(@Nonnull DatabaseSessionEmbedded session,
-      @Nonnull SchemaPropertyShared property,
+      @Nonnull SchemaPropertyEntity property,
       SchemaClassSnapshot owner) {
     name = property.getName();
-    fullName = property.getFullName(session);
-    type = PropertyTypeInternal.convertFromPublicType(property.getType());
+    fullName = property.getFullName();
+    type = property.getPropertyType();
     description = property.getDescription();
 
-    if (property.getLinkedClass(session) != null) {
-      linkedClassName = property.getLinkedClass(session).getName();
+    var linkedClass = property.getLinkedClass();
+    if (property.getLinkedClass() != null) {
+      linkedClassName = property.getName();
     } else {
       linkedClassName = null;
     }
 
-    linkedType = property.getLinkedType();
+    linkedType = property.getLinkedPropertyType();
     notNull = property.isNotNull();
     collate = property.getCollate();
     mandatory = property.isMandatory();
@@ -98,12 +96,14 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
     regexp = property.getRegexp();
     customProperties = new HashMap<>();
 
-    for (var key : property.getCustomKeys()) {
-      customProperties.put(key, property.getCustom(key));
+    var customPropertyNames = property.getCustomPropertyNames();
+    while (customPropertyNames.hasNext()) {
+      var propertyName = customPropertyNames.next();
+      customProperties.put(propertyName, property.getCustomProperty(propertyName));
     }
 
     this.owner = owner;
-    id = property.getId();
+    id = property.getGlobalPropertyId();
     readOnly = property.isReadonly();
     Comparable<Object> minComparable = null;
     if (min != null) {
@@ -212,6 +212,9 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
     }
 
     this.maxComparable = maxComparable;
+
+    var declaringClass = property.getDeclaringClass();
+
     this.allIndexes = property.getAllIndexesInternal(session);
   }
 

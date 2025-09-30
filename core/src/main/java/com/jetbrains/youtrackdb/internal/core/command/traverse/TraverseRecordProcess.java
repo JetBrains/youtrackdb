@@ -20,10 +20,10 @@
 package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
@@ -132,7 +132,7 @@ public class TraverseRecordProcess extends TraverseAbstractProcess<Identifiable>
             }
 
             final var className = cfgField.substring(0, pos);
-            if (!cls.isSubClassOf(className))
+            if (!cls.isChildOf(className))
             // JUMP IT BECAUSE IT'S NOT A INSTANCEOF THE CLASS
             {
               continue;

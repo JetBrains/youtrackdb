@@ -78,7 +78,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   @Override
   @Nullable
-  public Object getDocumentValueToIndex(
+  public Object convertEntityPropertiesToIndexKey(
       FrontendTransaction transaction, final EntityImpl entity) {
     if (PropertyTypeInternal.LINK.equals(keyType)) {
       final Identifiable identifiable = entity.getPropertyInternal(field);

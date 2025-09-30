@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -44,10 +43,6 @@ public class ClassIndexManager {
     processIndexOnCreate(transaction, entity);
   }
 
-  public static void reIndex(FrontendTransaction transaction, EntityImpl entity,
-      Index index) {
-    addIndexEntry(transaction, entity, entity.getIdentity(), index);
-  }
 
   private static void processIndexOnCreate(FrontendTransaction transaction,
       EntityImpl entity) {
@@ -56,7 +51,7 @@ public class ClassIndexManager {
       cls = entity.getImmutableSchemaClass();
     }
     if (cls != null) {
-      final Collection<Index> indexes = cls.getRawIndexes();
+      final Collection<Index> indexes = cls.getIndexesInternal();
       addIndexesEntries(transaction, entity, indexes);
     }
   }
@@ -76,7 +71,7 @@ public class ClassIndexManager {
       return;
     }
 
-    final Collection<Index> indexes = cls.getRawIndexes();
+    final Collection<Index> indexes = cls.getIndexesInternal();
     if (!indexes.isEmpty()) {
       var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
       var dirtyFields = new HashSet<>(dirtyProperties);
@@ -146,7 +141,8 @@ public class ClassIndexManager {
 
         if (!indexDefinition.hasMultiValueProperties()) {
           final var origValue = indexDefinition.createValue(transaction, origValues);
-          final var newValue = indexDefinition.getDocumentValueToIndex(transaction, record);
+          final var newValue = indexDefinition.convertEntityPropertiesToIndexKey(transaction,
+              record);
 
           if (!indexDefinition.isNullValuesIgnored() || origValue != null) {
             addRemove(transaction, index, origValue, record);
@@ -158,7 +154,8 @@ public class ClassIndexManager {
         } else {
           if (multiValueIndex == -1) {
             final var origValue = indexDefinition.createValue(transaction, origValues);
-            final var newValue = indexDefinition.getDocumentValueToIndex(transaction, record);
+            final var newValue = indexDefinition.convertEntityPropertiesToIndexKey(transaction,
+                record);
 
             processIndexUpdateFieldAssignment(transaction, index, record, origValue, newValue);
           } else {
@@ -235,7 +232,7 @@ public class ClassIndexManager {
     } else {
       final var origValue =
           indexDefinition.createValue(transaction, iRecord.getOriginalValue(indexField));
-      final var newValue = indexDefinition.getDocumentValueToIndex(transaction, iRecord);
+      final var newValue = indexDefinition.convertEntityPropertiesToIndexKey(transaction, iRecord);
 
       processIndexUpdateFieldAssignment(transaction, index, iRecord, origValue, newValue);
     }
@@ -390,14 +387,15 @@ public class ClassIndexManager {
     final Identifiable rid = entity.getIdentity();
 
     for (final var index : indexes) {
-      addIndexEntry(transaction, entity, rid, index);
+      addIndexEntry(transaction, entity, index);
     }
   }
 
-  private static void addIndexEntry(
-      FrontendTransaction transaction, EntityImpl entity, Identifiable rid, Index index) {
+  public static void addIndexEntry(
+      FrontendTransaction transaction, EntityImpl entity, Index index) {
+    var rid = entity.getIdentity();
     final var indexDefinition = index.getDefinition();
-    final var key = indexDefinition.getDocumentValueToIndex(transaction, entity);
+    final var key = indexDefinition.convertEntityPropertiesToIndexKey(transaction, entity);
     if (key instanceof Collection) {
       for (final var keyItem : (Collection<?>) key) {
         if (!indexDefinition.isNullValuesIgnored() || keyItem != null) {
@@ -409,17 +407,33 @@ public class ClassIndexManager {
     }
   }
 
+  public static void deleteIndexEntry(
+      FrontendTransaction transaction, EntityImpl entity, Index index) {
+    var rid = entity.getIdentity();
+    final var indexDefinition = index.getDefinition();
+    final var key = indexDefinition.convertEntityPropertiesToIndexKey(transaction, entity);
+    if (key instanceof Collection) {
+      for (final var keyItem : (Collection<?>) key) {
+        if (!indexDefinition.isNullValuesIgnored() || keyItem != null) {
+          addRemove(transaction, index, keyItem, rid);
+        }
+      }
+    } else if (!indexDefinition.isNullValuesIgnored() || key != null) {
+      addRemove(transaction, index, key, rid);
+    }
+  }
+
   public static void processIndexOnDelete(FrontendTransaction transaction,
       EntityImpl entity) {
-    SchemaClassSnapshot cls = null;
+    ImmutableSchemaClass cls = null;
     if (entity != null) {
-      cls = entity.getImmutableSchemaClass(transaction.getDatabaseSession());
+      cls = entity.getImmutableSchemaClass();
     }
     if (cls == null) {
       return;
     }
 
-    final Collection<Index> indexes = new ArrayList<>(cls.getRawIndexes());
+    final Collection<Index> indexes = new ArrayList<>(cls.getIndexesInternal());
 
     if (!indexes.isEmpty()) {
       var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
@@ -448,7 +462,7 @@ public class ClassIndexManager {
 
     // REMOVE INDEX OF ENTRIES FOR THE NON CHANGED ONLY VALUES
     for (final var index : indexes) {
-      final var key = index.getDefinition().getDocumentValueToIndex(transaction, entity);
+      final var key = index.getDefinition().convertEntityPropertiesToIndexKey(transaction, entity);
       deleteIndexKey(transaction, index, entity, key);
     }
   }

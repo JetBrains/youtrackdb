@@ -62,14 +62,15 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testGetDocumentValueToIndex() {
+  public void testConvertEntityPropertiesToIndexKey() {
     session.begin();
     final var document = (EntityImpl) session.newEntity();
 
     document.setProperty("fOne", "15");
     document.setProperty("fTwo", 10);
 
-    final var result = propertyIndex.getDocumentValueToIndex(session.getActiveTransaction(),
+    final var result = propertyIndex.convertEntityPropertiesToIndexKey(
+        session.getActiveTransaction(),
         document);
     Assert.assertEquals(15, result);
     session.rollback();

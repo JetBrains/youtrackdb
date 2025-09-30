@@ -85,7 +85,7 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
     var types = new HashSet<String>();
 
     var typeClass = getSchemaClass();
-    typeClass.getAllSuperClasses().stream()
+    typeClass.getAscendants().stream()
         .map(SchemaClass::getName)
         .forEach(types::add);
     for (var s : labels) {

@@ -4,18 +4,14 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
-import java.util.stream.Stream;
+import java.util.Iterator;
 
 public interface BaseIndexEngine {
 
   int getId();
-
-  void init(DatabaseSessionInternal session, IndexMetadata metadata);
 
   void flush();
 
@@ -29,7 +25,7 @@ public interface BaseIndexEngine {
 
   void close();
 
-  Stream<RawPair<Object, RID>> iterateEntriesBetween(
+  Iterator<RawPair<Object, RID>> iterateEntriesBetween(
       DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
@@ -37,23 +33,23 @@ public interface BaseIndexEngine {
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer);
 
-  Stream<RawPair<Object, RID>> iterateEntriesMajor(
+  Iterator<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer);
 
-  Stream<RawPair<Object, RID>> iterateEntriesMinor(
+  Iterator<RawPair<Object, RID>> iterateEntriesMinor(
       final Object toKey,
       final boolean isInclusive,
       boolean ascSortOrder,
       IndexEngineValuesTransformer transformer);
 
-  Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer);
+  Iterator<RawPair<Object, RID>> ascEntries(IndexEngineValuesTransformer valuesTransformer);
 
-  Stream<RawPair<Object, RID>> descStream(IndexEngineValuesTransformer valuesTransformer);
+  Iterator<RawPair<Object, RID>> descEntries(IndexEngineValuesTransformer valuesTransformer);
 
-  Stream<Object> keyStream();
+  Iterator<Object> keys();
 
   long size(Storage storage, IndexEngineValuesTransformer transformer);
 

@@ -19,8 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.delete;
 
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -79,11 +79,11 @@ public class ServerCommandDeleteDocument extends ServerCommandDocumentAbstract {
             result = entity.getImmutableSchemaClass(session);
             final SchemaClass cls = result;
             if (cls != null) {
-              if (cls.isSubClassOf("V"))
+              if (cls.isChildOf("V"))
               // DELETE IT AS VERTEX
               {
                 session.execute("DELETE VERTEX ?", recordId).close();
-              } else if (cls.isSubClassOf("E"))
+              } else if (cls.isChildOf("E"))
               // DELETE IT AS EDGE
               {
                 session.execute("DELETE EDGE ?", recordId).close();

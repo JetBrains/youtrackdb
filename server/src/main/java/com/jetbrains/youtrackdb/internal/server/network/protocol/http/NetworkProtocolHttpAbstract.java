@@ -47,7 +47,6 @@ import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.al
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.delete.ServerCommandDeleteClass;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.delete.ServerCommandDeleteDatabase;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.delete.ServerCommandDeleteDocument;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.delete.ServerCommandDeleteIndex;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.delete.ServerCommandDeleteProperty;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.get.ServerCommandGetClass;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.command.get.ServerCommandGetCollection;
@@ -996,7 +995,6 @@ public abstract class NetworkProtocolHttpAbstract extends NetworkProtocol
     cmdManager.registerCommand(new ServerCommandDeleteDatabase());
     cmdManager.registerCommand(new ServerCommandDeleteDocument());
     cmdManager.registerCommand(new ServerCommandDeleteProperty());
-    cmdManager.registerCommand(new ServerCommandDeleteIndex());
     cmdManager.registerCommand(new ServerCommandOptions());
     cmdManager.registerCommand(new ServerCommandFunction());
     cmdManager.registerCommand(new ServerCommandPostKillDbConnection());

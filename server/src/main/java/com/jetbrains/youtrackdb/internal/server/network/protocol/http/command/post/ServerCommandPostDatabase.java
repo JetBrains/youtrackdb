@@ -298,7 +298,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
     json.writeAttribute(session, 3, true, "name", cls.getName());
     json.beginCollection(session, "superClasses");
     var i = 0;
-    for (var oClass : cls.getSuperClasses()) {
+    for (var oClass : cls.getParents()) {
       json.write((i > 0 ? "," : "") + "\"" + oClass.getName() + "\"");
       i++;
     }

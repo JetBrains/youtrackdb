@@ -77,7 +77,7 @@ public class TruncateClassTest extends BaseDBTest {
     Assert.assertEquals(index.size(session), 6);
 
     Iterator<RawPair<Object, RID>> indexIterator;
-    try (var stream = index.stream(session)) {
+    try (var stream = index.ascEntries(session)) {
       indexIterator = stream.iterator();
 
       while (indexIterator.hasNext()) {

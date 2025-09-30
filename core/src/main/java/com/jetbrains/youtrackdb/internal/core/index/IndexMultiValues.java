@@ -47,7 +47,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
@@ -65,16 +64,6 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   public IndexMultiValues(@Nonnull Storage storage) {
     super(storage);
-  }
-
-  @Deprecated
-  @Override
-  public Collection<RID> get(DatabaseSessionEmbedded session, Object key) {
-    final List<RID> rids;
-    try (var stream = getRids(session, key)) {
-      rids = stream.collect(Collectors.toList());
-    }
-    return rids;
   }
 
   @Override
@@ -158,10 +147,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public boolean doRemove(DatabaseSessionInternal session, AbstractStorage storage,
+  public void doRemove(DatabaseSessionInternal session, AbstractStorage storage,
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
-    return doRemoveV1(indexId, storage, key, rid);
+    doRemoveV1(indexId, storage, key, rid);
   }
 
   private static boolean doRemoveV1(
@@ -171,7 +160,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesBetween(
+  public Stream<RawPair<Object, RID>> entriesBetween(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
@@ -229,7 +218,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesMajor(
+  public Stream<RawPair<Object, RID>> entriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
     Stream<RawPair<Object, RID>> stream;
@@ -284,7 +273,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntriesMinor(
+  public Stream<RawPair<Object, RID>> entriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
     toKey = getCollatingValue(toKey);
     Stream<RawPair<Object, RID>> stream;
@@ -340,7 +329,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
+  public Stream<RawPair<Object, RID>> entries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
     final List<Object> sortedKeys = new ArrayList<>(keys);
     final Comparator<Object> comparator;
@@ -462,7 +451,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     final var indexChanges =
         session.getTransactionInternal().getIndexChanges(getName());
     if (indexChanges != null) {
-      try (var stream = stream(session)) {
+      try (var stream = ascEntries(session)) {
         return stream.count();
       }
     }
@@ -471,7 +460,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> stream(DatabaseSessionEmbedded session) {
+  public Stream<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session) {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
@@ -479,7 +468,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
         try {
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexStream(indexId, MultiValuesTransformer.INSTANCE), session);
+                  this, storage.getIndexIterator(indexId, MultiValuesTransformer.INSTANCE),
+                  session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
           doReloadIndexEngine();
@@ -559,7 +549,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session) {
+  public Stream<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session) {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
@@ -567,7 +557,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
         try {
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexDescStream(indexId, MultiValuesTransformer.INSTANCE),
+                  this, storage.getIndexDescIterator(indexId, MultiValuesTransformer.INSTANCE),
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {

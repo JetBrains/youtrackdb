@@ -2,18 +2,65 @@ package com.jetbrains.youtrackdb.internal.common.collection;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public final class YTDBIteratorUtils {
 
   private YTDBIteratorUtils() {
+  }
+
+  public static <S, E> Iterator<E> flatMap(final Iterator<S> iterator,
+      final Function<S, Iterator<E>> function) {
+    return new CloseableIterator<>() {
+
+      private Iterator<E> currentIterator = Collections.emptyIterator();
+
+      @Override
+      public boolean hasNext() {
+        if (this.currentIterator.hasNext()) {
+          return true;
+        } else {
+          while (iterator.hasNext()) {
+            this.currentIterator = function.apply(iterator.next());
+            if (this.currentIterator.hasNext()) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      @Override
+      public void remove() {
+        iterator.remove();
+      }
+
+      @Override
+      public E next() {
+        if (this.hasNext()) {
+          return this.currentIterator.next();
+        } else {
+          throw FastNoSuchElementException.instance();
+        }
+      }
+
+      @Override
+      public void close() {
+        CloseableIterator.closeIterator(iterator);
+      }
+    };
   }
 
   public static <S, E> Iterator<E> map(final Iterator<S> iterator, final Function<S, E> function) {
@@ -150,4 +197,124 @@ public final class YTDBIteratorUtils {
     }
   }
 
+  public static <T> Iterator<T> mergeSortedIterators(final Iterator<T> firstIterator,
+      Iterator<T> secondIterator, Comparator<T> comparator) {
+    return new SortedCompositeIterator<>(firstIterator, secondIterator, comparator);
+  }
+
+  private static final class SortedCompositeIterator<T> implements CloseableIterator<T> {
+
+    private final Iterator<T> firstIterator;
+    @Nonnull
+    private final Iterator<T> secondIterator;
+
+    private T firstValue;
+    private T secondValue;
+
+    @Nullable
+    private final Comparator<? super T> comparator;
+
+    private SortedCompositeIterator(
+        @Nonnull
+        Iterator<T> firstIterator,
+        @Nonnull
+        Iterator<T> secondIterator,
+        @Nullable
+        Comparator<? super T> comparator) {
+      this.firstIterator = firstIterator;
+      this.secondIterator = secondIterator;
+      this.comparator = comparator;
+    }
+
+    @Override
+    public boolean hasNext() {
+      if (firstValue == null) {
+        if (firstIterator.hasNext()) {
+          firstValue = firstIterator.next();
+        }
+      }
+
+      if (secondValue == null) {
+        if (secondIterator.hasNext()) {
+          secondValue = secondIterator.next();
+        }
+      }
+
+      return firstValue != null || secondValue != null;
+    }
+
+    @Override
+    public T next() {
+      if (!hasNext()) {
+        throw new NoSuchElementException();
+      }
+
+      T result;
+      if (secondValue == null) {
+        result = firstValue;
+        firstValue = null;
+      } else if (firstValue == null) {
+        result = secondValue;
+        secondValue = null;
+      } else {
+        int res;
+        if (comparator != null) {
+          res = comparator.compare(firstValue, secondValue);
+        } else if (firstValue instanceof Comparable<?>
+            && secondValue instanceof Comparable<?>) {
+          //noinspection unchecked
+          res = ((Comparable<T>) firstValue).compareTo(secondValue);
+        } else {
+          throw new IllegalArgumentException(
+              "Cannot compare values : " + firstValue + " and " + secondValue);
+        }
+
+        if (res == 0) {
+          if (firstValue.equals(secondValue)) {
+            result = firstValue;
+            firstValue = null;
+            secondValue = null;
+          } else {
+            result = firstValue;
+            firstValue = null;
+          }
+        } else if (res < 0) {
+          result = firstValue;
+          firstValue = null;
+        } else {
+          result = secondValue;
+          secondValue = null;
+        }
+      }
+
+      return result;
+
+    }
+
+    @Override
+    public void close() {
+      if (firstIterator instanceof CloseableIterator<?> a
+          && secondIterator instanceof CloseableIterator<?> b) {
+        try {
+          a.close();
+        } catch (Exception e1) {
+          try {
+            b.close();
+          } catch (Exception e2) {
+            try {
+              e1.addSuppressed(e2);
+            } catch (Exception throwable) {
+              throw new RuntimeException(throwable);
+            }
+          }
+          throw e1;
+        }
+        b.close();
+      } else if (firstIterator instanceof CloseableIterator<?> a) {
+        a.close();
+      } else if (secondIterator instanceof CloseableIterator<?> b) {
+        b.close();
+      }
+    }
+  }
 }

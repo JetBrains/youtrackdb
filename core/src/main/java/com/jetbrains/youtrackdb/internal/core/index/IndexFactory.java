@@ -20,41 +20,13 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
-import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import java.util.Set;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 
 public interface IndexFactory {
 
-  int getLastVersion(final String algorithm);
+  Index createIndex(SchemaIndexEntity indexEntity) throws ConfigurationException;
 
-  /**
-   * @return List of supported indexes of this factory
-   */
-  Set<String> getTypes();
-
-  /**
-   * @return List of supported algorithms of this factory
-   */
-  Set<String> getAlgorithms();
-
-  /**
-   * Creates an index.
-   */
-  Index createIndex(String indexType, @Nonnull Storage storage) throws ConfigurationException;
-
-  /**
-   * Creates an index.
-   */
-  Index createIndex(String indexType, @Nullable RID identity,
-      @Nonnull FrontendTransaction transaction,
-      @Nonnull Storage storage)
-      throws ConfigurationException;
-
-  BaseIndexEngine createIndexEngine(Storage storage, IndexEngineData data);
+  Set<INDEX_TYPE> getSupportedIndexTypes();
 }

@@ -270,7 +270,7 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     removeProperty(PropertyNames.CUSTOM_PROPERTIES);
   }
 
-  public Iterator<String> customPropertyNames() {
+  public Iterator<String> getCustomPropertyNames() {
     EmbeddedMap<String> customProperties = getPropertyInternal(PropertyNames.CUSTOM_PROPERTIES);
     if (customProperties == null) {
       return IteratorUtils.emptyIterator();
@@ -281,6 +281,17 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
 
   public RID getGlobalPropertyLink() {
     return getLinkPropertyInternal(PropertyNames.GLOBAL_PROPERTY);
+  }
+
+  @Nullable
+  public Integer getGlobalPropertyId() {
+    var link = getLinkPropertyInternal(PropertyNames.GLOBAL_PROPERTY);
+    if (link == null) {
+      return null;
+    }
+
+    SchemaGlobalPropertyEntity globalPropertyEntity = session.load(link);
+    return globalPropertyEntity.getId();
   }
 
   public void setGlobalPropertyLink(@Nonnull SchemaGlobalPropertyEntity globalPropertyEntity) {

@@ -527,8 +527,8 @@ public class SecurityShared implements SecurityInternal {
       }
       Set<SchemaClass> allClasses = new HashSet<>();
       allClasses.add(clazz);
-      allClasses.addAll(clazz.getAllSubclasses());
-      allClasses.addAll(clazz.getAllSuperClasses());
+      allClasses.addAll(clazz.getDescendants());
+      allClasses.addAll(clazz.getAscendants());
       for (var c : allClasses) {
         for (var index : c.getIndexesInternal()) {
           var indexFields = index.getDefinition().getProperties();
@@ -1018,7 +1018,7 @@ public class SecurityShared implements SecurityInternal {
       roleClass = database.getMetadata().getSlowMutableSchema()
           .createClass(Role.CLASS_NAME, identityClass);
       unsafe = true;
-    } else if (!roleClass.getSuperClasses().contains(identityClass))
+    } else if (!roleClass.getParents().contains(identityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
     {
       roleClass.setSuperClasses(Collections.singletonList(identityClass));
@@ -1325,10 +1325,10 @@ public class SecurityShared implements SecurityInternal {
     }
     if (res instanceof SecurityResourceClass) {
       var resourceClass = ((SecurityResourceClass) res).getClassName();
-      return clazz.isSubClassOf(resourceClass);
+      return clazz.isChildOf(resourceClass);
     } else if (res instanceof SecurityResourceProperty) {
       var resourceClass = ((SecurityResourceProperty) res).getClassName();
-      return clazz.isSubClassOf(resourceClass);
+      return clazz.isChildOf(resourceClass);
     }
     return false;
   }

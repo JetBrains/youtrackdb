@@ -36,7 +36,7 @@ public interface ImmutableSchemaClass {
 
   List<String> getSuperClassesNames();
 
-  List<? extends ImmutableSchemaClass> getSuperClasses();
+  List<? extends ImmutableSchemaClass> getParents();
 
   String getName();
 
@@ -57,41 +57,41 @@ public interface ImmutableSchemaClass {
   /**
    * @return all the subclasses (one level hierarchy only)
    */
-  Collection<? extends ImmutableSchemaClass> getSubclasses();
+  Collection<? extends ImmutableSchemaClass> getChildren();
 
   /**
    * @return all the subclass hierarchy
    */
-  Collection<? extends ImmutableSchemaClass> getAllSubclasses();
+  Collection<? extends ImmutableSchemaClass> getDescendants();
 
   /**
    * @return all recursively collected super classes
    */
-  Collection<? extends ImmutableSchemaClass> getAllSuperClasses();
+  Collection<? extends ImmutableSchemaClass> getAscendants();
 
   /**
    * Tells if the current instance extends the passed schema class (iClass).
    *
    * @return true if the current instance extends the passed schema class (iClass).
-   * @see #isSuperClassOf(ImmutableSchemaClass)
+   * @see #isParentOf(ImmutableSchemaClass)
    */
-  boolean isSubClassOf(String iClassName);
+  boolean isChildOf(String iClassName);
 
   /**
    * Returns true if the current instance extends the passed schema class (iClass).
    *
    * @return true if the current instance extends the passed schema class (iClass).
-   * @see #isSuperClassOf(ImmutableSchemaClass)
+   * @see #isParentOf(ImmutableSchemaClass)
    */
-  boolean isSubClassOf(ImmutableSchemaClass iClass);
+  boolean isChildOf(ImmutableSchemaClass iClass);
 
   /**
    * Returns true if the passed schema class (iClass) extends the current instance.
    *
    * @return Returns true if the passed schema class extends the current instance.
-   * @see #isSubClassOf(ImmutableSchemaClass)
+   * @see #isChildOf(ImmutableSchemaClass)
    */
-  boolean isSuperClassOf(ImmutableSchemaClass iClass);
+  boolean isParentOf(ImmutableSchemaClass iClass);
 
 
   boolean existsProperty(String propertyName);

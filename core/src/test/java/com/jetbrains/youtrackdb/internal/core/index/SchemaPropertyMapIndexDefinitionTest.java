@@ -185,7 +185,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
     document.setProperty("fOne", mapToTest);
     document.setProperty("fTwo", 10);
 
-    final var result = propertyIndexByKey.getDocumentValueToIndex(session.getActiveTransaction(),
+    final var result = propertyIndexByKey.convertEntityPropertiesToIndexKey(
+        session.getActiveTransaction(),
         document);
     Assert.assertTrue(result instanceof Collection);
 
@@ -205,7 +206,8 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
     entity.setProperty("fOne", mapToTest);
     entity.setProperty("fTwo", 10);
 
-    final var result = propertyIndexByValue.getDocumentValueToIndex(session.getActiveTransaction(),
+    final var result = propertyIndexByValue.convertEntityPropertiesToIndexKey(
+        session.getActiveTransaction(),
         entity);
     Assert.assertTrue(result instanceof Collection);
 

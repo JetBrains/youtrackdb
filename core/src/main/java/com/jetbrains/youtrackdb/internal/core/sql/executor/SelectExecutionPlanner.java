@@ -1680,13 +1680,13 @@ public class SelectExecutionPlanner {
     }
 
     var session = ctx.getDatabaseSession();
-    if (clazz.count(session, false) != 0 || clazz.getSubclasses().isEmpty()
+    if (clazz.count(session, false) != 0 || clazz.getChildren().isEmpty()
         || isDiamondHierarchy(clazz)) {
       return false;
     }
     // try subclasses
 
-    var subclasses = clazz.getSubclasses();
+    var subclasses = clazz.getChildren();
 
     List<InternalExecutionPlan> subclassPlans = new ArrayList<>();
     for (var subClass : subclasses) {
@@ -1717,7 +1717,7 @@ public class SelectExecutionPlanner {
     while (!stack.isEmpty()) {
       var current = stack.removeFirst();
       traversed.add(current);
-      for (var sub : current.getSubclasses()) {
+      for (var sub : current.getChildren()) {
         if (traversed.contains(sub)) {
           return true;
         }
@@ -1747,12 +1747,12 @@ public class SelectExecutionPlanner {
             "Cannot find class " + targetClass);
       }
       if (clazz.count(session, false) != 0
-          || clazz.getSubclasses().isEmpty()
+          || clazz.getChildren().isEmpty()
           || isDiamondHierarchy(clazz)) {
         return null;
       }
 
-      var subclasses = clazz.getSubclasses();
+      var subclasses = clazz.getChildren();
 
       List<InternalExecutionPlan> subclassPlans = new ArrayList<>();
       for (var subClass : subclasses) {

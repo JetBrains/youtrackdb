@@ -312,7 +312,7 @@ public class SQLAlterClassStatement extends DDLStatement {
   }
 
   private static void checkNotEdge(DatabaseSessionInternal session, SchemaClass oClass) {
-    if (oClass.isSubClassOf("E")) {
+    if (oClass.isChildOf("E")) {
       throw new CommandExecutionException(session,
           "Cannot alter class '"
               + oClass

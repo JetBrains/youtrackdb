@@ -61,7 +61,7 @@ public class IndexTxTest extends BaseDBTest {
 
     var index = getIndex("IndexTxTestIndex");
     Iterator<Object> keyIterator;
-    try (var keyStream = index.keyStream()) {
+    try (var keyStream = index.keys()) {
       keyIterator = keyStream.iterator();
 
       while (keyIterator.hasNext()) {

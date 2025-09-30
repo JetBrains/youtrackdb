@@ -41,7 +41,7 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
 
@@ -51,14 +51,14 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     verifyTxIndexPut(Map.of(3, Set.of(doc3.getIdentity())));
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2, 3), true);
+    stream = index.entries(session, Arrays.asList(1, 2, 3), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 3);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 2);
   }
@@ -82,7 +82,7 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     session.commit();
 
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     Set<Identifiable> resultOne = new HashSet<>();
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
@@ -98,7 +98,7 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     verifyTxIndexRemove(Map.of(1, Set.of(doc1.getIdentity())));
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     Set<Identifiable> resultTwo = new HashSet<>();
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 1);
@@ -106,7 +106,7 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultThree);
     Assert.assertEquals(resultThree.size(), 2);
   }
@@ -131,7 +131,7 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> resultOne = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
 
@@ -152,7 +152,7 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     );
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, resultTwo);
     Assert.assertEquals(resultTwo.size(), 2);
 
@@ -180,14 +180,14 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 2);
   }
@@ -210,7 +210,7 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
@@ -221,7 +221,7 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2, 3), true);
+    stream = index.entries(session, Arrays.asList(1, 2, 3), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 3);
@@ -256,13 +256,13 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     ));
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 1);
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 1);
   }
@@ -296,13 +296,13 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     ));
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 1);
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 1);
   }
@@ -338,14 +338,14 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     Set<Identifiable> result = new HashSet<>();
     var stream =
-        index.streamEntries(session, Arrays.asList(1, 2), true);
+        index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.streamEntries(session, Arrays.asList(1, 2), true);
+    stream = index.entries(session, Arrays.asList(1, 2), true);
     streamToSet(stream, result);
     Assert.assertEquals(result.size(), 2);
   }

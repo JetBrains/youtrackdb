@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
@@ -46,17 +45,6 @@ public class IndexNotUnique extends IndexMultiValues {
   @Override
   public boolean canBeUsedInEqualityOperators() {
     return true;
-  }
-
-  @Override
-  public boolean supportsOrderedIterations() {
-    while (true) {
-      try {
-        return storage.hasIndexRangeQuerySupport(indexId);
-      } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
-      }
-    }
   }
 
   @Override

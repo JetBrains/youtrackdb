@@ -3564,7 +3564,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           if (rec instanceof EntityImpl entity) {
             var schemaClass = entity.getImmutableSchemaClass();
             if (iPolymorphic) {
-              if (schemaClass.isSubClassOf(className)) {
+              if (schemaClass.isChildOf(className)) {
                 deletedInTx++;
               }
             } else {
@@ -3580,7 +3580,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
             var schemaClass = entity.getImmutableSchemaClass();
             if (schemaClass != null) {
               if (iPolymorphic) {
-                if (schemaClass.isSubClassOf(className)) {
+                if (schemaClass.isChildOf(className)) {
                   addedInTx++;
                 }
               } else {

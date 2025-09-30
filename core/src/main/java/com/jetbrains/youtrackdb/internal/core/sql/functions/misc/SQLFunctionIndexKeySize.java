@@ -54,7 +54,7 @@ public class SQLFunctionIndexKeySize extends SQLFunctionAbstract {
       return null;
     }
     try (var stream = index
-        .stream(context.getDatabaseSession())) {
+        .ascEntries(context.getDatabaseSession())) {
       try (var rids = index.getRids(context.getDatabaseSession(), null)) {
         return stream.map(RawPair::first).distinct().count() + rids.count();
       }

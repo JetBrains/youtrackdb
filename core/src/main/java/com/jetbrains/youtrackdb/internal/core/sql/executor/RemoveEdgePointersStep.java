@@ -33,14 +33,14 @@ public class RemoveEdgePointersStep extends AbstractExecutionStep {
       var val = result.getProperty(propName);
       if (val instanceof EntityImpl entity) {
         var schemaClass = entity.getImmutableSchemaClass(session);
-        if (schemaClass != null && schemaClass.isSubClassOf("E")) {
+        if (schemaClass != null && schemaClass.isChildOf("E")) {
           ((ResultInternal) result).removeProperty(propName);
         }
       } else if (val instanceof Iterable<?> iterable) {
         for (var o : iterable) {
           if (o instanceof EntityImpl entity) {
             var schemaClass = entity.getImmutableSchemaClass(session);
-            if (schemaClass != null && schemaClass.isSubClassOf("E")) {
+            if (schemaClass != null && schemaClass.isChildOf("E")) {
               ((ResultInternal) result).removeProperty(propName);
             }
           }

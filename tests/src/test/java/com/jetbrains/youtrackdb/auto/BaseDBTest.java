@@ -575,7 +575,7 @@ public abstract class BaseDBTest extends BaseTest {
     Assert.assertEquals(result.size(), 2);
     for (var v : result) {
       Assert.assertTrue(
-          v.asEntity().getSchemaClass().isSubClassOf(vehicleClass));
+          v.asEntity().getSchemaClass().isChildOf(vehicleClass));
     }
 
     session.commit();
@@ -588,7 +588,7 @@ public abstract class BaseDBTest extends BaseTest {
 
     for (var v : result) {
       Assert.assertTrue(
-          v.asEntity().getSchemaClass().isSubClassOf("GraphVehicle"));
+          v.asEntity().getSchemaClass().isChildOf("GraphVehicle"));
 
       if (v.asEntity().getSchemaClass() != null
           && v.asEntity().getSchemaClassName().equals("GraphCar")) {
