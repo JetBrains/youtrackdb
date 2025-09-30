@@ -130,9 +130,4 @@ public class PropertyListIndexDefinition extends PropertyIndexDefinition
         throw new IllegalArgumentException("Invalid change type : " + changeEvent.getChangeType());
     }
   }
-
-  @Override
-  public String toCreateIndexDDL(String indexName, String indexType, String engine) {
-    return createIndexDDLWithoutFieldType(indexName, indexType, engine).toString();
-  }
 }

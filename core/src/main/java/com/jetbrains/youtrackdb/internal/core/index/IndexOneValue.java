@@ -397,9 +397,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     final var rid = (RecordIdInternal) value.getIdentity();
 
     if (!rid.isValidPosition()) {
-      if (value instanceof DBRecord) {
-        // EARLY SAVE IT
-      } else {
+      if (!(value instanceof DBRecord)) {
         throw new IllegalArgumentException(
             "Cannot store non persistent RID as index value for key '" + key + "'");
       }

@@ -13,8 +13,6 @@ import java.util.Set;
 
 public class PureTxMultiValueBetweenIndexBackwardIterator
     implements Iterator<RawPair<Object, RID>> {
-
-  private final IndexMultiValues indexTxAwareMultiValue;
   private final FrontendTransactionIndexChanges indexChanges;
 
   private Object firstKey;
@@ -32,15 +30,14 @@ public class PureTxMultiValueBetweenIndexBackwardIterator
       Object toKey,
       boolean toInclusive,
       FrontendTransactionIndexChanges indexChanges) {
-    this.indexTxAwareMultiValue = indexTxAwareMultiValue;
     this.indexChanges = indexChanges;
 
     if (fromKey != null) {
       fromKey =
-          this.indexTxAwareMultiValue.enhanceFromCompositeKeyBetweenDesc(fromKey, fromInclusive);
+          indexTxAwareMultiValue.enhanceFromCompositeKeyBetweenDesc(fromKey, fromInclusive);
     }
     if (toKey != null) {
-      toKey = this.indexTxAwareMultiValue.enhanceToCompositeKeyBetweenDesc(toKey, toInclusive);
+      toKey = indexTxAwareMultiValue.enhanceToCompositeKeyBetweenDesc(toKey, toInclusive);
     }
 
     final var keys = indexChanges.firstAndLastKeys(fromKey, fromInclusive, toKey, toInclusive);

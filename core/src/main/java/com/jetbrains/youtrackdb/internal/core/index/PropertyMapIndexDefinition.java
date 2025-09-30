@@ -19,22 +19,16 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
-import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -118,29 +112,6 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     return indexBy;
   }
 
-  @Override
-  protected void serializeToJson(JsonGenerator jsonGenerator) {
-    try {
-      super.serializeToJson(jsonGenerator);
-      jsonGenerator.writeStringField("mapIndexBy", indexBy.toString());
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new SerializationException("Failed to serialize index definition to JSON"),
-          e, (String) null);
-    }
-  }
-
-  @Override
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
-    super.serializeToMap(map, session);
-    map.put("mapIndexBy", indexBy.toString());
-  }
-
-  @Override
-  protected void serializeFromMap(@Nonnull Map<String, ?> map) {
-    super.serializeFromMap(map);
-    indexBy = INDEX_BY.valueOf((String) map.get("mapIndexBy"));
-  }
 
   private Collection<?> extractMapParams(Map<?, ?> map) {
     if (indexBy == INDEX_BY.KEY) {
@@ -249,24 +220,5 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   @Override
   public String toString() {
     return "PropertyMapIndexDefinition{" + "indexBy=" + indexBy + "} " + super.toString();
-  }
-
-  @Override
-  public String toCreateIndexDDL(String indexName, String indexType, String engine) {
-    final var ddl = new StringBuilder("create index `");
-
-    ddl.append(indexName).append("` on `");
-    ddl.append(className).append("` ( `").append(field).append("`");
-
-    if (indexBy == INDEX_BY.KEY) {
-      ddl.append(" by key");
-    } else {
-      ddl.append(" by value");
-    }
-
-    ddl.append(" ) ");
-    ddl.append(indexType);
-
-    return ddl.toString();
   }
 }

@@ -19,19 +19,14 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedMap;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -166,105 +161,6 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     return new PropertyTypeInternal[]{keyType};
   }
 
-  @Override
-  public void fromMap(@Nonnull Map<String, ?> map) {
-    serializeFromMap(map);
-  }
-
-  @Nonnull
-  @Override
-  public EmbeddedMap<Object> toMap(DatabaseSessionInternal session) {
-    var result = session.newEmbeddedMap();
-    serializeToMap(result, session);
-    return result;
-  }
-
-  @Override
-  public void toJson(@Nonnull JsonGenerator jsonGenerator) {
-    try {
-      jsonGenerator.writeStartObject();
-      serializeToJson(jsonGenerator);
-      jsonGenerator.writeEndObject();
-    } catch (final Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  protected void serializeToJson(JsonGenerator jsonGenerator) {
-    try {
-      jsonGenerator.writeStringField("className", className);
-      jsonGenerator.writeStringField("field", field);
-      jsonGenerator.writeStringField("keyType", keyType.toString());
-      jsonGenerator.writeStringField("collate", collate.getName());
-      jsonGenerator.writeBooleanField("nullValuesIgnored", isNullValuesIgnored());
-    } catch (final Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  @Override
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionInternal session) {
-    super.serializeToMap(map, session);
-
-    map.put("className", className);
-    map.put("field", field);
-    map.put("keyType", keyType.toString());
-    map.put("collate", collate.getName());
-    map.put("nullValuesIgnored", isNullValuesIgnored());
-  }
-
-  @Override
-  protected void serializeFromMap(@Nonnull Map<String, ?> map) {
-    super.serializeFromMap(map);
-
-    className = (String) map.get("className");
-    field = (String) map.get("field");
-
-    final var keyTypeStr = (String) map.get("keyType");
-    keyType = PropertyTypeInternal.valueOf(keyTypeStr);
-
-    setCollate((String) map.get("collate"));
-    setNullValuesIgnored(!Boolean.FALSE.equals(map.get("nullValuesIgnored")));
-  }
-
-  /**
-   * {@inheritDoc}
-   *
-   * @param indexName
-   * @param indexType
-   */
-  @Override
-  public String toCreateIndexDDL(
-      final String indexName, final String indexType, final String engine) {
-    return createIndexDDLWithFieldType(indexName, indexType, engine).toString();
-  }
-
-  protected StringBuilder createIndexDDLWithFieldType(
-      String indexName, String indexType, String engine) {
-    final var ddl = createIndexDDLWithoutFieldType(indexName, indexType, engine);
-    ddl.append(' ').append(keyType.name());
-    return ddl;
-  }
-
-  protected StringBuilder createIndexDDLWithoutFieldType(
-      final String indexName, final String indexType, final String engine) {
-    final var ddl = new StringBuilder("create index `");
-
-    ddl.append(indexName).append("` on `");
-    ddl.append(className).append("` ( `").append(field).append("`");
-
-    if (!collate.getName().equals(DefaultCollate.NAME)) {
-      ddl.append(" collate ").append(collate.getName());
-    }
-
-    ddl.append(" ) ");
-    ddl.append(indexType);
-
-    if (engine != null) {
-      ddl.append(" ENGINE  ").append(engine);
-    }
-    return ddl;
-  }
 
   protected static void processAdd(
       final Object value,

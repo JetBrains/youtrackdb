@@ -44,7 +44,6 @@ public interface IndexDefinitionMultiValue extends IndexDefinition {
    * Process event that contains operation on collection and extract values that should be added
    * removed from index to reflect collection changes in the given index.
    *
-   * @param transaction
    * @param changeEvent  Event that describes operation that was performed on collection.
    * @param keysToAdd    Values that should be added to related index.
    * @param keysToRemove Values that should be removed to related index.

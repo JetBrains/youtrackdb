@@ -83,7 +83,7 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
   @Nullable
   @Override
   public Object createValue(FrontendTransaction transaction, final List<?> params) {
-    if (!(params.get(0) instanceof LinkBag linkBag)) {
+    if (!(params.getFirst() instanceof LinkBag linkBag)) {
       return null;
     }
     final List<Object> values = new ArrayList<>();
@@ -113,10 +113,5 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
     }
 
     return values;
-  }
-
-  @Override
-  public String toCreateIndexDDL(String indexName, String indexType, String engine) {
-    return createIndexDDLWithoutFieldType(indexName, indexType, engine).toString();
   }
 }

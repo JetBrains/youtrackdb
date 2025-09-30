@@ -116,4 +116,6 @@ public interface IndexDefinition extends IndexCallback {
   Collate getCollate();
 
   boolean isNullValuesIgnored();
+
+  void setCollate(Collate collate);
 }

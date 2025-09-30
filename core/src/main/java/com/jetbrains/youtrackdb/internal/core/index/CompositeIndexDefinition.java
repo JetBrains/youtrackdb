@@ -47,7 +47,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
   private String className;
   private IntOpenHashSet multiValueDefinitionIndexes;
-  private CompositeCollate collate = new CompositeCollate(this);
+  private final CompositeCollate collate = new CompositeCollate(this);
 
   public CompositeIndexDefinition() {
     indexDefinitions = new ArrayList<>(5);

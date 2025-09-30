@@ -23,6 +23,5 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 
 public interface IndexCallback {
-
   Object convertEntityPropertiesToIndexKey(FrontendTransaction transaction, EntityImpl entity);
 }

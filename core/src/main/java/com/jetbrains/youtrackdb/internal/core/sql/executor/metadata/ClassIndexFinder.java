@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import javax.annotation.Nullable;
 
 public class ClassIndexFinder implements IndexFinder {
@@ -17,7 +17,7 @@ public class ClassIndexFinder implements IndexFinder {
 
   private static class PrePath {
 
-    SchemaClass cl;
+    ImmutableSchemaClass cl;
     @Nullable
     IndexCandidate chain;
     boolean valid;

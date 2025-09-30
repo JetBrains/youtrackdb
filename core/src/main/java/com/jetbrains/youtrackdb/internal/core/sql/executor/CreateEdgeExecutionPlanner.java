@@ -81,8 +81,8 @@ public class CreateEdgeExecutionPlanner {
       var clazz =
           ctx.getDatabaseSession()
               .getMetadata()
-              .getFastImmutableSchema(session)
-              .getClassInternal(targetClass.getStringValue());
+              .getFastImmutableSchema()
+              .getClass(targetClass.getStringValue());
       if (clazz == null) {
         throw new CommandExecutionException(session,
             "Class " + targetClass + " not found in the db schema");

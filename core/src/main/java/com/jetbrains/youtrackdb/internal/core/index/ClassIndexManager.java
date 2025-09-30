@@ -383,9 +383,6 @@ public class ClassIndexManager {
 
   public static void addIndexesEntries(
       FrontendTransaction transaction, EntityImpl entity, final Collection<Index> indexes) {
-    // STORE THE RECORD IF NEW, OTHERWISE ITS RID
-    final Identifiable rid = entity.getIdentity();
-
     for (final var index : indexes) {
       addIndexEntry(transaction, entity, index);
     }
