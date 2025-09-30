@@ -3157,9 +3157,8 @@ public abstract class AbstractStorage
     return engine.size(this, transformer);
   }
 
-  public boolean hasIndexRangeQuerySupport(int indexId) throws InvalidIndexEngineIdException {
+  public boolean hasIndexRangeQuerySupport(int indexId) {
     indexId = extractInternalId(indexId);
-
     try {
       if (transaction.get() != null) {
         return doHasRangeQuerySupport(indexId);
@@ -3167,15 +3166,12 @@ public abstract class AbstractStorage
 
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
 
         return doHasRangeQuerySupport(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {

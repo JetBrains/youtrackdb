@@ -24,29 +24,23 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.UniqueIndexEngineValidator;
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaIndex;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.jspecify.annotations.NonNull;
 
 /**
  * Index implementation that allows only one value for a key.
  */
 public class IndexUnique extends IndexOneValue {
-
   private final IndexEngineValidator<Object, RID> uniqueValidator =
       new UniqueIndexEngineValidator(this);
 
-  public IndexUnique(@Nullable RID identity, @Nonnull FrontendTransaction transaction,
-      @Nonnull Storage storage) {
-    super(identity, transaction, storage);
-  }
-
-  public IndexUnique(@Nonnull Storage storage) {
-    super(storage);
+  public IndexUnique(
+      @NonNull SchemaIndex schemaIndex,
+      @NonNull AbstractStorage storage) {
+    super(schemaIndex, storage);
   }
 
   @Override
@@ -54,7 +48,7 @@ public class IndexUnique extends IndexOneValue {
       Object key,
       RID rid)
       throws InvalidIndexEngineIdException {
-    storage.validatedPutIndexValue(indexId, key, rid, uniqueValidator);
+    storage.validatedPutIndexValue(schemaIndex.getId(), key, rid, uniqueValidator);
   }
 
   @Override
@@ -64,13 +58,7 @@ public class IndexUnique extends IndexOneValue {
 
   @Override
   public boolean supportsOrderedIterations() {
-    while (true) {
-      try {
-        return storage.hasIndexRangeQuerySupport(indexId);
-      } catch (InvalidIndexEngineIdException ignore) {
-        doReloadIndexEngine();
-      }
-    }
+    return storage.hasIndexRangeQuerySupport(schemaIndex.getId());
   }
 
   @Override
