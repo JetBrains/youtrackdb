@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageSegmentConfiguration
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
@@ -454,16 +455,19 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       write(buffer, engines.size());
       for (final var engineData : engines) {
         write(buffer, engineData.getName());
-        write(buffer, engineData.getAlgorithm());
+        //alghorithm
+        write(buffer, "");
         write(buffer, engineData.getIndexType() == null ? "" : engineData.getIndexType());
 
         write(buffer, engineData.getValueSerializerId());
         write(buffer, engineData.getKeySerializedId());
 
-        write(buffer, engineData.isAutomatic());
-        write(buffer, engineData.getDurableInNonTxMode());
+        //is automatic
+        write(buffer, true);
+        //durable in non-tx mode
+        write(buffer, false);
 
-        write(buffer, engineData.getVersion());
+        write(buffer, 1);
         write(buffer, engineData.isNullValuesSupport());
         write(buffer, engineData.getKeySize());
         write(buffer, engineData.getEncryption());
@@ -489,7 +493,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           }
         }
 
-        write(buffer, engineData.getApiVersion());
+        write(buffer, V1IndexEngine.API_VERSION);
         write(buffer, engineData.isMultivalue());
       }
 
@@ -826,7 +830,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final AtomicOperation atomicOperation, final String collectionSelection) {
     lock.writeLock().lock();
     try {
-      updateStringProperty(atomicOperation, COLLECTION_SELECTION_PROPERTY, collectionSelection, true);
+      updateStringProperty(atomicOperation, COLLECTION_SELECTION_PROPERTY, collectionSelection,
+          true);
     } finally {
       lock.writeLock().unlock();
     }
@@ -1339,7 +1344,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     lock.readLock().lock();
     try {
       //noinspection unchecked
-      return Collections.unmodifiableList((List<StorageCollectionConfiguration>) cache.get(COLLECTIONS));
+      return Collections.unmodifiableList(
+          (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS));
     } finally {
       lock.readLock().unlock();
     }
@@ -1765,7 +1771,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       identity = new RecordId(propertyBinaryVersion, position.collectionPosition);
       btree.put(atomicOperation, name, identity);
     } else {
-      collection.updateRecord(identity.getCollectionPosition(), property, -1, (byte) 0, atomicOperation);
+      collection.updateRecord(identity.getCollectionPosition(), property, -1, (byte) 0,
+          atomicOperation);
     }
 
     final var pausedNotificationsState = pauseNotifications.get();

@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
@@ -121,8 +120,7 @@ public class RemoteIndexEngine implements IndexEngine {
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     throw new UnsupportedOperationException("stream");
   }
 
@@ -130,8 +128,7 @@ public class RemoteIndexEngine implements IndexEngine {
   public Stream<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     throw new UnsupportedOperationException("stream");
   }
 
@@ -139,13 +136,12 @@ public class RemoteIndexEngine implements IndexEngine {
   public Stream<RawPair<Object, RID>> iterateEntriesMinor(
       Object toKey,
       boolean isInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     throw new UnsupportedOperationException("stream");
   }
 
   @Override
-  public long size(Storage storage, IndexEngineValuesTransformer transformer) {
+  public long size(Storage storage) {
     return 0;
   }
 
@@ -155,13 +151,12 @@ public class RemoteIndexEngine implements IndexEngine {
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> ascEntries(IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> ascEntries() {
     throw new UnsupportedOperationException("stream");
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descEntries(
-      IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> descEntries() {
     throw new UnsupportedOperationException();
   }
 

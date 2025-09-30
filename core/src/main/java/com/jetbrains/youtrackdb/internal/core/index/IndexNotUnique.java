@@ -19,27 +19,19 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.storage.Storage;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaIndex;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import org.jspecify.annotations.NonNull;
 
 /**
  * Index implementation that allows multiple values for the same key.
  */
 public class IndexNotUnique extends IndexMultiValues {
 
-  public IndexNotUnique(@Nullable RID identity,
-      @Nonnull FrontendTransaction transaction,
-      @Nonnull Storage storage) {
-    super(identity, transaction, storage);
-  }
-
-  public IndexNotUnique(@Nonnull Storage storage) {
-    super(storage);
+  public IndexNotUnique(@NonNull SchemaIndex schemaIndex, @NonNull AbstractStorage storage) {
+    super(schemaIndex, storage);
   }
 
   @Override
@@ -51,5 +43,15 @@ public class IndexNotUnique extends IndexMultiValues {
   public Iterable<TransactionIndexEntry> interpretTxKeyChanges(
       FrontendTransactionIndexChangesPerKey changes) {
     return changes.interpret(FrontendTransactionIndexChangesPerKey.Interpretation.NonUnique);
+  }
+
+  @Override
+  public boolean isUnique() {
+    return false;
+  }
+
+  @Override
+  public boolean supportsOrderedIterations() {
+    return true;
   }
 }

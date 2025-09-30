@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManag
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
@@ -119,8 +118,7 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public void doRemove(DatabaseSessionInternal session, AbstractStorage storage,
-      Object key, RID rid)
-      throws InvalidIndexEngineIdException {
+      Object key, RID rid) {
     doRemove(storage, key, session);
   }
 
@@ -139,8 +137,7 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public void doRemove(AbstractStorage storage, Object key,
-      DatabaseSessionInternal session)
-      throws InvalidIndexEngineIdException {
+      DatabaseSessionInternal session) {
     storage.removeKeyFromIndex(schemaIndex.getId(), key);
   }
 

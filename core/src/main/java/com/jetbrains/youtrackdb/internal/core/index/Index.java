@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -250,19 +249,14 @@ public interface Index extends Comparable<Index> {
       FrontendTransactionIndexChangesPerKey changes);
 
   void doPut(DatabaseSessionInternal session, AbstractStorage storage, Object key,
-      RID rid)
-      throws InvalidIndexEngineIdException;
+      RID rid);
 
   void doRemove(DatabaseSessionInternal session, AbstractStorage storage, Object key,
-      RID rid)
-      throws InvalidIndexEngineIdException;
+      RID rid);
 
-  void doRemove(AbstractStorage storage, Object key, DatabaseSessionInternal session)
-      throws InvalidIndexEngineIdException;
+  void doRemove(AbstractStorage storage, Object key, DatabaseSessionInternal session);
 
   Iterator<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key);
-
-  Index create(FrontendTransaction transaction, IndexMetadata metadata);
 
   int getIndexId();
 }

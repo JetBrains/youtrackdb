@@ -83,3 +83,4 @@ public class PureTxBetweenIndexBackwardIterator implements Iterator<RawPair<Obje
     nextResult = null;
     return result;
   }
+}

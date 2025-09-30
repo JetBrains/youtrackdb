@@ -171,7 +171,7 @@ public abstract class IndexOneValue extends IndexAbstract {
         IndexStreamSecurityDecorator.decorateIterator(
             this,
             storage.iterateIndexEntriesBetween(session,
-                schemaIndex.getId(), fromKey, fromInclusive, toKey, toInclusive, ascOrder, null),
+                schemaIndex.getId(), fromKey, fromInclusive, toKey, toInclusive, ascOrder),
             session);
 
     final var indexChanges =
@@ -210,7 +210,7 @@ public abstract class IndexOneValue extends IndexAbstract {
         IndexStreamSecurityDecorator.decorateIterator(
             this,
             storage.iterateIndexEntriesMajor(
-                schemaIndex.getId(), fromKey, fromInclusive, ascOrder, null), session);
+                schemaIndex.getId(), fromKey, fromInclusive, ascOrder), session);
 
     final var indexChanges =
         session.getTransactionInternal().getIndexChangesInternal(getName());
@@ -249,8 +249,8 @@ public abstract class IndexOneValue extends IndexAbstract {
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this,
-            storage.iterateIndexEntriesMinor(schemaIndex.getId(), toKey, toInclusive, ascOrder,
-                null),
+            storage.iterateIndexEntriesMinor(schemaIndex.getId(), toKey, toInclusive, ascOrder
+            ),
             session);
 
     final var indexChanges =
@@ -285,7 +285,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Override
   public long size(DatabaseSessionEmbedded session) {
-    return storage.getIndexSize(schemaIndex.getId(), null);
+    return storage.getIndexSize(schemaIndex.getId());
   }
 
   @Override
@@ -293,7 +293,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Iterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
-            this, storage.getIndexIterator(schemaIndex.getId(), null), session);
+            this, storage.getIndexIterator(schemaIndex.getId()), session);
 
     final var indexChanges =
         session.getTransactionInternal().getIndexChangesInternal(getName());
@@ -316,7 +316,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     Iterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
-            this, storage.getIndexDescIterator(schemaIndex.getId(), null), session);
+            this, storage.getIndexDescIterator(schemaIndex.getId()), session);
     final var indexChanges =
         session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {

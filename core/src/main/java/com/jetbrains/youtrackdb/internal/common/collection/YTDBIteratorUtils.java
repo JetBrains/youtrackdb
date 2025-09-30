@@ -15,6 +15,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
+import org.apache.tinkerpop.gremlin.util.iterator.MultiIterator;
 
 public final class YTDBIteratorUtils {
 
@@ -197,6 +198,25 @@ public final class YTDBIteratorUtils {
     }
   }
 
+  public static long count(final Iterator<?> iterator) {
+    long ix = 0;
+    for (; iterator.hasNext(); ++ix) {
+      iterator.next();
+    }
+    CloseableIterator.closeIterator(iterator);
+    return ix;
+  }
+
+  @SafeVarargs
+  public static <S> Iterator<S> concat(final Iterator<S>... iterators) {
+    final var iterator = new MultiIterator<S>();
+
+    for (final var itty : iterators) {
+      iterator.addIterator(itty);
+    }
+
+    return iterator;
+  }
   public static <T> Iterator<T> mergeSortedIterators(final Iterator<T> firstIterator,
       Iterator<T> secondIterator, Comparator<T> comparator) {
     return new SortedCompositeIterator<>(firstIterator, secondIterator, comparator);

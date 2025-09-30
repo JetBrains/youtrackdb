@@ -70,7 +70,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponents
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBagDeleter;
 import com.jetbrains.youtrackdb.internal.core.exception.InternalErrorException;
-import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidInstanceIdException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
@@ -79,12 +78,10 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
-import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
@@ -92,6 +89,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueInd
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
@@ -2076,26 +2075,20 @@ public abstract class AbstractStorage
       final Map<String, FrontendTransactionIndexChanges> indexesToCommit) {
     for (final var changes : indexesToCommit.values()) {
       var index = changes.getIndex();
-      try {
-        if (changes.cleared) {
-          clearIndex(index.getIndexId());
-        }
-
-        for (final var changesPerKey : changes.changesPerKey.values()) {
-          applyTxChanges(db, changesPerKey, index);
-        }
-
-        applyTxChanges(db, changes.nullKeyChanges, index);
-      } catch (final InvalidIndexEngineIdException e) {
-        throw BaseException.wrapException(new StorageException(name, "Error during index commit"),
-            e, name);
+      if (changes.cleared) {
+        clearIndex(index.getIndexId());
       }
+
+      for (final var changesPerKey : changes.changesPerKey.values()) {
+        applyTxChanges(db, changesPerKey, index);
+      }
+
+      applyTxChanges(db, changes.nullKeyChanges, index);
     }
   }
 
   private void applyTxChanges(DatabaseSessionInternal session,
-      FrontendTransactionIndexChangesPerKey changes, Index index)
-      throws InvalidIndexEngineIdException {
+      FrontendTransactionIndexChangesPerKey changes, Index index) {
     assert !(changes.key instanceof RID orid) || orid.isPersistent();
     for (var op : index.interpretTxKeyChanges(changes)) {
       switch (op.getOperation()) {
@@ -2142,98 +2135,21 @@ public abstract class AbstractStorage
     }
   }
 
-  public int loadExternalIndexEngine(
-      final IndexMetadata indexMetadata, final Map<String, String> engineProperties) {
-    final var indexDefinition = indexMetadata.getIndexDefinition();
-    try {
-      stateLock.writeLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        // this method introduced for binary compatibility only
-        if (configuration.getBinaryFormatVersion() > 15) {
-          return -1;
-        }
-        if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
-          throw new IndexException(name,
-              "Index with name " + indexMetadata.getName() + " already exists");
-        }
-        makeStorageDirty();
-
-        final var valueSerializerId = StreamSerializerRID.INSTANCE.getId();
-
-        final var keySerializer = determineKeySerializer(indexDefinition);
-        if (keySerializer == null) {
-          throw new IndexException(name, "Can not determine key serializer");
-        }
-        final var keySize = determineKeySize(indexDefinition);
-        final var keyTypes =
-            Optional.of(indexDefinition).map(IndexDefinition::getTypes).orElse(null);
-        var generatedId = indexEngines.size();
-        final var engineData =
-            new IndexEngineData(
-                generatedId,
-                indexMetadata,
-                true,
-                valueSerializerId,
-                keySerializer.getId(),
-                keyTypes,
-                keySize,
-                null,
-                null,
-                engineProperties);
-
-        final var engine = Indexes.createIndexEngine(this, engineData);
-
-        engine.load(engineData);
-
-        atomicOperationsManager.executeInsideAtomicOperation(
-            null,
-            atomicOperation -> {
-              indexEngineNameMap.put(indexMetadata.getName(), engine);
-              indexEngines.add(engine);
-              configuration
-                  .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
-            });
-        return generateIndexId(engineData.getIndexId(), engine);
-      } catch (final IOException e) {
-        throw BaseException.wrapException(
-            new StorageException(name,
-                "Cannot add index engine " + indexMetadata.getName() + " in storage."),
-            e, name);
-      } finally {
-        stateLock.writeLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  public int addIndexEngine(
-      final IndexMetadata indexMetadata,
+  private int addIndexEngine(
+      final SchemaIndexEntity indexEntity,
       final Map<String, String> engineProperties) {
-    final var indexDefinition = indexMetadata.getIndexDefinition();
-
     try {
-      if (indexDefinition == null) {
-        throw new IndexException(name, "Index definition has to be provided");
-      }
-      final var keyTypes = indexDefinition.getTypes();
+      final var keyTypes = indexEntity.getKeyTypes();
       if (keyTypes == null) {
         throw new IndexException(name, "Types of indexed keys have to be provided");
       }
 
-      final var keySerializer = determineKeySerializer(indexDefinition);
+      final var keySerializer = determineKeySerializer(keyTypes);
       if (keySerializer == null) {
         throw new IndexException(name, "Can not determine key serializer");
       }
 
-      final var keySize = determineKeySize(indexDefinition);
+      final var keySize = keyTypes.size();
 
       checkBackupRunning();
       stateLock.writeLock().lock();
@@ -2245,20 +2161,20 @@ public abstract class AbstractStorage
         return atomicOperationsManager.calculateInsideAtomicOperation(
             null,
             atomicOperation -> {
-              if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
+              if (indexEngineNameMap.containsKey(indexEntity.getName())) {
                 // OLD INDEX FILE ARE PRESENT: THIS IS THE CASE OF PARTIAL/BROKEN INDEX
                 LogManager.instance()
                     .warn(
                         this,
                         "Index with name '%s' already exists, removing it and re-create the index",
-                        indexMetadata.getName());
-                final var engine = indexEngineNameMap.remove(indexMetadata.getName());
+                        indexEntity.getName());
+                final var engine = indexEngineNameMap.remove(indexEntity.getName());
                 if (engine != null) {
                   indexEngines.set(engine.getId(), null);
 
                   engine.delete(atomicOperation);
                   configuration
-                      .deleteIndexEngine(atomicOperation, indexMetadata.getName());
+                      .deleteIndexEngine(atomicOperation, indexEntity.getName());
                 }
               }
               final var valueSerializerId =
@@ -2270,11 +2186,13 @@ public abstract class AbstractStorage
               final var engineData =
                   new IndexEngineData(
                       genenrateId,
-                      indexMetadata,
-                      true,
+                      indexEntity.getName(),
+                      indexEntity.getIndexType().name(),
+                      indexEntity.getIndexType() != INDEX_TYPE.UNIQUE,
                       valueSerializerId,
                       keySerializer.getId(),
-                      keyTypes,
+                      keyTypes.toArray(new PropertyTypeInternal[0]),
+                      !indexEntity.isNullValuesIgnored(),
                       keySize,
                       null,
                       cfgEncryptionKey,
@@ -2283,18 +2201,18 @@ public abstract class AbstractStorage
               final var engine = Indexes.createIndexEngine(this, engineData);
 
               engine.create(atomicOperation, engineData);
-              indexEngineNameMap.put(indexMetadata.getName(), engine);
+              indexEngineNameMap.put(indexEntity.getName(), engine);
               indexEngines.add(engine);
 
               configuration
-                  .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
+                  .addIndexEngine(atomicOperation, indexEntity.getName(), engineData);
 
               return generateIndexId(engineData.getIndexId(), engine);
             });
       } catch (final IOException e) {
         throw BaseException.wrapException(
             new StorageException(name,
-                "Cannot add index engine " + indexMetadata.getName() + " in storage."),
+                "Cannot add index engine " + indexEntity.getName() + " in storage."),
             e, name);
       } finally {
         stateLock.writeLock().unlock();
@@ -2380,12 +2298,12 @@ public abstract class AbstractStorage
     return keySerializer;
   }
 
-  private BinarySerializer<?> determineKeySerializer(PropertyTypeInternal[] keyTypes) {
+  private BinarySerializer<?> determineKeySerializer(List<PropertyTypeInternal> keyTypes) {
     final BinarySerializer<?> keySerializer;
-    if (keyTypes.length > 1) {
+    if (keyTypes.size() > 1) {
       keySerializer = CompositeKeySerializer.INSTANCE;
     } else {
-      final var keyType = keyTypes[0];
+      final var keyType = keyTypes.getFirst();
 
       if (keyType == PropertyTypeInternal.STRING) {
         return UTF8Serializer.INSTANCE;
@@ -2405,8 +2323,7 @@ public abstract class AbstractStorage
     return keySerializer;
   }
 
-  public void deleteIndexEngine(int indexId)
-      throws InvalidIndexEngineIdException {
+  public void deleteIndexEngine(int indexId) {
     final var internalIndexId = extractInternalId(indexId);
 
     try {
@@ -2437,8 +2354,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.writeLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2461,23 +2376,20 @@ public abstract class AbstractStorage
     return engine;
   }
 
-  private void checkIndexId(final int indexId) throws InvalidIndexEngineIdException {
+  private void checkIndexId(final int indexId) {
     if (indexId < 0 || indexId >= indexEngines.size() || indexEngines.get(indexId) == null) {
-      throw new InvalidIndexEngineIdException(
+      throw new DatabaseException(name,
           "Engine with id " + indexId + " is not registered inside of storage");
     }
   }
 
-  public boolean removeKeyFromIndex(final int indexId, final Object key)
-      throws InvalidIndexEngineIdException {
+  public void removeKeyFromIndex(final int indexId, final Object key) {
     final var internalIndexId = extractInternalId(indexId);
 
     try {
       assert transaction.get() != null;
       final var atomicOperation = atomicOperationsManager.getCurrentOperation();
-      return removeKeyFromIndexInternal(atomicOperation, internalIndexId, key);
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
+      removeKeyFromIndexInternal(atomicOperation, internalIndexId, key);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2487,19 +2399,18 @@ public abstract class AbstractStorage
     }
   }
 
-  private boolean removeKeyFromIndexInternal(
-      final AtomicOperation atomicOperation, final int indexId, final Object key)
-      throws InvalidIndexEngineIdException {
+  private void removeKeyFromIndexInternal(
+      final AtomicOperation atomicOperation, final int indexId, final Object key) {
     try {
       checkIndexId(indexId);
 
       final var engine = indexEngines.get(indexId);
       if (engine.getEngineAPIVersion() == IndexEngine.VERSION) {
-        return ((IndexEngine) engine).remove(this, atomicOperation, key);
+        ((IndexEngine) engine).remove(this, atomicOperation, key);
       } else {
         final var v1IndexEngine = (V1IndexEngine) engine;
         if (!v1IndexEngine.isMultiValue()) {
-          return ((SingleValueIndexEngine) engine).remove(atomicOperation, key);
+          ((SingleValueIndexEngine) engine).remove(atomicOperation, key);
         } else {
           throw new StorageException(name,
               "To remove entry from multi-value index not only key but value also should be"
@@ -2514,8 +2425,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public void clearIndex(final int indexId)
-      throws InvalidIndexEngineIdException {
+  public void clearIndex(final int indexId) {
     try {
       if (transaction.get() != null) {
         final var atomicOperation = atomicOperationsManager.getCurrentOperation();
@@ -2536,8 +2446,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2548,8 +2456,7 @@ public abstract class AbstractStorage
   }
 
   private void doClearIndex(final AtomicOperation atomicOperation,
-      final int indexId)
-      throws InvalidIndexEngineIdException {
+      final int indexId) {
     try {
       checkIndexId(indexId);
 
@@ -2564,8 +2471,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public Object getIndexValue(DatabaseSessionEmbedded db, int indexId, final Object key)
-      throws InvalidIndexEngineIdException {
+  public Object getIndexValue(DatabaseSessionEmbedded db, int indexId, final Object key) {
     indexId = extractInternalId(indexId);
     try {
       if (transaction.get() != null) {
@@ -2578,8 +2484,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2590,8 +2494,7 @@ public abstract class AbstractStorage
   }
 
   private Object doGetIndexValue(DatabaseSessionEmbedded db, final int indexId,
-      final Object key)
-      throws InvalidIndexEngineIdException {
+      final Object key) {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     if (engineAPIVersion != 0) {
       throw new IllegalStateException(
@@ -2635,8 +2538,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<RID> doGetIndexValues(final int indexId, final Object key)
-      throws InvalidIndexEngineIdException {
+  private Iterator<RID> doGetIndexValues(final int indexId, final Object key) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
@@ -2645,7 +2547,7 @@ public abstract class AbstractStorage
     return ((V1IndexEngine) engine).get(key);
   }
 
-  public BaseIndexEngine getIndexEngine(int indexId) throws InvalidIndexEngineIdException {
+  public BaseIndexEngine getIndexEngine(int indexId) {
     indexId = extractInternalId(indexId);
 
     try {
@@ -2662,8 +2564,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2675,8 +2575,7 @@ public abstract class AbstractStorage
 
   @Nullable
   public <T> T callIndexEngine(
-      final boolean writeOperation, int indexId, final IndexEngineCallback<T> callback)
-      throws InvalidIndexEngineIdException {
+      final boolean writeOperation, int indexId, final IndexEngineCallback<T> callback) {
     indexId = extractInternalId(indexId);
 
     try {
@@ -2693,8 +2592,6 @@ public abstract class AbstractStorage
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2704,8 +2601,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private <T> T doCallIndexEngine(final int indexId, final IndexEngineCallback<T> callback)
-      throws InvalidIndexEngineIdException {
+  private <T> T doCallIndexEngine(final int indexId, final IndexEngineCallback<T> callback) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
@@ -2713,8 +2609,7 @@ public abstract class AbstractStorage
     return callback.callEngine(engine);
   }
 
-  public void putRidIndexEntry(int indexId, final Object key, final RID value)
-      throws InvalidIndexEngineIdException {
+  public void putRidIndexEntry(int indexId, final Object key, final RID value) {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     final var internalIndexId = extractInternalId(indexId);
 
@@ -2728,8 +2623,6 @@ public abstract class AbstractStorage
       final var atomicOperation = atomicOperationsManager.getCurrentOperation();
       assert atomicOperation != null;
       putRidIndexEntryInternal(atomicOperation, internalIndexId, key, value);
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2741,8 +2634,7 @@ public abstract class AbstractStorage
 
   private void putRidIndexEntryInternal(
       final AtomicOperation atomicOperation, final int indexId, final Object key,
-      final RID value)
-      throws InvalidIndexEngineIdException {
+      final RID value) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
@@ -2751,8 +2643,7 @@ public abstract class AbstractStorage
     ((V1IndexEngine) engine).put(atomicOperation, key, value);
   }
 
-  public boolean removeRidIndexEntry(int indexId, final Object key, final RID value)
-      throws InvalidIndexEngineIdException {
+  public void removeRidIndexEntry(int indexId, final Object key, final RID value) {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     final var internalIndexId = extractInternalId(indexId);
 
@@ -2765,10 +2656,8 @@ public abstract class AbstractStorage
       assert transaction.get() != null;
       final var atomicOperation = atomicOperationsManager.getCurrentOperation();
       assert atomicOperation != null;
-      return removeRidIndexEntryInternal(atomicOperation, internalIndexId, key, value);
+      removeRidIndexEntryInternal(atomicOperation, internalIndexId, key, value);
 
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2778,16 +2667,15 @@ public abstract class AbstractStorage
     }
   }
 
-  private boolean removeRidIndexEntryInternal(
+  private void removeRidIndexEntryInternal(
       final AtomicOperation atomicOperation, final int indexId, final Object key,
-      final RID value)
-      throws InvalidIndexEngineIdException {
+      final RID value) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert engine.getId() == indexId;
 
-    return ((MultiValueIndexEngine) engine).remove(atomicOperation, key, value);
+    ((MultiValueIndexEngine) engine).remove(atomicOperation, key, value);
   }
 
   /**
@@ -2806,8 +2694,7 @@ public abstract class AbstractStorage
       final int indexId,
       final Object key,
       final RID value,
-      final IndexEngineValidator<Object, RID> validator)
-      throws InvalidIndexEngineIdException {
+      final IndexEngineValidator<Object, RID> validator) {
     final var internalIndexId = extractInternalId(indexId);
 
     try {
@@ -2815,8 +2702,6 @@ public abstract class AbstractStorage
       final var atomicOperation = atomicOperationsManager.getCurrentOperation();
       assert atomicOperation != null;
       return doValidatedPutIndexValue(atomicOperation, internalIndexId, key, value, validator);
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2831,8 +2716,7 @@ public abstract class AbstractStorage
       final int indexId,
       final Object key,
       final RID value,
-      final IndexEngineValidator<Object, RID> validator)
-      throws InvalidIndexEngineIdException {
+      final IndexEngineValidator<Object, RID> validator) {
     try {
       checkIndexId(indexId);
 
@@ -2864,14 +2748,13 @@ public abstract class AbstractStorage
       final boolean fromInclusive,
       final Object rangeTo,
       final boolean toInclusive,
-      final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer) {
+      final boolean ascSortOrder) {
     indexId = extractInternalId(indexId);
 
     try {
       if (transaction.get() != null) {
         return doIterateIndexEntriesBetween(db,
-            indexId, rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer);
+            indexId, rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder);
       }
 
       stateLock.readLock().lock();
@@ -2880,7 +2763,7 @@ public abstract class AbstractStorage
         checkOpennessAndMigration();
 
         return doIterateIndexEntriesBetween(db,
-            indexId, rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer);
+            indexId, rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2899,29 +2782,26 @@ public abstract class AbstractStorage
       final boolean fromInclusive,
       final Object rangeTo,
       final boolean toInclusive,
-      final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
-      throws InvalidIndexEngineIdException {
+      final boolean ascSortOrder) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
     return engine.iterateEntriesBetween(db
-        , rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder, transformer);
+        , rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder);
   }
 
   public Iterator<RawPair<Object, RID>> iterateIndexEntriesMajor(
       int indexId,
       final Object fromKey,
       final boolean isInclusive,
-      final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer) {
+      final boolean ascSortOrder) {
     indexId = extractInternalId(indexId);
     try {
       if (transaction.get() != null) {
-        return doIterateIndexEntriesMajor(indexId, fromKey, isInclusive, ascSortOrder,
-            transformer);
+        return doIterateIndexEntriesMajor(indexId, fromKey, isInclusive, ascSortOrder
+        );
       }
 
       stateLock.readLock().lock();
@@ -2929,8 +2809,8 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        return doIterateIndexEntriesMajor(indexId, fromKey, isInclusive, ascSortOrder,
-            transformer);
+        return doIterateIndexEntriesMajor(indexId, fromKey, isInclusive, ascSortOrder
+        );
       } finally {
         stateLock.readLock().unlock();
       }
@@ -2947,29 +2827,26 @@ public abstract class AbstractStorage
       final int indexId,
       final Object fromKey,
       final boolean isInclusive,
-      final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
-      throws InvalidIndexEngineIdException {
+      final boolean ascSortOrder) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder, transformer);
+    return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder);
   }
 
   public Iterator<RawPair<Object, RID>> iterateIndexEntriesMinor(
       int indexId,
       final Object toKey,
       final boolean isInclusive,
-      final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer) {
+      final boolean ascSortOrder) {
     indexId = extractInternalId(indexId);
 
     try {
       if (transaction.get() != null) {
-        return doIterateIndexEntriesMinor(indexId, toKey, isInclusive, ascSortOrder,
-            transformer);
+        return doIterateIndexEntriesMinor(indexId, toKey, isInclusive, ascSortOrder
+        );
       }
 
       stateLock.readLock().lock();
@@ -2977,13 +2854,11 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        return doIterateIndexEntriesMinor(indexId, toKey, isInclusive, ascSortOrder,
-            transformer);
+        return doIterateIndexEntriesMinor(indexId, toKey, isInclusive, ascSortOrder
+        );
       } finally {
         stateLock.readLock().unlock();
       }
-    } catch (final InvalidIndexEngineIdException ie) {
-      throw logAndPrepareForRethrow(ie);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -2997,24 +2872,22 @@ public abstract class AbstractStorage
       final int indexId,
       final Object toKey,
       final boolean isInclusive,
-      final boolean ascSortOrder,
-      final IndexEngineValuesTransformer transformer)
-      throws InvalidIndexEngineIdException {
+      final boolean ascSortOrder) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.iterateEntriesMinor(toKey, isInclusive, ascSortOrder, transformer);
+    return engine.iterateEntriesMinor(toKey, isInclusive, ascSortOrder);
   }
 
   public Iterator<RawPair<Object, RID>> getIndexIterator(
-      int indexId, final IndexEngineValuesTransformer valuesTransformer) {
+      int indexId) {
     indexId = extractInternalId(indexId);
 
     try {
       if (transaction.get() != null) {
-        return doGetIndexAscIterator(indexId, valuesTransformer);
+        return doGetIndexAscIterator(indexId);
       }
 
       stateLock.readLock().lock();
@@ -3022,7 +2895,7 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        return doGetIndexAscIterator(indexId, valuesTransformer);
+        return doGetIndexAscIterator(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3036,23 +2909,22 @@ public abstract class AbstractStorage
   }
 
   private Iterator<RawPair<Object, RID>> doGetIndexAscIterator(
-      final int indexId, final IndexEngineValuesTransformer valuesTransformer)
-      throws InvalidIndexEngineIdException {
+      final int indexId) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.ascEntries(valuesTransformer);
+    return engine.ascEntries();
   }
 
   public Iterator<RawPair<Object, RID>> getIndexDescIterator(
-      int indexId, final IndexEngineValuesTransformer valuesTransformer) {
+      int indexId) {
     indexId = extractInternalId(indexId);
 
     try {
       if (transaction.get() != null) {
-        return doGetIndexDescStream(indexId, valuesTransformer);
+        return doGetIndexDescStream(indexId);
       }
 
       stateLock.readLock().lock();
@@ -3060,7 +2932,7 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        return doGetIndexDescStream(indexId, valuesTransformer);
+        return doGetIndexDescStream(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3074,14 +2946,13 @@ public abstract class AbstractStorage
   }
 
   private Iterator<RawPair<Object, RID>> doGetIndexDescStream(
-      final int indexId, final IndexEngineValuesTransformer valuesTransformer)
-      throws InvalidIndexEngineIdException {
+      final int indexId) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.descEntries(valuesTransformer);
+    return engine.descEntries();
   }
 
   public Iterator<Object> getIndexKeys(int indexId) {
@@ -3110,8 +2981,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<Object> doGetIndexKeys(final int indexId)
-      throws InvalidIndexEngineIdException {
+  private Iterator<Object> doGetIndexKeys(final int indexId) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
@@ -3120,12 +2990,12 @@ public abstract class AbstractStorage
     return engine.keys();
   }
 
-  public long getIndexSize(int indexId, final IndexEngineValuesTransformer transformer) {
+  public long getIndexSize(int indexId) {
     indexId = extractInternalId(indexId);
 
     try {
       if (transaction.get() != null) {
-        return doGetIndexSize(indexId, transformer);
+        return doGetIndexSize(indexId);
       }
 
       stateLock.readLock().lock();
@@ -3133,7 +3003,7 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        return doGetIndexSize(indexId, transformer);
+        return doGetIndexSize(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3146,15 +3016,13 @@ public abstract class AbstractStorage
     }
   }
 
-  private long doGetIndexSize(final int indexId,
-      final IndexEngineValuesTransformer transformer)
-      throws InvalidIndexEngineIdException {
+  private long doGetIndexSize(final int indexId) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return engine.size(this, transformer);
+    return engine.size(this);
   }
 
   public boolean hasIndexRangeQuerySupport(int indexId) {
@@ -3181,8 +3049,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private boolean doHasRangeQuerySupport(final int indexId) throws
-      InvalidIndexEngineIdException {
+  private boolean doHasRangeQuerySupport(final int indexId) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
@@ -4184,7 +4051,6 @@ public abstract class AbstractStorage
   private int doUpdateRecord(
       final AtomicOperation atomicOperation,
       final RecordIdInternal rid,
-      final boolean updateContent,
       byte[] content,
       final int version,
       final byte recordType,
@@ -4202,14 +4068,9 @@ public abstract class AbstractStorage
       }
 
       ppos.recordVersion = version + 1;
-      if (updateContent) {
-        collection.updateRecord(
-            rid.getCollectionPosition(), content, ppos.recordVersion, recordType,
-            atomicOperation);
-      } else {
-        collection.updateRecordVersion(rid.getCollectionPosition(), ppos.recordVersion,
-            atomicOperation);
-      }
+      collection.updateRecord(
+          rid.getCollectionPosition(), content, ppos.recordVersion, recordType,
+          atomicOperation);
 
       final var newRecordVersion = ppos.recordVersion;
       if (logger.isDebugEnabled()) {
@@ -4766,7 +4627,6 @@ public abstract class AbstractStorage
               doUpdateRecord(
                   atomicOperation,
                   rid,
-                  true,
                   stream,
                   -2,
                   rec.getRecordType(),
@@ -4790,7 +4650,6 @@ public abstract class AbstractStorage
             doUpdateRecord(
                 atomicOperation,
                 rid,
-                true,
                 stream,
                 rec.getVersion(),
                 rec.getRecordType(),
@@ -5261,16 +5120,6 @@ public abstract class AbstractStorage
       baseException.setDbName(name);
     }
     return new RuntimeException(throwable);
-  }
-
-  private InvalidIndexEngineIdException logAndPrepareForRethrow(
-      final InvalidIndexEngineIdException exception) {
-    final var iAdditionalArgs =
-        new Object[]{System.identityHashCode(exception), getURL(),
-            YouTrackDBConstants.getVersion()};
-    LogManager.instance()
-        .error(this, "Exception `%08X` in storage `%s` : %s", exception, iAdditionalArgs);
-    return exception;
   }
 
   @Override

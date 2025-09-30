@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -153,7 +152,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> ascEntries(IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> ascEntries() {
     final var firstKey = sbTree.firstKey();
     if (firstKey == null) {
       return Stream.empty();
@@ -162,8 +161,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descEntries(
-      IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> descEntries() {
     final var lastKey = sbTree.lastKey();
     if (lastKey == null) {
       return Stream.empty();
@@ -210,8 +208,7 @@ public final class BTreeSingleValueIndexEngine
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     return sbTree.iterateEntriesBetween(
         rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder);
   }
@@ -220,8 +217,7 @@ public final class BTreeSingleValueIndexEngine
   public Stream<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     return sbTree.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder);
   }
 
@@ -229,13 +225,12 @@ public final class BTreeSingleValueIndexEngine
   public Stream<RawPair<Object, RID>> iterateEntriesMinor(
       Object toKey,
       boolean isInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     return sbTree.iterateEntriesMinor(toKey, isInclusive, ascSortOrder);
   }
 
   @Override
-  public long size(Storage storage, final IndexEngineValuesTransformer transformer) {
+  public long size(Storage storage) {
     return sbTree.size();
   }
 

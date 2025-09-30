@@ -30,28 +30,25 @@ public interface BaseIndexEngine {
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer);
+      boolean ascSortOrder);
 
   Iterator<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer);
+      boolean ascSortOrder);
 
   Iterator<RawPair<Object, RID>> iterateEntriesMinor(
       final Object toKey,
       final boolean isInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer);
+      boolean ascSortOrder);
 
-  Iterator<RawPair<Object, RID>> ascEntries(IndexEngineValuesTransformer valuesTransformer);
+  Iterator<RawPair<Object, RID>> ascEntries();
 
-  Iterator<RawPair<Object, RID>> descEntries(IndexEngineValuesTransformer valuesTransformer);
+  Iterator<RawPair<Object, RID>> descEntries();
 
   Iterator<Object> keys();
 
-  long size(Storage storage, IndexEngineValuesTransformer transformer);
+  long size(Storage storage);
 
   boolean hasRangeQuerySupport();
 

@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
@@ -245,7 +244,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> ascEntries(IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> ascEntries() {
     final var firstKey = svTree.firstKey();
     if (firstKey == null) {
       return emptyStream();
@@ -264,8 +263,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descEntries(
-      IndexEngineValuesTransformer valuesTransformer) {
+  public Stream<RawPair<Object, RID>> descEntries() {
     final var lastKey = svTree.lastKey();
     if (lastKey == null) {
       return emptyStream();
@@ -307,8 +305,7 @@ public final class BTreeMultiValueIndexEngine
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     // "from", "to" are null, then scan whole tree as for infinite range
     if (rangeFrom == null && rangeTo == null) {
       return mapSVStream(svTree.allEntries());
@@ -342,8 +339,7 @@ public final class BTreeMultiValueIndexEngine
   public Stream<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     final var firstKey = convertToCompositeKey(fromKey);
     return mapSVStream(svTree.iterateEntriesMajor(firstKey, isInclusive, ascSortOrder));
   }
@@ -352,14 +348,13 @@ public final class BTreeMultiValueIndexEngine
   public Stream<RawPair<Object, RID>> iterateEntriesMinor(
       Object toKey,
       boolean isInclusive,
-      boolean ascSortOrder,
-      IndexEngineValuesTransformer transformer) {
+      boolean ascSortOrder) {
     final var lastKey = convertToCompositeKey(toKey);
     return mapSVStream(svTree.iterateEntriesMinor(lastKey, isInclusive, ascSortOrder));
   }
 
   @Override
-  public long size(Storage storage, final IndexEngineValuesTransformer transformer) {
+  public long size(Storage storage) {
     return svTreeEntries();
   }
 
