@@ -60,7 +60,5 @@ public interface BaseIndexEngine {
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
    * index engine.
    */
-  boolean acquireAtomicExclusiveLock();
-
-  String getIndexNameByKey(Object key);
+  void acquireAtomicExclusiveLock();
 }

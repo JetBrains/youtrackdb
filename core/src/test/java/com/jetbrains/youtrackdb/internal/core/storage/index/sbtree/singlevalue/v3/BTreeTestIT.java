@@ -595,7 +595,7 @@ public class BTreeTestIT {
     Assert.assertEquals(singleValueTree.lastKey(), keyValues.lastKey());
 
     final Iterator<String> indexIterator;
-    try (var stream = singleValueTree.keyStream()) {
+    try (var stream = singleValueTree.keys()) {
       indexIterator = stream.iterator();
       for (var entryKey : keyValues.keySet()) {
         final var indexKey = indexIterator.next();

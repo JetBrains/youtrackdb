@@ -5,18 +5,13 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Spliterator;
-import java.util.function.Consumer;
-import javax.annotation.Nullable;
+import java.util.NoSuchElementException;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
-final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
+public final class IteratorBackward<K> implements CloseableIterator<RawPair<K, RID>> {
 
-  /**
-   *
-   */
   private final BTree<K> btree;
 
   private final K fromKey;
@@ -32,7 +27,9 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
   private final List<RawPair<K, RID>> dataCache = new ArrayList<>();
   private Iterator<RawPair<K, RID>> cacheIterator = Collections.emptyIterator();
 
-  SpliteratorForward(
+  private RawPair<K, RID> nextResult = null;
+
+  public IteratorBackward(
       BTree<K> BTree,
       final K fromKey,
       final K toKey,
@@ -41,71 +38,51 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
     btree = BTree;
     this.fromKey = fromKey;
     this.toKey = toKey;
-
-    this.toKeyInclusive = toKeyInclusive;
     this.fromKeyInclusive = fromKeyInclusive;
+    this.toKeyInclusive = toKeyInclusive;
   }
 
   @Override
-  public boolean tryAdvance(Consumer<? super RawPair<K, RID>> action) {
+  public boolean hasNext() {
+    if (nextResult != null) {
+      return true;
+    }
+
     if (cacheIterator == null) {
+      nextResult = null;
       return false;
     }
 
     if (cacheIterator.hasNext()) {
-      action.accept(cacheIterator.next());
+      nextResult = cacheIterator.next();
       return true;
     }
 
-    btree.fetchNextForwardCachePortion(this);
+    btree.fetchBackwardNextCachePortion(this);
 
     cacheIterator = dataCache.iterator();
 
     if (cacheIterator.hasNext()) {
-      action.accept(cacheIterator.next());
+      nextResult = cacheIterator.next();
       return true;
     }
 
+    nextResult = null;
     cacheIterator = null;
 
     return false;
   }
 
-  @Nullable
   @Override
-  public Spliterator<RawPair<K, RID>> trySplit() {
-    return null;
-  }
+  public RawPair<K, RID> next() {
+    if (!hasNext()) {
+      throw new NoSuchElementException();
+    }
 
-  @Override
-  public long estimateSize() {
-    return Long.MAX_VALUE;
-  }
+    var result = nextResult;
+    nextResult = null;
 
-  @Override
-  public int characteristics() {
-    return SORTED | NONNULL | ORDERED;
-  }
-
-  @Override
-  public Comparator<? super RawPair<K, RID>> getComparator() {
-    return (pairOne, pairTwo) -> btree.comparator.compare(pairOne.first(), pairTwo.first());
-  }
-
-  public K getFromKey() {
-    return fromKey;
-  }
-
-  public K getToKey() {
-    return toKey;
-  }
-
-  public boolean isFromKeyInclusive() {
-    return fromKeyInclusive;
-  }
-
-  public boolean isToKeyInclusive() {
-    return toKeyInclusive;
+    return result;
   }
 
   public int getItemIndex() {
@@ -134,6 +111,22 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
 
   void setLastLSN(LogSequenceNumber lastLSN) {
     this.lastLSN = lastLSN;
+  }
+
+  K getFromKey() {
+    return fromKey;
+  }
+
+  K getToKey() {
+    return toKey;
+  }
+
+  boolean isFromKeyInclusive() {
+    return fromKeyInclusive;
+  }
+
+  boolean isToKeyInclusive() {
+    return toKeyInclusive;
   }
 
   public void setCacheIterator(Iterator<RawPair<K, RID>> cacheIterator) {

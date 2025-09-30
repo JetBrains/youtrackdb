@@ -3,14 +3,13 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
-import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
@@ -21,11 +20,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
-import java.util.Spliterators;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
+import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.collections4.IteratorUtils;
 
 public final class BTreeMultiValueIndexEngine
     implements MultiValueIndexEngine, BTreeIndexEngine {
@@ -68,10 +66,6 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public int getId() {
     return id;
-  }
-
-  @Override
-  public void init(DatabaseSessionInternal session, IndexMetadata metadata) {
   }
 
   @Override
@@ -122,9 +116,9 @@ public final class BTreeMultiValueIndexEngine
       final var firstKey = svTree.firstKey();
       final var lastKey = svTree.lastKey();
 
-      try (var stream =
+      try (var iterator =
           svTree.iterateEntriesBetween(firstKey, true, lastKey, true, true)) {
-        stream.forEach(
+        iterator.forEachRemaining(
             (pair) -> {
               try {
                 svTree.remove(atomicOperation, pair.first());
@@ -142,9 +136,9 @@ public final class BTreeMultiValueIndexEngine
       final var lastKey = nullTree.lastKey();
 
       if (firstKey != null && lastKey != null) {
-        try (var stream =
+        try (var iterator =
             nullTree.iterateEntriesBetween(firstKey, true, lastKey, true, true)) {
-          stream.forEach(
+          iterator.forEachRemaining(
               (pair) -> {
                 try {
                   nullTree.remove(atomicOperation, pair.first());
@@ -180,9 +174,9 @@ public final class BTreeMultiValueIndexEngine
         final var compositeKey = createCompositeKey(key, value);
 
         final var removed = new boolean[1];
-        try (var stream =
+        try (var iterator =
             svTree.iterateEntriesBetween(compositeKey, true, compositeKey, true, true)) {
-          stream.forEach(
+          iterator.forEachRemaining(
               (pair) -> {
                 try {
                   final var result = svTree.remove(atomicOperation, pair.first()) != null;
@@ -225,55 +219,52 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RID> get(Object key) {
+  public Iterator<RID> get(Object key) {
     if (key != null) {
       final var firstKey = convertToCompositeKey(key);
       final var lastKey = convertToCompositeKey(key);
 
-      return svTree
-          .iterateEntriesBetween(firstKey, true, lastKey, true, true)
-          .map(RawPair::second);
+      return YTDBIteratorUtils.map(svTree
+              .iterateEntriesBetween(firstKey, true, lastKey, true, true),
+          RawPair::second);
     } else {
-      return nullTree
+      return YTDBIteratorUtils.map(nullTree
           .iterateEntriesBetween(
               new RecordId(0, 0), true,
               new RecordId(Short.MAX_VALUE, Long.MAX_VALUE), true,
-              true)
-          .map(RawPair::second);
+              true), RawPair::second);
     }
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> ascEntries() {
+  public Iterator<RawPair<Object, RID>> ascEntries() {
     final var firstKey = svTree.firstKey();
     if (firstKey == null) {
-      return emptyStream();
+      return IteratorUtils.emptyIterator();
     }
 
-    return mapSVStream(svTree.iterateEntriesMajor(firstKey, true, true));
+    return mapSVIterator(svTree.iterateEntriesMajor(firstKey, true, true));
   }
 
-  private static Stream<RawPair<Object, RID>> mapSVStream(
-      Stream<RawPair<CompositeKey, RID>> stream) {
-    return stream.map((entry) -> new RawPair<>(extractKey(entry.first()), entry.second()));
+  private static Iterator<RawPair<Object, RID>> mapSVIterator(
+      Iterator<RawPair<CompositeKey, RID>> iterator) {
+    return YTDBIteratorUtils.map(iterator,
+        entry -> new RawPair<>(extractKey(entry.first()), entry.second()));
   }
 
-  private static Stream<RawPair<Object, RID>> emptyStream() {
-    return StreamSupport.stream(Spliterators.emptySpliterator(), false);
-  }
 
   @Override
-  public Stream<RawPair<Object, RID>> descEntries() {
+  public Iterator<RawPair<Object, RID>> descEntries() {
     final var lastKey = svTree.lastKey();
     if (lastKey == null) {
-      return emptyStream();
+      return IteratorUtils.emptyIterator();
     }
-    return mapSVStream(svTree.iterateEntriesMinor(lastKey, true, false));
+    return mapSVIterator(svTree.iterateEntriesMinor(lastKey, true, false));
   }
 
   @Override
-  public Stream<Object> keys() {
-    return svTree.keyStream().map(BTreeMultiValueIndexEngine::extractKey);
+  public Iterator<Object> keys() {
+    return YTDBIteratorUtils.map(svTree.keys(), BTreeMultiValueIndexEngine::extractKey);
   }
 
   @Override
@@ -300,7 +291,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> iterateEntriesBetween(
+  public Iterator<RawPair<Object, RID>> iterateEntriesBetween(
       DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
@@ -308,20 +299,20 @@ public final class BTreeMultiValueIndexEngine
       boolean ascSortOrder) {
     // "from", "to" are null, then scan whole tree as for infinite range
     if (rangeFrom == null && rangeTo == null) {
-      return mapSVStream(svTree.allEntries());
+      return mapSVIterator(svTree.allEntries());
     }
 
     // "from" could be null, then "to" is not (minor)
     final var toKey = convertToCompositeKey(rangeTo);
     if (rangeFrom == null) {
-      return mapSVStream(svTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder));
+      return mapSVIterator(svTree.iterateEntriesMinor(toKey, toInclusive, ascSortOrder));
     }
     final var fromKey = convertToCompositeKey(rangeFrom);
     // "to" could be null, then "from" is not (major)
     if (rangeTo == null) {
-      return mapSVStream(svTree.iterateEntriesMajor(fromKey, fromInclusive, ascSortOrder));
+      return mapSVIterator(svTree.iterateEntriesMajor(fromKey, fromInclusive, ascSortOrder));
     }
-    return mapSVStream(
+    return mapSVIterator(
         svTree.iterateEntriesBetween(fromKey, fromInclusive, toKey, toInclusive, ascSortOrder));
   }
 
@@ -336,21 +327,21 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> iterateEntriesMajor(
+  public Iterator<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder) {
     final var firstKey = convertToCompositeKey(fromKey);
-    return mapSVStream(svTree.iterateEntriesMajor(firstKey, isInclusive, ascSortOrder));
+    return mapSVIterator(svTree.iterateEntriesMajor(firstKey, isInclusive, ascSortOrder));
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> iterateEntriesMinor(
+  public Iterator<RawPair<Object, RID>> iterateEntriesMinor(
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder) {
     final var lastKey = convertToCompositeKey(toKey);
-    return mapSVStream(svTree.iterateEntriesMinor(lastKey, isInclusive, ascSortOrder));
+    return mapSVIterator(svTree.iterateEntriesMinor(lastKey, isInclusive, ascSortOrder));
   }
 
   @Override
@@ -368,16 +359,10 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock() {
+  public void acquireAtomicExclusiveLock() {
     svTree.acquireAtomicExclusiveLock();
     nullTree.acquireAtomicExclusiveLock();
 
-    return true;
-  }
-
-  @Override
-  public String getIndexNameByKey(Object key) {
-    return name;
   }
 
   private static PropertyTypeInternal[] calculateTypes(final PropertyTypeInternal[] keyTypes) {

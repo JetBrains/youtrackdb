@@ -22,7 +22,7 @@ public final class YTDBIteratorUtils {
   private YTDBIteratorUtils() {
   }
 
-  public static <S, E> Iterator<E> flatMap(final Iterator<S> iterator,
+  public static <S, E> CloseableIterator<E> flatMap(final Iterator<S> iterator,
       final Function<S, Iterator<E>> function) {
     return new CloseableIterator<>() {
 
@@ -64,7 +64,8 @@ public final class YTDBIteratorUtils {
     };
   }
 
-  public static <S, E> Iterator<E> map(final Iterator<S> iterator, final Function<S, E> function) {
+  public static <S, E> CloseableIterator<E> map(final Iterator<S> iterator,
+      final Function<S, E> function) {
     return new CloseableIterator<>() {
       @Override
       public boolean hasNext() {
@@ -88,7 +89,8 @@ public final class YTDBIteratorUtils {
     };
   }
 
-  public static <S> Iterator<S> filter(final Iterator<S> iterator, final Predicate<S> predicate) {
+  public static <S> CloseableIterator<S> filter(final Iterator<S> iterator,
+      final Predicate<S> predicate) {
     return new CloseableIterator<>() {
       S nextResult = null;
 
@@ -143,8 +145,8 @@ public final class YTDBIteratorUtils {
     };
   }
 
-  public static <T> Iterator<T> unmodifiableIterator(final Iterator<T> iterator) {
-    return new CloseableIterator<T>() {
+  public static <T> CloseableIterator<T> unmodifiableIterator(final Iterator<T> iterator) {
+    return new CloseableIterator<>() {
       @Override
       public boolean hasNext() {
         return iterator.hasNext();
@@ -217,7 +219,8 @@ public final class YTDBIteratorUtils {
 
     return iterator;
   }
-  public static <T> Iterator<T> mergeSortedIterators(final Iterator<T> firstIterator,
+
+  public static <T> CloseableIterator<T> mergeSortedIterators(final Iterator<T> firstIterator,
       Iterator<T> secondIterator, Comparator<T> comparator) {
     return new SortedCompositeIterator<>(firstIterator, secondIterator, comparator);
   }

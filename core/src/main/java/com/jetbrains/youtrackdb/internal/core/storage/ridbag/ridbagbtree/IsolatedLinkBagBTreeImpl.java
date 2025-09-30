@@ -94,6 +94,7 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
     }
   }
 
+  @Override
   public boolean isEmpty() {
     try (final var stream =
         bTree.iterateEntriesMajor(
@@ -121,23 +122,6 @@ public class IsolatedLinkBagBTreeImpl implements IsolatedLinkBagBTree<RID, Integ
     }
 
     return result;
-  }
-
-  @Override
-  public void loadEntriesMajor(
-      RID rid,
-      boolean inclusive,
-      boolean ascSortOrder,
-      RangeResultListener<RID, Integer> listener) {
-    try (final var stream =
-        bTree.streamEntriesBetween(
-            new EdgeKey(linkBagId, rid.getCollectionId(), rid.getCollectionPosition()),
-            inclusive,
-            new EdgeKey(linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE),
-            true,
-            true)) {
-      listenStream(stream, listener);
-    }
   }
 
   @Nonnull

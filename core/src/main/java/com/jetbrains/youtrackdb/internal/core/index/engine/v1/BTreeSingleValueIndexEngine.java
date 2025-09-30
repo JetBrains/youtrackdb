@@ -6,9 +6,7 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerial
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
-import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -17,7 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
-import java.util.stream.Stream;
+import java.util.Iterator;
+import org.apache.commons.collections4.IteratorUtils;
 
 public final class BTreeSingleValueIndexEngine
     implements SingleValueIndexEngine, BTreeIndexEngine {
@@ -50,9 +49,6 @@ public final class BTreeSingleValueIndexEngine
     return id;
   }
 
-  @Override
-  public void init(DatabaseSessionInternal session, IndexMetadata metadata) {
-  }
 
   @Override
   public void flush() {
@@ -65,9 +61,10 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public void create(AtomicOperation atomicOperation, IndexEngineData data) throws IOException {
+    @SuppressWarnings("rawtypes")
     BinarySerializer keySerializer = storage.resolveObjectSerializer(data.getKeySerializedId());
-    var serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
     try {
+      //noinspection unchecked
       sbTree.create(
           atomicOperation, keySerializer, data.getKeyTypes(), data.getKeySize());
     } catch (IOException e) {
@@ -90,8 +87,8 @@ public final class BTreeSingleValueIndexEngine
   }
 
   private void doClearTree(AtomicOperation atomicOperation) throws IOException {
-    try (var stream = sbTree.keyStream()) {
-      stream.forEach(
+    try (var stream = sbTree.keys()) {
+      stream.forEachRemaining(
           (key) -> {
             try {
               sbTree.remove(atomicOperation, key);
@@ -109,8 +106,9 @@ public final class BTreeSingleValueIndexEngine
   public void load(IndexEngineData data) {
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
+    @SuppressWarnings("rawtypes")
     BinarySerializer keySerializer = storage.resolveObjectSerializer(data.getKeySerializedId());
-    var serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
+    //noinspection unchecked
     sbTree.load(name, keySize, keyTypes, keySerializer);
   }
 
@@ -143,35 +141,36 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RID> get(Object key) {
+  public Iterator<RID> get(Object key) {
     final var rid = sbTree.get(key);
     if (rid == null) {
-      return Stream.empty();
+      return IteratorUtils.emptyIterator();
     }
-    return Stream.of(rid);
+
+    return IteratorUtils.singletonIterator(rid);
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> ascEntries() {
+  public Iterator<RawPair<Object, RID>> ascEntries() {
     final var firstKey = sbTree.firstKey();
     if (firstKey == null) {
-      return Stream.empty();
+      return IteratorUtils.emptyIterator();
     }
     return sbTree.iterateEntriesMajor(firstKey, true, true);
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> descEntries() {
+  public Iterator<RawPair<Object, RID>> descEntries() {
     final var lastKey = sbTree.lastKey();
     if (lastKey == null) {
-      return Stream.empty();
+      return IteratorUtils.emptyIterator();
     }
     return sbTree.iterateEntriesMinor(lastKey, true, false);
   }
 
   @Override
-  public Stream<Object> keys() {
-    return sbTree.keyStream();
+  public Iterator<Object> keys() {
+    return sbTree.keys();
   }
 
   @Override
@@ -203,7 +202,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> iterateEntriesBetween(
+  public Iterator<RawPair<Object, RID>> iterateEntriesBetween(
       DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
@@ -214,7 +213,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> iterateEntriesMajor(
+  public Iterator<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder) {
@@ -222,7 +221,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Stream<RawPair<Object, RID>> iterateEntriesMinor(
+  public Iterator<RawPair<Object, RID>> iterateEntriesMinor(
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder) {
@@ -240,13 +239,8 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock() {
+  public void acquireAtomicExclusiveLock() {
     sbTree.acquireAtomicExclusiveLock();
-    return true;
   }
 
-  @Override
-  public String getIndexNameByKey(Object key) {
-    return name;
-  }
 }

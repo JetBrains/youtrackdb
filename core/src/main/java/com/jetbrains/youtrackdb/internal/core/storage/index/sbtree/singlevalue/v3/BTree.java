@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.TooBigIndexKeyException;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
@@ -54,11 +55,9 @@ import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Spliterator;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 /**
  * This is implementation which is based on B+-tree implementation threaded tree. The main
@@ -142,6 +141,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Override
   public void create(
       final AtomicOperation atomicOperation,
       final BinarySerializer<K> keySerializer,
@@ -188,6 +188,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
         });
   }
 
+  @Override
   @Nullable
   public RID get(K key) {
     atomicOperationsManager.acquireReadLock(this);
@@ -234,11 +235,13 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Override
   public void put(final AtomicOperation atomicOperation,
       final K key, final RID value) {
     update(atomicOperation, key, value, null);
   }
 
+  @Override
   public boolean validatedPut(
       AtomicOperation atomicOperation,
       final K key,
@@ -407,6 +410,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
         });
   }
 
+  @Override
   public void close() {
     acquireExclusiveLock();
     try {
@@ -417,6 +421,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Override
   public void delete(final AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
@@ -431,6 +436,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
         });
   }
 
+  @Override
   public void load(
       final String name,
       final int keySize,
@@ -455,6 +461,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Override
   public long size() {
     atomicOperationsManager.acquireReadLock(this);
     try {
@@ -481,6 +488,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Override
   public RID remove(final AtomicOperation atomicOperation, final K key) {
     return calculateInsideComponentOperation(
         atomicOperation,
@@ -967,17 +975,18 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     return removedValue;
   }
 
-  public Stream<RawPair<K, RID>> iterateEntriesMinor(
+  @Override
+  public CloseableIterator<RawPair<K, RID>> iterateEntriesMinor(
       final K key, final boolean inclusive, final boolean ascSortOrder) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         if (!ascSortOrder) {
-          return StreamSupport.stream(iterateEntriesMinorDesc(key, inclusive), false);
+          return iterateEntriesMinorDesc(key, inclusive);
         }
 
-        return StreamSupport.stream(iterateEntriesMinorAsc(key, inclusive), false);
+        return iterateEntriesMinorAsc(key, inclusive);
       } finally {
         releaseSharedLock();
       }
@@ -986,16 +995,17 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
-  public Stream<RawPair<K, RID>> iterateEntriesMajor(
+  @Override
+  public CloseableIterator<RawPair<K, RID>> iterateEntriesMajor(
       final K key, final boolean inclusive, final boolean ascSortOrder) {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
         if (ascSortOrder) {
-          return StreamSupport.stream(iterateEntriesMajorAsc(key, inclusive), false);
+          return iterateEntriesMajorAsc(key, inclusive);
         }
-        return StreamSupport.stream(iterateEntriesMajorDesc(key, inclusive), false);
+        return iterateEntriesMajorDesc(key, inclusive);
       } finally {
         releaseSharedLock();
       }
@@ -1004,6 +1014,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Override
   @Nullable
   public K firstKey() {
     atomicOperationsManager.acquireReadLock(this);
@@ -1038,6 +1049,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
+  @Override
   @Nullable
   public K lastKey() {
     atomicOperationsManager.acquireReadLock(this);
@@ -1071,13 +1083,14 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
-  public Stream<K> keyStream() {
+  @Override
+  public CloseableIterator<K> keys() {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        return StreamSupport.stream(new SpliteratorForward<>(this, null, null, false, false), false)
-            .map(RawPair::first);
+        return YTDBIteratorUtils.map(new IteratorForward<>(this, null, null, false, false),
+            RawPair::first);
       } finally {
         releaseSharedLock();
       }
@@ -1086,13 +1099,13 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
-  public Stream<RawPair<K, RID>> allEntries() {
+  @Override
+  public CloseableIterator<RawPair<K, RID>> allEntries() {
     atomicOperationsManager.acquireReadLock(this);
     try {
       acquireSharedLock();
       try {
-        return StreamSupport.stream(
-            new SpliteratorForward<>(this, null, null, false, false), false);
+        return new IteratorForward<>(this, null, null, false, false);
       } finally {
         releaseSharedLock();
       }
@@ -1101,7 +1114,8 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
-  public Stream<RawPair<K, RID>> iterateEntriesBetween(
+  @Override
+  public CloseableIterator<RawPair<K, RID>> iterateEntriesBetween(
       final K keyFrom,
       final boolean fromInclusive,
       final K keyTo,
@@ -1112,11 +1126,9 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
       acquireSharedLock();
       try {
         if (ascSortOrder) {
-          return StreamSupport.stream(
-              iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive), false);
+          return iterateEntriesBetweenAscOrder(keyFrom, fromInclusive, keyTo, toInclusive);
         } else {
-          return StreamSupport.stream(
-              iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive), false);
+          return iterateEntriesBetweenDescOrder(keyFrom, fromInclusive, keyTo, toInclusive);
         }
       } finally {
         releaseSharedLock();
@@ -1130,6 +1142,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
    * SB-tree.
    */
+  @Override
   public void acquireAtomicExclusiveLock() {
     atomicOperationsManager.acquireExclusiveLockTillOperationComplete(this);
   }
@@ -1144,18 +1157,20 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
-  private Spliterator<RawPair<K, RID>> iterateEntriesMinorDesc(K key, final boolean inclusive) {
+  private CloseableIterator<RawPair<K, RID>> iterateEntriesMinorDesc(K key,
+      final boolean inclusive) {
     key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
     key = enhanceCompositeKeyMinorDesc(key, inclusive);
 
-    return new SpliteratorBackward<>(this, null, key, false, inclusive);
+    return new IteratorBackward<>(this, null, key, false, inclusive);
   }
 
-  private Spliterator<RawPair<K, RID>> iterateEntriesMinorAsc(K key, final boolean inclusive) {
+  private CloseableIterator<RawPair<K, RID>> iterateEntriesMinorAsc(K key,
+      final boolean inclusive) {
     key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
     key = enhanceCompositeKeyMinorAsc(key, inclusive);
 
-    return new SpliteratorForward<>(this, null, key, false, inclusive);
+    return new IteratorForward<>(this, null, key, false, inclusive);
   }
 
   private K enhanceCompositeKeyMinorDesc(K key, final boolean inclusive) {
@@ -1182,20 +1197,22 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     return key;
   }
 
-  private Spliterator<RawPair<K, RID>> iterateEntriesMajorAsc(K key, final boolean inclusive) {
+  private CloseableIterator<RawPair<K, RID>> iterateEntriesMajorAsc(K key,
+      final boolean inclusive) {
     key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
     key = enhanceCompositeKeyMajorAsc(key, inclusive);
 
-    return new SpliteratorForward<>(this, key, null, inclusive, false);
+    return new IteratorForward<>(this, key, null, inclusive, false);
   }
 
-  private Spliterator<RawPair<K, RID>> iterateEntriesMajorDesc(K key, final boolean inclusive) {
+  private CloseableIterator<RawPair<K, RID>> iterateEntriesMajorDesc(K key,
+      final boolean inclusive) {
     acquireSharedLock();
     try {
       key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
       key = enhanceCompositeKeyMajorDesc(key, inclusive);
 
-      return new SpliteratorBackward<>(this, key, null, inclusive, false);
+      return new IteratorBackward<>(this, key, null, inclusive, false);
 
     } finally {
       releaseSharedLock();
@@ -1351,7 +1368,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
-  private Spliterator<RawPair<K, RID>> iterateEntriesBetweenAscOrder(
+  private CloseableIterator<RawPair<K, RID>> iterateEntriesBetweenAscOrder(
       K keyFrom, final boolean fromInclusive, K keyTo, final boolean toInclusive) {
     keyFrom = keySerializer.preprocess(serializerFactory, keyFrom, (Object[]) keyTypes);
     keyTo = keySerializer.preprocess(serializerFactory, keyTo, (Object[]) keyTypes);
@@ -1359,10 +1376,10 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     keyFrom = enhanceFromCompositeKeyBetweenAsc(keyFrom, fromInclusive);
     keyTo = enhanceToCompositeKeyBetweenAsc(keyTo, toInclusive);
 
-    return new SpliteratorForward<>(this, keyFrom, keyTo, fromInclusive, toInclusive);
+    return new IteratorForward<>(this, keyFrom, keyTo, fromInclusive, toInclusive);
   }
 
-  private Spliterator<RawPair<K, RID>> iterateEntriesBetweenDescOrder(
+  private CloseableIterator<RawPair<K, RID>> iterateEntriesBetweenDescOrder(
       K keyFrom, final boolean fromInclusive, K keyTo, final boolean toInclusive) {
     keyFrom = keySerializer.preprocess(serializerFactory, keyFrom, (Object[]) keyTypes);
     keyTo = keySerializer.preprocess(serializerFactory, keyTo, (Object[]) keyTypes);
@@ -1370,7 +1387,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     keyFrom = enhanceFromCompositeKeyBetweenDesc(keyFrom, fromInclusive);
     keyTo = enhanceToCompositeKeyBetweenDesc(keyTo, toInclusive);
 
-    return new SpliteratorBackward<>(this, keyFrom, keyTo, fromInclusive, toInclusive);
+    return new IteratorBackward<>(this, keyFrom, keyTo, fromInclusive, toInclusive);
   }
 
   private K enhanceToCompositeKeyBetweenAsc(K keyTo, final boolean toInclusive) {
@@ -1889,7 +1906,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     LOWEST_BOUNDARY
   }
 
-  public void fetchBackwardNextCachePortion(SpliteratorBackward<K> iter) {
+  public void fetchBackwardNextCachePortion(IteratorBackward<K> iter) {
     final K lastKey;
     if (iter.getDataCache().isEmpty()) {
       lastKey = null;
@@ -1966,7 +1983,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
     }
   }
 
-  void fetchNextForwardCachePortion(SpliteratorForward<K> iter) {
+  void fetchNextForwardCachePortion(IteratorForward<K> iter) {
     final K lastKey;
     if (!iter.getDataCache().isEmpty()) {
       lastKey = iter.getDataCache().getLast().first();
@@ -2046,7 +2063,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   private boolean readKeysFromBucketsForward(
-      AtomicOperation atomicOperation, SpliteratorForward<K> iter) throws IOException {
+      AtomicOperation atomicOperation, IteratorForward<K> iter) throws IOException {
     var cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
     try {
       var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
@@ -2106,7 +2123,7 @@ public final class BTree<K> extends DurableComponent implements CellBTreeSingleV
   }
 
   private boolean readKeysFromBucketsBackward(
-      AtomicOperation atomicOperation, SpliteratorBackward<K> iter) throws IOException {
+      AtomicOperation atomicOperation, IteratorBackward<K> iter) throws IOException {
     var cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
     try {
       var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);

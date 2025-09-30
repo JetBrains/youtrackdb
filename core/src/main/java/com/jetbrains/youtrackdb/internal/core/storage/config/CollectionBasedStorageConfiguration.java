@@ -215,7 +215,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       collection.delete(atomicOperation);
 
-      try (var keyStream = btree.keyStream()) {
+      try (var keyStream = btree.keys()) {
         keyStream.forEach((key) -> btree.remove(atomicOperation, key));
       }
 

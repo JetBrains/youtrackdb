@@ -79,7 +79,6 @@ import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
@@ -254,8 +253,8 @@ public abstract class AbstractStorage
   private volatile boolean wereNonTxOperationsPerformedInPreviousOpen;
   private final int id;
 
-  private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
-  private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
+  private final Map<String, V1IndexEngine> indexEngineNameMap = new HashMap<>();
+  private final List<V1IndexEngine> indexEngines = new ArrayList<>();
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
 
   private boolean wereDataRestoredAfterOpen;
@@ -2404,18 +2403,16 @@ public abstract class AbstractStorage
       checkIndexId(indexId);
 
       final var engine = indexEngines.get(indexId);
-      if (engine.getEngineAPIVersion() == IndexEngine.VERSION) {
-        ((IndexEngine) engine).remove(this, atomicOperation, key);
+
+      final var v1IndexEngine = (V1IndexEngine) engine;
+      if (!v1IndexEngine.isMultiValue()) {
+        ((SingleValueIndexEngine) engine).remove(atomicOperation, key);
       } else {
-        final var v1IndexEngine = (V1IndexEngine) engine;
-        if (!v1IndexEngine.isMultiValue()) {
-          ((SingleValueIndexEngine) engine).remove(atomicOperation, key);
-        } else {
-          throw new StorageException(name,
-              "To remove entry from multi-value index not only key but value also should be"
-                  + " provided");
-        }
+        throw new StorageException(name,
+            "To remove entry from multi-value index not only key but value also should be"
+                + " provided");
       }
+
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(name,
@@ -2468,41 +2465,6 @@ public abstract class AbstractStorage
           new StorageException(name, "Error during clearing of index"),
           e, name);
     }
-  }
-
-  public Object getIndexValue(DatabaseSessionEmbedded db, int indexId, final Object key) {
-    indexId = extractInternalId(indexId);
-    try {
-      if (transaction.get() != null) {
-        return doGetIndexValue(db, indexId, key);
-      }
-      stateLock.readLock().lock();
-      try {
-        checkOpennessAndMigration();
-        return doGetIndexValue(db, indexId, key);
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
-  private Object doGetIndexValue(DatabaseSessionEmbedded db, final int indexId,
-      final Object key) {
-    final var engineAPIVersion = extractEngineAPIVersion(indexId);
-    if (engineAPIVersion != 0) {
-      throw new IllegalStateException(
-          "Unsupported version of index engine API. Required 0 but found " + engineAPIVersion);
-    }
-    checkIndexId(indexId);
-    final var engine = indexEngines.get(indexId);
-    assert indexId == engine.getId();
-    return ((IndexEngine) engine).get(db, key);
   }
 
   public Iterator<RID> getIndexValues(int indexId, final Object key) {
@@ -2716,29 +2678,18 @@ public abstract class AbstractStorage
       final Object key,
       final RID value,
       final IndexEngineValidator<Object, RID> validator) {
-    try {
-      checkIndexId(indexId);
+    checkIndexId(indexId);
 
-      final var engine = indexEngines.get(indexId);
-      assert indexId == engine.getId();
+    final var engine = indexEngines.get(indexId);
+    assert indexId == engine.getId();
 
-      if (engine instanceof IndexEngine) {
-        return ((IndexEngine) engine).validatedPut(atomicOperation, key, value, validator);
-      }
-
-      if (engine instanceof SingleValueIndexEngine) {
-        return ((SingleValueIndexEngine) engine)
-            .validatedPut(atomicOperation, key, value.getIdentity(), validator);
-      }
-
-      throw new IllegalStateException(
-          "Invalid type of index engine " + engine.getClass().getName());
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(name,
-              "Cannot put key " + key + " value " + value + " entry to the index"),
-          e, name);
+    if (engine instanceof SingleValueIndexEngine) {
+      return ((SingleValueIndexEngine) engine)
+          .validatedPut(atomicOperation, key, value.getIdentity(), validator);
     }
+
+    throw new IllegalStateException(
+        "Invalid type of index engine " + engine.getClass().getName());
   }
 
   public Iterator<RawPair<Object, RID>> iterateIndexEntriesBetween(

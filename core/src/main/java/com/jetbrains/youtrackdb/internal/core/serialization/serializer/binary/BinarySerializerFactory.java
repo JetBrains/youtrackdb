@@ -44,7 +44,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.im
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream.StreamSerializerRID;
-import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.MultiValueEntrySerializer;
 import it.unimi.dsi.fastutil.bytes.Byte2ObjectArrayMap;
 import java.util.EnumMap;
 import javax.annotation.Nonnull;
@@ -108,7 +107,6 @@ public class BinarySerializerFactory {
 
     factory.registerSerializer(CompactedLinkSerializer.INSTANCE, null);
     factory.registerSerializer(UTF8Serializer.INSTANCE, null);
-    factory.registerSerializer(MultiValueEntrySerializer.INSTANCE, null);
 
     //used for spatial indexes
     factory.registerSerializer(MockSerializer.INSTANCE, PropertyTypeInternal.EMBEDDED);

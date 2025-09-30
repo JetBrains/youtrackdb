@@ -7,8 +7,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public interface CellBTreeSingleValue<K> {
 
@@ -44,9 +44,11 @@ public interface CellBTreeSingleValue<K> {
   @Nullable
   RID remove(AtomicOperation atomicOperation, K key) throws IOException;
 
-  Stream<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive, boolean ascSortOrder);
+  CloseableIterator<RawPair<K, RID>> iterateEntriesMinor(K key, boolean inclusive,
+      boolean ascSortOrder);
 
-  Stream<RawPair<K, RID>> iterateEntriesMajor(K key, boolean inclusive, boolean ascSortOrder);
+  CloseableIterator<RawPair<K, RID>> iterateEntriesMajor(K key, boolean inclusive,
+      boolean ascSortOrder);
 
   @Nullable
   K firstKey();
@@ -54,11 +56,11 @@ public interface CellBTreeSingleValue<K> {
   @Nullable
   K lastKey();
 
-  Stream<K> keyStream();
+  CloseableIterator<K> keys();
 
-  Stream<RawPair<K, RID>> allEntries();
+  CloseableIterator<RawPair<K, RID>> allEntries();
 
-  Stream<RawPair<K, RID>> iterateEntriesBetween(
+  CloseableIterator<RawPair<K, RID>> iterateEntriesBetween(
       K keyFrom, boolean fromInclusive, K keyTo, boolean toInclusive, boolean ascSortOrder);
 
   void acquireAtomicExclusiveLock();
