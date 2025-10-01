@@ -46,6 +46,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SchemaClassSnapshot implements ImmutableSchemaClass {
+
   private final boolean isAbstract;
   private final boolean strictMode;
   private final String name;
@@ -61,7 +62,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   private final SchemaSnapshot schema;
 
   private final ArrayList<String> parentClassesNames = new ArrayList<>();
-  private ArrayList<SchemaClassSnapshot> parentClasses;
+  private final ArrayList<SchemaClassSnapshot> parentClasses = new ArrayList<>();
 
   private final ArrayList<String> childClassesNames;
   private ArrayList<SchemaClassSnapshot> childClasses;
@@ -82,7 +83,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   private boolean initialized;
 
   public SchemaClassSnapshot(@Nonnull DatabaseSessionEmbedded session,
-      @Nonnull final SchemaClassEntity classEntity, final SchemaSnapshot schema) {
+      @Nonnull final SchemaClassEntity classEntity, final SchemaSnapshot schema,
+      List<Index> indices) {
 
     isAbstract = classEntity.isAbstractClass();
     strictMode = classEntity.isStrictMode();
@@ -122,14 +124,11 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
     this.childClassesNames = childClassesNames;
 
-    var classIndexEntries = SchemaManager.getClassIndexes(classEntity);
     var indexes = new HashMap<String, Index>();
     var indexesByProperties = new HashMap<MultiKey, Set<Index>>();
 
-    for (var classIndexEntry : classIndexEntries) {
-      var index = IndexFactory.newIndexSnapshot(classIndexEntry);
+    for (var index : indices) {
       indexes.put(index.getName(), index);
-
       var indexDefinition = index.getDefinition();
       final var paramCount = indexDefinition.getParamCount();
 
@@ -168,7 +167,6 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
     this.customFields = customProperties;
     this.description = classEntity.getDescription();
-
 
 
   }

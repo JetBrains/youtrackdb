@@ -19,12 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashSet;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -142,29 +140,6 @@ public final class SchemaProxy implements Schema {
     return indexes;
   }
 
-  @Override
-  public @Nonnull IndexDefinition getIndexDefinition(@Nonnull String indexName) {
-    var indexManager = session.getSharedContext().getIndexManager();
-    var index = indexManager.getIndex(indexName);
-
-    if (index == null) {
-      throw new IllegalArgumentException("Index '" + indexName + "' not found");
-    }
-
-    var indexDefinition = index.getDefinition();
-
-    var metadata = index.getMetadata();
-
-    if (metadata == null) {
-      metadata = Collections.emptyMap();
-    }
-
-    return new IndexDefinition(indexName, indexDefinition.getClassName(),
-        Collections.unmodifiableList(indexDefinition.getProperties()),
-        SchemaManager.INDEX_TYPE.valueOf(index.getType()), indexDefinition.isNullValuesIgnored(),
-        indexDefinition.getCollate().getName(), metadata);
-  }
-
   @Nullable
   @Override
   public SchemaClass getClassByCollectionId(int collectionId) {
@@ -181,7 +156,7 @@ public final class SchemaProxy implements Schema {
       return null;
     }
 
-    return new GlobalPropertyRecord(globalProperty.getName(), globalProperty.getType(),
+    return new GlobalPropertySnapshot(globalProperty.getName(), globalProperty.getType(),
         globalProperty.getId());
   }
 

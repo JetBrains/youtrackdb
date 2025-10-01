@@ -19,8 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
-import com.jetbrains.youtrackdb.internal.common.util.MultiKey;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -31,79 +29,57 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.jspecify.annotations.NonNull;
 
-/**
- * @since 10/21/14
- */
 public final class SchemaSnapshot implements ImmutableSchema {
 
-  private final HashMap<String, Map<MultiKey, Set<Index>>> classPropertyIndex = new HashMap<>();
-  private HashMap<String, Index> indexes = new HashMap<>();
-
+  private final HashMap<String, SchemaClassSnapshot> classes;
+  private final ArrayList<GlobalProperty> globalProperties;
+  private final HashMap<String, Index> indexes = new HashMap<>();
   private final Int2ObjectOpenHashMap<SchemaClassSnapshot> collectionsToClasses;
-  private final Map<String, SchemaClassSnapshot> classes;
 
-  private final List<GlobalProperty> properties;
+  public SchemaSnapshot(@Nonnull DatabaseSessionEmbedded session) {
+    var indexesByClasses = new HashMap<String, List<Index>>();
+    var indexEntities = SchemaManager.getIndexes(session);
 
-  public SchemaSnapshot(@Nonnull SchemaManager schemaManager,
-      @Nonnull DatabaseSessionEmbedded session) {
+    while (indexEntities.hasNext()) {
+      var indexEntity = indexEntities.next();
+      var index = IndexFactory.newIndexSnapshot(indexEntity);
+      indexes.put(index.getName(), index);
+
+      var classToIndex = index.getDefinition().getClassName();
+      var indexList = indexesByClasses.computeIfAbsent(classToIndex, clsName -> new ArrayList<>());
+      indexList.add(index);
+    }
+
+    var globalPropertiesEntities = SchemaManager.getGlobalProperties(session);
+    globalProperties = new ArrayList<>(globalPropertiesEntities.size());
+    for (var globalEntity : globalPropertiesEntities) {
+      globalProperties.add(
+          new GlobalPropertySnapshot(globalEntity.getName(), globalEntity.getType(),
+              globalEntity.getId()));
+    }
+
     var classEntities = SchemaManager.getClasses(session);
-    collectionsToClasses = new Int2ObjectOpenHashMap<>(classEntities.size() * 3);
+
     classes = new HashMap<>(classEntities.size());
+    collectionsToClasses = new Int2ObjectOpenHashMap<>(classEntities.size() * 3);
 
     for (var classEntity : classEntities) {
-      final var immutableClass = new SchemaClassSnapshot(session, classEntity, this);
+      final var classSnapshot = new SchemaClassSnapshot(session, classEntity, this,
+          indexesByClasses.getOrDefault(classEntity.getName(), Collections.emptyList()));
+      classes.put(classSnapshot.getName(), classSnapshot);
 
-      classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
-
-      for (var collectionId : immutableClass.getCollectionIds()) {
-        collectionsToClasses.put(collectionId, immutableClass);
+      for (var collectionId : classSnapshot.getCollectionIds()) {
+        collectionsToClasses.put(collectionId, classSnapshot);
       }
-    }
-
-    properties = new ArrayList<>();
-    properties.addAll(SchemaManager.getGlobalProperties(session));
-
-    for (var cl : classes.values()) {
-      cl.init(session);
     }
 
     for (var cl : classes.values()) {
-      cl.initChildClasses();
+      cl.init();
     }
-
-    var internalIndexes = SchemaManager.getIndexes(session);
-
-    var indexes = new HashMap<String, IndexDefinition>(internalIndexes.size());
-    for (var index : internalIndexes) {
-      var indexDefinition = index.getDefinition();
-      var indexName = index.getName();
-      var metadata = index.getMetadata();
-
-      if (metadata == null) {
-        metadata = Collections.emptyMap();
-      }
-
-      String collateName = null;
-      try {
-        collateName = indexDefinition.getCollate().getName();
-      } catch (UnsupportedOperationException e) {
-        //do nothing
-      }
-
-      indexes.put(indexName.toLowerCase(Locale.ROOT),
-          new IndexDefinition(indexName, indexDefinition.getClassName(),
-              Collections.unmodifiableList(indexDefinition.getProperties()),
-              SchemaManager.INDEX_TYPE.valueOf(index.getType()),
-              indexDefinition.isNullValuesIgnored(), collateName, metadata));
-    }
-
-    this.indexes = Collections.unmodifiableMap(indexes);
   }
 
   @Override
@@ -113,7 +89,7 @@ public final class SchemaSnapshot implements ImmutableSchema {
 
   @Override
   public SchemaClassSnapshot getClass(@NonNull String className) {
-    return (SchemaClassSnapshot) classes.get(className);
+    return classes.get(className);
   }
 
   @Override
@@ -127,28 +103,16 @@ public final class SchemaSnapshot implements ImmutableSchema {
   }
 
   @Override
-  public @Nonnull IndexDefinition getIndexDefinition(@Nonnull String indexName) {
-    var indexDefinition = indexes.get(indexName.toLowerCase(Locale.ROOT));
-    if (indexDefinition == null) {
-      throw new IllegalArgumentException("Index '" + indexName + "' not found");
-    }
-
-    return indexDefinition;
-  }
-
-  @Override
   public SchemaClassSnapshot getClassByCollectionId(int collectionId) {
     return collectionsToClasses.get(collectionId);
   }
 
-
   @Nullable
   @Override
   public GlobalProperty getGlobalPropertyById(int id) {
-    if (id >= properties.size()) {
+    if (id >= globalProperties.size()) {
       return null;
     }
-    return properties.get(id);
+    return globalProperties.get(id);
   }
-
 }

@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
 import java.util.Collection;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -27,9 +26,6 @@ public interface ImmutableSchema {
 
   @Nonnull
   Collection<String> getIndexes();
-
-  @Nonnull
-  IndexDefinition getIndexDefinition(@Nonnull String indexName);
 
   @Nullable
   ImmutableSchemaClass getClassByCollectionId(int collectionId);

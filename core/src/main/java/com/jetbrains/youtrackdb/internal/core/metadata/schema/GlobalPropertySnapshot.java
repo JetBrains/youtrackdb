@@ -23,7 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import javax.annotation.Nonnull;
 
-public record GlobalPropertyRecord(
+public record GlobalPropertySnapshot(
     @Nonnull String name,
     @Nonnull PropertyTypeInternal type,
     @Nonnull Integer id) implements GlobalProperty {
