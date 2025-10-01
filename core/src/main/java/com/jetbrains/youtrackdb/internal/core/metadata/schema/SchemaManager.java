@@ -379,7 +379,7 @@ public final class SchemaManager {
 
   private static boolean filterPropertyIndex(SchemaIndexEntity indexEntity,
       Set<String> propertyNames) {
-    var propertiesToIndex = indexEntity.getClassProperties();
+    var propertiesToIndex = indexEntity.getPropertiesToIndex();
     var propertyIndex = 0;
     var containsRequiredProperties = true;
 
@@ -889,7 +889,7 @@ public final class SchemaManager {
 
     var indexClass = schemaIndexEntity.getName();
     var indexedProperties = YTDBIteratorUtils.set(
-        YTDBIteratorUtils.map(schemaIndexEntity.getClassProperties(),
+        YTDBIteratorUtils.map(schemaIndexEntity.getPropertiesToIndex(),
             SchemaPropertyEntity::getName
         )
     );

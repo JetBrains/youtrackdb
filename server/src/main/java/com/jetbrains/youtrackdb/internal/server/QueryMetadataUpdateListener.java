@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.server;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
-import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
 
 class QueryMetadataUpdateListener implements MetadataUpdateListener {
 

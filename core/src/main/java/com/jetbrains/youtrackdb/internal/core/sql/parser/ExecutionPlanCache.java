@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.MetadataUpdateListener;
-import com.jetbrains.youtrackdb.internal.core.index.IndexManagerAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.LinkedHashMap;
 import java.util.Map;

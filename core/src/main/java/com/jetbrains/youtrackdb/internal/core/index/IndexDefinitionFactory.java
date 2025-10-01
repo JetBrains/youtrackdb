@@ -21,8 +21,8 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.schema.Collate;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -39,20 +39,20 @@ public class IndexDefinitionFactory {
   /**
    * Creates an instance of {@link IndexDefinition} for automatic index.
    *
-   * @param oClass     class which will be indexed
-   * @param fieldNames list of properties which will be indexed. Format should be '<property> [by
-   *                   key|value]', use 'by key' or 'by value' to describe how to index maps. By
-   *                   default maps indexed by key
-   * @param types      types of indexed properties
+   * @param schemaClass class which will be indexed
+   * @param fieldNames  list of properties which will be indexed. Format should be '<property> [by
+   *                    key|value]', use 'by key' or 'by value' to describe how to index maps. By
+   *                    default maps indexed by key
+   * @param types       types of indexed properties
    * @return index definition instance
    */
   public static IndexDefinition createIndexDefinition(
-      final SchemaClass oClass,
+      final ImmutableSchemaClass schemaClass,
       final List<String> fieldNames,
       final List<PropertyTypeInternal> types,
       List<Collate> collates,
       String indexKind) {
-    checkTypes(oClass, fieldNames, types);
+    checkTypes(schemaClass, fieldNames, types);
 
     if (fieldNames.size() == 1) {
       Collate collate = null;
@@ -61,11 +61,11 @@ public class IndexDefinitionFactory {
       var field = fieldNames.getFirst();
       final var fieldName =
           SchemaManager.decodeClassName(
-              adjustFieldName(oClass, extractFieldName(field)));
+              adjustFieldName(schemaClass, extractFieldName(field)));
       if (collates != null) {
         collate = collates.getFirst();
       }
-      var property = oClass.getProperty(fieldName);
+      var property = schemaClass.getProperty(fieldName);
       if (property != null) {
         if (collate == null) {
           collate = property.getCollate();
@@ -75,10 +75,10 @@ public class IndexDefinitionFactory {
 
       final var indexBy = extractMapIndexSpecifier(field);
       return createSingleFieldIndexDefinition(
-          oClass.getName(), fieldName, type, linkedType, collate, indexKind, indexBy);
+          schemaClass.getName(), fieldName, type, linkedType, collate, indexKind, indexBy);
     } else {
       return createMultipleFieldIndexDefinition(
-          oClass, fieldNames, types, collates, indexKind);
+          schemaClass, fieldNames, types, collates, indexKind);
     }
   }
 
@@ -114,7 +114,7 @@ public class IndexDefinitionFactory {
   }
 
   private static IndexDefinition createMultipleFieldIndexDefinition(
-      final SchemaClass oClass,
+      final ImmutableSchemaClass oClass,
       final List<String> fieldsToIndex,
       final List<PropertyTypeInternal> types,
       List<Collate> collates,
@@ -151,7 +151,7 @@ public class IndexDefinitionFactory {
     return compositeIndex;
   }
 
-  private static void checkTypes(SchemaClass oClass,
+  private static void checkTypes(ImmutableSchemaClass oClass,
       List<String> fieldNames,
       List<PropertyTypeInternal> types) {
     if (fieldNames.size() != types.size()) {
@@ -271,7 +271,7 @@ public class IndexDefinitionFactory {
             + '\'');
   }
 
-  private static String adjustFieldName(final SchemaClass clazz,
+  private static String adjustFieldName(final ImmutableSchemaClass clazz,
       final String fieldName) {
     final var property = clazz.getProperty(fieldName);
     if (property != null) {

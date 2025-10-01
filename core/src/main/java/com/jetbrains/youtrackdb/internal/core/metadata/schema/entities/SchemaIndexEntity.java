@@ -74,7 +74,7 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
     return session.load(getLink(CLASS_TO_INDEX));
   }
 
-  public Iterator<RawPair<SchemaPropertyEntity, ValueModifier>> getClassPropertiesWithModifiers() {
+  public Iterator<RawPair<SchemaPropertyEntity, ValueModifier>> getClassPropertiesToIndexWithModifiers() {
     var linkList = getLinkList(PROPERTIES_TO_INDEX);
     if (linkList == null) {
       return IteratorUtils.emptyIterator();
@@ -109,7 +109,7 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
 
   public List<PropertyTypeInternal> getKeyTypes() {
     var result = new ArrayList<PropertyTypeInternal>();
-    var propertiesWithModifiers = getClassPropertiesWithModifiers();
+    var propertiesWithModifiers = getClassPropertiesToIndexWithModifiers();
 
     while (propertiesWithModifiers.hasNext()) {
       var pair = propertiesWithModifiers.next();
@@ -191,7 +191,7 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
     return linkedType;
   }
 
-  public Iterator<SchemaPropertyEntity> getClassProperties() {
+  public Iterator<SchemaPropertyEntity> getPropertiesToIndex() {
     var linkList = getLinkList(PROPERTIES_TO_INDEX);
     return YTDBIteratorUtils.unmodifiableIterator(
         YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {

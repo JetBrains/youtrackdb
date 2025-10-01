@@ -19,6 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index.comparator;
 
+import javax.annotation.Nonnull;
+
 /**
  * It always lesser than any passed in key.
  *
@@ -26,8 +28,9 @@ package com.jetbrains.youtrackdb.internal.core.index.comparator;
  */
 public final class AlwaysLessKey implements Comparable<Comparable<?>> {
 
+  @SuppressWarnings("ComparatorMethodParameterNotUsed")
   @Override
-  public int compareTo(Comparable<?> o) {
+  public int compareTo(@Nonnull Comparable<?> o) {
     return -1;
   }
 }
