@@ -19,11 +19,14 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
+import com.jetbrains.youtrackdb.internal.common.util.MultiKey;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.RoundRobinCollectionSelectionStrategy;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityPolicy;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
@@ -43,39 +46,27 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SchemaClassSnapshot implements ImmutableSchemaClass {
-
-  /**
-   * use SchemaClass.EDGE_CLASS_NAME instead
-   */
-  @Deprecated
-  public static final String EDGE_CLASS_NAME = SchemaClass.EDGE_CLASS_NAME;
-
-  /**
-   * use SchemaClass.EDGE_CLASS_NAME instead
-   */
-  @Deprecated
-  public static final String VERTEX_CLASS_NAME = SchemaClass.VERTEX_CLASS_NAME;
-
-  private boolean inited = false;
   private final boolean isAbstract;
   private final boolean strictMode;
   private final String name;
-  private final Map<String, SchemaPropertySnapshot> properties;
-  private Map<String, SchemaPropertySnapshot> allPropertiesMap;
-  private Collection<SchemaPropertySnapshot> allProperties;
+  private final HashMap<String, SchemaPropertySnapshot> properties;
+  private HashMap<String, SchemaPropertySnapshot> allPropertiesMap;
+  private ArrayList<SchemaPropertySnapshot> allProperties;
   private final int[] collectionIds;
   private final int[] polymorphicCollectionIds;
-  private final Collection<String> baseClassesNames;
-  private final List<String> superClassesNames;
 
-  private final Map<String, String> customFields;
+  private final HashMap<String, String> customFields;
   private final String description;
 
   private final SchemaSnapshot schema;
-  // do not do it volatile it is already SAFE TO USE IT in MT mode.
-  private final List<SchemaClassSnapshot> superClasses;
-  // do not do it volatile it is already SAFE TO USE IT in MT mode.
-  private Collection<SchemaClassSnapshot> subclasses;
+
+  private final ArrayList<String> parentClassesNames = new ArrayList<>();
+  private ArrayList<SchemaClassSnapshot> parentClasses;
+
+  private final ArrayList<String> childClassesNames;
+  private ArrayList<SchemaClassSnapshot> childClasses;
+
+
   private boolean isVertexType;
   private boolean isEdgeType;
   private boolean function;
@@ -84,51 +75,115 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   private boolean user;
   private boolean role;
   private boolean securityPolicy;
-  private HashSet<Index> indexes;
+
+  private final HashMap<String, Index> indexes;
+  private final HashMap<MultiKey, Set<Index>> indexesByProperties;
+
+  private boolean initialized;
 
   public SchemaClassSnapshot(@Nonnull DatabaseSessionEmbedded session,
-      @Nonnull final SchemaClassShared oClass, final SchemaSnapshot schema) {
+      @Nonnull final SchemaClassEntity classEntity, final SchemaSnapshot schema) {
 
-    isAbstract = oClass.isAbstract();
-    strictMode = oClass.isStrictMode();
+    isAbstract = classEntity.isAbstractClass();
+    strictMode = classEntity.isStrictMode();
     this.schema = schema;
 
-    superClassesNames = oClass.getSuperClassesNames(session);
-    superClasses = new ArrayList<>(superClassesNames.size());
-
-    name = oClass.getName();
-    collectionIds = oClass.getCollectionIds();
-    polymorphicCollectionIds = oClass.getPolymorphicCollectionIds();
-
-    baseClassesNames = new ArrayList<>();
-    for (var baseClass : oClass.getSubclasses()) {
-      baseClassesNames.add(baseClass.getName());
+    var entityParentClasses = classEntity.getParentClasses();
+    while (entityParentClasses.hasNext()) {
+      var parent = entityParentClasses.next();
+      this.parentClassesNames.add(parent.getName());
     }
+
+    name = classEntity.getName();
+    var classCollectionIds = classEntity.getCollectionIds();
+    collectionIds = new int[classCollectionIds.size()];
+    for (var i = 0; i < classCollectionIds.size(); i++) {
+      collectionIds[i] = classCollectionIds.get(i).getId();
+    }
+
+    var classPolymorphicCollectionIds = classEntity.getPolymorphicCollectionIds();
+    polymorphicCollectionIds = new int[classPolymorphicCollectionIds.size()];
+
+    {
+      var i = 0;
+      for (var collectionId : classPolymorphicCollectionIds) {
+        polymorphicCollectionIds[i] = collectionId.getId();
+        i++;
+      }
+    }
+
+    var classChildClasses = classEntity.getChildClasses();
+    var childClassesNames = new ArrayList<String>();
+
+    while (classChildClasses.hasNext()) {
+      var childClass = classChildClasses.next();
+      childClassesNames.add(childClass.getName());
+    }
+
+    this.childClassesNames = childClassesNames;
 
     properties = new HashMap<>();
-    for (var p : oClass.declaredProperties()) {
-      properties.put(p.getName(), new SchemaPropertySnapshot(session, p, this));
+    var declaredProperties = classEntity.getDeclaredProperties();
+    while (declaredProperties.hasNext()) {
+      var declaredProperty = declaredProperties.next();
+      properties.put(declaredProperty.getName(),
+          new SchemaPropertySnapshot(session, declaredProperty, this));
     }
 
-    Map<String, String> customFields = new HashMap<>();
-    for (var key : oClass.getCustomKeys()) {
-      customFields.put(key, oClass.getCustom(key));
+    var customPropertyNames = classEntity.customPropertyNames();
+    var customProperties = new HashMap<String, String>();
+    for (var key : customPropertyNames) {
+      customProperties.put(key, classEntity.getCustomProperty(key));
     }
 
-    this.customFields = Collections.unmodifiableMap(customFields);
-    this.description = oClass.getDescription();
+    this.customFields = customProperties;
+    this.description = classEntity.getDescription();
+
+    var classIndexEntries = SchemaManager.getClassIndexes(classEntity);
+    var indexes = new HashMap<String, Index>();
+    var indexesByProperties = new HashMap<MultiKey, Set<Index>>();
+
+    for (var classIndexEntry : classIndexEntries) {
+      var index = IndexFactory.newIndexSnapshot(classIndexEntry);
+      indexes.put(index.getName(), index);
+
+      var indexDefinition = index.getDefinition();
+      final var paramCount = indexDefinition.getParamCount();
+
+      for (var i = 1; i <= paramCount; i++) {
+        final var fields = indexDefinition.getProperties().subList(0, i);
+        final var multiKey = new MultiKey(fields);
+        var indexSet = indexesByProperties.get(multiKey);
+
+        if (indexSet == null) {
+          indexSet = new HashSet<>();
+        } else {
+          indexSet = new HashSet<>(indexSet);
+        }
+
+        indexSet.add(index);
+        indexesByProperties.put(multiKey, indexSet);
+      }
+    }
+
+    this.indexes = indexes;
+    this.indexesByProperties = indexesByProperties;
+
   }
 
-  public void init(DatabaseSessionInternal session) {
-    if (!inited) {
-      initSuperClasses(session);
+  public void init() {
+    if (!initialized) {
+      initParentClasses();
+      addChildClasses();
 
-      final Collection<SchemaPropertySnapshot> allProperties = new ArrayList<>();
-      final Map<String, SchemaPropertySnapshot> allPropsMap = new HashMap<>(20);
-      for (var i = superClasses.size() - 1; i >= 0; i--) {
-        allProperties.addAll(superClasses.get(i).allProperties);
-        allPropsMap.putAll(superClasses.get(i).allPropertiesMap);
+      var allProperties = new ArrayList<SchemaPropertySnapshot>();
+      var allPropsMap = new HashMap<String, SchemaPropertySnapshot>();
+
+      for (var i = parentClasses.size() - 1; i >= 0; i--) {
+        allProperties.addAll(parentClasses.get(i).allProperties);
+        allPropsMap.putAll(parentClasses.get(i).allPropertiesMap);
       }
+
       allProperties.addAll(properties.values());
       for (var p : properties.values()) {
         final var propName = p.getName();
@@ -138,8 +193,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
         }
       }
 
-      this.allProperties = Collections.unmodifiableCollection(allProperties);
-      this.allPropertiesMap = Collections.unmodifiableMap(allPropsMap);
+      this.allProperties = allProperties;
+      this.allPropertiesMap = allPropsMap;
       this.isVertexType = isChildOf(SchemaClass.VERTEX_CLASS_NAME);
       this.isEdgeType = isChildOf(SchemaClass.EDGE_CLASS_NAME);
       this.function = isChildOf(FunctionLibraryImpl.CLASSNAME);
@@ -148,13 +203,34 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
       this.user = isChildOf(SecurityUserImpl.CLASS_NAME);
       this.role = isChildOf(Role.CLASS_NAME);
       this.securityPolicy = isChildOf(SecurityPolicy.CLASS_NAME);
-      this.indexes = new HashSet<>();
-      getRawIndexes(session, indexes);
     }
 
-    inited = true;
+    initialized = true;
   }
 
+  private void initParentClasses() {
+    if (parentClassesNames.size() != parentClasses.size()) {
+      parentClasses.clear();
+
+      for (var superClassName : parentClassesNames) {
+        var superClass = schema.getClass(superClassName);
+        superClass.init();
+        parentClasses.add(superClass);
+      }
+    }
+  }
+
+  private void addChildClasses() {
+    var result = new ArrayList<SchemaClassSnapshot>(childClassesNames.size());
+
+    for (var clsName : childClassesNames) {
+      result.add(schema.getClass(clsName));
+    }
+
+    childClasses = result;
+  }
+
+  @Override
   public boolean isSecurityPolicy() {
     return securityPolicy;
   }
@@ -171,17 +247,17 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public List<SchemaClassSnapshot> getParents() {
-    return superClasses;
+    return parentClasses;
   }
 
   @Override
-  public boolean hasSuperClasses() {
-    return !superClasses.isEmpty();
+  public boolean hasParentClasses() {
+    return !parentClasses.isEmpty();
   }
 
   @Override
-  public List<String> getSuperClassesNames() {
-    return superClassesNames;
+  public List<String> getParentClassesNames() {
+    return parentClassesNames;
   }
 
   @Override
@@ -212,8 +288,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
       return p;
     }
 
-    for (var i = 0; i < superClasses.size() && p == null; i++) {
-      p = superClasses.get(i).getProperty(propertyName);
+    for (var i = 0; i < parentClasses.size() && p == null; i++) {
+      p = parentClasses.get(i).getProperty(propertyName);
     }
 
     return p;
@@ -225,7 +301,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     if (result) {
       return true;
     }
-    for (var superClass : superClasses) {
+    for (var superClass : parentClasses) {
       result = superClass.existsProperty(propertyName);
 
       if (result) {
@@ -259,17 +335,14 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public Collection<SchemaClassSnapshot> getChildren() {
-    initBaseClasses();
-    return subclasses;
+    return childClasses;
   }
 
   @Override
   public Collection<SchemaClassSnapshot> getDescendants() {
-    initBaseClasses();
-
     var set = new HashSet<>(getChildren());
 
-    for (var c : subclasses) {
+    for (var c : childClasses) {
       set.addAll(c.getDescendants());
     }
 
@@ -284,8 +357,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   private void getAllSuperClasses(HashSet<ImmutableSchemaClass> set) {
-    set.addAll(superClasses);
-    for (var superClass : superClasses) {
+    set.addAll(parentClasses);
+    for (var superClass : parentClasses) {
       superClass.getAllSuperClasses(set);
     }
   }
@@ -312,7 +385,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
       return true;
     }
 
-    for (var superClass : superClasses) {
+    for (var superClass : parentClasses) {
       if (superClass.isChildOf(iClassName)) {
         return true;
       }
@@ -330,7 +403,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
       return true;
     }
 
-    for (var superClass : superClasses) {
+    for (var superClass : parentClasses) {
       if (superClass.isChildOf(clazz)) {
         return true;
       }
@@ -365,13 +438,11 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public Set<String> getInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> fields) {
-    initSuperClasses(session);
+      Collection<String> properties) {
+    final Set<String> result = new HashSet<>(getClassInvolvedIndexes(session, properties));
 
-    final Set<String> result = new HashSet<>(getClassInvolvedIndexes(session, fields));
-
-    for (var superClass : superClasses) {
-      result.addAll(superClass.getInvolvedIndexes(session, fields));
+    for (var superClass : parentClasses) {
+      result.addAll(superClass.getInvolvedIndexes(session, properties));
     }
     return result;
   }
@@ -379,10 +450,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   @Override
   public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
       Collection<String> fields) {
-    initSuperClasses(session);
-
     final Set<Index> result = new HashSet<>(getClassInvolvedIndexesInternal(session, fields));
-    for (var superClass : superClasses) {
+    for (var superClass : parentClasses) {
       result.addAll(superClass.getInvolvedIndexesInternal(session, fields));
     }
 
@@ -408,37 +477,50 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> fields) {
-    final var indexManager = session.getSharedContext().getIndexManager();
-    return indexManager.getClassInvolvedIndexes(session, name, fields);
+      Collection<String> properties) {
+    final var multiKey = new MultiKey(properties);
+
+    final var rawResult = indexesByProperties.get(multiKey);
+    if (rawResult == null) {
+      return Collections.emptySet();
+    }
+
+    var result = new HashSet<Index>(rawResult.size());
+    for (final var index : rawResult) {
+      if (properties.size() == index.getDefinition().getProperties().size()
+          || !index.getDefinition().isNullValuesIgnored()) {
+        result.add(index);
+      }
+    }
+
+    return result;
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
+  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
+      String... properties) {
     assert session.assertIfNotActive();
-    return getClassInvolvedIndexes(session, Arrays.asList(fields));
+    return getClassInvolvedIndexes(session, Arrays.asList(properties));
   }
 
   @Override
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      String... fields) {
+      String... properties) {
     assert session.assertIfNotActive();
-    return getClassInvolvedIndexesInternal(session, Arrays.asList(fields));
+    return getClassInvolvedIndexesInternal(session, Arrays.asList(properties));
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields) {
+  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> properties) {
     assert session.assertIfNotActive();
-    final var indexManager = session.getSharedContext().getIndexManager();
-    final var currentClassResult = indexManager.areIndexed(session, name, fields);
+    var multiKey = new MultiKey(properties);
 
-    initSuperClasses(session);
-
-    if (currentClassResult) {
+    if (indexesByProperties.containsKey(multiKey)) {
       return true;
     }
-    for (var superClass : superClasses) {
-      if (superClass.areIndexed(session, fields)) {
+
+    for (var superClass : parentClasses) {
+      if (superClass.areIndexed(session, properties)) {
         return true;
       }
     }
@@ -453,69 +535,38 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public Set<String> getClassIndexes() {
-    return this.indexes.stream().map(Index::getName).collect(HashSet::new, HashSet::add,
-        HashSet::addAll);
+    return this.indexes.keySet();
   }
 
   @Override
-  public Set<Index> getClassIndexesInternal() {
-    return this.indexes;
+  public Collection<Index> getClassIndexesInternal() {
+    return this.indexes.values();
   }
 
   @Override
   public Index getClassIndex(DatabaseSessionInternal session, String name) {
     assert session.assertIfNotActive();
-    return session
-        .getSharedContext()
-        .getIndexManager()
-        .getClassIndex(session, this.name, name);
+    return indexes.get(name);
   }
 
   public void getClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
     assert session.assertIfNotActive();
-    session.getSharedContext().getIndexManager()
-        .getClassIndexes(session, name, indexes);
+    this.indexes.forEach((key, value) -> indexes.add(value));
   }
 
-  public void getRawClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
-    assert session.assertIfNotActive();
-    session.getSharedContext().getIndexManager()
-        .getClassRawIndexes(session, name, indexes);
-  }
 
   @Override
-  public void getIndexesInternal(DatabaseSessionInternal session, final Collection<Index> indexes) {
-    initSuperClasses(session);
-
+  public void getIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
     getClassIndexes(session, indexes);
-    for (var superClass : superClasses) {
-      superClass.getIndexesInternal(session, indexes);
-    }
-  }
 
-  public void getRawIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
-    initSuperClasses(session);
-
-    getRawClassIndexes(session, indexes);
-
-    for (var superClass : superClasses) {
-      superClass.getRawIndexes(session, indexes);
+    for (var superClass : parentClasses) {
+      superClass.getIndexes(session, indexes);
     }
   }
 
   @Override
   public Set<String> getIndexes() {
-    return this.indexes.stream().map(Index::getName).collect(HashSet::new, HashSet::add,
-        HashSet::addAll);
-  }
-
-  @Override
-  public Set<Index> getIndexesInternal() {
-    return this.indexes;
-  }
-
-  public Set<Index> getRawIndexes() {
-    return indexes;
+    return this.indexes.keySet();
   }
 
   @Override
@@ -531,42 +582,19 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public Set<String> getCustomKeys() {
-    return Collections.unmodifiableSet(customFields.keySet());
+    return customFields.keySet();
   }
 
   @Override
   public boolean hasCollectionId(int collectionId) {
-    return Arrays.binarySearch(collectionIds, collectionId) >= 0;
+    return ArrayUtils.contains(collectionIds, collectionId);
   }
 
   @Override
   public boolean hasPolymorphicCollectionId(final int collectionId) {
-    return Arrays.binarySearch(polymorphicCollectionIds, collectionId) >= 0;
+    return ArrayUtils.contains(polymorphicCollectionIds, collectionId);
   }
 
-
-  private void initSuperClasses(DatabaseSessionInternal session) {
-    if (superClassesNames != null && superClassesNames.size() != superClasses.size()) {
-      superClasses.clear();
-      for (var superClassName : superClassesNames) {
-        var superClass = schema.getClass(superClassName);
-        superClass.init(session);
-        superClasses.add(superClass);
-      }
-    }
-  }
-
-  private void initBaseClasses() {
-    if (subclasses == null) {
-      final List<SchemaClassSnapshot> result = new ArrayList<>(
-          baseClassesNames.size());
-      for (var clsName : baseClassesNames) {
-        result.add(schema.getClass(clsName));
-      }
-
-      subclasses = result;
-    }
-  }
 
   @Override
   public boolean isEdgeType() {
@@ -578,22 +606,27 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     return isVertexType;
   }
 
+  @Override
   public boolean isFunction() {
     return function;
   }
 
+  @Override
   public boolean isScheduler() {
     return scheduler;
   }
 
+  @Override
   public boolean isUser() {
     return user;
   }
 
+  @Override
   public boolean isRole() {
     return role;
   }
 
+  @Override
   public boolean isSequence() {
     return sequence;
   }

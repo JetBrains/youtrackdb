@@ -8,6 +8,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -218,6 +219,17 @@ public final class YTDBIteratorUtils {
     }
 
     return iterator;
+  }
+
+  public static <T> Optional<T> findFirst(final Iterator<T> iterator) {
+    try {
+      if (iterator.hasNext()) {
+        return Optional.ofNullable(iterator.next());
+      }
+      return Optional.empty();
+    } finally {
+      CloseableIterator.closeIterator(iterator);
+    }
   }
 
   public static <T> CloseableIterator<T> mergeSortedIterators(final Iterator<T> firstIterator,

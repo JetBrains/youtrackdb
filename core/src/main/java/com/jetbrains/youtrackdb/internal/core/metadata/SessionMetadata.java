@@ -78,6 +78,7 @@ public final class SessionMetadata {
   private final int collectionSchemaClassId;
   private final int collectionSchemaPropertyId;
   private final int collectionGlobalPropertyId;
+  private final int collectionIndexId;
 
 
   public SessionMetadata(DatabaseSessionEmbedded session) {
@@ -87,6 +88,7 @@ public final class SessionMetadata {
     collectionSchemaClassId = session.getCollectionIdByName(COLLECTION_NAME_SCHEMA_CLASS);
     collectionSchemaPropertyId = session.getCollectionIdByName(COLLECTION_NAME_SCHEMA_PROPERTY);
     collectionGlobalPropertyId = session.getCollectionIdByName(COLLECTION_NAME_GLOBAL_PROPERTY);
+    collectionIndexId = session.getCollectionIdByName(COLLECTION_NAME_INDEX);
   }
 
   public int getCollectionInternalId() {
@@ -103,6 +105,10 @@ public final class SessionMetadata {
 
   public int getCollectionGlobalPropertyId() {
     return collectionGlobalPropertyId;
+  }
+
+  public int getCollectionIndexId() {
+    return collectionIndexId;
   }
 
   public SchemaProxy getSlowMutableSchema() {

@@ -12,10 +12,10 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 
 public interface ImmutableSchemaClass {
-
   String EDGE_CLASS_NAME = "E";
   String VERTEX_CLASS_NAME = "V";
 
@@ -32,9 +32,9 @@ public interface ImmutableSchemaClass {
 
   boolean isStrictMode();
 
-  boolean hasSuperClasses();
+  boolean hasParentClasses();
 
-  List<String> getSuperClassesNames();
+  List<String> getParentClassesNames();
 
   List<? extends ImmutableSchemaClass> getParents();
 
@@ -121,9 +121,8 @@ public interface ImmutableSchemaClass {
   Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
       final Collection<String> fields);
 
-  Set<Index> getIndexesInternal();
 
-  void getIndexesInternal(DatabaseSessionInternal session, Collection<Index> indices);
+  void getIndexes(DatabaseSessionInternal session, Collection<Index> indices);
 
   long count(DatabaseSessionInternal session);
 
@@ -131,13 +130,14 @@ public interface ImmutableSchemaClass {
   long count(DatabaseSessionInternal session, final boolean isPolymorphic);
 
   Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      String... fields);
+      String... properties);
 
   Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      final Collection<String> fields);
+      final Collection<String> properties);
 
-  Set<Index> getClassIndexesInternal();
+  Collection<Index> getClassIndexesInternal();
 
+  @Nullable
   Index getClassIndex(DatabaseSessionInternal session, final String name);
 
 
@@ -149,10 +149,10 @@ public interface ImmutableSchemaClass {
    * for the given set of fields in super class they will be taken into account.
    *
    * @param session
-   * @param fields  Field names.
+   * @param properties  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
-  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, Collection<String> fields);
+  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, Collection<String> properties);
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
@@ -183,11 +183,11 @@ public interface ImmutableSchemaClass {
 
   /**
    * @param session
-   * @param fields  Field names.
+   * @param properties  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    * @see #getClassInvolvedIndexes(DatabaseSessionInternal, Collection)
    */
-  Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields);
+  Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... properties);
 
   /**
    * Indicates whether given fields are contained as first key fields in class indexes. Order of
@@ -195,10 +195,10 @@ public interface ImmutableSchemaClass {
    * will be taken into account.
    *
    * @param session
-   * @param fields  Field names.
+   * @param properties  Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
    */
-  boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields);
+  boolean areIndexed(DatabaseSessionInternal session, Collection<String> properties);
 
   /**
    * @param session

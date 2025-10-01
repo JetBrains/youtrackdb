@@ -178,8 +178,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         continue;
       }
 
-      final var sc1 = clazz.getSuperClassesNames();
-      final var sc2 = clazz2.getSuperClassesNames();
+      final var sc1 = clazz.getParentClassesNames();
+      final var sc2 = clazz2.getParentClassesNames();
 
       if (!sc1.isEmpty() || !sc2.isEmpty()) {
         if (!new HashSet<>(sc1).containsAll(sc2) || !new HashSet<>(sc2).containsAll(sc1)) {

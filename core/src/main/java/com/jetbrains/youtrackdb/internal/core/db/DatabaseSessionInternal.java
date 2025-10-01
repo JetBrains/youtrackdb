@@ -69,6 +69,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.Re
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageInfo;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -444,7 +445,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @return The underlying storage implementation
    * @see Storage
    */
-  Storage getStorage();
+  AbstractStorage getStorage();
 
   StorageInfo getStorageInfo();
 

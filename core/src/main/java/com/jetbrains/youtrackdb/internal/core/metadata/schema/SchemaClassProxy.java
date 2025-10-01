@@ -77,7 +77,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public void getIndexesInternal(DatabaseSessionInternal session, Collection<Index> indices) {
+  public void getIndexes(DatabaseSessionInternal session, Collection<Index> indices) {
     assert this.session.assertIfNotActive();
     delegate.getIndexesInternal(this.session, indices);
   }
@@ -103,20 +103,20 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
 
   @Override
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      String... fields) {
+      String... properties) {
     assert this.session.assertIfNotActive();
-    return delegate.getClassInvolvedIndexesInternal(this.session, fields);
+    return delegate.getClassInvolvedIndexesInternal(this.session, properties);
   }
 
   @Override
   public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> fields) {
+      Collection<String> properties) {
     assert this.session.assertIfNotActive();
-    return delegate.getClassInvolvedIndexesInternal(this.session, fields);
+    return delegate.getClassInvolvedIndexesInternal(this.session, properties);
   }
 
   @Override
-  public Set<Index> getClassIndexesInternal() {
+  public Collection<Index> getClassIndexesInternal() {
     assert this.session.assertIfNotActive();
     return delegate.getClassIndexesInternal(session);
   }
@@ -137,9 +137,9 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
 
   @Override
   public Set<String> getInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> fields) {
+      Collection<String> properties) {
     assert this.session.assertIfNotActive();
-    return delegate.getInvolvedIndexes(this.session, fields);
+    return delegate.getInvolvedIndexes(this.session, properties);
   }
 
   @Override
@@ -156,15 +156,16 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
+  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
+      String... properties) {
     assert this.session.assertIfNotActive();
-    return delegate.getClassInvolvedIndexes(this.session, fields);
+    return delegate.getClassInvolvedIndexes(this.session, properties);
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> fields) {
+  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> properties) {
     assert this.session.assertIfNotActive();
-    return delegate.areIndexed(this.session, fields);
+    return delegate.areIndexed(this.session, properties);
   }
 
   @Override
@@ -216,13 +217,13 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public boolean hasSuperClasses() {
+  public boolean hasParentClasses() {
     assert session.assertIfNotActive();
     return delegate.hasParentClasses();
   }
 
   @Override
-  public Iterator<String> getSuperClassesNames() {
+  public Iterator<String> getParentClassesNames() {
     assert session.assertIfNotActive();
     return delegate.getSuperClassesNames(session);
   }

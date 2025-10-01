@@ -20,7 +20,9 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.schema.IndexDefinition;
+import com.jetbrains.youtrackdb.internal.common.util.MultiKey;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -30,6 +32,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.jspecify.annotations.NonNull;
@@ -39,20 +42,22 @@ import org.jspecify.annotations.NonNull;
  */
 public final class SchemaSnapshot implements ImmutableSchema {
 
+  private final HashMap<String, Map<MultiKey, Set<Index>>> classPropertyIndex = new HashMap<>();
+  private HashMap<String, Index> indexes = new HashMap<>();
+
   private final Int2ObjectOpenHashMap<SchemaClassSnapshot> collectionsToClasses;
   private final Map<String, SchemaClassSnapshot> classes;
 
   private final List<GlobalProperty> properties;
-  private final Map<String, IndexDefinition> indexes;
 
   public SchemaSnapshot(@Nonnull SchemaManager schemaManager,
       @Nonnull DatabaseSessionEmbedded session) {
-    collectionsToClasses = new Int2ObjectOpenHashMap<>(
-        schemaManager.getClasses(session).size() * 3);
-    classes = new HashMap<>(schemaManager.getClasses(session).size());
+    var classEntities = SchemaManager.getClasses(session);
+    collectionsToClasses = new Int2ObjectOpenHashMap<>(classEntities.size() * 3);
+    classes = new HashMap<>(classEntities.size());
 
-    for (var oClass : schemaManager.getClasses(session)) {
-      final var immutableClass = new SchemaClassSnapshot(session, oClass, this);
+    for (var classEntity : classEntities) {
+      final var immutableClass = new SchemaClassSnapshot(session, classEntity, this);
 
       classes.put(immutableClass.getName().toLowerCase(Locale.ENGLISH), immutableClass);
 
@@ -62,14 +67,17 @@ public final class SchemaSnapshot implements ImmutableSchema {
     }
 
     properties = new ArrayList<>();
-    properties.addAll(SchemaManager.getGlobalProperties());
+    properties.addAll(SchemaManager.getGlobalProperties(session));
 
     for (var cl : classes.values()) {
       cl.init(session);
     }
 
-    var indexManager = session.getSharedContext().getIndexManager();
-    var internalIndexes = indexManager.getIndexes();
+    for (var cl : classes.values()) {
+      cl.initChildClasses();
+    }
+
+    var internalIndexes = SchemaManager.getIndexes(session);
 
     var indexes = new HashMap<String, IndexDefinition>(internalIndexes.size());
     for (var index : internalIndexes) {

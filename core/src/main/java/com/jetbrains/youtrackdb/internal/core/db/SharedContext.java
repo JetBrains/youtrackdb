@@ -42,7 +42,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
   private volatile boolean loaded = false;
   private Map<String, Object> resources;
   private StringCache stringCache;
-  private IndexManagerEmbedded indexManager;
 
   private final ReentrantLock lock = new ReentrantLock();
 
@@ -67,7 +66,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
                 .getValueAsInteger(GlobalConfiguration.DB_STRING_CAHCE_SIZE));
     schema = new SchemaManager();
     security = youtrackDB.getSecuritySystem().newSecurity(storage.getName());
-    indexManager = new IndexManagerEmbedded(storage);
     functionLibrary = new FunctionLibraryImpl();
     scheduler = new SchedulerImpl(youtrackDB);
     sequenceLibrary = new SequenceLibraryImpl();
@@ -242,10 +240,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
 
   public void setStorage(AbstractStorage storage) {
     this.storage = storage;
-  }
-
-  public IndexManagerEmbedded getIndexManager() {
-    return indexManager;
   }
 
   public SchemaManager getSchema() {

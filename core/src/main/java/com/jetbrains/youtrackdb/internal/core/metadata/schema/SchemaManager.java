@@ -48,6 +48,7 @@ import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.jspecify.annotations.NonNull;
 
 public final class SchemaManager {
+
   public static final int CURRENT_VERSION_NUMBER = 5;
 
   public static final String SCHEMA_CLASS_NAME_INDEX = "$SchemaClassNameIndex";
@@ -218,7 +219,7 @@ public final class SchemaManager {
       int collectionId) {
 
     var index = session.getIndex(SCHEMA_COLLECTION_ID_CLASS_INDEX);
-    var result = index.getRids(session, collectionId).findFirst();
+    var result = YTDBIteratorUtils.findFirst(index.getRids(session, collectionId));
 
     return (SchemaClassEntity) result.map(session::load).orElse(null);
   }
@@ -227,14 +228,14 @@ public final class SchemaManager {
   public static boolean existsClass(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final String className) {
     var index = session.getIndex(SCHEMA_COLLECTION_ID_CLASS_INDEX);
-    return index.getRids(session, className).findAny().isPresent();
+    return YTDBIteratorUtils.findFirst(index.getRids(session, className)).isPresent();
   }
 
   @Nullable
   public static SchemaClassEntity getClass(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final String className) {
     var index = session.getIndex(SCHEMA_CLASS_NAME_INDEX);
-    return (SchemaClassEntity) index.getRids(session, className).findFirst()
+    return (SchemaClassEntity) YTDBIteratorUtils.findFirst(index.getRids(session, className))
         .map(session::load).orElse(null);
   }
 
@@ -242,7 +243,7 @@ public final class SchemaManager {
   public static RID getClassLink(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final String className) {
     var index = session.getIndex(SCHEMA_CLASS_NAME_INDEX);
-    return index.getRids(session, className).findFirst().orElse(null);
+    return YTDBIteratorUtils.findFirst(index.getRids(session, className)).orElse(null);
   }
 
   @Nonnull
@@ -500,15 +501,21 @@ public final class SchemaManager {
     return getClassInvolvedIndexNames(schemaClassEntity, Arrays.asList(properties));
   }
 
+  public static Iterator<SchemaIndexEntity> getIndexes(@Nonnull DatabaseSessionEmbedded session) {
+    var indexCollectionId = session.getMetadata().getCollectionIndexId();
+    return new RecordIteratorCollection<>(session, indexCollectionId, true);
+  }
+
   @Nullable
   public static SchemaIndexEntity getClassIndex(@Nonnull SchemaClassEntity schemaClassEntity,
       @Nonnull final String name) {
     var session = schemaClassEntity.getSession();
     var indexNamesIndex = session.getIndex(INDEX_NAME_INDEX);
 
-    var indexEntity = indexNamesIndex.getRids(session, name)
-        .map(rid -> (SchemaIndexEntity) session.load(rid)).findFirst()
-        .orElse(null);
+    var indexEntity = YTDBIteratorUtils.findFirst(
+        YTDBIteratorUtils.map(indexNamesIndex.getRids(session, name),
+            rid -> (SchemaIndexEntity) session.load(rid))
+    ).orElse(null);
     if (indexEntity == null) {
       return null;
     }
@@ -534,7 +541,7 @@ public final class SchemaManager {
   public static SchemaGlobalPropertyEntity getGlobalPropertyById(
       @Nonnull DatabaseSessionEmbedded session, int id) {
     var index = session.getIndex(GLOBAL_PROPERTY_ID_INDEX);
-    var result = index.getRids(session, id).findFirst();
+    var result = YTDBIteratorUtils.findFirst(index.getRids(session, id));
     if (result.isEmpty()) {
       return null;
     }
@@ -558,14 +565,15 @@ public final class SchemaManager {
       @Nonnull final PropertyTypeInternal type) {
     var typeName = type.name();
     var namePropertyIndex = session.getIndex(GLOBAL_PROPERTY_NAME_TYPE_INDEX);
-    var globalPropertyRid = namePropertyIndex.getRids(session, new CompositeKey(name, typeName))
-        .findFirst();
+    var globalPropertyRid = YTDBIteratorUtils.findFirst(
+        namePropertyIndex.getRids(session, new CompositeKey(name, typeName)));
 
     return globalPropertyRid.map(rid -> (SchemaGlobalPropertyEntity) session.load(rid))
         .orElseGet(() -> {
           var idIndex = session.getIndex(GLOBAL_PROPERTY_ID_INDEX);
           var nextId =
-              idIndex.descEntries(session).findFirst().map(pair -> (Integer) pair.getFirst())
+              YTDBIteratorUtils.findFirst(idIndex.descEntries(session))
+                  .map(pair -> (Integer) pair.getFirst())
                   .orElse(-1) + 1;
           var entity = session.newSchemaGlobalPropertyEntity(name, type, nextId);
 

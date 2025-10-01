@@ -34,10 +34,10 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
   private void testClassCreationBranch(SchemaClass aClass, SchemaClass bClass, SchemaClass cClass) {
     assertNotNull(aClass.getParents());
     assertEquals(0, aClass.getParents().size());
-    assertNotNull(bClass.getSuperClassesNames());
-    assertEquals(0, bClass.getSuperClassesNames().size());
-    assertNotNull(cClass.getSuperClassesNames());
-    assertEquals(2, cClass.getSuperClassesNames().size());
+    assertNotNull(bClass.getParentClassesNames());
+    assertEquals(0, bClass.getParentClassesNames().size());
+    assertNotNull(cClass.getParentClassesNames());
+    assertEquals(2, cClass.getParentClassesNames().size());
 
     List<? extends SchemaClass> superClasses = cClass.getParents();
     assertTrue(superClasses.contains(aClass));
