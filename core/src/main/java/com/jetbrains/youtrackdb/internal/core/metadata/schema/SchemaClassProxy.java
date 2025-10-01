@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.RoundRobinCollectionSelectionStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -21,6 +22,7 @@ import javax.annotation.Nullable;
 
 public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> implements
     SchemaClass {
+
   private int hashCode = 0;
 
   public SchemaClassProxy(SchemaClassEntity delegate,
@@ -29,20 +31,15 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public CollectionSelectionStrategy getCollectionSelection() {
-    assert this.session.assertIfNotActive();
-    return delegate.getCollectionSelection();
-  }
-
-  @Override
   public int getCollectionForNewInstance(EntityImpl entity) {
     assert this.session.assertIfNotActive();
-    return delegate.getCollectionSelection().getCollection(this.session, this, entity);
+    return RoundRobinCollectionSelectionStrategy.INSTANCE.getCollection(this.session, this, entity);
   }
 
   @Override
   public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields) {
     assert this.session.assertIfNotActive();
+
     return delegate.getInvolvedIndexesInternal(this.session, fields);
   }
 

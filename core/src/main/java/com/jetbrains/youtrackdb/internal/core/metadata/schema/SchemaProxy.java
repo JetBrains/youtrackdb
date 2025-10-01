@@ -129,12 +129,11 @@ public final class SchemaProxy implements Schema {
 
   @Override
   public @Nonnull Collection<String> getIndexes() {
-    var indexManager = session.getSharedContext().getIndexManager();
-    var indexesInternal = indexManager.getIndexes();
-
-    var indexes = new HashSet<String>(indexesInternal.size());
-    for (var index : indexesInternal) {
-      indexes.add(index.getName());
+    var indexEntities = SchemaManager.getIndexes(session);
+    var indexes = new HashSet<String>();
+    while (indexEntities.hasNext()) {
+      var indexEntity = indexEntities.next();
+      indexes.add(indexEntity.getName());
     }
 
     return indexes;
@@ -146,7 +145,6 @@ public final class SchemaProxy implements Schema {
     var cls = SchemaManager.getClassByCollectionId(session, collectionId);
     return cls != null ? new SchemaClassProxy(cls, session) : null;
   }
-
 
   @Override
   @Nullable
