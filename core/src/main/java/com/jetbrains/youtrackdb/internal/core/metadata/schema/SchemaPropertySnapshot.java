@@ -32,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.validation.Validat
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.validation.ValidationLinkbagComparable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.validation.ValidationMapComparable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.validation.ValidationStringComparable;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
@@ -55,7 +56,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
 
   private final PropertyTypeInternal linkedType;
   private final boolean notNull;
-  private final String collate;
+  private final Collate collate;
   private final boolean mandatory;
   private final String min;
   private final String max;
@@ -80,7 +81,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
     description = property.getDescription();
 
     var linkedClass = property.getLinkedClass();
-    if (property.getLinkedClass() != null) {
+    if (linkedClass != null) {
       linkedClassName = property.getName();
     } else {
       linkedClassName = null;
@@ -88,7 +89,12 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
 
     linkedType = property.getLinkedPropertyType();
     notNull = property.isNotNull();
-    collate = property.getCollate();
+    var collateName = property.getCollate();
+    if (collateName != null) {
+      collate = SQLEngine.getCollate(collateName);
+    } else {
+      collate = null;
+    }
     mandatory = property.isMandatory();
     min = property.getMin();
     max = property.getMax();
@@ -126,12 +132,13 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
           || type.equals(PropertyTypeInternal.DOUBLE)
           || type.equals(PropertyTypeInternal.DECIMAL)
           || type.equals(PropertyTypeInternal.DATETIME)) {
+        //noinspection unchecked
         minComparable = (Comparable<Object>) safeConvert(session, min, type.getDefaultJavaType(),
             "min");
-      } else if (type.equals(PropertyTypeInternal.EMBEDDEDLIST)
-          || type.equals(PropertyTypeInternal.EMBEDDEDSET)
-          || type.equals(PropertyTypeInternal.LINKLIST)
-          || type.equals(PropertyTypeInternal.LINKSET)) {
+      } else if (type == PropertyTypeInternal.EMBEDDEDLIST
+          || type == PropertyTypeInternal.EMBEDDEDSET
+          || type == PropertyTypeInternal.LINKLIST
+          || type == PropertyTypeInternal.LINKSET) {
         var conv = safeConvert(session, min, Integer.class, "min");
         if (conv != null) {
 
@@ -143,8 +150,8 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
 
           minComparable = new ValidationLinkbagComparable(conv);
         }
-      } else if (type.equals(PropertyTypeInternal.EMBEDDEDMAP) || type.equals(
-          PropertyTypeInternal.LINKMAP)) {
+      } else if (type == PropertyTypeInternal.EMBEDDEDMAP || type ==
+          PropertyTypeInternal.LINKMAP) {
         var conv = safeConvert(session, min, Integer.class, "min");
         if (conv != null) {
 
@@ -175,6 +182,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
           cal.setTime(maxDate);
           cal.add(Calendar.DAY_OF_MONTH, 1);
           maxDate = new Date(cal.getTime().getTime() - 1);
+          //noinspection unchecked,rawtypes
           maxComparable = (Comparable) maxDate;
         }
       } else if (type.equals(PropertyTypeInternal.BYTE)
@@ -185,6 +193,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
           || type.equals(PropertyTypeInternal.DOUBLE)
           || type.equals(PropertyTypeInternal.DECIMAL)
           || type.equals(PropertyTypeInternal.DATETIME)) {
+        //noinspection unchecked
         maxComparable = (Comparable<Object>) safeConvert(session, max, type.getDefaultJavaType(),
             "max");
       } else if (type.equals(PropertyTypeInternal.EMBEDDEDLIST)
@@ -212,10 +221,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
     }
 
     this.maxComparable = maxComparable;
-
-    var declaringClass = property.getDeclaringClass();
-
-    this.allIndexes = property.getAllIndexesInternal(session);
+    this.allIndexes = owner.getClassInvolvedIndexesInternal(session, name);
   }
 
   private <T> T safeConvert(DatabaseSessionInternal session, Object value, Class<T> target,

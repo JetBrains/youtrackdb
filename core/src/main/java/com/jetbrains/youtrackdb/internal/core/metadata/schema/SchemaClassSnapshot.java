@@ -122,23 +122,6 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
     this.childClassesNames = childClassesNames;
 
-    properties = new HashMap<>();
-    var declaredProperties = classEntity.getDeclaredProperties();
-    while (declaredProperties.hasNext()) {
-      var declaredProperty = declaredProperties.next();
-      properties.put(declaredProperty.getName(),
-          new SchemaPropertySnapshot(session, declaredProperty, this));
-    }
-
-    var customPropertyNames = classEntity.customPropertyNames();
-    var customProperties = new HashMap<String, String>();
-    for (var key : customPropertyNames) {
-      customProperties.put(key, classEntity.getCustomProperty(key));
-    }
-
-    this.customFields = customProperties;
-    this.description = classEntity.getDescription();
-
     var classIndexEntries = SchemaManager.getClassIndexes(classEntity);
     var indexes = new HashMap<String, Index>();
     var indexesByProperties = new HashMap<MultiKey, Set<Index>>();
@@ -168,6 +151,25 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
     this.indexes = indexes;
     this.indexesByProperties = indexesByProperties;
+
+    properties = new HashMap<>();
+    var declaredProperties = classEntity.getDeclaredProperties();
+    while (declaredProperties.hasNext()) {
+      var declaredProperty = declaredProperties.next();
+      properties.put(declaredProperty.getName(),
+          new SchemaPropertySnapshot(session, declaredProperty, this));
+    }
+
+    var customPropertyNames = classEntity.customPropertyNames();
+    var customProperties = new HashMap<String, String>();
+    for (var key : customPropertyNames) {
+      customProperties.put(key, classEntity.getCustomProperty(key));
+    }
+
+    this.customFields = customProperties;
+    this.description = classEntity.getDescription();
+
+
 
   }
 
