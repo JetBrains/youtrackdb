@@ -102,8 +102,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
     customProperties = new HashMap<>();
 
     var customPropertyNames = property.getCustomPropertyNames();
-    while (customPropertyNames.hasNext()) {
-      var propertyName = customPropertyNames.next();
+    for (var propertyName : customPropertyNames) {
       customProperties.put(propertyName, property.getCustomProperty(propertyName));
     }
 
@@ -254,7 +253,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
 
   @Override
   public PropertyTypeInternal getType() {
-    return type.getPublicPropertyType();
+    return type;
   }
 
   @Nullable
@@ -281,7 +280,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
       return null;
     }
 
-    return linkedType.getPublicPropertyType();
+    return linkedType;
   }
 
   @Override

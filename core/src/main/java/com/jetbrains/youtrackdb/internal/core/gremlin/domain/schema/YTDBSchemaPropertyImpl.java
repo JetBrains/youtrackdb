@@ -42,7 +42,7 @@ public class YTDBSchemaPropertyImpl extends
   @Override
   public @Nonnull PropertyType propertyType() {
     var entity = propertyReadPreprocessing();
-    return entity.getPropertyType();
+    return entity.getPropertyType().getPublicPropertyType();
   }
 
   @Override
@@ -232,7 +232,7 @@ public class YTDBSchemaPropertyImpl extends
   @Override
   public Iterator<String> customPropertyNames() {
     var entity = propertyReadPreprocessing();
-    return entity.getCustomPropertyNames();
+    return entity.getCustomPropertyNames().iterator();
   }
 
   @Nonnull

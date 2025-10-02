@@ -237,8 +237,8 @@ public interface ImmutableSchemaClass {
     for (var fieldName : fieldNames) {
       if (!fieldName.equals("@rid")) {
         types.add(
-            PropertyTypeInternal.convertFromPublicType(getProperty(
-                decodeClassName(IndexDefinitionFactory.extractFieldName(fieldName))).getType()));
+            getProperty(
+                decodeClassName(IndexDefinitionFactory.extractFieldName(fieldName))).getType());
       } else {
         types.add(PropertyTypeInternal.LINK);
       }

@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.record.Edge;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import java.util.Collection;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -64,8 +63,8 @@ public interface Schema extends ImmutableSchema {
   default SchemaClass createEdgeClass(String className) {
     var edgeClass = createClass(className, getClass(SchemaClass.EDGE_CLASS_NAME));
 
-    edgeClass.createProperty(Edge.DIRECTION_IN, PropertyType.LINK);
-    edgeClass.createProperty(Edge.DIRECTION_OUT, PropertyType.LINK);
+    edgeClass.createProperty(Edge.DIRECTION_IN, PropertyTypeInternal.LINK);
+    edgeClass.createProperty(Edge.DIRECTION_OUT, PropertyTypeInternal.LINK);
 
     return edgeClass;
   }

@@ -23,7 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import java.util.Map;
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Contains the description of a persistent class property.
@@ -34,8 +34,7 @@ public interface SchemaProperty extends ImmutableSchemaProperty {
 
   void setLinkedClass(SchemaClass schemaClass);
 
-  void setLinkedType(
-      @Nonnull @org.jetbrains.annotations.UnknownNullability PropertyTypeInternal type);
+  void setLinkedType(@Nullable PropertyTypeInternal type);
 
   void setNotNull(boolean iNotNull);
 
