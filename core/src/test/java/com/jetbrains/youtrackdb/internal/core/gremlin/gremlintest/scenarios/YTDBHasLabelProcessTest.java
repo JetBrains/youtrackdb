@@ -44,6 +44,18 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     checkSize(1, () -> gp().V().hasLabel("Child"));
     checkSize(1, () -> gp().V().hasLabel("Parent"));
     checkSize(1, () -> gp().V().hasLabel("Grandparent"));
+
+    g().addV("Parent").next();
+
+    checkSize(1, () -> gp().V().hasLabel("Child"));
+    checkSize(2, () -> gp().V().hasLabel("Parent"));
+    checkSize(2, () -> gp().V().hasLabel("Grandparent"));
+
+    g().addV("Grandparent").next();
+
+    checkSize(1, () -> gp().V().hasLabel("Child"));
+    checkSize(2, () -> gp().V().hasLabel("Parent"));
+    checkSize(3, () -> gp().V().hasLabel("Grandparent"));
   }
 
   @Test
@@ -81,9 +93,21 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     checkSize(1, () -> gn().V().hasLabel("Child"));
     checkSize(0, () -> gn().V().hasLabel("Parent"));
     checkSize(0, () -> gn().V().hasLabel("Grandparent"));
+
+    g().addV("Parent").next();
+
+    checkSize(1, () -> gn().V().hasLabel("Child"));
+    checkSize(1, () -> gn().V().hasLabel("Parent"));
+    checkSize(0, () -> gn().V().hasLabel("Grandparent"));
+
+    g().addV("Grandparent").next();
+
+    checkSize(1, () -> gn().V().hasLabel("Child"));
+    checkSize(1, () -> gn().V().hasLabel("Parent"));
+    checkSize(1, () -> gn().V().hasLabel("Grandparent"));
   }
 
-  private void checkSize(int size, Supplier<YTDBGraphTraversal<Vertex, Vertex>> query) {
+  private static void checkSize(int size, Supplier<YTDBGraphTraversal<Vertex, Vertex>> query) {
     assertEquals(size, query.get().toList().size());
     assertEquals(size, query.get().count().next().longValue());
   }
@@ -184,22 +208,7 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
         .property("noOfLegs", 2)
         .property("noOfEyes", 2)
         .iterate();
-//
-    g().V()
-        .hasLabel("character")
-        .has("name", "Jim Hawkins")
-        .out("aaa")
-        .hasLabel("pirate")
-        .in("jjj")
-        .where(__.not(__.hasLabel("character")))
-        .union(
-            __.V()
-                .hasLabel("human")
-                .out("kkkk")
-                .where(__.not(__.hasLabel(TextP.startingWith("dolp"))))
-        )
-        .iterate();
-//
+
     (assertThatNames("character", false))
         .containsExactlyInAnyOrder("Jim Hawkins");
 
@@ -416,6 +425,63 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
         ),
         false
     ).containsExactlyInAnyOrder("someAnimal");
+  }
+
+  @Test
+  public void testHasLabelWithGraphStepMidTraversal() {
+    createSimpleHierarchy();
+
+    final var childCount = 11;
+    final var parentCount = 5;
+    final var grandparentCount = 3;
+
+    for (var i = 0; i < grandparentCount; i++) {
+      g().addV("Grandparent").iterate();
+    }
+    for (var i = 0; i < parentCount; i++) {
+      g().addV("Parent").iterate();
+    }
+    for (var i = 0; i < childCount; i++) {
+      g().addV("Child").iterate();
+    }
+
+    checkSize(
+        childCount * childCount,
+        () -> gp()
+            .V().hasLabel("Child")
+            .V().hasLabel("Child")
+    );
+
+    checkSize(
+        parentCount * parentCount,
+        () -> gn()
+            .V().hasLabel("Parent")
+            .V().hasLabel("Parent")
+    );
+    checkSize(
+        parentCount * parentCount,
+        () -> gn()
+            .V().where(__.hasLabel("Parent"))
+            .V().where(__.hasLabel("Parent"))
+    );
+    checkSize(
+        (childCount + parentCount) * (childCount + parentCount),
+        () -> gp()
+            .V().hasLabel("Parent")
+            .V().hasLabel("Parent")
+    );
+    checkSize(
+        (childCount + parentCount) * (childCount + parentCount),
+        () -> gp()
+            .V().where(__.hasLabel("Parent"))
+            .V().where(__.hasLabel("Parent"))
+    );
+    checkSize(
+        (parentCount + childCount) * grandparentCount,
+        () -> gp()
+            .V().hasLabel("Parent")
+            .V().hasLabel("Grandparent").not(__.hasLabel("Parent"))
+    );
   }
 
   private ListAssert<String> assertThatNames(String clazz, boolean polymorphic) {
