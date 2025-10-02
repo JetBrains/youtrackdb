@@ -43,6 +43,7 @@
     <module>driver</module>
     <module>process-test-suites</module>
     <module>console</module>
+    <module>binary-compat</module>
   </modules>
 
   <scm>

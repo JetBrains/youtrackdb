@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.auto;
 
-import org.testng.annotations.Test;
+
+import org.junit.jupiter.api.Test;
 
 public class BaseDBCompatibilityTest {
 
