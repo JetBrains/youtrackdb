@@ -51,9 +51,9 @@ import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -268,14 +268,14 @@ public class JSONSerializerJackson {
               record = session.newInstance();
             }
           } else {
-            var schemaSnapshot = session.getMetadata().getFastImmutableSchema(session);
+            var schemaSnapshot = session.getMetadata().getFastImmutableSchema();
             var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
             if (schemaClass == null) {
               throw new SerializationException(session,
                   "Class not found: " + recordMetaData.className);
             }
             if (schemaClass.isVertexType()) {
-              record = (RecordAbstract) session.newVertex(schemaClass);
+              record = (RecordAbstract) session.newVertex(schemaClass.getName());
             } else if (schemaClass.isEdgeType()) {
               if (readAllowGraphStructure) {
                 record = session.newStatefulEdgeInternal(schemaClass.getName());
@@ -313,7 +313,7 @@ public class JSONSerializerJackson {
                 "Record class name mismatch: " + className + " != " + null);
           }
 
-          var schemaSnapshot = session.getMetadata().getFastImmutableSchema(session);
+          var schemaSnapshot = session.getMetadata().getFastImmutableSchema();
           var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
 
           if (schemaClass == null) {
@@ -515,8 +515,8 @@ public class JSONSerializerJackson {
       return null;
     }
 
-    var schema = session.getMetadata().getFastImmutableSchema(session);
-    SchemaClass schemaClass = null;
+    var schema = session.getMetadata().getFastImmutableSchema();
+    ImmutableSchemaClass schemaClass = null;
     if (className == null && defaultClassName == null && recordId != null) {
       schemaClass = schema.getClassByCollectionId(recordId.getCollectionId());
 
@@ -553,7 +553,7 @@ public class JSONSerializerJackson {
       if (className == null) {
         embeddedValue = asValue && recordId == null;
       } else {
-        var cls = session.getMetadata().getFastImmutableSchema(session).getClass(className);
+        var cls = session.getMetadata().getFastImmutableSchema().getClass(className);
         if (cls != null) {
           embeddedValue = cls.isAbstract();
         } else {
@@ -644,7 +644,7 @@ public class JSONSerializerJackson {
             "Expected field -> 'value'. JSON content");
       }
     } else {
-      var schemaClass = entity.getImmutableSchemaClass(session);
+      var schemaClass = entity.getImmutableSchemaClass();
       var schemaProperty = schemaClass != null ? schemaClass.getProperty(fieldName) : null;
 
       if (EntityImpl.isSystemProperty(fieldName)) {
@@ -768,7 +768,7 @@ public class JSONSerializerJackson {
         jsonGenerator.writeString(Character.toString(record.getRecordType()));
       }
 
-      var schemaClass = entity.getImmutableSchemaClass(session);
+      var schemaClass = entity.getImmutableSchemaClass();
       if (schemaClass != null) {
         if (formatSettings.includeClazz) {
           jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_CLASS);
@@ -778,20 +778,9 @@ public class JSONSerializerJackson {
         var collectionName = session.getCollectionName(record);
 
         if (collectionName.equals(SessionMetadata.COLLECTION_INTERNAL_NAME)) {
-          var metadata = session.getMetadata();
-          var schema = metadata.getSchemaInternal();
-          var indexManager = session.getSharedContext().getIndexManager();
+          jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_INTERNAL_ENTITY);
+          jsonGenerator.writeBoolean(true);
 
-          if (schema.getIdentity().equals(record.getIdentity())) {
-            jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_SCHEMA_MANAGER_ENTITY);
-            jsonGenerator.writeBoolean(true);
-          } else if (indexManager.getIdentity().equals(record.getIdentity())) {
-            jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_INDEX_MANAGER_ENTITY);
-            jsonGenerator.writeBoolean(true);
-          } else {
-            jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_INTERNAL_ENTITY);
-            jsonGenerator.writeBoolean(true);
-          }
         }
       }
 
@@ -834,14 +823,14 @@ public class JSONSerializerJackson {
   private static PropertyTypeInternal fetchPropertyType(
       EntityImpl entity,
       String propertyName,
-      SchemaClass schemaClass
+      ImmutableSchemaClass schemaClass
   ) {
     PropertyTypeInternal type = null;
     if (schemaClass != null) {
       var property = schemaClass.getProperty(propertyName);
 
       if (property != null) {
-        type = PropertyTypeInternal.convertFromPublicType(property.getType());
+        type = property.getType();
       }
     }
 
@@ -889,11 +878,11 @@ public class JSONSerializerJackson {
       EntityImpl entity,
       String fieldName,
       String charType,
-      SchemaProperty schemaProperty) {
+      ImmutableSchemaProperty schemaProperty) {
     PropertyTypeInternal type = null;
 
     if (schemaProperty != null) {
-      type = PropertyTypeInternal.convertFromPublicType(schemaProperty.getType());
+      type = schemaProperty.getType();
     }
 
     if (type != null) {
@@ -1044,7 +1033,7 @@ public class JSONSerializerJackson {
       @Nullable final EntityImpl entity,
       @Nonnull JsonParser jsonParser,
       @Nullable PropertyTypeInternal type,
-      @Nullable SchemaProperty schemaProperty
+      @Nullable ImmutableSchemaProperty schemaProperty
   ) throws IOException {
     var token = jsonParser.currentToken();
     return switch (token) {
@@ -1073,8 +1062,7 @@ public class JSONSerializerJackson {
             }
           }
           default -> type.convert(jsonParser.getText(),
-              schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-                  schemaProperty.getLinkedType()) : null,
+              schemaProperty != null ? schemaProperty.getLinkedType() : null,
               schemaProperty != null ? schemaProperty.getLinkedClass() : null, session);
         };
       }
@@ -1119,8 +1107,7 @@ public class JSONSerializerJackson {
 
   private RecordElement parseAnyList(@Nonnull DatabaseSessionInternal session,
       @Nullable EntityImpl entity, @Nonnull JsonParser jsonParser,
-      @Nullable SchemaProperty schemaProperty) throws IOException {
-
+      @Nullable ImmutableSchemaProperty schemaProperty) throws IOException {
     if (jsonParser.nextToken() == JsonToken.END_ARRAY) {
       return new EntityEmbeddedListImpl<>();
     }
@@ -1140,7 +1127,7 @@ public class JSONSerializerJackson {
 
   private RecordElement parseObjectOrMap(@Nonnull DatabaseSessionInternal session,
       @Nullable EntityImpl entity, @Nonnull JsonParser jsonParser,
-      @Nullable SchemaProperty schemaProperty) throws IOException {
+      @Nullable ImmutableSchemaProperty schemaProperty) throws IOException {
     var recordMetaData =
         parseRecordMetadata(session, jsonParser, null, null, true);
 
@@ -1195,7 +1182,7 @@ public class JSONSerializerJackson {
   @Nonnull
   private EmbeddedEntityImpl parseEmbeddedEntity(@Nonnull DatabaseSessionInternal db,
       @Nonnull JsonParser jsonParser, @Nullable RecordMetadata metadata,
-      SchemaProperty schemaProperty) throws IOException {
+      ImmutableSchemaProperty schemaProperty) throws IOException {
 
     if (metadata == null) {
       metadata = parseRecordMetadata(db, jsonParser, null, null, true);
@@ -1231,7 +1218,7 @@ public class JSONSerializerJackson {
       @Nullable EntityImpl entity,
       @Nonnull JsonParser jsonParser,
       @Nullable EntityEmbeddedMapImpl<Object> map,
-      @Nullable SchemaProperty schemaProperty)
+      @Nullable ImmutableSchemaProperty schemaProperty)
       throws IOException {
     if (map == null) {
       map = new EntityEmbeddedMapImpl<>(entity);
@@ -1242,8 +1229,7 @@ public class JSONSerializerJackson {
       jsonParser.nextToken();
       var value = parseValue(
           session, null, jsonParser,
-          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getLinkedType()) : null,
+          schemaProperty != null ? schemaProperty.getLinkedType() : null,
           null);
       map.put(fieldName, value);
     }
@@ -1297,7 +1283,7 @@ public class JSONSerializerJackson {
       EntityImpl entity,
       JsonParser jsonParser,
       @Nullable EntityEmbeddedListImpl<Object> list,
-      @Nullable SchemaProperty schemaProperty
+      @Nullable ImmutableSchemaProperty schemaProperty
   ) throws IOException {
     if (list == null) {
       list = new EntityEmbeddedListImpl<>(entity);
@@ -1306,8 +1292,7 @@ public class JSONSerializerJackson {
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(
           session, null, jsonParser,
-          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getLinkedType()) : null,
+          schemaProperty != null ? schemaProperty.getLinkedType() : null,
           null));
     }
 
@@ -1316,14 +1301,13 @@ public class JSONSerializerJackson {
 
   private EntityEmbeddedSetImpl<Object> parseEmbeddedSet(DatabaseSessionInternal session,
       EntityImpl entity,
-      JsonParser jsonParser, SchemaProperty schemaProperty) throws IOException {
+      JsonParser jsonParser, ImmutableSchemaProperty schemaProperty) throws IOException {
     var list = new EntityEmbeddedSetImpl<>(entity);
 
     while (jsonParser.nextToken() != JsonToken.END_ARRAY) {
       list.add(parseValue(
           session, null, jsonParser,
-          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getLinkedType()) : null,
+          schemaProperty != null ? schemaProperty.getLinkedType() : null,
           null));
     }
 

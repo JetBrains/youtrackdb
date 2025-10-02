@@ -23,9 +23,9 @@ package com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.b
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.PropertyEncryption;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 
@@ -38,7 +38,7 @@ public interface EntitySerializer {
       Object value,
       PropertyTypeInternal type,
       PropertyTypeInternal linkedType,
-      SchemaSnapshot schema,
+      ImmutableSchema schema,
       PropertyEncryption encryption);
 
   void deserialize(DatabaseSessionEmbedded db, EntityImpl entity, BytesContainer bytes);
@@ -52,10 +52,10 @@ public interface EntitySerializer {
 
   BinaryField deserializeField(
       DatabaseSessionInternal db, BytesContainer bytes,
-      SchemaClass iClass,
+      ImmutableSchemaClass iClass,
       String iFieldName,
       boolean embedded,
-      SchemaSnapshot schema,
+      ImmutableSchema schema,
       PropertyEncryption encryption);
 
   BinaryComparator getComparator();

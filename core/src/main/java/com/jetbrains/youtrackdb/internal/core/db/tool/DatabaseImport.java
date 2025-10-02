@@ -440,7 +440,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           && !dbClass.isParentOf(
           identity) /*&& !dbClass.isParentClassOf(oSecurityPolicy)*/) {
         classesToDrop.put(className, dbClass);
-        indexNames.addAll(dbClass.getIndexes());
+        indexNames.addAll(dbClass.getIndexNames());
       }
     }
 
@@ -456,7 +456,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       for (final var className : classesToDrop.keySet()) {
         var isSuperClass = false;
         for (var dbClass : classesToDrop.values()) {
-          final var parentClasses = dbClass.getParents();
+          final var parentClasses = dbClass.getParentClasses();
           if (parentClasses != null) {
             for (var parentClass : parentClasses) {
               if (className.equalsIgnoreCase(parentClass.getName())) {
@@ -733,7 +733,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         final var superClass = session.getMetadata().getSlowMutableSchema()
             .getClass(superClassName);
 
-        if (!cls.getParents().contains(superClass)) {
+        if (!cls.getParentClasses().contains(superClass)) {
           cls.addParentClass(superClass);
         }
       }

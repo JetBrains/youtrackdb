@@ -12,7 +12,6 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.IterableRecordSource;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
@@ -478,9 +477,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
       var transaction = session.getActiveTransaction();
       var record = transaction.load(identifiable);
       if (record instanceof EntityImpl) {
-        SchemaClassSnapshot result;
-        result = ((EntityImpl) record).getImmutableSchemaClass(session);
-        SchemaClass schemaClass = result;
+        var schemaClass = ((EntityImpl) record).getImmutableSchemaClass();
         if (schemaClass == null) {
           return false;
         }

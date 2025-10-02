@@ -129,7 +129,7 @@ public final class SessionMetadata {
   public void makeThreadLocalSchemaSnapshot() {
     if (this.immutableCount == 0) {
       if (schema != null) {
-        this.schemaSnapshot = schema.makeSnapshot();
+        this.schemaSnapshot = session.getSharedContext().makeSnapshot(session);
       }
     }
     this.immutableCount++;

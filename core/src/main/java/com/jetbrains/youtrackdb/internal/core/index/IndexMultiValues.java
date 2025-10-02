@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -70,7 +71,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RID> getRids(DatabaseSessionEmbedded session, Object key) {
+  public CloseableIterator<RID> getRids(DatabaseSessionEmbedded session, Object key) {
     final var collatedKey = getCollatingValue(key);
     var backedIterator = getRidsIgnoreTx(session, key);
     final var indexChanges =
@@ -139,7 +140,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> entriesBetween(
+  public CloseableIterator<RawPair<Object, RID>> entriesBetween(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
@@ -179,7 +180,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> entriesMajor(
+  public CloseableIterator<RawPair<Object, RID>> entriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
     Iterator<RawPair<Object, RID>> iterator;
@@ -217,7 +218,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> entriesMinor(
+  public CloseableIterator<RawPair<Object, RID>> entriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
     toKey = getCollatingValue(toKey);
     Iterator<RawPair<Object, RID>> iterator;
@@ -255,7 +256,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> entries(DatabaseSessionEmbedded session,
+  public CloseableIterator<RawPair<Object, RID>> entries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
     final List<Object> sortedKeys = new ArrayList<>(keys);
     final Comparator<Object> comparator;
@@ -363,7 +364,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session) {
+  public CloseableIterator<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session) {
     Iterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
@@ -437,7 +438,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session) {
+  public CloseableIterator<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session) {
     Iterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(

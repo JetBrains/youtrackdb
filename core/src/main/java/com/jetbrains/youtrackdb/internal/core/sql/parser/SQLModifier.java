@@ -5,12 +5,12 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexMetadataPath;
@@ -323,7 +323,7 @@ public class SQLModifier extends SimpleNode {
   }
 
   protected void setValue(Result currentRecord, Object target, Object value,
-      CommandContext ctx, @Nullable SchemaProperty schemaProperty, int level) {
+      CommandContext ctx, @Nullable ImmutableSchemaProperty schemaProperty, int level) {
     if (next == null) {
       doSetValue(currentRecord, target, value, ctx, schemaProperty, level);
     } else {
@@ -335,7 +335,7 @@ public class SQLModifier extends SimpleNode {
   }
 
   private void doSetValue(Result currentRecord, Object target, Object value,
-      CommandContext ctx, @Nullable SchemaProperty schemaProperty, int level) {
+      CommandContext ctx, @Nullable ImmutableSchemaProperty schemaProperty, int level) {
     value = SQLUpdateItem.convertResultToDocument(value);
 
     var session = ctx.getDatabaseSession();
@@ -365,7 +365,7 @@ public class SQLModifier extends SimpleNode {
   @Nullable
   private static Object convertLinkedType(
       Object value,
-      @Nullable SchemaProperty schemaProperty,
+      @Nullable ImmutableSchemaProperty schemaProperty,
       DatabaseSessionInternal session
   ) {
     if (value == null) {
@@ -374,7 +374,7 @@ public class SQLModifier extends SimpleNode {
     PropertyTypeInternal targetType = null;
 
     if (schemaProperty != null && PropertyTypeInternal.isSimpleValueType(value)) {
-      targetType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType());
+      targetType = schemaProperty.getLinkedType();
     }
 
     if (targetType == null) {
@@ -525,12 +525,12 @@ public class SQLModifier extends SimpleNode {
     return next == null || next.isCacheable(session);
   }
 
-  public boolean isIndexChain(CommandContext ctx, SchemaClass clazz) {
+  public boolean isIndexChain(CommandContext ctx, ImmutableSchemaClass clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
-      var prop = clazz.getPropertyInternal(
+      var prop = clazz.getProperty(
           suffix.getIdentifier().getStringValue());
       if (prop != null
-          && prop.getAllIndexesInternal().stream()
+          && prop.getIndexes().stream()
           .anyMatch(idx -> idx.getDefinition().getProperties().size() == 1)) {
         if (next != null) {
           var linkedClazz = prop.getLinkedClass();

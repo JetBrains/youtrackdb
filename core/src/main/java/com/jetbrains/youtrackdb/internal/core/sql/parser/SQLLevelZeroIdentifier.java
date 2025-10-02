@@ -5,9 +5,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Collection;
@@ -112,7 +112,7 @@ public class SQLLevelZeroIdentifier extends SimpleNode {
 
   @Nullable
   public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
-      SchemaClass schemaClass) {
+      ImmutableSchemaClass schemaClass) {
     if (functionCall != null) {
       return functionCall.getGraphNavigationFunctionProperties(ctx, schemaClass);
     }

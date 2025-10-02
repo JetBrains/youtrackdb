@@ -282,7 +282,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    */
   RecordIteratorClass browseClass(@Nonnull String className);
 
-  RecordIteratorClass browseClass(@Nonnull SchemaClass clz);
+  RecordIteratorClass browseClass(@Nonnull ImmutableSchemaClass clz);
 
   /**
    * Browses all the records of the specified class and if iPolymorphic is true also all the
@@ -842,7 +842,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param type the edge type
    * @return the edge
    */
-  StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type);
+  StatefulEdge newStatefulEdge(Vertex from, Vertex to, ImmutableSchemaClass type);
 
   /**
    * Creates a new Edge
@@ -865,7 +865,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    * @param type the edge type
    * @return the edge
    */
-  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type);
+  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull ImmutableSchemaClass type);
 
   /**
    * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
@@ -890,7 +890,7 @@ public interface DatabaseSessionInternal extends DatabaseSession {
    *
    * @param type the vertex type
    */
-  Vertex newVertex(SchemaClass type);
+  Vertex newVertex(ImmutableSchemaClass type);
 
   /**
    * Creates a new Vertex

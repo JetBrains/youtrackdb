@@ -23,11 +23,11 @@ public class AlterSuperclassTest extends DbTestBase {
     classA.setAbstract(true);
     var property = classA.createProperty("RevNumberNine", PropertyType.INTEGER);
     var classChild = schema.createClass("ChildClass1", classA);
-    assertEquals(classChild.getParents(), List.of(classA));
+    assertEquals(classChild.getParentClasses(), List.of(classA));
     var classChild2 = schema.createClass("ChildClass2", classChild);
-    assertEquals(classChild2.getParents(), List.of(classChild));
-    classChild2.setParents(List.of(classA));
-    assertEquals(classChild2.getParents(), List.of(classA));
+    assertEquals(classChild2.getParentClasses(), List.of(classChild));
+    classChild2.setParentClasses(List.of(classA));
+    assertEquals(classChild2.getParentClasses(), List.of(classA));
   }
 
   @Test(expected = SchemaException.class)
@@ -37,10 +37,10 @@ public class AlterSuperclassTest extends DbTestBase {
     classA.setAbstract(true);
     var property = classA.createProperty("RevNumberNine", PropertyType.INTEGER);
     var classChild = schema.createClass("ChildClass1", classA);
-    assertEquals(classChild.getParents(), List.of(classA));
+    assertEquals(classChild.getParentClasses(), List.of(classA));
     var classChild2 = schema.createClass("ChildClass2");
     classChild2.createProperty("RevNumberNine", PropertyType.STRING);
-    classChild2.setParents(List.of(classChild));
+    classChild2.setParentClasses(List.of(classChild));
   }
 
   @Test(expected = SchemaException.class)
@@ -48,7 +48,7 @@ public class AlterSuperclassTest extends DbTestBase {
     Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ParentClass");
     var classChild = schema.createClass("ChildClass1", classA);
-    assertEquals(classChild.getParents(), Collections.singletonList(classA));
+    assertEquals(classChild.getParentClasses(), Collections.singletonList(classA));
     classChild.addParentClass(classA);
   }
 
@@ -57,8 +57,8 @@ public class AlterSuperclassTest extends DbTestBase {
     Schema schema = session.getMetadata().getSlowMutableSchema();
     var classA = schema.createClass("ParentClass");
     var classChild = schema.createClass("ChildClass1", classA);
-    assertEquals(classChild.getParents(), Collections.singletonList(classA));
-    classChild.setParents(Arrays.asList(classA, classA));
+    assertEquals(classChild.getParentClasses(), Collections.singletonList(classA));
+    classChild.setParentClasses(Arrays.asList(classA, classA));
   }
 
   /**
@@ -72,7 +72,7 @@ public class AlterSuperclassTest extends DbTestBase {
     var classChild = schema.createClass("ChildClass1", classA);
     var classChild2 = schema.createClass("ChildClass2", classA);
 
-    classChild2.setParents(List.of(classChild));
+    classChild2.setParentClasses(List.of(classChild));
 
     schema.dropClass("ChildClass2");
   }

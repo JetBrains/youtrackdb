@@ -27,9 +27,11 @@ import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 
 public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> implements
     SchemaClass {
+
   public SchemaClassProxy(SchemaClassEntity delegate,
       @Nonnull DatabaseSessionEmbedded session) {
     super(delegate, session);
@@ -42,8 +44,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      String... properties) {
+  public Set<Index> getInvolvedIndexes(String... properties) {
     assert this.session.assertIfNotActive();
 
     var result = new HashSet<Index>();
@@ -53,8 +54,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> properties) {
+  public Set<Index> getInvolvedIndexes(Collection<String> properties) {
     assert this.session.assertIfNotActive();
 
     var result = new HashSet<Index>();
@@ -81,13 +81,6 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public void getIndexes(DatabaseSessionEmbedded session, Collection<Index> indices) {
-    assert this.session.assertIfNotActive();
-    var indexEntities = SchemaManager.getIndexes(session);
-    indexEntitiesToIndexes(indexEntities, indices);
-  }
-
-  @Override
   public long count(DatabaseSessionInternal session) {
     assert this.session.assertIfNotActive();
     return session.countClass(delegate.getSchemaClassName());
@@ -107,8 +100,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
 
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
-      String... properties) {
+  public Set<Index> getClassInvolvedIndexes(String... properties) {
     assert this.session.assertIfNotActive();
 
     var result = new HashSet<Index>();
@@ -120,8 +112,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
 
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> properties) {
+  public Set<Index> getClassInvolvedIndexes(Collection<String> properties) {
     assert this.session.assertIfNotActive();
 
     var result = new HashSet<Index>();
@@ -134,7 +125,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   public Collection<Index> getClassIndexesInternal() {
     assert this.session.assertIfNotActive();
 
-    var indexEntities = SchemaManager.getClassIndexes(delegate);
+    var indexEntities = YTDBIteratorUtils.set(delegate.getIndexes());
     var result = new ArrayList<Index>();
     indexEntitiesToIndexes(indexEntities.iterator(), result);
     return result;
@@ -153,40 +144,37 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> properties) {
+  public Set<String> getInvolvedIndexesNames(Collection<String> properties) {
     assert this.session.assertIfNotActive();
     return SchemaManager.getInvolvedIndexNames(delegate, properties);
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... properties) {
+  public Set<String> getInvolvedIndexesNames(String... properties) {
     assert this.session.assertIfNotActive();
     return SchemaManager.getInvolvedIndexNames(delegate, properties);
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> properties) {
+  public Set<String> getClassIndexes(Collection<String> properties) {
     assert this.session.assertIfNotActive();
     return SchemaManager.getClassInvolvedIndexNames(delegate, properties);
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
-      String... properties) {
+  public Set<String> getClassIndexes(String... properties) {
     assert this.session.assertIfNotActive();
     return SchemaManager.getClassInvolvedIndexNames(delegate, properties);
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> properties) {
+  public boolean areIndexed(Collection<String> properties) {
     assert this.session.assertIfNotActive();
     return SchemaManager.areIndexed(delegate, properties);
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, String... properties) {
+  public boolean areIndexed(String... properties) {
     assert this.session.assertIfNotActive();
     return SchemaManager.areIndexed(delegate, properties);
   }
@@ -194,13 +182,47 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   @Override
   public Set<String> getClassIndexes() {
     assert session.assertIfNotActive();
-    return SchemaManager.getClassIndexNames(delegate);
+
+    return YTDBIteratorUtils.set(
+        IteratorUtils.map(delegate.getIndexes(), SchemaIndexEntity::getName));
   }
 
   @Override
-  public Set<String> getIndexes() {
+  public Set<String> getIndexNames() {
     assert session.assertIfNotActive();
-    return SchemaManager.getClassIndexNames(delegate);
+
+    var shemaProperties = delegate.getSchemaProperties();
+    var result = new HashSet<String>();
+
+    for (var property : shemaProperties) {
+      var indexEntries = property.getIndexes();
+
+      while (indexEntries.hasNext()) {
+        var indexEntry = indexEntries.next();
+        result.add(indexEntry.getName());
+      }
+    }
+
+    return result;
+  }
+
+  @Override
+  public Set<Index> getIndexes() {
+    assert session.assertIfNotActive();
+
+    var shemaProperties = delegate.getSchemaProperties();
+    var result = new HashSet<Index>();
+
+    for (var property : shemaProperties) {
+      var indexEntries = property.getIndexes();
+
+      while (indexEntries.hasNext()) {
+        var indexEntry = indexEntries.next();
+        result.add(IndexFactory.newIndexSnapshot(indexEntry));
+      }
+    }
+
+    return result;
   }
 
   @Override
@@ -247,7 +269,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public List<SchemaClass> getParents() {
+  public List<SchemaClass> getParentClasses() {
     assert session.assertIfNotActive();
 
     return YTDBIteratorUtils.list(
@@ -257,7 +279,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public void setParents(@Nonnull List<? extends SchemaClass> classes) {
+  public void setParentClasses(@Nonnull List<? extends SchemaClass> classes) {
     assert session.assertIfNotActive();
 
     delegate.clearParentClasses();
@@ -376,7 +398,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Collection<SchemaClass> getChildren() {
+  public Collection<SchemaClass> getChildClasses() {
     assert session.assertIfNotActive();
 
     return YTDBIteratorUtils.list(YTDBIteratorUtils.map(
@@ -385,7 +407,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Collection<SchemaClass> getDescendants() {
+  public Collection<SchemaClass> getDescendantClasses() {
     assert session.assertIfNotActive();
 
     return YTDBIteratorUtils.list(YTDBIteratorUtils.map(
@@ -395,7 +417,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Collection<SchemaClass> getAscendants() {
+  public Collection<SchemaClass> getAscendantClasses() {
     assert session.assertIfNotActive();
     return YTDBIteratorUtils.list(YTDBIteratorUtils.map(
         delegate.getAscendants().iterator(), entity -> new SchemaClassProxy(entity, session)

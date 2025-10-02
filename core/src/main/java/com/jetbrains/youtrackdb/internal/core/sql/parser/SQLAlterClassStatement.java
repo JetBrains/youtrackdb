@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -152,6 +153,7 @@ public class SQLAlterClassStatement extends DDLStatement {
     }
   }
 
+  @Override
   public SQLStatement copy() {
     var result = new SQLAlterClassStatement(-1);
     result.name = name == null ? null : name.copy();
@@ -239,8 +241,8 @@ public class SQLAlterClassStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
     var database = ctx.getDatabaseSession();
-    var oClass = database.getMetadata().getSchemaInternal()
-        .getClassInternal(name.getStringValue());
+    var oClass = database.getMetadata().getSlowMutableSchema()
+        .getClass(name.getStringValue());
     if (oClass == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(), "Class not found: " + name);
     }
@@ -269,7 +271,7 @@ public class SQLAlterClassStatement extends DDLStatement {
           break;
         case SUPERCLASSES:
           if (identifierListValue == null) {
-            oClass.setSuperClasses(Collections.emptyList());
+            oClass.setParentClasses(Collections.emptyList());
           } else {
             doSetSuperclasses(ctx, oClass, identifierListValue);
           }
@@ -300,8 +302,9 @@ public class SQLAlterClassStatement extends DDLStatement {
     return ExecutionStream.singleton(result);
   }
 
-  private static void checkNotIndexed(DatabaseSessionInternal session, SchemaClass oClass) {
-    var indexes = oClass.getIndexesInternal();
+  private static void checkNotIndexed(DatabaseSessionInternal session,
+      ImmutableSchemaClass oClass) {
+    var indexes = oClass.getIndexes();
     if (indexes != null && !indexes.isEmpty()) {
       throw new CommandExecutionException(session,
           "Cannot rename class '"
@@ -311,7 +314,7 @@ public class SQLAlterClassStatement extends DDLStatement {
     }
   }
 
-  private static void checkNotEdge(DatabaseSessionInternal session, SchemaClass oClass) {
+  private static void checkNotEdge(DatabaseSessionInternal session, ImmutableSchemaClass oClass) {
     if (oClass.isChildOf("E")) {
       throw new CommandExecutionException(session,
           "Cannot alter class '"
@@ -339,7 +342,7 @@ public class SQLAlterClassStatement extends DDLStatement {
     } else if (Boolean.TRUE.equals(remove)) {
       oClass.removeSuperClass(superclass);
     } else {
-      oClass.setParents(Collections.singletonList(superclass));
+      oClass.setParentClasses(Collections.singletonList(superclass));
     }
   }
 
@@ -370,7 +373,7 @@ public class SQLAlterClassStatement extends DDLStatement {
         oClass.removeSuperClass(superclass);
       }
     } else {
-      oClass.setParents(superclasses);
+      oClass.setParentClasses(superclasses);
     }
   }
 }

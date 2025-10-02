@@ -21,9 +21,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.filter;
 
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.QueryRuntimeValueMulti;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import java.util.ArrayList;
@@ -35,13 +35,13 @@ import java.util.List;
 public abstract class SQLFilterItemFieldMultiAbstract extends SQLFilterItemAbstract {
 
   private final List<String> names;
-  private final SchemaClass clazz;
+  private final ImmutableSchemaClass clazz;
   private final List<Collate> collates = new ArrayList<Collate>();
 
   public SQLFilterItemFieldMultiAbstract(
       DatabaseSessionEmbedded session, final SQLPredicate iQueryCompiled,
       final String iName,
-      final SchemaClass iClass,
+      final ImmutableSchemaClass iClass,
       final List<String> iNames) {
     super(session, iQueryCompiled, iName);
     names = iNames;

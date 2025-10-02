@@ -1,7 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,7 +54,7 @@ public class RequiredIndexCanditate implements IndexCandidate {
   }
 
   @Override
-  public List<SchemaProperty> properties() {
+  public List<ImmutableSchemaProperty> properties() {
     List<SchemaProperty> props = new ArrayList<>();
     for (var cand : this.canditates) {
       props.addAll(cand.properties());

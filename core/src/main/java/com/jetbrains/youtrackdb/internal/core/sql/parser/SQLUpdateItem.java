@@ -9,15 +9,14 @@ import com.jetbrains.youtrackdb.api.record.Edge;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
@@ -147,10 +146,10 @@ public class SQLUpdateItem extends SimpleNode {
     var session = ctx.getDatabaseSession();
     var propertyName = left.getStringValue();
 
-    SchemaProperty schemaProperty = null;
+    ImmutableSchemaProperty schemaProperty = null;
     if (result.isEntity()) {
       var entity = (EntityImpl) result.asEntity();
-      var cls = entity.getImmutableSchemaClass(session);
+      var cls = entity.getImmutableSchemaClass();
       schemaProperty = cls != null ? cls.getProperty(propertyName) : null;
     }
 
@@ -159,7 +158,7 @@ public class SQLUpdateItem extends SimpleNode {
       applyOperation(result, left, rightValue, ctx, schemaProperty);
     } else {
       var rightValue = right.execute(result, ctx);
-      var linkedType = calculateLinkedTypeForThisItem(result, session);
+      var linkedType = calculateLinkedTypeForThisItem(result);
       rightValue = convertToType(rightValue, null, linkedType, ctx);
       var val = result.getProperty(propertyName);
       if (val == null) {
@@ -176,7 +175,7 @@ public class SQLUpdateItem extends SimpleNode {
     if (!entity.isEntity()) {
       return null;
     }
-    var oClass = ((EntityImpl) entity.asEntity()).getImmutableSchemaClass(session);
+    var oClass = ((EntityImpl) entity.asEntity()).getImmutableSchemaClass();
     if (oClass == null) {
       return null;
     }
@@ -190,12 +189,12 @@ public class SQLUpdateItem extends SimpleNode {
       }
     } else {
       final var container = switch (prop.getType()) {
-        case PropertyType.EMBEDDEDMAP -> session.newEmbeddedMap();
-        case PropertyType.LINKMAP -> session.newLinkMap();
-        case PropertyType.EMBEDDEDLIST -> session.newEmbeddedList();
-        case PropertyType.LINKLIST -> session.newLinkList();
-        case PropertyType.EMBEDDEDSET -> session.newEmbeddedSet();
-        case PropertyType.LINKSET -> session.newLinkSet();
+        case PropertyTypeInternal.EMBEDDEDMAP -> session.newEmbeddedMap();
+        case PropertyTypeInternal.LINKMAP -> session.newLinkMap();
+        case PropertyTypeInternal.EMBEDDEDLIST -> session.newEmbeddedList();
+        case PropertyTypeInternal.LINKLIST -> session.newLinkList();
+        case PropertyTypeInternal.EMBEDDEDSET -> session.newEmbeddedSet();
+        case PropertyTypeInternal.LINKSET -> session.newLinkSet();
         default -> null;
       };
 
@@ -208,12 +207,11 @@ public class SQLUpdateItem extends SimpleNode {
   }
 
   @Nullable
-  private static SchemaClass calculateLinkedTypeForThisItem(ResultInternal result,
-      DatabaseSessionInternal session) {
+  private static ImmutableSchemaClass calculateLinkedTypeForThisItem(ResultInternal result) {
     if (result.isEntity()) {
       var entity = (EntityImpl) result.asEntityOrNull();
 
-      return entity.getImmutableSchemaClass(session);
+      return entity.getImmutableSchemaClass();
     }
 
     return null;
@@ -221,7 +219,7 @@ public class SQLUpdateItem extends SimpleNode {
 
   private void applyOperation(
       ResultInternal res, SQLIdentifier attrName, Object rightValue, CommandContext ctx,
-      @Nullable SchemaProperty schemaProperty) {
+      @Nullable ImmutableSchemaProperty schemaProperty) {
     var session = ctx.getDatabaseSession();
     switch (operator) {
       case OPERATOR_EQ:
@@ -304,21 +302,19 @@ public class SQLUpdateItem extends SimpleNode {
   @Nullable
   public static Object cleanPropertyValue(@Nullable Object newValue,
       @Nonnull DatabaseSessionInternal session,
-      @Nullable SchemaProperty schemaProperty) {
+      @Nullable ImmutableSchemaProperty schemaProperty) {
     if (newValue == null) {
       return null;
     }
 
-    var type = schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-        schemaProperty.getType()) : null;
+    var type = schemaProperty != null ? schemaProperty.getType() : null;
     if (type == null) {
       type = PropertyTypeInternal.getTypeByValue(newValue);
     }
 
     if (type != null) {
       return type.convert(newValue,
-          schemaProperty != null ? PropertyTypeInternal.convertFromPublicType(
-              schemaProperty.getLinkedType()) : null,
+          schemaProperty != null ? schemaProperty.getLinkedType() : null,
           schemaProperty != null ? schemaProperty.getLinkedClass() : null, session);
     }
 
@@ -330,7 +326,7 @@ public class SQLUpdateItem extends SimpleNode {
 
     var session = ctx.getDatabaseSession();
     var entity = (EntityImpl) res.asEntityOrNull();
-    var optSchema = entity.getImmutableSchemaClass(session);
+    var optSchema = entity.getImmutableSchemaClass();
     if (optSchema == null) {
       return newValue;
     }
@@ -340,13 +336,14 @@ public class SQLUpdateItem extends SimpleNode {
       return newValue;
     }
 
-    var type = PropertyTypeInternal.convertFromPublicType(prop.getType());
+    var type = prop.getType();
     var linkedClass = prop.getLinkedClass();
     return convertToType(newValue, type, linkedClass, ctx);
   }
 
   private static Object convertToType(
-      Object value, PropertyTypeInternal type, SchemaClass linkedClass, CommandContext ctx) {
+      Object value, PropertyTypeInternal type, ImmutableSchemaClass linkedClass,
+      CommandContext ctx) {
     if (type == null) {
       return value;
     }
@@ -402,10 +399,11 @@ public class SQLUpdateItem extends SimpleNode {
     return value;
   }
 
-  private static Object convertToType(Object item, SchemaClass linkedClass, CommandContext ctx) {
+  private static Object convertToType(Object item, ImmutableSchemaClass linkedClass,
+      CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     if (item instanceof EntityImpl entity) {
-      var currentType = entity.getImmutableSchemaClass(session);
+      var currentType = entity.getImmutableSchemaClass();
       if (currentType == null || !currentType.isChildOf(linkedClass)) {
         var result = session.newEmbeddedEntity(linkedClass);
 

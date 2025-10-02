@@ -4,8 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.common.util.RawPair;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -13,8 +12,8 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
@@ -26,7 +25,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.Spliterator;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -80,7 +78,7 @@ public class SQLWhereClause extends SimpleNode {
    * @return an estimation of the number of records of this class returned applying this filter, 0
    * if and only if sure that no records are returned
    */
-  public long estimate(SchemaClass schemaClass, long threshold, CommandContext ctx) {
+  public long estimate(ImmutableSchemaClass schemaClass, long threshold, CommandContext ctx) {
     var session = ctx.getDatabaseSession();
     var count = schemaClass.count(session);
     if (count > 1) {
@@ -92,7 +90,7 @@ public class SQLWhereClause extends SimpleNode {
 
     var indexesCount = 0L;
     var flattenedConditions = flatten(ctx, schemaClass);
-    var indexes = schemaClass.getIndexesInternal();
+    var indexes = schemaClass.getIndexes();
     for (var condition : flattenedConditions) {
 
       var indexedFunctConditions =
@@ -161,15 +159,12 @@ public class SQLWhereClause extends SimpleNode {
     if (key != null) {
       if (conditions.size() == definitionFields.size()) {
         try (var rids = index.getRids(session, key)) {
-          return rids.count();
+          return YTDBIteratorUtils.count(rids);
         }
       } else if (index.supportsOrderedIterations()) {
-        final Spliterator<RawPair<Object, RID>> spliterator;
-
-        try (var stream =
+        try (var iterator =
             index.entriesBetween(session, key, true, key, true, true)) {
-          spliterator = stream.spliterator();
-          return spliterator.estimateSize();
+          return YTDBIteratorUtils.count(iterator);
         }
       }
     }
@@ -196,7 +191,7 @@ public class SQLWhereClause extends SimpleNode {
     return result;
   }
 
-  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClass schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, ImmutableSchemaClass schemaClass) {
     if (this.baseExpression == null) {
       return Collections.emptyList();
     }

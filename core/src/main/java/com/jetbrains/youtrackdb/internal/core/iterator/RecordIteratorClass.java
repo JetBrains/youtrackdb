@@ -20,7 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Iterator;
@@ -46,7 +46,7 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
   }
 
   public RecordIteratorClass(@Nonnull final DatabaseSessionInternal session,
-      @Nonnull final SchemaClass targetClass,
+      @Nonnull final ImmutableSchemaClass targetClass,
       final boolean polymorphic, boolean forwardDirection) {
     var collectionIds = polymorphic ? targetClass.getPolymorphicCollectionIds()
         : targetClass.getCollectionIds();
@@ -66,9 +66,9 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
     return iterator.next();
   }
 
-  private static SchemaClass getSchemaClassInternal(DatabaseSessionInternal session,
+  private static ImmutableSchemaClass getSchemaClassInternal(DatabaseSessionInternal session,
       String className) {
-    var targetClass = session.getMetadata().getFastImmutableSchema(session)
+    var targetClass = session.getMetadata().getFastImmutableSchema()
         .getClass(className);
     if (targetClass == null) {
       throw new IllegalArgumentException(

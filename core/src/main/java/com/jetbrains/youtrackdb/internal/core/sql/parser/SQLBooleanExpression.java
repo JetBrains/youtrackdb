@@ -262,7 +262,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
     return null;
   }
 
-  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClass schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, ImmutableSchemaClass schemaClass) {
     return Collections.singletonList(encapsulateInAndBlock(this));
   }
 
@@ -335,7 +335,7 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   public abstract boolean isCacheable(DatabaseSessionEmbedded session);
 
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
-      SchemaClass clazz) {
+      ImmutableSchemaClass clazz) {
     return this;
   }
 

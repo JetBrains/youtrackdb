@@ -38,6 +38,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 /// Basic interface to handle snapshot of current index in schema. In this context snapshot of index
 /// means that metadata of snapshot are frozen and used to interact with storage to reflect changes
@@ -89,13 +90,13 @@ public interface Index extends Comparable<Index> {
   /// @return number of entries in the index.
   long size(DatabaseSessionEmbedded session);
 
-  Iterator<RID> getRids(DatabaseSessionEmbedded session, final Object key);
+  CloseableIterator<RID> getRids(DatabaseSessionEmbedded session, final Object key);
 
-  Iterator<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session);
+  CloseableIterator<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session);
 
-  Iterator<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session);
+  CloseableIterator<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session);
 
-  Iterator<Object> keys();
+  CloseableIterator<Object> keys();
 
   /// Returns [Iterator] which presents subset of index data between passed in keys.
   ///
@@ -106,7 +107,7 @@ public interface Index extends Comparable<Index> {
   /// @param ascOrder      Flag which determines whether data iterated should be in ascending or
   ///                      descending order.
   /// @return [Iterator] which presents subset of index data between passed in keys.
-  Iterator<RawPair<Object, RID>> entriesBetween(
+  CloseableIterator<RawPair<Object, RID>> entriesBetween(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder);
 
@@ -116,7 +117,7 @@ public interface Index extends Comparable<Index> {
   /// @param ascSortOrder Flag which determines whether data iterated should be in ascending or
   ///                     descending order.
   /// @return iterator which presents data associated with passed in keys.
-  Iterator<RawPair<Object, RID>> entries(DatabaseSessionEmbedded session,
+  CloseableIterator<RawPair<Object, RID>> entries(DatabaseSessionEmbedded session,
       Collection<?> keys,
       boolean ascSortOrder);
 
@@ -129,7 +130,7 @@ public interface Index extends Comparable<Index> {
   ///                      descending order.
   /// @return [Iterator] which presents subset of data which associated with key which is greater
   /// than passed in key.
-  Iterator<RawPair<Object, RID>> entriesMajor(
+  CloseableIterator<RawPair<Object, RID>> entriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder);
 
   /// Returns [Iterator] which presents subset of data which associated with key which is less than
@@ -141,7 +142,7 @@ public interface Index extends Comparable<Index> {
   ///                    descending order.
   /// @return [Iterator] which presents subset of data which associated with key which is less than
   /// passed in key.
-  Iterator<RawPair<Object, RID>> entriesMinor(
+  CloseableIterator<RawPair<Object, RID>> entriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder);
 
   boolean supportsOrderedIterations();
@@ -207,8 +208,8 @@ public interface Index extends Comparable<Index> {
     if (clazz == null) {
       return false;
     }
-    clazz.getDescendants().forEach(x -> classesToCheck.add(x.getName()));
-    clazz.getAscendants().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getDescendantClasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAscendantClasses().forEach(x -> classesToCheck.add(x.getName()));
     var allFilteredProperties =
         security.getAllFilteredProperties(session);
 
@@ -234,7 +235,7 @@ public interface Index extends Comparable<Index> {
 
     var clazz = session.getMetadata().getFastImmutableSchema().getClass(indexClass);
     if (clazz != null) {
-      var sub = clazz.getChildren();
+      var sub = clazz.getChildClasses();
       for (var subClass : sub) {
         if (isReadRestrictedBySecurityPolicy(subClass.getName(), session, security)) {
           return true;

@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.util.PairIntegerObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -14,7 +13,9 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -310,7 +311,7 @@ public class SelectExecutionPlanner {
     return true;
   }
 
-  private static boolean securityPoliciesExistForClass(SchemaClass targetClass,
+  private static boolean securityPoliciesExistForClass(ImmutableSchemaClass targetClass,
       CommandContext ctx) {
     if (targetClass == null) {
       return false;
@@ -1274,7 +1275,7 @@ public class SelectExecutionPlanner {
                     var possibleEdgeProperty =
                         targetClass.getProperty("out_" + item.getAlias());
                     if (possibleEdgeProperty != null
-                        && possibleEdgeProperty.getType() == PropertyType.LINKBAG) {
+                        && possibleEdgeProperty.getType() == PropertyTypeInternal.LINKBAG) {
                       item.setEdge(true);
                     }
                   });
@@ -1400,7 +1401,7 @@ public class SelectExecutionPlanner {
 
       if (indexedFunctionConditions == null || indexedFunctionConditions.isEmpty()) {
         var bestIndex = findBestIndexFor(ctx,
-            clazz.getIndexesInternal(),
+            clazz.getIndexes(),
             block, clazz);
         if (bestIndex != null) {
 
@@ -1592,7 +1593,7 @@ public class SelectExecutionPlanner {
     }
 
     for (var idx :
-        clazz.getIndexesInternal().stream()
+        clazz.getIndexes().stream()
             .filter(Index::supportsOrderedIterations)
             .filter(i -> i.getDefinition() != null)
             .toList()) {
@@ -1680,13 +1681,13 @@ public class SelectExecutionPlanner {
     }
 
     var session = ctx.getDatabaseSession();
-    if (clazz.count(session, false) != 0 || clazz.getChildren().isEmpty()
+    if (clazz.count(session, false) != 0 || clazz.getChildClasses().isEmpty()
         || isDiamondHierarchy(clazz)) {
       return false;
     }
     // try subclasses
 
-    var subclasses = clazz.getChildren();
+    var subclasses = clazz.getChildClasses();
 
     List<InternalExecutionPlan> subclassPlans = new ArrayList<>();
     for (var subClass : subclasses) {
@@ -1717,7 +1718,7 @@ public class SelectExecutionPlanner {
     while (!stack.isEmpty()) {
       var current = stack.removeFirst();
       traversed.add(current);
-      for (var sub : current.getChildren()) {
+      for (var sub : current.getChildClasses()) {
         if (traversed.contains(sub)) {
           return true;
         }
@@ -1747,12 +1748,12 @@ public class SelectExecutionPlanner {
             "Cannot find class " + targetClass);
       }
       if (clazz.count(session, false) != 0
-          || clazz.getChildren().isEmpty()
+          || clazz.getChildClasses().isEmpty()
           || isDiamondHierarchy(clazz)) {
         return null;
       }
 
-      var subclasses = clazz.getChildren();
+      var subclasses = clazz.getChildClasses();
 
       List<InternalExecutionPlan> subclassPlans = new ArrayList<>();
       for (var subClass : subclasses) {
@@ -1792,7 +1793,7 @@ public class SelectExecutionPlanner {
           "Cannot find class " + targetClass);
     }
 
-    var indexes = clazz.getIndexesInternal();
+    var indexes = clazz.getIndexes();
 
     final var c = clazz;
     var indexSearchDescriptors =
@@ -1973,8 +1974,7 @@ public class SelectExecutionPlanner {
 
     var fullTextIndexDescriptors =
         indexes.stream()
-            .filter(idx -> idx.getType().equalsIgnoreCase("FULLTEXT"))
-            .filter(idx -> !idx.getAlgorithm().equalsIgnoreCase("LUCENE"))
+            .filter(idx -> idx.getType() == INDEX_TYPE.FULLTEXT)
             .map(idx -> buildIndexSearchDescriptorForFulltext(idx, block))
             .filter(Objects::nonNull)
             .filter(x -> x.getKeyCondition() != null)
@@ -2303,7 +2303,7 @@ public class SelectExecutionPlanner {
     if (prop == null) {
       return false;
     }
-    return prop.getType() == PropertyType.EMBEDDEDMAP;
+    return prop.getType() == PropertyTypeInternal.EMBEDDEDMAP;
   }
 
   private static boolean allowsRangeQueries(Index index) {

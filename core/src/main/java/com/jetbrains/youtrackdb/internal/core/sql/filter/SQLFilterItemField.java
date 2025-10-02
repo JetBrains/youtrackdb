@@ -30,8 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BinaryField;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
@@ -92,7 +91,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
   }
 
   public SQLFilterItemField(DatabaseSessionInternal db, final String iName,
-      final SchemaClass iClass) {
+      final ImmutableSchemaClass iClass) {
     this.name = IOUtils.getStringContent(iName);
     collate = getCollateForField(db, iClass, name);
     if (iClass != null) {
@@ -102,7 +101,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
 
   public SQLFilterItemField(
       DatabaseSessionEmbedded session, final BaseParser iQueryToParse, final String iName,
-      final SchemaClass iClass) {
+      final ImmutableSchemaClass iClass) {
     super(session, iQueryToParse, iName);
     collate = getCollateForField(session, iClass, iName);
     if (iClass != null) {
@@ -137,9 +136,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     final var v = stringValue == null ? iRecord.getProperty(name) : stringValue;
     if (!collatePreset && iRecord.isEntity()) {
       var entity = (EntityImpl) iRecord.asEntity();
-      SchemaClassSnapshot result = null;
-      result = entity.getImmutableSchemaClass(session);
-      SchemaClass schemaClass = result;
+      var schemaClass = entity.getImmutableSchemaClass();
       if (schemaClass != null) {
         collate = getCollateForField(session, schemaClass, name);
       }
@@ -169,16 +166,13 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
     var serializer = RecordSerializerBinary.INSTANCE.getSerializer(version);
 
     // check for embedded objects, they have invalid ID and they are serialized with class name
-    SchemaClassSnapshot result = null;
-    if (rec != null) {
-      result = rec.getImmutableSchemaClass(session);
-    }
+    var result = rec.getImmutableSchemaClass();
     return serializer.deserializeField(session,
         serialized,
         result,
         name,
         rec.isEmbedded(),
-        session.getMetadata().getFastImmutableSchema(session), encryption);
+        session.getMetadata().getFastImmutableSchema(), encryption);
   }
 
   public String getRoot(DatabaseSession session) {
@@ -273,7 +267,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
         var transaction = session.getActiveTransaction();
         lastDoc = transaction.load(((Identifiable) nextDoc));
       }
-      var schemaClass = lastDoc.getImmutableSchemaClass(session);
+      var schemaClass = lastDoc.getImmutableSchemaClass();
       if (schemaClass == null) {
         return null;
       }

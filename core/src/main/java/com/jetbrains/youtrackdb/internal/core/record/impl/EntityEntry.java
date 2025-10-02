@@ -22,8 +22,8 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import javax.annotation.Nullable;
 
 /**
@@ -34,7 +34,7 @@ public class EntityEntry {
   public Object value;
   public Object original;
   public PropertyTypeInternal type;
-  public SchemaProperty property;
+  public ImmutableSchemaProperty property;
   private boolean changed = false;
   private boolean exists = true;
   private boolean created = false;

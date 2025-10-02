@@ -44,7 +44,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.jspecify.annotations.NonNull;
 
 public final class SchemaManager {
@@ -373,7 +372,7 @@ public final class SchemaManager {
     }
 
     for (var propertyEntity : propertyEntities) {
-      var propertyInvolvedIndexes = propertyEntity.getInvolvedIndexes();
+      var propertyInvolvedIndexes = propertyEntity.getIndexes();
       while (propertyInvolvedIndexes.hasNext()) {
         var involvedIndex = propertyInvolvedIndexes.next();
 
@@ -453,7 +452,7 @@ public final class SchemaManager {
 
     var involvedIndexes = new HashSet<SchemaIndexEntity>();
     for (var propertyEntity : propertyEntities) {
-      var propertyInvolvedIndexes = propertyEntity.getInvolvedIndexes();
+      var propertyInvolvedIndexes = propertyEntity.getIndexes();
       filterPropertyIndexes(propertyInvolvedIndexes, propertyNames, involvedIndexes);
     }
 
@@ -482,7 +481,7 @@ public final class SchemaManager {
     }
 
     var involvedIndexes = new HashSet<SchemaIndexEntity>();
-    var classIndexes = schemaClassEntity.getInvolvedIndexes();
+    var classIndexes = schemaClassEntity.getIndexes();
     filterPropertyIndexes(classIndexes, propertyNames, involvedIndexes);
 
     return involvedIndexes;
@@ -528,16 +527,6 @@ public final class SchemaManager {
     }
 
     return null;
-  }
-
-  public static Set<String> getClassIndexNames(@Nonnull SchemaClassEntity schemaClassEntity) {
-    return YTDBIteratorUtils.set(
-        IteratorUtils.map(schemaClassEntity.getInvolvedIndexes(), SchemaIndexEntity::getName));
-  }
-
-  public static Set<SchemaIndexEntity> getClassIndexes(
-      @Nonnull SchemaClassEntity schemaClassEntity) {
-    return YTDBIteratorUtils.set(schemaClassEntity.getInvolvedIndexes());
   }
 
   @Nullable
@@ -917,8 +906,8 @@ public final class SchemaManager {
       return;
     }
 
-    clazz.getDescendants().forEach(x -> classesToCheck.add(x.getName()));
-    clazz.getAscendants().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getDescendantClasses().forEach(x -> classesToCheck.add(x.getName()));
+    clazz.getAscendantClasses().forEach(x -> classesToCheck.add(x.getName()));
     var allFilteredProperties =
         security.getAllFilteredProperties(database);
 

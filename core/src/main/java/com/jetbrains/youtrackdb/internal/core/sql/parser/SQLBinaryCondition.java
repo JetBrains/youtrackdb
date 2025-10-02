@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
@@ -452,7 +451,7 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
 
   @Override
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
-      SchemaClass clazz) {
+      ImmutableSchemaClass clazz) {
     if (operator instanceof SQLEqualsOperator
         && right.isEarlyCalculated(ctx)
         && left.isIndexChain(ctx, clazz)) {
@@ -484,7 +483,7 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   public static SQLSelectStatement indexChainToStatement(
-      SQLModifier modifier, SchemaClass clazz, SQLExpression right, CommandContext ctx) {
+      SQLModifier modifier, ImmutableSchemaClass clazz, SQLExpression right, CommandContext ctx) {
 
     var result = new SQLSelectStatement(-1);
     result.target = new SQLFromClause(-1);
@@ -532,7 +531,7 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public List<SQLAndBlock> flatten(CommandContext ctx, @Nullable SchemaClass schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, @Nullable ImmutableSchemaClass schemaClass) {
     var session = ctx.getDatabaseSession();
 
     //usage of indexes for the case when the graph navigation function is used

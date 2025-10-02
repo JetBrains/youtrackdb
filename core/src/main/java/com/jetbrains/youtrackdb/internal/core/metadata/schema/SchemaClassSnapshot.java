@@ -46,6 +46,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SchemaClassSnapshot implements ImmutableSchemaClass {
+
   private final boolean isAbstract;
   private final boolean strictMode;
   private final String name;
@@ -245,7 +246,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public List<SchemaClassSnapshot> getParents() {
+  public List<SchemaClassSnapshot> getParentClasses() {
     return parentClasses;
   }
 
@@ -333,23 +334,23 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Collection<SchemaClassSnapshot> getChildren() {
+  public Collection<SchemaClassSnapshot> getChildClasses() {
     return childClasses;
   }
 
   @Override
-  public Collection<SchemaClassSnapshot> getDescendants() {
-    var set = new HashSet<>(getChildren());
+  public Collection<SchemaClassSnapshot> getDescendantClasses() {
+    var set = new HashSet<>(getChildClasses());
 
     for (var c : childClasses) {
-      set.addAll(c.getDescendants());
+      set.addAll(c.getDescendantClasses());
     }
 
     return set;
   }
 
   @Override
-  public Collection<ImmutableSchemaClass> getAscendants() {
+  public Collection<ImmutableSchemaClass> getAscendantClasses() {
     var ret = new HashSet<ImmutableSchemaClass>();
     getAllSuperClasses(ret);
     return ret;
@@ -427,7 +428,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
     return switch (iAttribute) {
       case NAME -> name;
-      case SUPERCLASSES -> getParents();
+      case SUPERCLASSES -> getParentClasses();
       case STRICT_MODE -> strictMode;
       case ABSTRACT -> isAbstract;
       case CUSTOM -> customFields;
@@ -436,48 +437,43 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> properties) {
-    final Set<String> result = new HashSet<>(getClassInvolvedIndexes(session, properties));
+  public Set<String> getInvolvedIndexesNames(Collection<String> properties) {
+    final Set<String> result = new HashSet<>(getClassIndexes(properties));
 
     for (var superClass : parentClasses) {
-      result.addAll(superClass.getInvolvedIndexes(session, properties));
+      result.addAll(superClass.getInvolvedIndexesNames(properties));
     }
     return result;
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> properties) {
-    final Set<Index> result = new HashSet<>(getClassInvolvedIndexesInternal(session, properties));
+  public Set<Index> getInvolvedIndexes(Collection<String> properties) {
+    final Set<Index> result = new HashSet<>(getClassInvolvedIndexes(properties));
     for (var superClass : parentClasses) {
-      result.addAll(superClass.getInvolvedIndexesInternal(session, properties));
+      result.addAll(superClass.getInvolvedIndexes(properties));
     }
 
     return result;
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... properties) {
-    return getInvolvedIndexes(session, Arrays.asList(properties));
+  public Set<String> getInvolvedIndexesNames(String... properties) {
+    return getInvolvedIndexesNames(Arrays.asList(properties));
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      String... properties) {
-    return getInvolvedIndexesInternal(session, Arrays.asList(properties));
+  public Set<Index> getInvolvedIndexes(String... properties) {
+    return getInvolvedIndexes(Arrays.asList(properties));
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> properties) {
-    return getClassInvolvedIndexesInternal(session, properties).stream().map(Index::getName)
+  public Set<String> getClassIndexes(Collection<String> properties) {
+    return getClassInvolvedIndexes(properties).stream().map(Index::getName)
         .collect(HashSet::new, HashSet::add, HashSet::addAll);
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> properties) {
+  public Set<Index> getClassInvolvedIndexes(Collection<String> properties) {
     final var multiKey = new MultiKey(properties);
 
     final var rawResult = indexesByProperties.get(multiKey);
@@ -497,22 +493,18 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
-      String... properties) {
-    assert session.assertIfNotActive();
-    return getClassInvolvedIndexes(session, Arrays.asList(properties));
+  public Set<String> getClassIndexes(String... properties) {
+    return getClassIndexes(Arrays.asList(properties));
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
-      String... properties) {
-    assert session.assertIfNotActive();
-    return getClassInvolvedIndexesInternal(session, Arrays.asList(properties));
+  public Set<Index> getClassInvolvedIndexes(String... properties) {
+
+    return getClassInvolvedIndexes(Arrays.asList(properties));
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, Collection<String> properties) {
-    assert session.assertIfNotActive();
+  public boolean areIndexed(Collection<String> properties) {
     var multiKey = new MultiKey(properties);
 
     if (indexesByProperties.containsKey(multiKey)) {
@@ -520,7 +512,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     }
 
     for (var superClass : parentClasses) {
-      if (superClass.areIndexed(session, properties)) {
+      if (superClass.areIndexed(properties)) {
         return true;
       }
     }
@@ -528,9 +520,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, String... properties) {
-    assert session.assertIfNotActive();
-    return areIndexed(session, Arrays.asList(properties));
+  public boolean areIndexed(String... properties) {
+    return areIndexed(Arrays.asList(properties));
   }
 
   @Override
@@ -549,24 +540,27 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     return indexes.get(name);
   }
 
-  public void getClassIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
-    assert session.assertIfNotActive();
-    this.indexes.forEach((key, value) -> indexes.add(value));
-  }
-
 
   @Override
-  public void getIndexes(DatabaseSessionEmbedded session, final Collection<Index> indexes) {
-    getClassIndexes(session, indexes);
+  public Set<String> getIndexNames() {
+    var result = new HashSet<>(this.indexes.keySet());
 
     for (var superClass : parentClasses) {
-      superClass.getIndexes(session, indexes);
+      result.addAll(superClass.getIndexNames());
     }
+
+    return result;
   }
 
   @Override
-  public Set<String> getIndexes() {
-    return this.indexes.keySet();
+  public Set<Index> getIndexes() {
+    var result = new HashSet<>(this.indexes.values());
+
+    for (var superClass : parentClasses) {
+      result.addAll(superClass.getIndexes());
+    }
+
+    return result;
   }
 
   @Override

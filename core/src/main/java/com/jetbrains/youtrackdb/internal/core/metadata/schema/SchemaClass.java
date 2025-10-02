@@ -35,7 +35,7 @@ public interface SchemaClass extends ImmutableSchemaClass {
 
   void setStrictMode(boolean iMode);
 
-  void setParents(@Nonnull List<? extends SchemaClass> classes);
+  void setParentClasses(@Nonnull List<? extends SchemaClass> classes);
 
   void addParentClass(SchemaClass parentClass);
 
@@ -97,7 +97,7 @@ public interface SchemaClass extends ImmutableSchemaClass {
   void truncate();
 
   @Override
-  List<SchemaClass> getParents();
+  List<SchemaClass> getParentClasses();
 
   @Override
   Collection<SchemaProperty> getDeclaredProperties();
@@ -109,16 +109,16 @@ public interface SchemaClass extends ImmutableSchemaClass {
   Map<String, SchemaProperty> getPropertiesMap();
 
   @Override
-  Collection<SchemaClass> getChildren();
+  Collection<SchemaClass> getChildClasses();
 
   @Override
-  Collection<SchemaClass> getAscendants();
+  Collection<SchemaClass> getAscendantClasses();
 
   @Override
   SchemaProperty getProperty(String propertyName);
 
   @Override
-  Collection<SchemaClass> getDescendants();
+  Collection<SchemaClass> getDescendantClasses();
 
   SchemaClassEntity getImplementation();
 }

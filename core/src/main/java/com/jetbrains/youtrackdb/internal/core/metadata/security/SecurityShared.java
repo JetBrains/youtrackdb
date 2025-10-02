@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -36,9 +35,9 @@ import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
@@ -346,8 +345,7 @@ public class SecurityShared implements SecurityInternal {
       var sessionInternal = (DatabaseSessionInternal) session;
       var transaction = sessionInternal.getActiveTransaction();
       final EntityImpl entity = transaction.load(iRole);
-      SchemaClassSnapshot clazz = null;
-      clazz = entity.getImmutableSchemaClass(sessionInternal);
+      var clazz = entity.getImmutableSchemaClass();
 
       if (clazz != null && clazz.isRole()) {
         return new Role(sessionInternal, entity);
@@ -519,17 +517,17 @@ public class SecurityShared implements SecurityInternal {
       var clazz =
           session
               .getMetadata()
-              .getFastImmutableSchema(session)
+              .getFastImmutableSchema()
               .getClass(clazzName);
       if (clazz == null) {
         return;
       }
-      Set<SchemaClass> allClasses = new HashSet<>();
+      Set<ImmutableSchemaClass> allClasses = new HashSet<>();
       allClasses.add(clazz);
-      allClasses.addAll(clazz.getDescendants());
-      allClasses.addAll(clazz.getAscendants());
+      allClasses.addAll(clazz.getDescendantClasses());
+      allClasses.addAll(clazz.getAscendantClasses());
       for (var c : allClasses) {
-        for (var index : c.getIndexesInternal()) {
+        for (var index : c.getIndexes()) {
           var indexFields = index.getDefinition().getProperties();
           if (indexFields.size() > 1
               && indexFields.contains(((SecurityResourceProperty) res).getPropertyName())) {
@@ -893,150 +891,134 @@ public class SecurityShared implements SecurityInternal {
   }
 
   private static void createOrUpdateOUserClass(
-      final DatabaseSessionInternal database, SchemaClass identityClass, SchemaClass roleClass) {
-    var unsafe = false;
-    var userClass = database.getMetadata().getSchemaInternal()
-        .getClassInternal("OUser");
+      final DatabaseSessionInternal database, ImmutableSchemaClass identityClass,
+      SchemaClass roleClass) {
+    var schema = database.getMetadata().getSlowMutableSchema();
+    var mutableIdentityClass = schema.getClass(identityClass.getName());
+
+    var userClass = schema.getClass("OUser");
     if (userClass == null) {
-      userClass = database.getMetadata().getSlowMutableSchema().createClass("OUser", identityClass);
-      unsafe = true;
-    } else if (!userClass.getSuperClasses().contains(identityClass))
+      userClass = schema.createClass("OUser", mutableIdentityClass);
+    } else if (!userClass.getParentClasses().contains(mutableIdentityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
     {
-      userClass.setSuperClasses(Collections.singletonList(identityClass));
+      userClass.setParentClasses(Collections.singletonList(mutableIdentityClass));
     }
 
     if (!userClass.existsProperty("name")) {
-      userClass
-          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, unsafe)
-          .setMandatory(true)
-          .setNotNull(true)
-          .setCollate("ci")
-          .setMin("1")
-          .setRegexp("\\S+(.*\\S+)*");
+      var property = userClass
+          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
+      property.setMandatory(true);
+      property.setNotNull(true);
+      property.setCollate("ci");
+      property.setMin("1");
+      property.setRegexp("\\S+(.*\\S+)*");
       userClass.createIndex("OUser.name", SchemaManager.INDEX_TYPE.UNIQUE,
-          NullOutputListener.INSTANCE,
           "name");
     } else {
-      var name = userClass.getPropertyInternal("name");
-      if (name.getAllIndexes().isEmpty()) {
+      var name = userClass.getProperty("name");
+      if (name.getIndexNames().isEmpty()) {
         userClass.createIndex(
-            "OUser.name", SchemaManager.INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
+            "OUser.name", SchemaManager.INDEX_TYPE.UNIQUE, "name");
       }
     }
     if (!userClass.existsProperty(SecurityUserImpl.PASSWORD_PROPERTY)) {
-      userClass
-          .createProperty(SecurityUserImpl.PASSWORD_PROPERTY, PropertyTypeInternal.STRING,
-              (PropertyTypeInternal) null, unsafe)
-          .setMandatory(true)
-          .setNotNull(true);
+      var property = userClass.createProperty(SecurityUserImpl.PASSWORD_PROPERTY,
+          PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
+      property.setMandatory(true);
+      property.setNotNull(true);
     }
     if (!userClass.existsProperty("roles")) {
-      userClass.createProperty("roles", PropertyTypeInternal.LINKSET, roleClass, unsafe);
+      userClass.createProperty("roles", PropertyTypeInternal.LINKSET, roleClass);
     }
     if (!userClass.existsProperty("status")) {
-      userClass
-          .createProperty("status", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
-              unsafe)
-          .setMandatory(true)
-          .setNotNull(true);
+      var property = userClass
+          .createProperty("status", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
+      property.setMandatory(true);
+      property.setNotNull(true);
     }
   }
 
   private static void createOrUpdateOSecurityPolicyClass(
       final DatabaseSessionInternal database) {
-    var policyClass = database.getMetadata().getSchemaInternal()
-        .getClassInternal("OSecurityPolicy");
-    var unsafe = false;
+    var policyClass = database.getMetadata().getSlowMutableSchema().getClass("OSecurityPolicy");
     if (policyClass == null) {
-      policyClass = database.getMetadata().getSlowMutableSchema()
-          .createClass("OSecurityPolicy");
-      unsafe = true;
+      policyClass = database.getMetadata().getSlowMutableSchema().createClass("OSecurityPolicy");
     }
 
     if (!policyClass.existsProperty("name")) {
-      policyClass
-          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, unsafe)
-          .setMandatory(true)
-          .setNotNull(true)
-          .setCollate("ci");
+      var property = policyClass
+          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
+      property.setMandatory(true);
+      property.setNotNull(true);
+      property.setCollate("ci");
       policyClass.createIndex(
-          "OSecurityPolicy.name", SchemaManager.INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
-          "name");
+          "OSecurityPolicy.name", SchemaManager.INDEX_TYPE.UNIQUE, "name");
     } else {
-      var name = policyClass.getPropertyInternal("name");
-      if (name.getAllIndexes().isEmpty()) {
+      var name = policyClass.getProperty("name");
+      if (name.getIndexNames().isEmpty()) {
         policyClass.createIndex(
-            "OSecurityPolicy.name", SchemaManager.INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE,
-            "name");
+            "OSecurityPolicy.name", SchemaManager.INDEX_TYPE.UNIQUE, "name");
       }
     }
 
     if (!policyClass.existsProperty("create")) {
-      policyClass.createProperty("create", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
-          unsafe);
+      policyClass.createProperty("create", PropertyTypeInternal.STRING,
+          (PropertyTypeInternal) null);
     }
     if (!policyClass.existsProperty("read")) {
-      policyClass.createProperty("read", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
-          unsafe);
+      policyClass.createProperty("read", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
     }
     if (!policyClass.existsProperty("beforeUpdate")) {
       policyClass.createProperty("beforeUpdate", PropertyTypeInternal.STRING,
-          (PropertyTypeInternal) null,
-          unsafe);
+          (PropertyTypeInternal) null);
     }
     if (!policyClass.existsProperty("afterUpdate")) {
       policyClass.createProperty("afterUpdate", PropertyTypeInternal.STRING,
-          (PropertyTypeInternal) null,
-          unsafe);
+          (PropertyTypeInternal) null);
     }
     if (!policyClass.existsProperty("delete")) {
-      policyClass.createProperty("delete", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
-          unsafe);
+      policyClass.createProperty("delete", PropertyTypeInternal.STRING,
+          (PropertyTypeInternal) null);
     }
     if (!policyClass.existsProperty("execute")) {
       policyClass.createProperty("execute", PropertyTypeInternal.STRING,
-          (PropertyTypeInternal) null,
-          unsafe);
+          (PropertyTypeInternal) null);
     }
 
     if (!policyClass.existsProperty("active")) {
       policyClass.createProperty("active", PropertyTypeInternal.BOOLEAN,
-          (PropertyTypeInternal) null,
-          unsafe);
+          (PropertyTypeInternal) null);
     }
 
   }
 
   private static SchemaClass createOrUpdateORoleClass(final DatabaseSessionInternal database,
       SchemaClass identityClass) {
-    var roleClass = database.getMetadata().getSlowMutableSchema()
-        .getClass(Role.CLASS_NAME);
-    var unsafe = false;
+    var schema = database.getMetadata().getSlowMutableSchema();
+    var roleClass = schema.getClass(Role.CLASS_NAME);
     if (roleClass == null) {
       roleClass = database.getMetadata().getSlowMutableSchema()
           .createClass(Role.CLASS_NAME, identityClass);
-      unsafe = true;
-    } else if (!roleClass.getParents().contains(identityClass))
+    } else if (!roleClass.getParentClasses().contains(identityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
     {
-      roleClass.setParents(Collections.singletonList(identityClass));
+      roleClass.setParentClasses(Collections.singletonList(identityClass));
     }
 
     if (!roleClass.existsProperty("name")) {
-      roleClass
-          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null)
-          .setMandatory(true)
-          .setNotNull(true)
-          .setCollate("ci");
+      var property = roleClass
+          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
+      property.setMandatory(true);
+      property.setNotNull(true);
+      property.setCollate("ci");
       roleClass.createIndex(Role.CLASS_NAME + "." + Role.NAME, SchemaManager.INDEX_TYPE.UNIQUE,
-          NullOutputListener.INSTANCE,
           "name");
     } else {
       var name = roleClass.getProperty("name");
-      if (name.getAllIndexes().isEmpty()) {
+      if (name.getIndexNames().isEmpty()) {
         roleClass.createIndex(
-            "ORole.name", SchemaManager.INDEX_TYPE.UNIQUE, NullOutputListener.INSTANCE, "name");
+            "ORole.name", SchemaManager.INDEX_TYPE.UNIQUE, "name");
       }
     }
 
@@ -1055,7 +1037,7 @@ public class SecurityShared implements SecurityInternal {
 
     if (!roleClass.existsProperty("policies")) {
       roleClass.createProperty(
-          "policies", PropertyTypeInternal.LINKMAP, database.getClass("OSecurityPolicy"));
+          "policies", PropertyTypeInternal.LINKMAP, schema.getClass("OSecurityPolicy"));
     }
 
     return roleClass;
@@ -1064,25 +1046,26 @@ public class SecurityShared implements SecurityInternal {
   @Override
   public void load(DatabaseSessionInternal session) {
     final var userClass = session.getMetadata().getSlowMutableSchema()
-        .getClassInternal("OUser");
+        .getClass("OUser");
     if (userClass != null) {
       // @COMPATIBILITY <1.3.0
       if (!userClass.existsProperty("status")) {
-        userClass.createProperty("status", PropertyType.STRING).setMandatory(true)
-            .setNotNull(true);
+        var property = userClass.createProperty("status", PropertyTypeInternal.STRING);
+        property.setMandatory(true);
+        property.setNotNull(true);
       }
       var p = userClass.getProperty("name");
       if (p == null) {
         p =
             userClass
-                .createProperty("name", PropertyType.STRING)
-                .setMandatory(true)
-                .setNotNull(true)
-                .setMin("1")
-                .setRegexp("\\S+(.*\\S+)*");
+                .createProperty("name", PropertyTypeInternal.STRING);
+        p.setMandatory(true);
+        p.setNotNull(true);
+        p.setMin("1");
+        p.setRegexp("\\S+(.*\\S+)*");
       }
 
-      if (userClass.getInvolvedIndexes(session, "name") == null) {
+      if (userClass.getInvolvedIndexesNames("name") == null) {
         p.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
       }
 
@@ -1248,7 +1231,7 @@ public class SecurityShared implements SecurityInternal {
 
     if (!session
         .getMetadata()
-        .getFastImmutableSchema(session)
+        .getFastImmutableSchema()
         .existsClass(Role.CLASS_NAME)) {
       return;
     }
@@ -1263,7 +1246,7 @@ public class SecurityShared implements SecurityInternal {
   }
 
   private void doInitPredicateOptimization(DatabaseSessionInternal session,
-      Collection<SchemaClass> allClasses,
+      Collection<? extends ImmutableSchemaClass> allClasses,
       Map<String, Map<String, Boolean>> result) {
     synchronized (this) {
       try (var rs = session.query("select name, policies from " + Role.CLASS_NAME)) {
@@ -1280,7 +1263,7 @@ public class SecurityShared implements SecurityInternal {
                 Entity policy = transaction1.load(policyEntry.getValue());
 
                 for (var clazz : allClasses) {
-                  if (isClassInvolved(session, clazz, res)
+                  if (isClassInvolved(clazz, res)
                       && !isAllAllowed(
                       session,
                       new ImmutableSecurityPolicy(
@@ -1315,7 +1298,7 @@ public class SecurityShared implements SecurityInternal {
     return true;
   }
 
-  private static boolean isClassInvolved(DatabaseSessionInternal db, SchemaClass clazz,
+  private static boolean isClassInvolved(ImmutableSchemaClass clazz,
       SecurityResource res) {
     if (res instanceof SecurityResourceAll
         || res.equals(SecurityResourceClass.ALL_CLASSES)
@@ -1338,9 +1321,9 @@ public class SecurityShared implements SecurityInternal {
     if (session.getCurrentUser() == null) {
       return Collections.emptySet();
     }
-    SchemaClassSnapshot clazz = null;
+    ImmutableSchemaClass clazz = null;
     if (entity != null) {
-      clazz = entity.getImmutableSchemaClass(session);
+      clazz = entity.getImmutableSchemaClass();
     }
     if (clazz == null) {
       return Collections.emptySet();
@@ -1389,7 +1372,6 @@ public class SecurityShared implements SecurityInternal {
     }
 
     String className;
-    SchemaClass clazz;
     className = entity.getSchemaClassName();
 
     if (className == null) {
@@ -1506,12 +1488,9 @@ public class SecurityShared implements SecurityInternal {
       return true;
     }
 
-    var sessionInternal = session;
     if (record instanceof Entity) {
-      SchemaClassSnapshot clazz = null;
-      if (record != null) {
-        clazz = ((EntityImpl) record).getImmutableSchemaClass(session);
-      }
+      ImmutableSchemaClass clazz;
+      clazz = ((EntityImpl) record).getImmutableSchemaClass();
       if (clazz == null) {
         return true;
       }
@@ -1535,7 +1514,7 @@ public class SecurityShared implements SecurityInternal {
 
       var predicate =
           SecurityEngine.getPredicateForSecurityResource(
-              sessionInternal,
+              session,
               this,
               "database.class.`" + ((EntityImpl) record).getSchemaClassName() + "`",
               SecurityPolicy.Scope.READ);
@@ -1739,7 +1718,8 @@ public class SecurityShared implements SecurityInternal {
   }
 
   @Override
-  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session, String resource) {
+  public boolean isReadRestrictedBySecurityPolicy(DatabaseSessionEmbedded session,
+      String resource) {
     if (session.getCurrentUser() == null) {
       // executeNoAuth
       return false;
@@ -1804,7 +1784,7 @@ public class SecurityShared implements SecurityInternal {
     Set<SecurityResourceProperty> result = new HashSet<>();
     if (!db
         .getMetadata()
-        .getFastImmutableSchema(session)
+        .getFastImmutableSchema()
         .existsClass(Role.CLASS_NAME)) {
       return Collections.emptySet();
     }

@@ -98,8 +98,13 @@ public final class SchemaSnapshot implements ImmutableSchema {
   }
 
   @Override
-  public @Nonnull Collection<String> getIndexes() {
+  public @Nonnull Collection<String> getIndexNames() {
     return indexes.keySet();
+  }
+
+  @Override
+  public Collection<Index> getIndexes() {
+    return indexes.values();
   }
 
   @Override

@@ -4,8 +4,8 @@ import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Edge;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import java.util.Collection;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -36,7 +36,7 @@ public class SQLFunctionBothV extends SQLFunctionMove implements SQLGraphNavigat
   @Nullable
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
-      SchemaClass schemaClass,
+      ImmutableSchemaClass schemaClass,
       boolean polymorphic, DatabaseSessionEmbedded session) {
     return List.of(Edge.DIRECTION_IN, Edge.DIRECTION_OUT);
   }

@@ -1,8 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -130,7 +131,7 @@ public class YTDBGraphQueryBuilder {
 
   @Nullable
   public YTDBGraphBaseQuery build(DatabaseSessionEmbedded session) {
-    var schema = session.getMetadata().getFastImmutableSchema(session);
+    var schema = session.getMetadata().getFastImmutableSchema();
     assert schema != null;
 
     final var classes = buildClassList(new HierarchyAnalyzer(schema));
@@ -270,10 +271,10 @@ public class YTDBGraphQueryBuilder {
 
   private static class HierarchyAnalyzer {
 
-    private final SchemaSnapshot schema;
+    private final ImmutableSchema schema;
     private final Map<String, Set<String>> superClassesCache = new HashMap<>();
 
-    private HierarchyAnalyzer(SchemaSnapshot schema) {
+    private HierarchyAnalyzer(ImmutableSchema schema) {
       this.schema = schema;
     }
 
@@ -312,8 +313,8 @@ public class YTDBGraphQueryBuilder {
       if (clazz == null) {
         superClasses = Set.of();
       } else {
-        superClasses = clazz.getAscendants().stream()
-            .map(SchemaClass::getName)
+        superClasses = clazz.getAscendantClasses().stream()
+            .map(ImmutableSchemaClass::getName)
             .collect(Collectors.toSet());
       }
 

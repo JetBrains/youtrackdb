@@ -7,10 +7,10 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Collection;
@@ -401,15 +401,15 @@ public class SQLBaseIdentifier extends SimpleNode {
     return true;
   }
 
-  public boolean isIndexChain(SchemaClass clazz) {
+  public boolean isIndexChain(ImmutableSchemaClass clazz) {
     if (suffix != null && suffix.isBaseIdentifier()) {
-      var prop = clazz.getPropertyInternal(
+      var prop = clazz.getProperty(
           suffix.getIdentifier().getStringValue());
       if (prop == null) {
         return false;
       }
 
-      var allIndexes = prop.getAllIndexesInternal();
+      var allIndexes = prop.getIndexes();
 
       return allIndexes != null
           && allIndexes.stream().anyMatch(idx -> idx.getDefinition().getProperties().size() == 1);
@@ -419,7 +419,7 @@ public class SQLBaseIdentifier extends SimpleNode {
 
   @Nullable
   public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
-      SchemaClass schemaClass) {
+      ImmutableSchemaClass schemaClass) {
     if (levelZero != null) {
       return levelZero.getGraphNavigationFunctionProperties(ctx, schemaClass);
     }

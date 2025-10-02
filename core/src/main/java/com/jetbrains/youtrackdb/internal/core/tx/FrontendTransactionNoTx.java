@@ -41,7 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
@@ -152,7 +152,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public Entity newEntity(SchemaClass cls) {
+  public Entity newEntity(ImmutableSchemaClass cls) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -162,7 +162,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
+  public EmbeddedEntity newEmbeddedEntity(ImmutableSchemaClass schemaClass) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -187,7 +187,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, ImmutableSchemaClass type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -197,7 +197,8 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
+  public Edge newLightweightEdge(Vertex from, Vertex to,
+      @Nonnull @org.jetbrains.annotations.UnknownNullability ImmutableSchemaClass type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 
@@ -207,7 +208,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public Vertex newVertex(SchemaClass type) {
+  public Vertex newVertex(ImmutableSchemaClass type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 

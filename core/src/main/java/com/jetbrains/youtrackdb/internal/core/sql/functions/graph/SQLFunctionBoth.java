@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Relation;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import java.util.Collection;
 import javax.annotation.Nullable;
 
@@ -35,7 +35,7 @@ public class SQLFunctionBoth extends SQLFunctionMove implements SQLGraphNavigati
   @Nullable
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
-      SchemaClass schemaClass,
+      ImmutableSchemaClass schemaClass,
       boolean polymorphic, DatabaseSessionEmbedded session) {
     return SQLGraphNavigationFunction.propertiesForV2VNavigation(schemaClass, session,
         Direction.BOTH, labels);

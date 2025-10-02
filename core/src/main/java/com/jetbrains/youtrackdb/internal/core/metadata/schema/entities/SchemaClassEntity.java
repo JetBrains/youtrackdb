@@ -628,15 +628,15 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     }
   }
 
-  public Iterator<SchemaIndexEntity> getInvolvedIndexes() {
-    var involvedIndexesPropertyName = getOppositeLinkBagPropertyName(
-        SchemaIndexEntity.PROPERTIES_TO_INDEX);
-    LinkBag involvedIndexes = getPropertyInternal(involvedIndexesPropertyName);
-    if (involvedIndexes == null) {
+  public Iterator<SchemaIndexEntity> getIndexes() {
+    var indexesPropertyName = getOppositeLinkBagPropertyName(SchemaIndexEntity.PROPERTIES_TO_INDEX);
+
+    LinkBag indexes = getPropertyInternal(indexesPropertyName);
+    if (indexes == null) {
       return Collections.emptyIterator();
     }
 
-    return YTDBIteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(involvedIndexes.iterator(),
+    return YTDBIteratorUtils.unmodifiableIterator(YTDBIteratorUtils.map(indexes.iterator(),
         session::load));
   }
 

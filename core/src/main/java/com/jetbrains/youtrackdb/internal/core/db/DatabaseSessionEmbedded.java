@@ -99,7 +99,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
@@ -3429,7 +3428,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public Vertex newVertex(SchemaClass type) {
+  public Vertex newVertex(ImmutableSchemaClass type) {
     assert assertIfNotActive();
     if (type == null) {
       return newVertex("V");
@@ -3439,7 +3438,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, ImmutableSchemaClass type) {
     assert assertIfNotActive();
     if (type == null) {
       return newStatefulEdge(from, to, "E");
@@ -3449,7 +3448,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull ImmutableSchemaClass type) {
     assert assertIfNotActive();
     return newLightweightEdge(from, to, type.getName());
   }
@@ -3489,7 +3488,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public RecordIteratorClass browseClass(@Nonnull SchemaClass clz) {
+  public RecordIteratorClass browseClass(@Nonnull ImmutableSchemaClass clz) {
     assert assertIfNotActive();
     checkOpenness();
 

@@ -242,9 +242,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
     this.storage = storage;
   }
 
-  public SchemaManager getSchema() {
-    return schema;
-  }
 
   public synchronized <T> T getResource(final String name, final Callable<T> factory) {
     if (resources == null) {

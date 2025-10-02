@@ -5,14 +5,14 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
@@ -84,12 +84,12 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphN
     var edgeClass =
         session
             .getMetadata()
-            .getFastImmutableSchema(session)
-            .getClassInternal(edgeClassName);
+            .getFastImmutableSchema()
+            .getClass(edgeClassName);
     if (edgeClass == null) {
       return null;
     }
-    var indexes = edgeClass.getInvolvedIndexesInternal(session, "out", "in");
+    var indexes = edgeClass.getInvolvedIndexes("out", "in");
     if (indexes == null || indexes.isEmpty()) {
       return null;
     }
@@ -98,16 +98,19 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphN
     var result = new MultiCollectionIterator<Vertex>();
     for (var to : iTo) {
       final var key = new CompositeKey(iFrom, to);
-      try (var stream = index
+      try (var iterator = index
           .getRids(session, key)) {
         result.add(
-            stream
-                .map((rid) -> {
-                  var transaction = session.getActiveTransaction();
-                  EntityImpl entity = transaction.load(rid);
-                  return entity.getProperty("in");
-                })
-                .collect(Collectors.toSet()));
+            YTDBIteratorUtils.set(
+                YTDBIteratorUtils.map(
+                    iterator,
+                    rid -> {
+                      var transaction = session.getActiveTransaction();
+                      EntityImpl entity = transaction.load(rid);
+                      return entity.getProperty("in");
+                    })
+            )
+        );
       }
     }
 
@@ -117,7 +120,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphN
   @Nullable
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
-      SchemaClass schemaClass,
+      ImmutableSchemaClass schemaClass,
       boolean polymorphic, DatabaseSessionEmbedded session) {
     return SQLGraphNavigationFunction.propertiesForV2VNavigation(schemaClass, session,
         Direction.OUT,

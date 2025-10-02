@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
@@ -17,16 +18,26 @@ import javax.annotation.Nullable;
 
 public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEntity> implements
     SchemaProperty {
+
   public SchemaPropertyProxy(SchemaPropertyEntity iDelegate,
       DatabaseSessionEmbedded session) {
     super(iDelegate, session);
   }
 
   @Override
-  public Collection<String> getAllIndexes() {
+  public Collection<String> getIndexNames() {
     assert session.assertIfNotActive();
     return YTDBIteratorUtils.list(
-        YTDBIteratorUtils.map(delegate.getInvolvedIndexes(), SchemaIndexEntity::getName)
+        YTDBIteratorUtils.map(delegate.getIndexes(), SchemaIndexEntity::getName)
+    );
+  }
+
+  @Override
+  public Collection<Index> getIndexes() {
+    return YTDBIteratorUtils.list(
+        YTDBIteratorUtils.map(delegate.getIndexes(),
+            IndexFactory::newIndexProxy
+        )
     );
   }
 

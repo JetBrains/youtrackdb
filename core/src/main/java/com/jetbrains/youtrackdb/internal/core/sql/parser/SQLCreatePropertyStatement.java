@@ -98,7 +98,7 @@ public class SQLCreatePropertyStatement extends DDLStatement {
       internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedClass);
     } else {
       internalProp = clazz.createProperty(propertyName.getStringValue(),
-          type.getPublicPropertyType());
+          type);
     }
 
     for (var attr : attributes) {

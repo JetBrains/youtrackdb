@@ -20,6 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -29,7 +30,6 @@ import javax.annotation.Nullable;
 import org.jspecify.annotations.NonNull;
 
 public final class SchemaProxy implements Schema {
-
   @Nonnull
   private final DatabaseSessionEmbedded session;
 
@@ -128,12 +128,25 @@ public final class SchemaProxy implements Schema {
   }
 
   @Override
-  public @Nonnull Collection<String> getIndexes() {
+  public @Nonnull Collection<String> getIndexNames() {
     var indexEntities = SchemaManager.getIndexes(session);
     var indexes = new HashSet<String>();
     while (indexEntities.hasNext()) {
       var indexEntity = indexEntities.next();
       indexes.add(indexEntity.getName());
+    }
+
+    return indexes;
+  }
+
+  @Override
+  public Collection<Index> getIndexes() {
+    var indexEntities = SchemaManager.getIndexes(session);
+    var indexes = new HashSet<Index>();
+
+    while (indexEntities.hasNext()) {
+      var indexEntity = indexEntities.next();
+      indexes.add(IndexFactory.newIndexProxy(indexEntity));
     }
 
     return indexes;

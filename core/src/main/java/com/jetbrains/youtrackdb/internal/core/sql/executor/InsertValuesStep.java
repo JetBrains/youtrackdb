@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultMapper;
@@ -66,11 +66,11 @@ public class InsertValuesStep extends AbstractExecutionStep {
               var propertyName = identifier.getStringValue();
 
               var session = ctx.getDatabaseSession();
-              SchemaProperty schemaProperty = null;
+              ImmutableSchemaProperty schemaProperty = null;
 
               if (result.isEntity()) {
                 var entity = (EntityImpl) result.asEntity();
-                var schema = entity.getImmutableSchemaClass(session);
+                var schema = entity.getImmutableSchemaClass();
                 schemaProperty =
                     schema != null ? schema.getProperty(propertyName) : null;
               }

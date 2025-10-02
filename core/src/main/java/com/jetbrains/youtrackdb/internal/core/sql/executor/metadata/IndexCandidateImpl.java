@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.Collections;
 import java.util.List;
@@ -10,9 +10,9 @@ public class IndexCandidateImpl implements IndexCandidate {
 
   private final String name;
   private Operation operation;
-  private final SchemaProperty property;
+  private final ImmutableSchemaProperty property;
 
-  public IndexCandidateImpl(String name, Operation operation, SchemaProperty prop) {
+  public IndexCandidateImpl(String name, Operation operation, ImmutableSchemaProperty prop) {
     this.name = name;
     this.operation = operation;
     this.property = prop;
@@ -45,7 +45,8 @@ public class IndexCandidateImpl implements IndexCandidate {
   @Override
   public IndexCandidate normalize(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var index = session.getSharedContext().getIndexManager().getIndex(name);
+    var schema = session.getMetadata().getFastImmutableSchema();
+    var index = schema.getIndex(name);
     if (property.getName().equals(index.getDefinition().getProperties().getFirst())) {
       return this;
     } else {
@@ -54,7 +55,7 @@ public class IndexCandidateImpl implements IndexCandidate {
   }
 
   @Override
-  public List<SchemaProperty> properties() {
+  public List<ImmutableSchemaProperty> properties() {
     return Collections.singletonList(this.property);
   }
 }

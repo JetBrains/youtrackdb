@@ -7,7 +7,6 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexCandidate;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder;
@@ -117,7 +116,7 @@ public final class SQLNotBlock extends SQLBooleanExpression {
   }
 
   @Override
-  public List<SQLAndBlock> flatten(CommandContext ctx, SchemaClass schemaClass) {
+  public List<SQLAndBlock> flatten(CommandContext ctx, ImmutableSchemaClass schemaClass) {
     if (!negate) {
       return sub.flatten(ctx, schemaClass);
     }
@@ -189,7 +188,7 @@ public final class SQLNotBlock extends SQLBooleanExpression {
 
   @Override
   public SQLBooleanExpression rewriteIndexChainsAsSubqueries(CommandContext ctx,
-      SchemaClass clazz) {
+      ImmutableSchemaClass clazz) {
     if (!negate) {
       sub = sub.rewriteIndexChainsAsSubqueries(ctx, clazz);
     }

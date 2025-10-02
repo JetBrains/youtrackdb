@@ -60,8 +60,8 @@ public class AlterClassStatementExecutionTest extends DbTestBase {
                 + superclassName
                 + ", "
                 + superclassName2);
-    Assert.assertTrue(schema.getClass(className).getParents().contains(superclass));
-    Assert.assertTrue(schema.getClass(className).getParents().contains(superclass2));
+    Assert.assertTrue(schema.getClass(className).getParentClasses().contains(superclass));
+    Assert.assertTrue(schema.getClass(className).getParentClasses().contains(superclass2));
     result.close();
   }
 

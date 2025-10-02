@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.engine.local.EngineLocalPaginated;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityUserImpl;
@@ -292,13 +293,13 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
   }
 
   protected void exportClass(
-      final DatabaseSessionInternal session, final JSONWriter json, final SchemaClass cls)
+      final DatabaseSessionInternal session, final JSONWriter json, final ImmutableSchemaClass cls)
       throws IOException {
     json.beginObject(2, true, null);
     json.writeAttribute(session, 3, true, "name", cls.getName());
     json.beginCollection(session, "superClasses");
     var i = 0;
-    for (var oClass : cls.getParents()) {
+    for (var oClass : cls.getParentClasses()) {
       json.write((i > 0 ? "," : "") + "\"" + oClass.getName() + "\"");
       i++;
     }
@@ -334,7 +335,7 @@ public class ServerCommandPostDatabase extends ServerCommandAuthenticatedServerA
       json.endCollection(1, true);
     }
 
-    final var indexes = cls.getIndexesInternal();
+    final var indexes = cls.getIndexes();
     if (!indexes.isEmpty()) {
       json.beginCollection(session, 3, true, "indexes");
       for (final var index : indexes) {

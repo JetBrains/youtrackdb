@@ -166,7 +166,7 @@ public class FunctionLibraryImpl {
       var f = session.getMetadata().getSlowMutableSchema().getClass("OFunction");
       var prop = f.getProperty("name");
 
-      if (prop.getAllIndexes().isEmpty()) {
+      if (prop.getIndexNames().isEmpty()) {
         prop.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
       }
       return;

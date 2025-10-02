@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrackdb.api.record;
 
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.Set;
@@ -89,7 +90,7 @@ public interface Vertex extends Entity {
    * @param label     the label(s) of the edges to retrieve
    * @return an iterable collection of edges connected to the vertex
    */
-  Iterable<Edge> getEdges(Direction direction, SchemaClass... label);
+  Iterable<Edge> getEdges(Direction direction, ImmutableSchemaClass... label);
 
   /**
    * Retrieves all vertices connected to the current vertex in the specified direction.
@@ -117,7 +118,7 @@ public interface Vertex extends Entity {
    * @param label     the label(s) of the vertices to retrieve
    * @return an iterable collection of vertices connected to the current vertex
    */
-  Iterable<Vertex> getVertices(Direction direction, SchemaClass... label);
+  Iterable<Vertex> getVertices(Direction direction, ImmutableSchemaClass... label);
 
   /**
    * Adds a stateful edge between the current vertex and the specified vertex. Edge will be created
@@ -177,7 +178,7 @@ public interface Vertex extends Entity {
    * @see Schema#createEdgeClass(String)
    * @see Schema#createLightweightEdgeClass(String)
    */
-  Edge addEdge(Vertex to, SchemaClass label);
+  Edge addEdge(Vertex to, ImmutableSchemaClass label);
 
   /**
    * Adds a stateful edge between the current vertex and the specified vertex with the given label.
@@ -188,7 +189,7 @@ public interface Vertex extends Entity {
    * @param label the label of the edge
    * @return the created edge
    */
-  StatefulEdge addStateFulEdge(Vertex to, SchemaClass label);
+  StatefulEdge addStateFulEdge(Vertex to, ImmutableSchemaClass label);
 
   /**
    * Adds a lightweight edge (one that does not require associated record) between the current
@@ -200,7 +201,7 @@ public interface Vertex extends Entity {
    * @return the created edge
    * @see Schema#createLightweightEdgeClass(String)
    */
-  Edge addLightWeightEdge(Vertex to, SchemaClass label);
+  Edge addLightWeightEdge(Vertex to, ImmutableSchemaClass label);
 
   /**
    * Removes all edges connected to the vertex in the given direction.
@@ -208,7 +209,7 @@ public interface Vertex extends Entity {
    * @param direction the direction of the edges to remove (OUT, IN, or BOTH)
    * @param labels    the labels of the edges to remove
    */
-  default void removeEdges(Direction direction, SchemaClass... labels) {
+  default void removeEdges(Direction direction, ImmutableSchemaClass... labels) {
     var edges = getEdges(direction, labels);
 
     for (var edge : edges) {

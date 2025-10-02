@@ -64,7 +64,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
 
         var first = true;
         for (final var index :
-            sourceClass.getClassInvolvedIndexesInternal(session, propertyName.getStringValue())) {
+            sourceClass.getClassInvolvedIndexes(propertyName.getStringValue())) {
           if (!first) {
             indexNames.append(", ");
           } else {

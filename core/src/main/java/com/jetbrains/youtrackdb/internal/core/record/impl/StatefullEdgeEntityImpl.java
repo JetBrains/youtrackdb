@@ -56,7 +56,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     var typeClass = getImmutableSchemaClass(session);
 
     types.add(typeClass.getName());
-    typeClass.getAscendants().stream().map(SchemaClass::getName)
+    typeClass.getAscendantClasses().stream().map(SchemaClass::getName)
         .forEach(types::add);
 
     for (var s : labels) {

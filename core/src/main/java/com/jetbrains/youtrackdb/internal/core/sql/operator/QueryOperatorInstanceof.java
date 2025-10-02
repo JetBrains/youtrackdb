@@ -25,9 +25,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
 import javax.annotation.Nullable;
@@ -49,7 +47,7 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
       final Object iRight,
       CommandContext iContext) {
     var session = iContext.getDatabaseSession();
-    final Schema schema = session.getMetadata().getFastImmutableSchema(session);
+    final var schema = session.getMetadata().getFastImmutableSchema();
 
     final var baseClassName = iRight.toString();
     final var baseClass = schema.getClass(baseClassName);
@@ -58,17 +56,13 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
           "Class '" + baseClassName + "' is not defined in database schema");
     }
 
-    SchemaClass cls = null;
+    ImmutableSchemaClass cls = null;
     if (iLeft instanceof Identifiable) {
       // GET THE RECORD'S CLASS
       var transaction = iContext.getDatabaseSession().getActiveTransaction();
       var record = transaction.load(((Identifiable) iLeft));
       if (record instanceof EntityImpl) {
-        SchemaClassSnapshot result = null;
-        if (record != null) {
-          result = ((EntityImpl) record).getImmutableSchemaClass(session);
-        }
-        cls = result;
+        cls = ((EntityImpl) record).getImmutableSchemaClass();
       }
     } else if (iLeft instanceof String)
     // GET THE CLASS BY NAME

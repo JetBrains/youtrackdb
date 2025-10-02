@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl.EdgeType;
@@ -28,8 +28,8 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
   /// SQL engine treats each of those properties in the list as a collection of the `rid`s of some
   /// of the supported types.
   ///
-  /// Returned property names are used if a search result can be represented as the series of contains
-  /// operations on values of properties, results of which are merged by `or` operation.
+  /// Returned property names are used if a search result can be represented as the series of
+  /// contains operations on values of properties, results of which are merged by `or` operation.
   ///
   /// ```
   /// collection1.contains(valueToSearch) || collection2.contains(valueToSearch) || ...
@@ -38,12 +38,12 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
 
   @Nullable
   Collection<String> propertyNamesForIndexCandidates(String[] labels,
-      SchemaClass schemaClass,
+      ImmutableSchemaClass schemaClass,
       boolean polymorphic, DatabaseSessionEmbedded session);
 
 
   @Nullable
-  static Collection<String> propertiesForV2ENavigation(SchemaClass schemaClass,
+  static Collection<String> propertiesForV2ENavigation(ImmutableSchemaClass schemaClass,
       DatabaseSessionEmbedded session, Direction direction,
       String[] labels) {
     //As we support graph function for all relations both graph and non-graph.
@@ -60,7 +60,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
     // In the last case we return related property names.
 
     if (schemaClass.isVertexType()) {
-      var immutableSchema = session.getMetadata().getFastImmutableSchema(session);
+      var immutableSchema = session.getMetadata().getFastImmutableSchema();
 
       return VertexEntityImpl.getAllPossibleEdgePropertyNames(
           immutableSchema,
@@ -71,7 +71,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
   }
 
   @Nullable
-  static Collection<String> propertiesForV2VNavigation(SchemaClass schemaClass,
+  static Collection<String> propertiesForV2VNavigation(ImmutableSchemaClass schemaClass,
       DatabaseSessionEmbedded session, Direction direction,
       String[] labels) {
     //As we support graph function for all relations both graph and non-graph.
@@ -90,7 +90,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
 
         for (var label : labels) {
           var property = schemaClass.getProperty(label);
-          if (property != null && property.getTypeInternal().isLink()) {
+          if (property != null && property.getType().isLink()) {
             result.add(label);
           }
         }
@@ -102,7 +102,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
         for (var label : labels) {
           var property = schemaClass.getProperty(label);
 
-          if (property != null && property.getTypeInternal().isLink()) {
+          if (property != null && property.getType().isLink()) {
             var systemPropertyName = EntityImpl.getOppositeLinkBagPropertyName(label);
             result.add(systemPropertyName);
           }
@@ -126,7 +126,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
 
     //if an entity is vertex, we collect property names that are references of lightweight edges,
     // so we return only properties that directly reference opposite vertices.
-    var immutableSchema = session.getMetadata().getFastImmutableSchema(session);
+    var immutableSchema = session.getMetadata().getFastImmutableSchema();
     return VertexEntityImpl.getAllPossibleEdgePropertyNames(
         immutableSchema,
         direction, EdgeType.LIGHTWEIGHT, labels);

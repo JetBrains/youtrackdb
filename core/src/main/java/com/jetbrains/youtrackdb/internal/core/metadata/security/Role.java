@@ -23,8 +23,8 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
@@ -229,26 +229,26 @@ public class Role extends IdentityWrapper implements SecurityRole {
 
     final var rules = roleClass.getProperty(RULES);
     if (rules == null) {
-      roleClass.createProperty(RULES, PropertyType.EMBEDDEDSET);
+      roleClass.createProperty(RULES, PropertyTypeInternal.EMBEDDEDSET);
     }
 
     if (!roleClass.existsProperty(INHERITED_ROLE)) {
-      roleClass.createProperty(INHERITED_ROLE, PropertyType.LINK, roleClass);
+      roleClass.createProperty(INHERITED_ROLE, PropertyTypeInternal.LINK, roleClass);
     }
 
     p = roleClass.getProperty(NAME);
     if (p == null) {
-      p = roleClass.createProperty(NAME, PropertyType.STRING).
-          setMandatory(true)
-          .setNotNull(true);
+      p = roleClass.createProperty(NAME, PropertyTypeInternal.STRING);
+      p.setMandatory(true);
+      p.setNotNull(true);
     }
 
-    if (roleClass.getInvolvedIndexes(session, NAME) == null) {
+    if (roleClass.getInvolvedIndexesNames(NAME) == null) {
       p.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
     }
 
     if (!roleClass.existsProperty(POLICIES)) {
-      roleClass.createProperty(POLICIES, PropertyType.LINKMAP,
+      roleClass.createProperty(POLICIES, PropertyTypeInternal.LINKMAP,
           schema.getClass(SecurityPolicy.CLASS_NAME));
     }
   }

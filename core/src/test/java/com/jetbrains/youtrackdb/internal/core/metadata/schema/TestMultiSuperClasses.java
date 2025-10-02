@@ -32,14 +32,14 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
   }
 
   private void testClassCreationBranch(SchemaClass aClass, SchemaClass bClass, SchemaClass cClass) {
-    assertNotNull(aClass.getParents());
-    assertEquals(0, aClass.getParents().size());
+    assertNotNull(aClass.getParentClasses());
+    assertEquals(0, aClass.getParentClasses().size());
     assertNotNull(bClass.getParentClassesNames());
     assertEquals(0, bClass.getParentClassesNames().size());
     assertNotNull(cClass.getParentClassesNames());
     assertEquals(2, cClass.getParentClassesNames().size());
 
-    List<? extends SchemaClass> superClasses = cClass.getParents();
+    List<? extends SchemaClass> superClasses = cClass.getParentClasses();
     assertTrue(superClasses.contains(aClass));
     assertTrue(superClasses.contains(bClass));
     assertTrue(cClass.isChildOf(aClass));
@@ -97,7 +97,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     var bClass = oSchema.createAbstractClass("cycleB", aClass);
     var cClass = oSchema.createAbstractClass("cycleC", bClass);
 
-    aClass.setParents(Collections.singletonList(cClass));
+    aClass.setParentClasses(Collections.singletonList(cClass));
   }
 
   @Test
@@ -128,7 +128,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.getClass("O");
     var vClass = oSchema.getClass("V");
-    vClass.setParents(Collections.singletonList(oClass));
+    vClass.setParentClasses(Collections.singletonList(oClass));
     var dummy1Class = oSchema.createClass("Dummy1", oClass, vClass);
     var dummy2Class = oSchema.createClass("Dummy2");
     var dummy3Class = oSchema.createClass("Dummy3", dummy1Class, dummy2Class);

@@ -317,13 +317,13 @@ public class SchemaTest extends BaseDBTest {
   @Test
   public void alterAttributes() {
     var company = session.getMetadata().getSlowMutableSchema().getClass("Company");
-    var superClasses = company.getParents();
+    var superClasses = company.getParentClasses();
     Assert.assertEquals(superClasses.size(), 1);
     var superClass = superClasses.getFirst();
 
     Assert.assertNotNull(superClass);
     var found = false;
-    for (var c : superClass.getChildren()) {
+    for (var c : superClass.getChildClasses()) {
       if (c.equals(company)) {
         found = true;
         break;
@@ -332,9 +332,9 @@ public class SchemaTest extends BaseDBTest {
     Assert.assertTrue(found);
 
     company.removeSuperClass(superClass);
-    Assert.assertTrue(company.getParents().isEmpty());
+    Assert.assertTrue(company.getParentClasses().isEmpty());
 
-    for (var c : superClass.getChildren()) {
+    for (var c : superClass.getChildClasses()) {
       Assert.assertNotSame(c, company);
     }
 
@@ -343,12 +343,12 @@ public class SchemaTest extends BaseDBTest {
         .close();
 
     company = session.getMetadata().getSlowMutableSchema().getClass("Company");
-    superClasses = company.getParents();
+    superClasses = company.getParentClasses();
     Assert.assertEquals(superClasses.size(), 1);
     superClass = superClasses.getFirst();
 
     found = false;
-    for (var c : superClass.getChildren()) {
+    for (var c : superClass.getChildClasses()) {
       if (c.equals(company)) {
         found = true;
         break;

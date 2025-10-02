@@ -51,8 +51,8 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
@@ -1563,7 +1563,7 @@ public final class FrontendTransactionImpl implements
   }
 
   @Override
-  public Entity newEntity(SchemaClass cls) {
+  public Entity newEntity(ImmutableSchemaClass cls) {
     checkIfActive();
     return session.newEntity(cls);
   }
@@ -1575,7 +1575,7 @@ public final class FrontendTransactionImpl implements
   }
 
   @Override
-  public EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass) {
+  public EmbeddedEntity newEmbeddedEntity(ImmutableSchemaClass schemaClass) {
     checkIfActive();
     return session.newEmbeddedEntity(schemaClass);
   }
@@ -1605,7 +1605,7 @@ public final class FrontendTransactionImpl implements
   }
 
   @Override
-  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type) {
+  public StatefulEdge newStatefulEdge(Vertex from, Vertex to, ImmutableSchemaClass type) {
     checkIfActive();
     return session.newStatefulEdge(from, to, type);
   }
@@ -1617,7 +1617,8 @@ public final class FrontendTransactionImpl implements
   }
 
   @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type) {
+  public Edge newLightweightEdge(Vertex from, Vertex to,
+      @Nonnull @org.jetbrains.annotations.UnknownNullability ImmutableSchemaClass type) {
     checkIfActive();
     return session.newLightweightEdge(from, to, type);
   }
@@ -1629,7 +1630,7 @@ public final class FrontendTransactionImpl implements
   }
 
   @Override
-  public Vertex newVertex(SchemaClass type) {
+  public Vertex newVertex(ImmutableSchemaClass type) {
     checkIfActive();
     return session.newVertex(type);
   }

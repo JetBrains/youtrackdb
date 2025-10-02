@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
@@ -17,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -95,12 +95,12 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
   private YTDBVertex createVertexWithClass(DatabaseSessionEmbedded sessionEmbedded, String label) {
     executeSchemaCode(session -> {
-      var schema = session.getSharedContext().getSchemaManager();
-      var vertexClass = schema.getClass(label);
+      var immutableSchema = session.getMetadata().getFastImmutableSchema();
+      var vertexClass = immutableSchema.getClass(label);
 
       if (vertexClass == null) {
-        var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
-        schema.getOrCreateClass(session, label, vClass);
+        var schema = session.getMetadata().getSlowMutableSchema();
+        schema.createClass(label);
       } else if (!vertexClass.isVertexType()) {
         throw new IllegalArgumentException("Class " + label + " is not a vertex type");
       }

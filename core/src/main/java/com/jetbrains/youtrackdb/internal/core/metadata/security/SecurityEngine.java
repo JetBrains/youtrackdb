@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -107,7 +107,7 @@ public class SecurityEngine {
     var clazz =
         session
             .getMetadata()
-            .getFastImmutableSchema(session)
+            .getFastImmutableSchema()
             .getClass(resource.getClassName());
     var propertyName = resource.getPropertyName();
     var roles = session.getCurrentUser().getRoles();
@@ -142,7 +142,7 @@ public class SecurityEngine {
     var clazz =
         session
             .getMetadata()
-            .getFastImmutableSchema(session)
+            .getFastImmutableSchema()
             .getClass(resource.getClassName());
     if (clazz == null) {
       return SQLBooleanExpression.TRUE;
@@ -215,7 +215,7 @@ public class SecurityEngine {
       DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityRole role,
-      SchemaClass clazz,
+      ImmutableSchemaClass clazz,
       SecurityPolicy.Scope scope) {
     SQLBooleanExpression result;
     if (role != null) {
@@ -244,7 +244,7 @@ public class SecurityEngine {
       DatabaseSessionEmbedded session,
       SecurityShared security,
       SecurityRole role,
-      SchemaClass clazz,
+      ImmutableSchemaClass clazz,
       String propertyName,
       SecurityPolicy.Scope scope) {
     var cacheKey = "$CLASS$" + clazz.getName() + "$PROP$" + propertyName + "$" + scope;
@@ -275,20 +275,20 @@ public class SecurityEngine {
       DatabaseSessionInternal session,
       SecurityShared security,
       SecurityRole role,
-      SchemaClass clazz,
+      ImmutableSchemaClass clazz,
       SecurityPolicy.Scope scope) {
     var resource = "database.class." + clazz.getName();
     var definedPolicies = security.getSecurityPolicies(session, role);
     var classPolicy = definedPolicies.get(resource);
 
     var predicateString = classPolicy != null ? classPolicy.get(scope, session) : null;
-    if (predicateString == null && !clazz.getParents().isEmpty()) {
-      if (clazz.getParents().size() == 1) {
+    if (predicateString == null && !clazz.getParentClasses().isEmpty()) {
+      if (clazz.getParentClasses().size() == 1) {
         return getPredicateForClassHierarchy(
-            session, security, role, clazz.getParents().getFirst(), scope);
+            session, security, role, clazz.getParentClasses().getFirst(), scope);
       }
       var result = new SQLAndBlock(-1);
-      for (var superClass : clazz.getParents()) {
+      for (var superClass : clazz.getParentClasses()) {
         var superClassPredicate =
             getPredicateForClassHierarchy(session, security, role, superClass, scope);
         if (superClassPredicate == null) {
@@ -318,7 +318,7 @@ public class SecurityEngine {
       DatabaseSessionInternal session,
       SecurityShared security,
       SecurityRole role,
-      SchemaClass clazz,
+      ImmutableSchemaClass clazz,
       String propertyName,
       SecurityPolicy.Scope scope) {
     var resource = "database.class." + clazz.getName() + "." + propertyName;
@@ -326,18 +326,18 @@ public class SecurityEngine {
     var classPolicy = definedPolicies.get(resource);
 
     var predicateString = classPolicy != null ? classPolicy.get(scope, session) : null;
-    if (predicateString == null && !clazz.getParents().isEmpty()) {
-      if (clazz.getParents().size() == 1) {
+    if (predicateString == null && !clazz.getParentClasses().isEmpty()) {
+      if (clazz.getParentClasses().size() == 1) {
         return getPredicateForClassHierarchy(
             session,
             security,
             role,
-            clazz.getParents().getFirst(),
+            clazz.getParentClasses().getFirst(),
             propertyName,
             scope);
       }
       var result = new SQLAndBlock(-1);
-      for (var superClass : clazz.getParents()) {
+      for (var superClass : clazz.getParentClasses()) {
         var superClassPredicate =
             getPredicateForClassHierarchy(session, security, role, superClass, propertyName, scope);
         if (superClassPredicate == null) {

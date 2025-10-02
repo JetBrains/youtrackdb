@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
@@ -59,7 +59,7 @@ public class UpsertStep extends AbstractExecutionStep {
   }
 
   private static void setContent(ResultInternal res, SQLWhereClause initialFilter,
-      SchemaClass schemaClass, CommandContext ctx) {
+      ImmutableSchemaClass schemaClass, CommandContext ctx) {
     var flattened = initialFilter.flatten(ctx, schemaClass);
     if (flattened.isEmpty()) {
       return;

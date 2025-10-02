@@ -9,8 +9,6 @@ import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
@@ -89,16 +87,14 @@ public class FetchTemporaryFromTxStep extends AbstractExecutionStep {
     if (!(record instanceof EntityImpl entity)) {
       return false;
     }
-
-    SchemaClassSnapshot result;
-    result = entity.getImmutableSchemaClass(session);
-    SchemaClass schema = result;
-    if (schema == null) {
+    var schemaClass = entity.getImmutableSchemaClass();
+    ;
+    if (schemaClass == null) {
       return className == null;
-    } else if (schema.getName().equals(className)) {
+    } else if (schemaClass.getName().equals(className)) {
       return true;
     } else {
-      return schema.isChildOf(className);
+      return schemaClass.isChildOf(className);
     }
   }
 

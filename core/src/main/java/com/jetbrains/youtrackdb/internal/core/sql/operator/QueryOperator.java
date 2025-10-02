@@ -24,10 +24,8 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.EntitySerializer;
-import com.jetbrains.youtrackdb.internal.core.sql.IndexSearchResult;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorDivide;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorMinus;
@@ -35,7 +33,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorMod
 import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorMultiply;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.math.QueryOperatorPlus;
 import java.util.List;
-import javax.annotation.Nullable;
 
 /**
  * Query Operators. Remember to handle the operator in OQueryItemCondition.
@@ -146,16 +143,6 @@ public abstract class QueryOperator {
    * @return Hint how index can be used to calculate result of operator execution.
    */
   public abstract IndexReuseType getIndexReuseType(Object iLeft, Object iRight);
-
-  @Nullable
-  public IndexSearchResult getOIndexSearchResult(
-      SchemaClass iSchemaClass,
-      SQLFilterCondition iCondition,
-      List<IndexSearchResult> iIndexSearchResults,
-      CommandContext context) {
-
-    return null;
-  }
 
   @Override
   public String toString() {

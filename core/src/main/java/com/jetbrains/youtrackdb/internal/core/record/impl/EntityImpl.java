@@ -1037,14 +1037,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
-    final var c = SchemaManager.checkPropertyNameIfValid(propertyName);
+    SchemaManager.checkPropertyNameIfValid(propertyName);
     if (allowMetadata && propertyName.charAt(0) == '@') {
       return;
-    }
-
-    if (c != null) {
-      throw new IllegalArgumentException(
-          "Invalid property name '" + propertyName);
     }
 
     var firstChar = propertyName.charAt(0);
@@ -1501,7 +1496,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private static void validateProperty(
       DatabaseSessionEmbedded session, ImmutableSchema schema, EntityImpl iRecord,
-      SchemaPropertySnapshot p)
+      ImmutableSchemaProperty p)
       throws ValidationException {
     iRecord.checkForBinding();
 
@@ -1518,7 +1513,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
             "The property '" + p.getFullName() + "' cannot be null, record: " + iRecord);
       }
 
-      if (propertyValue != null && p.getRegexp() != null && p.getType() == PropertyType.STRING) {
+      if (propertyValue != null && p.getRegexp() != null
+          && p.getType() == PropertyTypeInternal.STRING) {
         // REGEXP
         if (!((String) propertyValue).matches(p.getRegexp())) {
           throw new ValidationException(session.getDatabaseName(),
@@ -1781,7 +1777,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private static void validateLinkCollection(
       DatabaseSessionEmbedded db, ImmutableSchema schema,
-      final SchemaProperty property,
+      final ImmutableSchemaProperty property,
       Iterable<Object> values,
       EntityEntry value) {
     if (property.getLinkedClass() != null) {
@@ -1803,12 +1799,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
   }
 
-  private static void validateType(DatabaseSessionInternal session, final SchemaProperty p,
+  private static void validateType(DatabaseSessionInternal session, final ImmutableSchemaProperty p,
       final Object value) {
     if (value != null) {
       try {
-        if (PropertyTypeInternal.convertFromPublicType(p.getLinkedType())
-            .convert(value, PropertyTypeInternal.convertFromPublicType(p.getLinkedType()),
+        if (p.getLinkedType()
+            .convert(value, p.getLinkedType(),
                 p.getLinkedClass(), session)
             == null) {
           throw new ValidationException(session.getDatabaseName(),
@@ -1837,7 +1833,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateLink(
-      ImmutableSchema schema, @Nonnull DatabaseSessionEmbedded session, final SchemaProperty p,
+      ImmutableSchema schema, @Nonnull DatabaseSessionEmbedded session,
+      final ImmutableSchemaProperty p,
       final Object propertyValue, boolean allowNull) {
     if (propertyValue == null) {
       if (allowNull) {
@@ -1897,7 +1894,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   private static void validateEmbedded(@Nonnull DatabaseSessionInternal session,
-      final SchemaProperty p,
+      final ImmutableSchemaProperty p,
       final Object propertyValue) {
     if (propertyValue == null) {
       return;
@@ -2228,7 +2225,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         var typeName = propertyTypes.get(propertyName);
 
         if (typeName != null) {
-          type = PropertyTypeInternal.valueOf(typeName).getPublicPropertyType();
+          type = PropertyTypeInternal.valueOf(typeName);
         }
       }
 
@@ -2767,7 +2764,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
         PropertyTypeInternal propertyType = null;
         if (prop != null) {
-          propertyType = PropertyTypeInternal.convertFromPublicType(prop.getType());
+          propertyType = prop.getType();
         }
         if (propertyType == null) {
           propertyType = entry.getValue().type;
@@ -3498,7 +3495,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
           if (clazz != null) {
             final var prop = clazz.getProperty(propertyEntry.getKey());
             propertyType =
-                prop != null ? PropertyTypeInternal.convertFromPublicType(prop.getType()) : null;
+                prop != null ? prop.getType() : null;
           }
         }
         if (propertyType == null) {
@@ -3765,13 +3762,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
     for (var prop : clazz.getProperties()) {
       var entry = properties != null ? properties.get(prop.getName()) : null;
       if (entry != null && entry.exists()) {
-        if (entry.type == null || entry.type != PropertyTypeInternal.convertFromPublicType(
-            prop.getType())) {
+        if (entry.type == null || entry.type != prop.getType()) {
           var preChanged = entry.isChanged();
           var preCreated = entry.isCreated();
           var propertyName = prop.getName();
           var propertyType = prop.getType();
-          setProperty(propertyName, entry.value, propertyType);
+          setProperty(propertyName, entry.value, propertyType.getPublicPropertyType());
           if (recordId.isNew()) {
             if (preChanged) {
               entry.markChanged();
@@ -3790,11 +3786,10 @@ public class EntityImpl extends RecordAbstract implements Entity {
         if (defValue != null && !hasProperty(prop.getName())) {
           var curFieldValue = SQLHelper.parseDefaultValue(session, this, defValue, prop);
           var propertyValue = convertField(session,
-              this, prop.getName(), PropertyTypeInternal.convertFromPublicType(prop.getType()),
-              PropertyTypeInternal.convertFromPublicType(prop.getLinkedType()), curFieldValue);
+              this, prop.getName(), prop.getType(),
+              prop.getLinkedType(), curFieldValue);
           final var propertyName = prop.getName();
-          setPropertyInternal(propertyName, propertyValue,
-              PropertyTypeInternal.convertFromPublicType(prop.getType()));
+          setPropertyInternal(propertyName, propertyValue, prop.getType());
         }
       }
     }
@@ -3807,7 +3802,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       // SCHEMA-FULL?
       final var prop = clazz.getProperty(propertyName);
       if (prop != null) {
-        propertyType = PropertyTypeInternal.convertFromPublicType(prop.getType());
+        propertyType = prop.getType();
       }
     }
 
@@ -3917,8 +3912,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         immutableSchemaClass != null ? immutableSchemaClass.getProperty(fieldName) : null;
     if (linkedType == null) {
       linkedType =
-          property != null ? PropertyTypeInternal.convertFromPublicType(property.getLinkedType())
-              : null;
+          property != null ? property.getLinkedType() : null;
     }
 
     value = type.convert(value, linkedType,

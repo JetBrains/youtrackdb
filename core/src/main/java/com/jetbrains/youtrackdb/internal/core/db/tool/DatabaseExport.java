@@ -30,7 +30,9 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -384,7 +386,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonGenerator.writeNumberField("storage-config-version",
         StorageConfiguration.CURRENT_VERSION);
-    jsonGenerator.writeNumberField("schema-version", SchemaShared.CURRENT_VERSION_NUMBER);
+    jsonGenerator.writeNumberField("schema-version", SchemaManager.CURRENT_VERSION_NUMBER);
     jsonGenerator.writeStringField("schemaRecordId",
         session.getStorageInfo().getConfiguration().getSchemaRecordId());
     jsonGenerator.writeStringField("indexMgrRecordId",
@@ -399,10 +401,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonGenerator.writeArrayFieldStart("indexes");
 
-    final var indexManager = session.getSharedContext().getIndexManager();
-    indexManager.reload(session);
-
-    final var indexes = indexManager.getIndexes();
+    final var indexes = session.getMetadata().getFastImmutableSchema().getIndexes();
 
     for (var index : indexes) {
       final var clsName =
@@ -458,14 +457,11 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonGenerator.writeObjectFieldStart("schema");
     var schema = session.getMetadata().getFastImmutableSchema();
-    //noinspection deprecation
-    jsonGenerator.writeNumberField("version", schema.getVersion());
-
     if (!schema.getClasses().isEmpty()) {
       jsonGenerator.writeArrayFieldStart("classes");
 
-      final List<SchemaClass> classes = new ArrayList<>(schema.getClasses());
-      classes.sort(Comparator.comparing(SchemaClass::getName, (n1, n2) -> {
+      final List<ImmutableSchemaClass> classes = new ArrayList<>(schema.getClasses());
+      classes.sort(Comparator.comparing(ImmutableSchemaClass::getName, (n1, n2) -> {
         final var n1priority = PRIORITY_EXPORT_CLASSES.contains(n1);
         final var n2priority = PRIORITY_EXPORT_CLASSES.contains(n2);
         if (n1priority == n2priority) {
@@ -490,9 +486,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         if (cls.isStrictMode()) {
           jsonGenerator.writeBooleanField("strictMode", cls.isStrictMode());
         }
-        if (!cls.getParents().isEmpty()) {
+        if (!cls.getParentClasses().isEmpty()) {
           jsonGenerator.writeArrayFieldStart("super-classes");
-          for (var superClass : cls.getParents()) {
+          for (var superClass : cls.getParentClasses()) {
             jsonGenerator.writeString(superClass.getName());
           }
           jsonGenerator.writeEndArray();

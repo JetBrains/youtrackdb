@@ -8,10 +8,10 @@ import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
@@ -314,7 +314,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
   @Nullable
   @Override
   public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
-      SchemaClass schemaClass) {
+      ImmutableSchemaClass schemaClass) {
     if (isGraphRelationFunction(ctx.getDatabaseSession())) {
       return identifier.getGraphNavigationFunctionProperties(ctx, schemaClass);
     }
@@ -631,7 +631,7 @@ public final class SQLBaseExpression extends SQLMathExpression {
   }
 
   @Override
-  public boolean isIndexChain(CommandContext ctx, SchemaClass clazz) {
+  public boolean isIndexChain(CommandContext ctx, ImmutableSchemaClass clazz) {
     if (modifier == null) {
       return false;
     }

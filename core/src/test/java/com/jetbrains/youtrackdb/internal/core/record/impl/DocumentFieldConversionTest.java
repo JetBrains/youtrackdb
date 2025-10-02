@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.math.BigDecimal;
 import java.util.Calendar;
@@ -19,44 +20,60 @@ public class DocumentFieldConversionTest extends BaseMemoryInternalDatabase {
   public void beforeTest() throws Exception {
     super.beforeTest();
     clazz = session.getMetadata().getSlowMutableSchema().createClass("testClass");
-    clazz.createProperty("integer", PropertyType.INTEGER);
-    clazz.createProperty("string", PropertyType.STRING);
-    clazz.createProperty("boolean", PropertyType.BOOLEAN);
-    clazz.createProperty("long", PropertyType.LONG);
-    clazz.createProperty("float", PropertyType.FLOAT);
-    clazz.createProperty("double", PropertyType.DOUBLE);
-    clazz.createProperty("decimal", PropertyType.DECIMAL);
-    clazz.createProperty("date", PropertyType.DATE);
+    clazz.createProperty("integer", PropertyTypeInternal.INTEGER);
+    clazz.createProperty("string", PropertyTypeInternal.STRING);
+    clazz.createProperty("boolean", PropertyTypeInternal.BOOLEAN);
+    clazz.createProperty("long", PropertyTypeInternal.LONG);
+    clazz.createProperty("float", PropertyTypeInternal.FLOAT);
+    clazz.createProperty("double", PropertyTypeInternal.DOUBLE);
+    clazz.createProperty("decimal", PropertyTypeInternal.DECIMAL);
+    clazz.createProperty("date", PropertyTypeInternal.DATE);
 
-    clazz.createProperty("byteList", PropertyType.EMBEDDEDLIST, PropertyType.BYTE);
-    clazz.createProperty("integerList", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
-    clazz.createProperty("longList", PropertyType.EMBEDDEDLIST, PropertyType.LONG);
-    clazz.createProperty("stringList", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
-    clazz.createProperty("floatList", PropertyType.EMBEDDEDLIST, PropertyType.FLOAT);
-    clazz.createProperty("doubleList", PropertyType.EMBEDDEDLIST, PropertyType.DOUBLE);
-    clazz.createProperty("decimalList", PropertyType.EMBEDDEDLIST, PropertyType.DECIMAL);
-    clazz.createProperty("booleanList", PropertyType.EMBEDDEDLIST, PropertyType.BOOLEAN);
-    clazz.createProperty("dateList", PropertyType.EMBEDDEDLIST, PropertyType.DATE);
+    clazz.createProperty("byteList", PropertyTypeInternal.EMBEDDEDLIST, PropertyTypeInternal.BYTE);
+    clazz.createProperty("integerList", PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.INTEGER);
+    clazz.createProperty("longList", PropertyTypeInternal.EMBEDDEDLIST, PropertyTypeInternal.LONG);
+    clazz.createProperty("stringList", PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.STRING);
+    clazz.createProperty("floatList", PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.FLOAT);
+    clazz.createProperty("doubleList", PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.DOUBLE);
+    clazz.createProperty("decimalList", PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.DECIMAL);
+    clazz.createProperty("booleanList", PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.BOOLEAN);
+    clazz.createProperty("dateList", PropertyTypeInternal.EMBEDDEDLIST, PropertyTypeInternal.DATE);
 
-    clazz.createProperty("byteSet", PropertyType.EMBEDDEDSET, PropertyType.BYTE);
-    clazz.createProperty("integerSet", PropertyType.EMBEDDEDSET, PropertyType.INTEGER);
-    clazz.createProperty("longSet", PropertyType.EMBEDDEDSET, PropertyType.LONG);
-    clazz.createProperty("stringSet", PropertyType.EMBEDDEDSET, PropertyType.STRING);
-    clazz.createProperty("floatSet", PropertyType.EMBEDDEDSET, PropertyType.FLOAT);
-    clazz.createProperty("doubleSet", PropertyType.EMBEDDEDSET, PropertyType.DOUBLE);
-    clazz.createProperty("decimalSet", PropertyType.EMBEDDEDSET, PropertyType.DECIMAL);
-    clazz.createProperty("booleanSet", PropertyType.EMBEDDEDSET, PropertyType.BOOLEAN);
-    clazz.createProperty("dateSet", PropertyType.EMBEDDEDSET, PropertyType.DATE);
+    clazz.createProperty("byteSet", PropertyTypeInternal.EMBEDDEDSET, PropertyTypeInternal.BYTE);
+    clazz.createProperty("integerSet", PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.INTEGER);
+    clazz.createProperty("longSet", PropertyTypeInternal.EMBEDDEDSET, PropertyTypeInternal.LONG);
+    clazz.createProperty("stringSet", PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.STRING);
+    clazz.createProperty("floatSet", PropertyTypeInternal.EMBEDDEDSET, PropertyTypeInternal.FLOAT);
+    clazz.createProperty("doubleSet", PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.DOUBLE);
+    clazz.createProperty("decimalSet", PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.DECIMAL);
+    clazz.createProperty("booleanSet", PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.BOOLEAN);
+    clazz.createProperty("dateSet", PropertyTypeInternal.EMBEDDEDSET, PropertyTypeInternal.DATE);
 
-    clazz.createProperty("byteMap", PropertyType.EMBEDDEDMAP, PropertyType.BYTE);
-    clazz.createProperty("integerMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
-    clazz.createProperty("longMap", PropertyType.EMBEDDEDMAP, PropertyType.LONG);
-    clazz.createProperty("stringMap", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    clazz.createProperty("floatMap", PropertyType.EMBEDDEDMAP, PropertyType.FLOAT);
-    clazz.createProperty("doubleMap", PropertyType.EMBEDDEDMAP, PropertyType.DOUBLE);
-    clazz.createProperty("decimalMap", PropertyType.EMBEDDEDMAP, PropertyType.DECIMAL);
-    clazz.createProperty("booleanMap", PropertyType.EMBEDDEDMAP, PropertyType.BOOLEAN);
-    clazz.createProperty("dateMap", PropertyType.EMBEDDEDMAP, PropertyType.DATE);
+    clazz.createProperty("byteMap", PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.BYTE);
+    clazz.createProperty("integerMap", PropertyTypeInternal.EMBEDDEDMAP,
+        PropertyTypeInternal.INTEGER);
+    clazz.createProperty("longMap", PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.LONG);
+    clazz.createProperty("stringMap", PropertyTypeInternal.EMBEDDEDMAP,
+        PropertyTypeInternal.STRING);
+    clazz.createProperty("floatMap", PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.FLOAT);
+    clazz.createProperty("doubleMap", PropertyTypeInternal.EMBEDDEDMAP,
+        PropertyTypeInternal.DOUBLE);
+    clazz.createProperty("decimalMap", PropertyTypeInternal.EMBEDDEDMAP,
+        PropertyTypeInternal.DECIMAL);
+    clazz.createProperty("booleanMap", PropertyTypeInternal.EMBEDDEDMAP,
+        PropertyTypeInternal.BOOLEAN);
+    clazz.createProperty("dateMap", PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.DATE);
   }
 
   @Test

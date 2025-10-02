@@ -37,8 +37,8 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
-import java.util.Iterator;
 import javax.annotation.Nonnull;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 /// Handles indexing when records change. The underlying lock manager for keys can be the
 /// [PartitionedLockManager], the default one.
@@ -179,7 +179,7 @@ public abstract class IndexAbstract implements Index {
 
 
   @Override
-  public Iterator<Object> keys() {
+  public CloseableIterator<Object> keys() {
     return storage.getIndexKeys(schemaIndex.getId());
   }
 

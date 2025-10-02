@@ -300,7 +300,7 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     setPropertyInternal(PropertyNames.GLOBAL_PROPERTY, globalPropertyEntity);
   }
 
-  public Iterator<SchemaIndexEntity> getInvolvedIndexes() {
+  public Iterator<SchemaIndexEntity> getIndexes() {
     var oppositeIndexLinkName =
         getOppositeLinkBagPropertyName(SchemaIndexEntity.PROPERTIES_TO_INDEX);
     LinkBag involvedIndexes = getPropertyInternal(oppositeIndexLinkName);

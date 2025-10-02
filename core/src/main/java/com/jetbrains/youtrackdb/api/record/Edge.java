@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrackdb.api.record;
 
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -151,6 +152,13 @@ public interface Edge extends Element, Relation<Vertex> {
    */
   @Nonnull
   SchemaClass getSchemaClass();
+
+  /**
+   * Retrieves the immutable schema class associated with this edge.
+   *
+   * @return the immutable schema class associated with this edge.
+   */
+  ImmutableSchemaClass getImmutableSchemaClass();
 
   /**
    * Retrieves the class name associated with this edge

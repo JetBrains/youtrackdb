@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.List;
@@ -39,7 +40,7 @@ public class IndexCandidateComposite implements IndexCandidate {
   }
 
   @Override
-  public List<SchemaProperty> properties() {
+  public List<ImmutableSchemaProperty> properties() {
     return properties;
   }
 }

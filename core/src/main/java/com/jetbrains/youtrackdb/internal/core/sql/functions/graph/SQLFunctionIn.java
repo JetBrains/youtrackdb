@@ -5,15 +5,15 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiCollectionIterator;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.Sizeable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 
@@ -83,12 +83,12 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphNa
     var edgeClass =
         session
             .getMetadata()
-            .getFastImmutableSchema(session)
-            .getClassInternal(edgeClassName);
+            .getFastImmutableSchema()
+            .getClass(edgeClassName);
     if (edgeClass == null) {
       return null;
     }
-    var indexes = edgeClass.getInvolvedIndexesInternal(session, "in", "out");
+    var indexes = edgeClass.getInvolvedIndexes("in", "out");
     if (indexes == null || indexes.isEmpty()) {
       return null;
     }
@@ -97,16 +97,17 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphNa
     var result = new MultiCollectionIterator<Vertex>();
     for (var identifiable : to) {
       var key = new CompositeKey(iFrom, identifiable);
-      try (var stream = index
+      try (var iterator = index
           .getRids(session, key)) {
         result.add(
-            stream
-                .map((edge) -> {
+            YTDBIteratorUtils.set(YTDBIteratorUtils.map(iterator,
+                (edge) -> {
                   var transaction = session.getActiveTransaction();
                   EntityImpl entity = transaction.load(edge);
                   return entity.getProperty("out");
                 })
-                .collect(Collectors.toSet()));
+            )
+        );
       }
     }
 
@@ -116,7 +117,7 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphNa
   @Nullable
   @Override
   public Collection<String> propertyNamesForIndexCandidates(String[] labels,
-      SchemaClass schemaClass,
+      ImmutableSchemaClass schemaClass,
       boolean polymorphic, DatabaseSessionEmbedded session) {
     return SQLGraphNavigationFunction.propertiesForV2VNavigation(schemaClass, session,
         Direction.IN,

@@ -37,9 +37,8 @@ import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EmbeddedEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityEntry;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -87,11 +86,11 @@ public class EntitySerializerDelta {
 
   protected static void serializeClass(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
-    SchemaClassSnapshot result = null;
+    ImmutableSchemaClass result = null;
     if (entity != null) {
-      result = entity.getImmutableSchemaClass(session);
+      result = entity.getImmutableSchemaClass();
     }
-    final SchemaClass clazz = result;
+    final var clazz = result;
     String name = null;
     if (clazz != null) {
       name = clazz.getName();
@@ -114,11 +113,11 @@ public class EntitySerializerDelta {
   private static void serialize(DatabaseSessionInternal session, final EntityImpl entity,
       final BytesContainer bytes) {
     serializeClass(session, entity, bytes);
-    SchemaClassSnapshot result = null;
+    ImmutableSchemaClass result = null;
     if (entity != null) {
-      result = entity.getImmutableSchemaClass(session);
+      result = entity.getImmutableSchemaClass();
     }
-    SchemaClass oClass = result;
+    var cls = result;
     final var fields = entity.getRawEntries();
     VarIntSerializer.write(bytes, entity.getPropertiesCount());
     for (var entry : fields) {
@@ -138,7 +137,7 @@ public class EntitySerializerDelta {
         }
         writeNullableType(bytes, type);
         serializeValue(session, bytes, value, type,
-            getLinkedType(session, oClass, type, entry.getKey()));
+            getLinkedType(cls, type, entry.getKey()));
       } else {
         writeNullableType(bytes, null);
       }
@@ -566,11 +565,11 @@ public class EntitySerializerDelta {
   public static void serializeDelta(DatabaseSessionInternal session, BytesContainer bytes,
       EntityImpl entity) {
     serializeClass(session, entity, bytes);
-    SchemaClassSnapshot result = null;
+    ImmutableSchemaClass result = null;
     if (entity != null) {
-      result = entity.getImmutableSchemaClass(session);
+      result = entity.getImmutableSchemaClass();
     }
-    SchemaClass oClass = result;
+    var cls = result;
     var count =
         entity.getRawEntries().stream()
             .filter(
@@ -592,10 +591,10 @@ public class EntitySerializerDelta {
         writeString(bytes, entry.getKey());
       } else if (docEntry.isTxCreated()) {
         serializeByte(bytes, CREATED);
-        serializeFullEntry(session, bytes, oClass, entry.getKey(), docEntry);
+        serializeFullEntry(session, bytes, cls, entry.getKey(), docEntry);
       } else if (docEntry.isTxChanged()) {
         serializeByte(bytes, REPLACED);
-        serializeFullEntry(session, bytes, oClass, entry.getKey(), docEntry);
+        serializeFullEntry(session, bytes, cls, entry.getKey(), docEntry);
       } else if (docEntry.isTxTrackedModified()) {
         serializeByte(bytes, CHANGED);
         // timeline must not be NULL here. Else check that tracker is enabled
@@ -974,7 +973,7 @@ public class EntitySerializerDelta {
     if (type == null) {
       final var prop = entry.property;
       if (prop != null) {
-        type = PropertyTypeInternal.convertFromPublicType(prop.getType());
+        type = prop.getType();
       }
     }
     if (type == null) {
@@ -984,7 +983,7 @@ public class EntitySerializerDelta {
   }
 
   private static void serializeFullEntry(
-      @Nonnull DatabaseSessionInternal session, BytesContainer bytes, SchemaClass oClass,
+      @Nonnull DatabaseSessionInternal session, BytesContainer bytes, ImmutableSchemaClass cls,
       String name,
       EntityEntry entry) {
     final var value = entry.value;
@@ -998,7 +997,7 @@ public class EntitySerializerDelta {
       }
       writeString(bytes, name);
       writeNullableType(bytes, type);
-      serializeValue(session, bytes, value, type, getLinkedType(session, oClass, type, name));
+      serializeValue(session, bytes, value, type, getLinkedType(cls, type, name));
     } else {
       writeString(bytes, name);
       writeNullableType(bytes, null);

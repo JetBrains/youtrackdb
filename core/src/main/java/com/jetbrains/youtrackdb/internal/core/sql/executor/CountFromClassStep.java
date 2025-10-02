@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExecutionStream;
 
@@ -14,7 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ProduceExec
  */
 public class CountFromClassStep extends AbstractExecutionStep {
 
-  private final SchemaClass target;
+  private final ImmutableSchemaClass target;
   private final String alias;
 
   /**
@@ -24,7 +24,8 @@ public class CountFromClassStep extends AbstractExecutionStep {
    * @param profilingEnabled true to enable the profiling of the execution (for SQL PROFILE)
    */
   public CountFromClassStep(
-      SchemaClass targetClass, String alias, CommandContext ctx, boolean profilingEnabled) {
+      ImmutableSchemaClass targetClass, String alias, CommandContext ctx,
+      boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.target = targetClass;
     this.alias = alias;

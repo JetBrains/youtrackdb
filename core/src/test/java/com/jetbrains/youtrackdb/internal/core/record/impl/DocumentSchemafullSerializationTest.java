@@ -3,9 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -70,49 +70,49 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     // databaseDocument.getMetadata().
     Schema schema = session.getMetadata().getSlowMutableSchema();
     address = schema.createAbstractClass("Address");
-    address.createProperty(NAME, PropertyType.STRING);
-    address.createProperty(NUMBER, PropertyType.INTEGER);
-    address.createProperty(CITY, PropertyType.STRING);
+    address.createProperty(NAME, PropertyTypeInternal.STRING);
+    address.createProperty(NUMBER, PropertyTypeInternal.INTEGER);
+    address.createProperty(CITY, PropertyTypeInternal.STRING);
 
     simple = schema.createClass("Simple");
-    simple.createProperty(STRING_FIELD, PropertyType.STRING);
-    simple.createProperty(INT_FIELD, PropertyType.INTEGER);
-    simple.createProperty(SHORT_FIELD, PropertyType.SHORT);
-    simple.createProperty(LONG_FIELD, PropertyType.LONG);
-    simple.createProperty(FLOAT_NUMBER, PropertyType.FLOAT);
-    simple.createProperty(DOUBLE_NUMBER, PropertyType.DOUBLE);
-    simple.createProperty(BYTE_FIELD, PropertyType.BYTE);
-    simple.createProperty(BOOLEAN_FIELD, PropertyType.BOOLEAN);
-    simple.createProperty(DATE_FIELD, PropertyType.DATETIME);
-    simple.createProperty(RECORDID_FIELD, PropertyType.LINK);
-    simple.createProperty(EMBEDDED_FIELD, PropertyType.EMBEDDED, address);
+    simple.createProperty(STRING_FIELD, PropertyTypeInternal.STRING);
+    simple.createProperty(INT_FIELD, PropertyTypeInternal.INTEGER);
+    simple.createProperty(SHORT_FIELD, PropertyTypeInternal.SHORT);
+    simple.createProperty(LONG_FIELD, PropertyTypeInternal.LONG);
+    simple.createProperty(FLOAT_NUMBER, PropertyTypeInternal.FLOAT);
+    simple.createProperty(DOUBLE_NUMBER, PropertyTypeInternal.DOUBLE);
+    simple.createProperty(BYTE_FIELD, PropertyTypeInternal.BYTE);
+    simple.createProperty(BOOLEAN_FIELD, PropertyTypeInternal.BOOLEAN);
+    simple.createProperty(DATE_FIELD, PropertyTypeInternal.DATETIME);
+    simple.createProperty(RECORDID_FIELD, PropertyTypeInternal.LINK);
+    simple.createProperty(EMBEDDED_FIELD, PropertyTypeInternal.EMBEDDED, address);
 
     embSimp = schema.createClass("EmbeddedCollectionSimple");
-    embSimp.createProperty(LIST_BOOLEANS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_BYTES, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_DATES, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_DOUBLES, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_FLOATS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_INTEGERS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_LONGS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_SHORTS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_STRINGS, PropertyType.EMBEDDEDLIST);
-    embSimp.createProperty(LIST_MIXED, PropertyType.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_BOOLEANS, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_BYTES, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_DATES, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_DOUBLES, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_FLOATS, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_INTEGERS, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_LONGS, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_SHORTS, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_STRINGS, PropertyTypeInternal.EMBEDDEDLIST);
+    embSimp.createProperty(LIST_MIXED, PropertyTypeInternal.EMBEDDEDLIST);
 
     embMapSimple = schema.createClass("EmbeddedMapSimple");
-    embMapSimple.createProperty(MAP_BYTES, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(MAP_DATE, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(MAP_DOUBLE, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(MAP_FLOAT, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(MAP_INT, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(MAP_LONG, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(MAP_SHORT, PropertyType.EMBEDDEDMAP);
-    embMapSimple.createProperty(MAP_STRING, PropertyType.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_BYTES, PropertyTypeInternal.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_DATE, PropertyTypeInternal.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_DOUBLE, PropertyTypeInternal.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_FLOAT, PropertyTypeInternal.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_INT, PropertyTypeInternal.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_LONG, PropertyTypeInternal.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_SHORT, PropertyTypeInternal.EMBEDDEDMAP);
+    embMapSimple.createProperty(MAP_STRING, PropertyTypeInternal.EMBEDDEDMAP);
 
     var clazzEmbComp = schema.createClass("EmbeddedComplex");
-    clazzEmbComp.createProperty("addresses", PropertyType.EMBEDDEDLIST, address);
-    clazzEmbComp.createProperty("uniqueAddresses", PropertyType.EMBEDDEDSET, address);
-    clazzEmbComp.createProperty("addressByStreet", PropertyType.EMBEDDEDMAP, address);
+    clazzEmbComp.createProperty("addresses", PropertyTypeInternal.EMBEDDEDLIST, address);
+    clazzEmbComp.createProperty("uniqueAddresses", PropertyTypeInternal.EMBEDDEDSET, address);
+    clazzEmbComp.createProperty("addressByStreet", PropertyTypeInternal.EMBEDDEDMAP, address);
   }
 
   @Override
@@ -359,7 +359,7 @@ public abstract class DocumentSchemafullSerializationTest extends BaseMemoryInte
     final var rec = (RecordAbstract) extr;
     rec.unsetDirty();
     extr.fromStream(res);
-    assertEquals(PropertyType.STRING, extr.getPropertyType("name"));
+    assertEquals(PropertyTypeInternal.STRING, extr.getPropertyType("name"));
     session.rollback();
   }
 }

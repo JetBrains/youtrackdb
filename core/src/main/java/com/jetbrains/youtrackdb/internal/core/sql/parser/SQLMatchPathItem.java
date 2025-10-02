@@ -6,8 +6,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Collections;
@@ -91,13 +90,13 @@ public class SQLMatchPathItem extends SimpleNode {
     SQLWhereClause filter = null;
     SQLWhereClause whileCondition = null;
     Integer maxDepth = null;
-    SchemaClass oClass = null;
+    ImmutableSchemaClass cls = null;
     if (this.filter != null) {
       filter = this.filter.getFilter();
       whileCondition = this.filter.getWhileCondition();
       maxDepth = this.filter.getMaxDepth();
       var className = this.filter.getClassName(iCommandContext);
-      oClass = iCommandContext.getDatabaseSession().getMetadata().getFastImmutableSchema(session)
+      cls = iCommandContext.getDatabaseSession().getMetadata().getFastImmutableSchema()
           .getClass(className);
     }
 
@@ -118,7 +117,7 @@ public class SQLMatchPathItem extends SimpleNode {
       for (var origin : queryResult) {
         var previousMatch = iCommandContext.getVariable("$currentMatch");
         iCommandContext.setVariable("$currentMatch", origin);
-        if ((oClass == null || matchesClass(db, origin, oClass))
+        if ((cls == null || matchesClass(db, origin, cls))
             && (filter == null || filter.matchesFilters(origin, iCommandContext))) {
           result.add(origin);
         }
@@ -129,7 +128,7 @@ public class SQLMatchPathItem extends SimpleNode {
       iCommandContext.setVariable("$depth", depth);
       var previousMatch = iCommandContext.getVariable("$currentMatch");
       iCommandContext.setVariable("$currentMatch", startingPoint);
-      if ((oClass == null || matchesClass(db, startingPoint, oClass))
+      if ((cls == null || matchesClass(db, startingPoint, cls))
           && (filter == null || filter.matchesFilters(startingPoint, iCommandContext))) {
         result.add(startingPoint);
       }
@@ -160,7 +159,7 @@ public class SQLMatchPathItem extends SimpleNode {
   }
 
   private static boolean matchesClass(DatabaseSessionInternal session, Identifiable identifiable,
-      SchemaClass oClass) {
+      ImmutableSchemaClass oClass) {
     if (identifiable == null) {
       return false;
     }
@@ -168,10 +167,8 @@ public class SQLMatchPathItem extends SimpleNode {
       var transaction = session.getActiveTransaction();
       var record = transaction.load(identifiable);
       if (record instanceof EntityImpl) {
-        SchemaClassSnapshot result;
-        result = ((EntityImpl) record).getImmutableSchemaClass(session);
-        return result
-            .isChildOf(oClass);
+        var result = ((EntityImpl) record).getImmutableSchemaClass();
+        return result.isChildOf(oClass);
       }
     } catch (RecordNotFoundException rnf) {
       return false;

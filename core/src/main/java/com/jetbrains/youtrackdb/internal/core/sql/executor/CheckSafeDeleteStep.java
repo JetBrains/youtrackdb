@@ -5,8 +5,7 @@ import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
@@ -35,14 +34,13 @@ public class CheckSafeDeleteStep extends AbstractExecutionStep {
 
   private static Result mapResult(Result result, CommandContext ctx) {
     if (result.isEntity()) {
-      var session = ctx.getDatabaseSession();
       var elem = result.asEntityOrNull();
 
-      SchemaClassSnapshot res = null;
+      ImmutableSchemaClass res = null;
       if (elem != null) {
-        res = ((EntityImpl) elem).getImmutableSchemaClass(session);
+        res = ((EntityImpl) elem).getImmutableSchemaClass();
       }
-      SchemaClass clazz = res;
+      var clazz = res;
 
       if (clazz != null) {
         if (clazz.getName().equalsIgnoreCase("V") || clazz.isChildOf("V")) {

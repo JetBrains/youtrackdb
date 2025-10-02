@@ -185,7 +185,7 @@ public class IndexTest extends BaseDBTest {
 
   private void dropIndexes() {
     for (var indexName : session.getMetadata().getSlowMutableSchema().getClass("Profile")
-        .getProperty("nick").getAllIndexes()) {
+        .getProperty("nick").getIndexNames()) {
       session.getSharedContext().getIndexManager().dropIndex(session, indexName);
     }
   }
@@ -387,11 +387,11 @@ public class IndexTest extends BaseDBTest {
   public void testQueryingWithoutNickIndex() {
     Assert.assertFalse(
         session.getMetadata().getSlowMutableSchema().getClass("Profile")
-            .getInvolvedIndexes(session, "name").isEmpty());
+            .getInvolvedIndexesNames("name").isEmpty());
 
     Assert.assertTrue(
         session.getMetadata().getSlowMutableSchema().getClass("Profile")
-            .getInvolvedIndexes(session, "nick")
+            .getInvolvedIndexesNames("nick")
             .isEmpty());
 
     var result =
@@ -426,7 +426,7 @@ public class IndexTest extends BaseDBTest {
   public void testIndexInNotUniqueIndex() {
     Assert.assertEquals(
         session.getMetadata().getFastImmutableSchema().getClass("Profile").
-            getInvolvedIndexesInternal(session, "nick").iterator()
+            getInvolvedIndexes("nick").iterator()
             .next().getType(),
         SchemaManager.INDEX_TYPE.NOTUNIQUE.toString());
 

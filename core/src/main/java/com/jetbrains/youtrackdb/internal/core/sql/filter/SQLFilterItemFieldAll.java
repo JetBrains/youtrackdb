@@ -20,9 +20,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.filter;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 
 /**
@@ -35,7 +35,7 @@ public class SQLFilterItemFieldAll extends SQLFilterItemFieldMultiAbstract {
 
   public SQLFilterItemFieldAll(
       DatabaseSessionEmbedded session, final SQLPredicate iQueryCompiled, final String iName,
-      final SchemaClass iClass) {
+      final ImmutableSchemaClass iClass) {
     super(session, iQueryCompiled, iName, iClass, StringSerializerHelper.getParameters(iName));
   }
 

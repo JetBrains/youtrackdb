@@ -24,19 +24,19 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import java.util.HashSet;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInternal {
   @Nonnull
-  private final SchemaClassSnapshot lightweightEdgeType;
+  private final ImmutableSchemaClass lightweightEdgeType;
 
   public EdgeImpl(@Nonnull DatabaseSessionInternal session,
       @Nullable Vertex out, @Nullable Vertex in,
-      @Nonnull SchemaClassSnapshot lightweightEdgeType) {
+      @Nonnull ImmutableSchemaClass lightweightEdgeType) {
     super(session, out, in, lightweightEdgeType.getName());
     this.lightweightEdgeType = lightweightEdgeType;
   }
@@ -67,6 +67,11 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
   @Nonnull
   @Override
   public SchemaClass getSchemaClass() {
+    return session.getMetadata().getSlowMutableSchema().getClass(lightweightEdgeType.getName());
+  }
+
+  @Override
+  public ImmutableSchemaClass getImmutableSchemaClass() {
     return lightweightEdgeType;
   }
 
@@ -84,9 +89,8 @@ public class EdgeImpl extends LightweightRelationImpl<Vertex> implements EdgeInt
 
     var types = new HashSet<String>();
 
-    var typeClass = getSchemaClass();
-    typeClass.getAscendants().stream()
-        .map(SchemaClass::getName)
+    lightweightEdgeType.getAscendantClasses().stream()
+        .map(ImmutableSchemaClass::getName)
         .forEach(types::add);
     for (var s : labels) {
       for (var type : types) {

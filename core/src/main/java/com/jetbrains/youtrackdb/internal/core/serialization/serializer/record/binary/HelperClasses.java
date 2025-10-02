@@ -30,8 +30,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.GlobalProperty;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
@@ -356,8 +356,7 @@ public class HelperClasses {
   }
 
   @Nullable
-  public static PropertyTypeInternal getLinkedType(DatabaseSessionInternal session,
-      SchemaClass clazz,
+  public static PropertyTypeInternal getLinkedType(ImmutableSchemaClass clazz,
       PropertyTypeInternal type, String key) {
     if (type != PropertyTypeInternal.EMBEDDEDLIST && type != PropertyTypeInternal.EMBEDDEDSET
         && type != PropertyTypeInternal.EMBEDDEDMAP) {
@@ -366,7 +365,7 @@ public class HelperClasses {
     if (clazz != null) {
       var prop = clazz.getProperty(key);
       if (prop != null) {
-        return PropertyTypeInternal.convertFromPublicType(prop.getLinkedType());
+        return prop.getLinkedType();
       }
     }
     return null;

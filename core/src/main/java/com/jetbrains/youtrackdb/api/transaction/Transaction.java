@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import java.util.Collection;
 import java.util.Date;
 import java.util.Map;
@@ -145,11 +145,11 @@ public interface Transaction {
 
   Entity newEntity(final String className);
 
-  Entity newEntity(final SchemaClass cls);
+  Entity newEntity(final ImmutableSchemaClass cls);
 
   Entity newEntity();
 
-  EmbeddedEntity newEmbeddedEntity(SchemaClass schemaClass);
+  EmbeddedEntity newEmbeddedEntity(ImmutableSchemaClass schemaClass);
 
   EmbeddedEntity newEmbeddedEntity(String schemaClass);
 
@@ -167,7 +167,7 @@ public interface Transaction {
    * @param type the edge type
    * @return the edge
    */
-  StatefulEdge newStatefulEdge(Vertex from, Vertex to, SchemaClass type);
+  StatefulEdge newStatefulEdge(Vertex from, Vertex to, ImmutableSchemaClass type);
 
   /**
    * Creates a new Edge
@@ -188,7 +188,7 @@ public interface Transaction {
    * @param type the edge type
    * @return the edge
    */
-  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull SchemaClass type);
+  Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull ImmutableSchemaClass type);
 
   /**
    * Creates a new lightweight edge of provided type (class). Provided class should be an abstract
@@ -213,7 +213,7 @@ public interface Transaction {
    *
    * @param type the vertex type
    */
-  Vertex newVertex(SchemaClass type);
+  Vertex newVertex(ImmutableSchemaClass type);
 
   /**
    * Creates a new Vertex

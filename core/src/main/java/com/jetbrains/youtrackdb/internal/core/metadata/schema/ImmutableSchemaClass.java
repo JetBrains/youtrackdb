@@ -36,7 +36,7 @@ public interface ImmutableSchemaClass {
 
   List<String> getParentClassesNames();
 
-  List<? extends ImmutableSchemaClass> getParents();
+  List<? extends ImmutableSchemaClass> getParentClasses();
 
   String getName();
 
@@ -57,17 +57,17 @@ public interface ImmutableSchemaClass {
   /**
    * @return all the subclasses (one level hierarchy only)
    */
-  Collection<? extends ImmutableSchemaClass> getChildren();
+  Collection<? extends ImmutableSchemaClass> getChildClasses();
 
   /**
    * @return all the subclass hierarchy
    */
-  Collection<? extends ImmutableSchemaClass> getDescendants();
+  Collection<? extends ImmutableSchemaClass> getDescendantClasses();
 
   /**
    * @return all recursively collected super classes
    */
-  Collection<? extends ImmutableSchemaClass> getAscendants();
+  Collection<? extends ImmutableSchemaClass> getAscendantClasses();
 
   /**
    * Tells if the current instance extends the passed schema class (iClass).
@@ -116,24 +116,19 @@ public interface ImmutableSchemaClass {
 
   int getCollectionForNewInstance(final EntityImpl entity);
 
-  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... properties);
+  Set<Index> getInvolvedIndexes(String... properties);
 
-  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      final Collection<String> properties);
+  Set<Index> getInvolvedIndexes(final Collection<String> properties);
 
-
-  void getIndexes(DatabaseSessionEmbedded session, Collection<Index> indices);
 
   long count(DatabaseSessionInternal session);
 
 
   long count(DatabaseSessionInternal session, final boolean isPolymorphic);
 
-  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
-      String... properties);
+  Set<Index> getClassInvolvedIndexes(String... properties);
 
-  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
-      final Collection<String> properties);
+  Set<Index> getClassInvolvedIndexes(final Collection<String> properties);
 
   Collection<Index> getClassIndexesInternal();
 
@@ -145,28 +140,26 @@ public interface ImmutableSchemaClass {
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
    * fields does not matter.
    *
-   * <p>All indexes sorted by their count of parameters in ascending order. If there are indexes
+   * <p> If there are indexes
    * for the given set of fields in super class they will be taken into account.
    *
-   * @param session
-   * @param properties  Field names.
+   * @param properties Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
-  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, Collection<String> properties);
+  Set<String> getInvolvedIndexesNames(Collection<String> properties);
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
    * fields does not matter.
    *
-   * <p>All indexes sorted by their count of parameters in ascending order. If there are indexes
+   * <p>If there are indexes
    * for the given set of fields in super class they will be taken into account.
    *
-   * @param session
-   * @param properties  Field names.
+   * @param properties Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
-   * @see #getInvolvedIndexes(DatabaseSessionInternal, Collection)
+   * @see #getInvolvedIndexesNames(Collection)
    */
-  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... properties);
+  Set<String> getInvolvedIndexesNames(String... properties);
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
@@ -174,38 +167,34 @@ public interface ImmutableSchemaClass {
    *
    * <p>Indexes that related only to the given class will be returned.
    *
-   * @param properties  Field names.
+   * @param properties Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
-  Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> properties);
+  Set<String> getClassIndexes(Collection<String> properties);
 
   /**
-   * @param session
-   * @param properties  Field names.
+   * @param properties Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
-   * @see #getClassInvolvedIndexes(DatabaseSessionInternal, Collection)
+   * @see #getClassIndexes(Collection)
    */
-  Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session, String... properties);
+  Set<String> getClassIndexes(String... properties);
 
   /**
    * Indicates whether given fields are contained as first key fields in class indexes. Order of
    * fields does not matter. If there are indexes for the given set of fields in super class they
    * will be taken into account.
    *
-   * @param session
-   * @param properties  Field names.
+   * @param properties Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
    */
-  boolean areIndexed(DatabaseSessionInternal session, Collection<String> properties);
+  boolean areIndexed(Collection<String> properties);
 
   /**
-   * @param session
-   * @param properties  Field names.
+   * @param properties Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
-   * @see #areIndexed(DatabaseSessionInternal, Collection)
+   * @see #areIndexed(Collection)
    */
-  boolean areIndexed(DatabaseSessionInternal session, String... properties);
+  boolean areIndexed(String... properties);
 
   /**
    * @return All indexes for given class, not the inherited ones.
@@ -215,7 +204,12 @@ public interface ImmutableSchemaClass {
   /**
    * @return All indexes for given class and its super classes.
    */
-  Set<String> getIndexes();
+  Set<String> getIndexNames();
+
+  /**
+   * @return All indexes for given class and its super classes.
+   */
+  Set<Index> getIndexes();
 
   DatabaseSessionEmbedded getBoundToSession();
 

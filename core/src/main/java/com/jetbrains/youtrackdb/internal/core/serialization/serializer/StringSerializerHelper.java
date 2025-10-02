@@ -27,11 +27,9 @@ import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.StringParser;
 import com.jetbrains.youtrackdb.internal.common.types.Binary;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -1319,19 +1317,6 @@ public abstract class StringSerializerHelper {
     }
 
     return buffer.toString();
-  }
-
-  public static SchemaClass getRecordClassName(DatabaseSessionInternal session, final String iValue,
-      SchemaClass iLinkedClass) {
-    // EXTRACT THE CLASS NAME
-    final var classSeparatorPos =
-        StringParser.indexOfOutsideStrings(
-            iValue, StringSerializerHelper.CLASS_SEPARATOR.charAt(0), 0, -1);
-    if (classSeparatorPos > -1) {
-      final var className = iValue.substring(0, classSeparatorPos);
-      iLinkedClass = session.getMetadata().getFastImmutableSchema(session).getClass(className);
-    }
-    return iLinkedClass;
   }
 
   /**

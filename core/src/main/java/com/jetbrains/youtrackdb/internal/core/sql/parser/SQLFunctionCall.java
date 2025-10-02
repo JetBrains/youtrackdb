@@ -6,9 +6,9 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FuncitonAggregationContext;
@@ -208,7 +208,7 @@ public final class SQLFunctionCall extends SimpleNode {
 
   @Nullable
   public Collection<String> getGraphNavigationFunctionProperties(CommandContext ctx,
-      SchemaClass schemaClass) {
+      ImmutableSchemaClass schemaClass) {
     var session = ctx.getDatabaseSession();
     var function = SQLEngine.getFunction(session, name.getStringValue());
 

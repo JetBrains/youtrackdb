@@ -219,7 +219,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
     }
 
     this.maxComparable = maxComparable;
-    this.allIndexes = owner.getClassInvolvedIndexesInternal(session, name);
+    this.allIndexes = owner.getClassInvolvedIndexes(name);
   }
 
   private <T> T safeConvert(DatabaseSessionInternal session, Object value, Class<T> target,
@@ -320,8 +320,13 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
   }
 
   @Override
-  public Collection<String> getAllIndexes() {
+  public Collection<String> getIndexNames() {
     return this.allIndexes.stream().map(Index::getName).toList();
+  }
+
+  @Override
+  public Collection<Index> getIndexes() {
+    return allIndexes;
   }
 
   @Override

@@ -4,7 +4,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
@@ -149,14 +149,14 @@ public class SQLFromItem extends SimpleNode {
   }
 
   @Nullable
-  public SchemaClass getSchemaClass(DatabaseSessionEmbedded session) {
+  public ImmutableSchemaClass getSchemaClass(DatabaseSessionEmbedded session) {
     if (identifier == null) {
       return null;
     }
 
     var stringValue = identifier.getStringValue();
     if (stringValue != null && !stringValue.isEmpty()) {
-      return session.getMetadata().getFastImmutableSchema(session).getClassInternal(stringValue);
+      return session.getMetadata().getFastImmutableSchema().getClass(stringValue);
     }
 
     return null;

@@ -125,7 +125,7 @@ public class FetchEdgesToVerticesStep extends AbstractExecutionStep {
     if (targetClass == null) {
       return true;
     }
-    var schemaClass = edge.getSchemaClass();
+    var schemaClass = edge.getImmutableSchemaClass();
 
     assert schemaClass != null;
     return schemaClass.isChildOf(targetClass.getStringValue());

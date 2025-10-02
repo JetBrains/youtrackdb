@@ -19,9 +19,9 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -147,7 +147,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public Iterable<Vertex> getVertices(Direction direction, SchemaClass... type) {
+  public Iterable<Vertex> getVertices(Direction direction, ImmutableSchemaClass... type) {
     checkForBinding();
     List<String> types = new ArrayList<>();
     if (type != null) {
@@ -195,7 +195,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public Edge addEdge(Vertex to, SchemaClass type) {
+  public Edge addEdge(Vertex to, ImmutableSchemaClass type) {
     final String className;
     if (type != null) {
       className = type.getName();
@@ -207,7 +207,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public StatefulEdge addStateFulEdge(Vertex to, SchemaClass label) {
+  public StatefulEdge addStateFulEdge(Vertex to, ImmutableSchemaClass label) {
     final String className;
 
     if (label != null) {
@@ -220,7 +220,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public Edge addLightWeightEdge(Vertex to, SchemaClass label) {
+  public Edge addLightWeightEdge(Vertex to, ImmutableSchemaClass label) {
     final String className;
 
     if (label != null) {
@@ -233,7 +233,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Override
-  public Iterable<Edge> getEdges(Direction direction, SchemaClass... type) {
+  public Iterable<Edge> getEdges(Direction direction, ImmutableSchemaClass... type) {
     List<String> types = new ArrayList<>();
 
     if (type != null) {
@@ -372,7 +372,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   /// are also considered and added to the list of possible edge labels.
   @Nullable
   public static List<String> getAllPossibleEdgePropertyNames(
-      Schema schema, final Direction direction, EdgeType edgeType,
+      ImmutableSchema schema, final Direction direction, EdgeType edgeType,
       String... labels) {
     if (labels == null) {
       return null;
@@ -396,7 +396,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
         allClassNames.add(clazz.getName());
 
-        var subClasses = clazz.getDescendants();
+        var subClasses = clazz.getDescendantClasses();
         for (var subClass : subClasses) {
           allClassNames.add(subClass.getName());
         }
@@ -462,7 +462,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           // GO DOWN THROUGH THE INHERITANCE TREE
           var type = schema.getClass(clsName);
           if (type != null) {
-            for (var subType : type.getDescendants()) {
+            for (var subType : type.getDescendantClasses()) {
               clsName = subType.getName();
 
               if (fieldName.equals(DIRECTION_OUT_PREFIX + clsName)) {
@@ -491,7 +491,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
           // GO DOWN THROUGH THE INHERITANCE TREE
           var type = schema.getClass(clsName);
           if (type != null) {
-            for (var subType : type.getDescendants()) {
+            for (var subType : type.getDescendantClasses()) {
               clsName = subType.getName();
               if (fieldName.equals(DIRECTION_IN_PREFIX + clsName)) {
                 return new Pair<>(Direction.IN, clsName);
