@@ -56,9 +56,9 @@ public class SQLAlterPropertyStatement extends DDLStatement {
 
     if (customPropertyName != null) {
       var customName = customPropertyName.getStringValue();
-      Object oldValue = property.getCustom(customName);
+      Object oldValue = property.getCustomProperty(customName);
       var finalValue = customPropertyValue.execute((Identifiable) null, ctx);
-      property.setCustom(customName, finalValue == null ? null : "" + finalValue);
+      property.setCustomProperty(customName, finalValue == null ? null : "" + finalValue);
 
       result.setProperty("operation", "alter property custom");
       result.setProperty("customAttribute", customPropertyName.getStringValue());

@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -30,45 +29,42 @@ import javax.annotation.Nonnull;
  * Contains the description of a persistent class property.
  */
 public interface SchemaProperty extends ImmutableSchemaProperty {
-  SchemaProperty setName(String iName);
 
-  void set(ATTRIBUTES attribute, Object iValue);
+  void setName(String name);
 
-  SchemaProperty setLinkedClass(SchemaClass oClass);
+  void setLinkedClass(SchemaClass schemaClass);
 
-  SchemaProperty setLinkedType(@Nonnull PropertyType type);
+  void setLinkedType(
+      @Nonnull @org.jetbrains.annotations.UnknownNullability PropertyTypeInternal type);
 
-  SchemaProperty setNotNull(boolean iNotNull);
+  void setNotNull(boolean iNotNull);
 
   SchemaProperty setCollate(String iCollateName);
 
-  SchemaProperty setCollate(Collate collate);
+  void setCollate(Collate collate);
 
-  SchemaProperty setMandatory(boolean mandatory);
+  void setMandatory(boolean mandatory);
 
-  SchemaProperty setReadonly(boolean iReadonly);
+  void setReadonly(boolean readonly);
 
   /**
    * @param min can be null
-   * @return this property
    * @see SchemaProperty#getMin()
    */
-  SchemaProperty setMin(String min);
+  void setMin(String min);
 
 
   /**
    * @param max can be null
-   * @return this property
    * @see SchemaProperty#getMax()
    */
-  SchemaProperty setMax(String max);
+  void setMax(String max);
 
   /**
    * @param defaultValue can be null
-   * @return this property
    * @see SchemaProperty#getDefaultValue()
    */
-  SchemaProperty setDefaultValue(String defaultValue);
+  void setDefaultValue(String defaultValue);
 
   /**
    * Creates an index on this property. Indexes speed up queries but slow down insert and update
@@ -88,32 +84,6 @@ public interface SchemaProperty extends ImmutableSchemaProperty {
    * operations. For massive inserts we suggest to remove the index, make the massive insert and
    * recreate it.
    *
-   * @param iType
-   * @return
-   */
-  String createIndex(final String iType);
-
-  /**
-   * Creates an index on this property. Indexes speed up queries but slow down insert and update
-   * operations. For massive inserts we suggest to remove the index, make the massive insert and
-   * recreate it.
-   *
-   * @param iType    One of types supported.
-   *                 <ul>
-   *                   <li>UNIQUE: Doesn't allow duplicates
-   *                   <li>NOTUNIQUE: Allow duplicates
-   *                   <li>FULLTEXT: Indexes single word for full text search
-   *                 </ul>
-   * @param metadata the index metadata
-   * @return
-   */
-  String createIndex(String iType, Map<String, Object> metadata);
-
-  /**
-   * Creates an index on this property. Indexes speed up queries but slow down insert and update
-   * operations. For massive inserts we suggest to remove the index, make the massive insert and
-   * recreate it.
-   *
    * @param iType    One of types supported.
    *                 <ul>
    *                   <li>UNIQUE: Doesn't allow duplicates
@@ -125,18 +95,18 @@ public interface SchemaProperty extends ImmutableSchemaProperty {
    */
   String createIndex(INDEX_TYPE iType, Map<String, Object> metadata);
 
-  SchemaProperty setRegexp(String regexp);
+  void setRegexp(String regexp);
 
   /**
    * Change the type. It checks for compatibility between the change of type.
    */
-  SchemaProperty setType(final PropertyType iType);
+  void setType(final PropertyTypeInternal iType);
 
-  SchemaProperty setCustom(final String iName, final String iValue);
+  void setCustomProperty(final String iName, final String iValue);
 
-  void removeCustom(final String iName);
+  void removeCustomProperty(final String iName);
 
-  void clearCustom();
+  void clearCustomProperties();
 
   SchemaProperty setDescription(String iDescription);
 

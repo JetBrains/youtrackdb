@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -254,7 +253,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
   }
 
   @Override
-  public PropertyType getType() {
+  public PropertyTypeInternal getType() {
     return type.getPublicPropertyType();
   }
 
@@ -277,7 +276,7 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
 
   @Nullable
   @Override
-  public PropertyType getLinkedType() {
+  public PropertyTypeInternal getLinkedType() {
     if (linkedType == null) {
       return null;
     }
@@ -332,43 +331,18 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
   }
 
   @Override
-  public String getCustom(String iName) {
+  public String getCustomProperty(String iName) {
     return customProperties.get(iName);
   }
 
   @Override
-  public Set<String> getCustomKeys() {
+  public Set<String> getCustomPropertyNames() {
     return Collections.unmodifiableSet(customProperties.keySet());
   }
 
   @Override
   public SchemaClassSnapshot getOwnerClass() {
     return owner;
-  }
-
-  @Override
-  public Object get(ATTRIBUTES attribute) {
-    if (attribute == null) {
-      throw new IllegalArgumentException("attribute is null");
-    }
-
-    return switch (attribute) {
-      case LINKEDCLASS -> getLinkedClass();
-      case LINKEDTYPE -> linkedType;
-      case MIN -> min;
-      case MANDATORY -> mandatory;
-      case READONLY -> readOnly;
-      case MAX -> max;
-      case DEFAULT -> defaultValue;
-      case NAME -> name;
-      case NOTNULL -> notNull;
-      case REGEXP -> regexp;
-      case TYPE -> type;
-      case COLLATE -> collate;
-      case DESCRIPTION -> description;
-      default -> throw new IllegalArgumentException("Cannot find attribute '" + attribute + "'");
-    };
-
   }
 
   @Override
@@ -393,11 +367,6 @@ public final class SchemaPropertySnapshot implements ImmutableSchemaProperty {
   @Override
   public DatabaseSession getBoundToSession() {
     return null;
-  }
-
-  @Override
-  public PropertyTypeInternal getTypeInternal() {
-    return type;
   }
 
   @Override

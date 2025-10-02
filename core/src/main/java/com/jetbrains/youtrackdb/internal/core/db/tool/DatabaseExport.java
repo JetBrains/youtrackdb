@@ -543,10 +543,10 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             if (p.getRegexp() != null) {
               jsonGenerator.writeStringField("regexp", p.getRegexp());
             }
-            final var customKeys = p.getCustomKeys();
+            final var customKeys = p.getCustomPropertyNames();
             final Map<String, String> custom = new HashMap<>();
             for (var key : customKeys) {
-              custom.put(key, p.getCustom(key));
+              custom.put(key, p.getCustomProperty(key));
             }
 
             if (!custom.isEmpty()) {

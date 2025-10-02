@@ -38,11 +38,11 @@ public class AlterSchemaPropertyStatementExecutionTest extends DbTestBase {
     var className = "testSetCustom";
     var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
     var prop = clazz.createProperty("name", PropertyType.STRING);
-    prop.setCustom("foo", "bar");
+    prop.setCustomProperty("foo", "bar");
 
     var result = session.execute("alter property " + className + ".name custom foo='baz'");
     printExecutionPlan(null, result);
-    Object currentValue = prop.getCustom("foo");
+    Object currentValue = prop.getCustomProperty("foo");
 
     Assert.assertNotNull(result);
     Assert.assertTrue(result.hasNext());

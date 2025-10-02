@@ -794,7 +794,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     }
     if (customFields != null) {
       for (var entry : customFields.entrySet()) {
-        prop.setCustom(entry.getKey(), entry.getValue());
+        prop.setCustomProperty(entry.getKey(), entry.getValue());
       }
     }
   }

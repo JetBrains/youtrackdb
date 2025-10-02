@@ -220,7 +220,7 @@ public class SchemaTest extends BaseDBTest {
         .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
-        .setCustom("stereotype", "icon");
+        .setCustomProperty("stereotype", "icon");
 
     Assert.assertEquals(
         session
@@ -228,7 +228,7 @@ public class SchemaTest extends BaseDBTest {
             .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
-            .getCustom("stereotype"),
+            .getCustomProperty("stereotype"),
         "icon");
 
     // TEST CUSTOM PROPERTY EXISTS EVEN AFTER REOPEN
@@ -239,7 +239,7 @@ public class SchemaTest extends BaseDBTest {
             .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
-            .getCustom("stereotype"),
+            .getCustomProperty("stereotype"),
         "icon");
 
     // TEST CUSTOM PROPERTY REMOVAL
@@ -248,14 +248,14 @@ public class SchemaTest extends BaseDBTest {
         .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
-        .setCustom("stereotype", null);
+        .setCustomProperty("stereotype", null);
     Assert.assertNull(
         session
             .getMetadata()
             .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
-            .getCustom("stereotype"));
+            .getCustomProperty("stereotype"));
 
     // TEST CUSTOM PROPERTY UPDATE
     session
@@ -263,14 +263,14 @@ public class SchemaTest extends BaseDBTest {
         .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
-        .setCustom("stereotype", "polygon");
+        .setCustomProperty("stereotype", "polygon");
     Assert.assertEquals(
         session
             .getMetadata()
             .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
-            .getCustom("stereotype"),
+            .getCustomProperty("stereotype"),
         "polygon");
 
     // TEST CUSTOM PROPERTY UDPATED EVEN AFTER REOPEN
@@ -281,7 +281,7 @@ public class SchemaTest extends BaseDBTest {
             .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
-            .getCustom("stereotype"),
+            .getCustomProperty("stereotype"),
         "polygon");
 
     // TEST CUSTOM PROPERTY WITH =
@@ -291,7 +291,7 @@ public class SchemaTest extends BaseDBTest {
         .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
-        .setCustom("equal", "this = that");
+        .setCustomProperty("equal", "this = that");
 
     Assert.assertEquals(
         session
@@ -299,7 +299,7 @@ public class SchemaTest extends BaseDBTest {
             .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
-            .getCustom("equal"),
+            .getCustomProperty("equal"),
         "this = that");
 
     // TEST CUSTOM PROPERTY WITH = AFTER REOPEN
@@ -310,7 +310,7 @@ public class SchemaTest extends BaseDBTest {
             .getSlowMutableSchema()
             .getClass("Profile")
             .getProperty("nick")
-            .getCustom("equal"),
+            .getCustomProperty("equal"),
         "this = that");
   }
 

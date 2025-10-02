@@ -667,7 +667,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       case null -> {
         if (propType == PropertyType.LINKLIST
             || (prop != null
-            && "true".equalsIgnoreCase(prop.getCustom("ordered")))) { // TODO constant
+            && "true".equalsIgnoreCase(prop.getCustomProperty("ordered")))) { // TODO constant
           var coll = new EntityLinkListImpl(fromVertex);
           coll.add(to);
           out = coll;
@@ -696,7 +696,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         }
 
         if (prop != null && "true".equalsIgnoreCase(
-            prop.getCustom("ordered"))) { // TODO constant
+            prop.getCustomProperty("ordered"))) { // TODO constant
           var coll = new EntityLinkListImpl(fromVertex);
           coll.add(foundId);
           coll.add(to);

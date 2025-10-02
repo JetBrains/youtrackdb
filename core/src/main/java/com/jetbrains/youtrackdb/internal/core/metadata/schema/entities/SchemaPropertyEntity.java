@@ -14,7 +14,9 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.collections4.IteratorUtils;
@@ -270,13 +272,13 @@ public class SchemaPropertyEntity extends EntityImpl implements SchemaEntity {
     removeProperty(PropertyNames.CUSTOM_PROPERTIES);
   }
 
-  public Iterator<String> getCustomPropertyNames() {
+  public Set<String> getCustomPropertyNames() {
     EmbeddedMap<String> customProperties = getPropertyInternal(PropertyNames.CUSTOM_PROPERTIES);
     if (customProperties == null) {
-      return IteratorUtils.emptyIterator();
+      return Collections.emptySet();
     }
 
-    return customProperties.keySet().iterator();
+    return customProperties.keySet();
   }
 
   public RID getGlobalPropertyLink() {

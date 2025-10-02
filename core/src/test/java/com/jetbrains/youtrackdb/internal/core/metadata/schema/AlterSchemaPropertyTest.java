@@ -125,10 +125,10 @@ public class AlterSchemaPropertyTest extends DbTestBase {
     var oClass = schema.createClass("TestCreateCustomAttributeClass");
     var property = oClass.createProperty("property", PropertyType.STRING);
 
-    property.setCustom("customAttribute", "value1");
-    assertEquals("value1", property.getCustom("customAttribute"));
+    property.setCustomProperty("customAttribute", "value1");
+    assertEquals("value1", property.getCustomProperty("customAttribute"));
 
-    property.setCustom("custom.attribute", "value2");
-    assertEquals("value2", property.getCustom("custom.attribute"));
+    property.setCustomProperty("custom.attribute", "value2");
+    assertEquals("value2", property.getCustomProperty("custom.attribute"));
   }
 }

@@ -295,7 +295,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
 
         if (prop1.getLinkedClass() != null) {
-          if (!prop1.getCustomKeys().equals(prop2.getCustomKeys())) {
+          if (!prop1.getCustomPropertyNames().equals(prop2.getCustomPropertyNames())) {
             listener.onMessage(
                 "\n- ERR: Class definition for "
                     + clazz.getName()

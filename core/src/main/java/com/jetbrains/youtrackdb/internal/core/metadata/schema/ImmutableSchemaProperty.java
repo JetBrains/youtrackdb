@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import java.util.Collection;
 import java.util.Set;
 
@@ -33,7 +32,7 @@ public interface ImmutableSchemaProperty {
   String getFullName();
 
 
-  PropertyType getType();
+  PropertyTypeInternal getType();
 
   /**
    * Returns the linked class in lazy mode because while unmarshalling the class could be not loaded
@@ -43,7 +42,7 @@ public interface ImmutableSchemaProperty {
    */
   ImmutableSchemaClass getLinkedClass();
 
-  PropertyType getLinkedType();
+  PropertyTypeInternal getLinkedType();
 
 
   boolean isNotNull();
@@ -102,17 +101,15 @@ public interface ImmutableSchemaProperty {
 
   String getRegexp();
 
-  Set<String> getCustomKeys();
+  Set<String> getCustomPropertyNames();
 
   ImmutableSchemaClass getOwnerClass();
-
-  Object get(ATTRIBUTES iAttribute);
 
   Integer getId();
 
   String getDescription();
 
-  String getCustom(final String iName);
+  String getCustomProperty(final String iName);
 
   /**
    * @return All indexes in which this property participates.
@@ -120,6 +117,4 @@ public interface ImmutableSchemaProperty {
   Collection<String> getAllIndexes();
 
   DatabaseSession getBoundToSession();
-
-  PropertyTypeInternal getTypeInternal();
 }
