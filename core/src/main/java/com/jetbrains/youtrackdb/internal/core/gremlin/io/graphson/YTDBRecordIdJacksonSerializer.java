@@ -27,9 +27,12 @@ public final class YTDBRecordIdJacksonSerializer extends JsonSerializer<RID> {
   public void serializeWithType(
       RID value, JsonGenerator jgen, SerializerProvider serializers, TypeSerializer typeSer)
       throws IOException {
-    if (value instanceof ChangeableRecordId changeableRecordId) {
-      value = new RecordId(changeableRecordId.getCollectionId(),
-          changeableRecordId.getCollectionPosition());
+    if (value instanceof ChangeableRecordId changeableRecordId
+        && changeableRecordId.isPersistent()) {
+      value = new RecordId(changeableRecordId);
+    }
+    if (value.isNew() && (value instanceof RecordId)) {
+      value = new ChangeableRecordId(value.getCollectionId(), value.getCollectionPosition());
     }
 
     typeSer.writeTypePrefixForScalar(value, jgen);

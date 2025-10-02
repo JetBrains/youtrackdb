@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext.TIMEOUT_STRATEGY;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.replication.AsyncReplicationError;
 import com.jetbrains.youtrackdb.internal.core.replication.AsyncReplicationOk;
 import java.util.HashMap;
@@ -96,7 +96,7 @@ public abstract class CommandRequestAbstract
         var par = iArgs[i];
 
         if (par instanceof Identifiable
-            && ((RecordId) ((Identifiable) par).getIdentity()).isValidPosition())
+            && ((RecordIdInternal) ((Identifiable) par).getIdentity()).isValidPosition())
         // USE THE RID ONLY
         {
           par = ((Identifiable) par).getIdentity();

@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
+import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
@@ -14,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.EntitySerializable;
 import java.math.BigDecimal;
@@ -81,7 +83,8 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
     assertEquals(PropertyTypeInternal.LINK,
         PropertyTypeInternal.getTypeByClass(Identifiable.class));
 
-    assertEquals(PropertyTypeInternal.LINK, PropertyTypeInternal.getTypeByClass(RecordId.class));
+    assertEquals(PropertyTypeInternal.LINK,
+        PropertyTypeInternal.getTypeByClass(RecordIdInternal.class));
 
     assertEquals(PropertyTypeInternal.LINK, PropertyTypeInternal.getTypeByClass(DBRecord.class));
 
@@ -172,7 +175,8 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
         PropertyTypeInternal.getTypeByValue(session.newEntity()));
 
     assertEquals(PropertyTypeInternal.LINK,
-        PropertyTypeInternal.getTypeByValue(new RecordId()));
+        PropertyTypeInternal.getTypeByValue(
+            new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID)));
 
     assertEquals(PropertyTypeInternal.EMBEDDEDLIST,
         PropertyTypeInternal.getTypeByValue(new ArrayList<Object>()));
@@ -219,24 +223,24 @@ public class TestSchemaPropertyTypeDetection extends DbTestBase {
   @Test
   public void testOTypeFromValueInternal() {
     session.begin();
-    Map<String, RecordId> linkmap = new HashMap<String, RecordId>();
-    linkmap.put("some", new RecordId());
+    Map<String, RecordIdInternal> linkmap = new HashMap<String, RecordIdInternal>();
+    linkmap.put("some", new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
     assertEquals(PropertyTypeInternal.LINKMAP, PropertyTypeInternal.getTypeByValue(linkmap));
 
     Map<String, DBRecord> linkmap2 = new HashMap<String, DBRecord>();
     linkmap2.put("some", session.newEntity());
     assertEquals(PropertyTypeInternal.LINKMAP, PropertyTypeInternal.getTypeByValue(linkmap2));
 
-    List<RecordId> linkList = new ArrayList<RecordId>();
-    linkList.add(new RecordId());
+    List<RecordIdInternal> linkList = new ArrayList<RecordIdInternal>();
+    linkList.add(new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
     assertEquals(PropertyTypeInternal.LINKLIST, PropertyTypeInternal.getTypeByValue(linkList));
 
     List<DBRecord> linkList2 = new ArrayList<DBRecord>();
     linkList2.add(session.newEntity());
     assertEquals(PropertyTypeInternal.LINKLIST, PropertyTypeInternal.getTypeByValue(linkList2));
 
-    Set<RecordId> linkSet = new HashSet<RecordId>();
-    linkSet.add(new RecordId());
+    Set<RecordIdInternal> linkSet = new HashSet<RecordIdInternal>();
+    linkSet.add(new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
     assertEquals(PropertyTypeInternal.LINKSET, PropertyTypeInternal.getTypeByValue(linkSet));
 
     Set<DBRecord> linkSet2 = new HashSet<DBRecord>();

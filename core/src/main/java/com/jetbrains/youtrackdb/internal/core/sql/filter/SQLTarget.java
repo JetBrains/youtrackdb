@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.parser.BaseParser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.QueryParsingException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.CommandExecutorSQLAbstract;
 import java.util.ArrayList;
@@ -164,7 +164,8 @@ public class SQLTarget extends BaseParser {
       // UNIQUE RID
       targetRecords = new ArrayList<Identifiable>();
       ((List<Identifiable>) targetRecords)
-          .add(new RecordId(parserRequiredWord(true, "No valid RID", session.getDatabaseName())));
+          .add(RecordIdInternal.fromString(
+              parserRequiredWord(true, "No valid RID", session.getDatabaseName()), false));
 
     } else if (c == StringSerializerHelper.EMBEDDED_BEGIN) {
       // SUB QUERY
@@ -180,7 +181,7 @@ public class SQLTarget extends BaseParser {
 
       targetRecords = new ArrayList<Identifiable>();
       for (var rid : rids) {
-        ((List<Identifiable>) targetRecords).add(new RecordId(rid));
+        ((List<Identifiable>) targetRecords).add(RecordIdInternal.fromString(rid, false));
       }
 
       parserMoveCurrentPosition(1);
@@ -234,19 +235,19 @@ public class SQLTarget extends BaseParser {
           if (metadataTarget.equals(CommandExecutorSQLAbstract.METADATA_SCHEMA)) {
             ((ArrayList<Identifiable>) targetRecords)
                 .add(
-                    new RecordId(
+                    RecordIdInternal.fromString(
                         session
                             .getStorageInfo()
                             .getConfiguration()
-                            .getSchemaRecordId()));
+                            .getSchemaRecordId(), false));
           } else if (metadataTarget.equals(CommandExecutorSQLAbstract.METADATA_INDEXMGR)) {
             ((ArrayList<Identifiable>) targetRecords)
                 .add(
-                    new RecordId(
+                    RecordIdInternal.fromString(
                         session
                             .getStorageInfo()
                             .getConfiguration()
-                            .getIndexMgrRecordId()));
+                            .getIndexMgrRecordId(), false));
           } else {
             throw new QueryParsingException(session.getDatabaseName(),
                 "Metadata entity not supported: " + metadataTarget);

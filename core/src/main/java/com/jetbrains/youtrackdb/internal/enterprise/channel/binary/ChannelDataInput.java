@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.enterprise.channel.binary;
 
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -23,7 +23,7 @@ public interface ChannelDataInput {
 
   byte[] readBytes() throws IOException;
 
-  RecordId readRID() throws IOException;
+  RecordIdInternal readRID() throws IOException;
 
   int readVersion() throws IOException;
 

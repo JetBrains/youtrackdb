@@ -11,7 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.LiveQueryBatchResultListener;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2.LiveQueryOp;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryListenerV2;
@@ -34,7 +34,7 @@ public class LiveQueryListenerImpl implements LiveQueryListenerV2 {
 
   private final SQLSelectStatement statement;
   private String className;
-  private List<RecordId> rids;
+  private List<RecordIdInternal> rids;
 
   private final Map<Object, Object> params;
 

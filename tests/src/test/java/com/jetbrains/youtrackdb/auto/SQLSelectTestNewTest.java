@@ -939,7 +939,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryWithManualPagination() {
 
-    RID last = new RecordId();
+    RID last = new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
     var resultset =
         executeQuery("select from Profile where @rid > ? LIMIT 3", session, last);
 
@@ -967,7 +967,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryWithAutomaticPagination() {
     final var query = "select from Profile LIMIT 3";
-    RID last = new RecordId();
+    RID last = new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
 
     var resultset = session.query(query).toList();
 
@@ -993,7 +993,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryWithAutomaticPaginationWithWhere() {
     final var query = "select from Profile where followers.length() > 0 LIMIT 3";
-    RID last = new RecordId();
+    RID last = new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
 
     var resultset = session.query(query).toList();
 
@@ -1022,7 +1022,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryWithAutomaticPaginationWithWhereAndBindingVar() {
     final var query = "select from Profile where followers.length() > ? LIMIT 3";
-    RID last = new RecordId();
+    RID last = new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
 
     var resultset = session.query(query, 0).toList();
 
@@ -1049,7 +1049,7 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
   @Test
   public void queryWithAutomaticPaginationWithWhereAndBindingVarAtTheFirstQueryCall() {
     final var query = "select from Profile where followers.length() > ? LIMIT 3";
-    RID last = new RecordId();
+    RID last = new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
 
     var resultset = session.query(query, 0).toList();
 
@@ -1663,7 +1663,8 @@ public class SQLSelectTestNewTest extends AbstractSelectTest {
 
       var query =
           "select from PersonMultipleCollections where @rid > ? limit 2";
-      var resultset = session.query(query, new RecordId()).toList();
+      var resultset = session.query(query,
+          new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID)).toList();
 
       while (!resultset.isEmpty()) {
         final var last = resultset.getLast().getIdentity();

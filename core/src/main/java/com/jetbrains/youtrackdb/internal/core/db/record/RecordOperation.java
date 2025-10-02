@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import javax.annotation.Nullable;
 
@@ -65,7 +65,7 @@ public final class RecordOperation implements Comparable<RecordOperation> {
   }
 
   @Nullable
-  public RecordId getRecordId() {
+  public RecordIdInternal getRecordId() {
     return record != null ? record.getIdentity() : null;
   }
 

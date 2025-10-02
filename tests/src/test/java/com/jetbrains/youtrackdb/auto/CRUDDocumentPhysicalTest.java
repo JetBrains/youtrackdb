@@ -22,7 +22,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -86,8 +86,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     }
 
     session.begin();
-    final var idsForward = new ArrayList<RecordId>();
-    final var idsBackward = new ArrayList<RecordId>();
+    final var idsForward = new ArrayList<RecordIdInternal>();
+    final var idsBackward = new ArrayList<RecordIdInternal>();
     session
         .browseClass("Account", false, true)
         .forEachRemaining(rec -> {
@@ -273,7 +273,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     Assert.assertNotSame(coreDocCopy, coreDoc);
 
     coreDocCopy.setLazyLoad(false);
-    Assert.assertTrue(coreDocCopy.getProperty("link") instanceof RecordId);
+    Assert.assertTrue(coreDocCopy.getProperty("link") instanceof RecordIdInternal);
     coreDocCopy.setLazyLoad(true);
     Assert.assertTrue(coreDocCopy.getProperty("link") instanceof EntityImpl);
     session.commit();

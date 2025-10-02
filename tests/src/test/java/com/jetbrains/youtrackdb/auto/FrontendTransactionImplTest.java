@@ -83,12 +83,12 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       final RID rid2 = record2.getIdentity();
       final int version2 = record2.getVersion();
       final var rec2 = (RecordAbstract) record2;
-      rec2.fill(rid2, version2, "This is the second version".getBytes(), true);
+      rec2.fill(version2, "This is the second version".getBytes(), true);
 
       final RID rid1 = record1.getIdentity();
       final int version1 = record1.getVersion();
       final var rec1 = (RecordAbstract) record1;
-      rec1.fill(rid1, version1, "This is the third version".getBytes(), true);
+      rec1.fill(version1, "This is the third version".getBytes(), true);
 
       session.commit();
       session2.commit();
@@ -126,7 +126,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       var v1 = record.getVersion();
       final RID iRid = record.getIdentity();
       final var rec = (RecordAbstract) record;
-      rec.fill(iRid, v1, "This is the second version".getBytes(), true);
+      rec.fill(v1, "This is the second version".getBytes(), true);
       session.commit();
 
       session.begin();
@@ -158,7 +158,7 @@ public class FrontendTransactionImplTest extends BaseDBTest {
       var v1 = record1.getVersion();
       final RID iRid = record1.getIdentity();
       final var rec = (RecordAbstract) record1;
-      rec.fill(iRid, v1, "This is the second version".getBytes(), true);
+      rec.fill(v1, "This is the second version".getBytes(), true);
 
       session.commit();
 

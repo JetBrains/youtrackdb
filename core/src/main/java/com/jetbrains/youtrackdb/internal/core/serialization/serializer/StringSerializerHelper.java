@@ -30,7 +30,7 @@ import com.jetbrains.youtrackdb.internal.common.types.Binary;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.RecordSerializerCSVAbstract;
@@ -197,7 +197,7 @@ public abstract class StringSerializerHelper {
         if (iValue instanceof RID) {
           return iValue.toString();
         } else if (iValue instanceof String) {
-          return new RecordId((String) iValue);
+          return RecordIdInternal.fromString((String) iValue, false);
         } else {
           return ((DBRecord) iValue).getIdentity().toString();
         }

@@ -30,6 +30,6 @@ import org.junit.runner.RunWith;
  */
 @RunWith(StructureStandardSuite.class)
 @GraphProviderClass(provider = YTDBGraphProvider.class, graph = YTDBGraph.class)
-public class YTDBStructureStandardSuiteTest {
+public class YTDBStructureStandardTest {
 
 }

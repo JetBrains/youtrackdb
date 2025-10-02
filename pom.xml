@@ -41,7 +41,6 @@
     <module>console-distribution</module>
     <module>gremlin-annotations</module>
     <module>driver</module>
-    <module>process-test-suites</module>
     <module>console</module>
     <module>binary-compat</module>
   </modules>
@@ -98,7 +97,7 @@
     <!--suppress UnresolvedMavenProperty -->
     <implementation.build>${scmBranch}@r${buildNumber}</implementation.build>
     <!-- | shared build/report plugins version -->
-    <surefire.version>3.5.3</surefire.version>
+    <surefire.version>3.5.4</surefire.version>
     <license.location>license.txt</license.location>
     <!--Override with the given url on external modules-->
     <!--<license.location>https://github.com/orientechnologies/orientdb/raw/develop/ODB-ASL-LICENSE.txt</license.location>-->
@@ -109,9 +108,10 @@
     <graalvm.version>22.0.0.2</graalvm.version>
     <slf4j.version>2.0.17</slf4j.version>
     <slf4j.version>2.0.17</slf4j.version>
-    <log4j.version>2.25.1</log4j.version>
+    <log4j.version>2.25.2</log4j.version>
+    <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.7.4</gremlin.version>
+    <gremlin.version>3.7.4-YTDB-SNAPSHOT</gremlin.version>
   </properties>
 
 
@@ -145,17 +145,22 @@
       <dependency>
         <groupId>it.unimi.dsi</groupId>
         <artifactId>fastutil</artifactId>
-        <version>8.5.15</version>
+        <version>8.5.16</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-core</artifactId>
-        <version>2.20.0</version>
+        <version>${jackson.verson}</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
-        <version>2.19.0</version>
+        <version>${jackson.verson}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.module</groupId>
+        <artifactId>jackson-module-parameter-names</artifactId>
+        <version>${jackson.verson}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.tinkerpop</groupId>
@@ -175,7 +180,7 @@
       <dependency>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>gremlin-driver</artifactId>
-        <version>3.7.4-YTDB-20250807.132339-3</version>
+        <version>${gremlin.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.tinkerpop</groupId>
@@ -186,7 +191,7 @@
       <dependency>
         <groupId>org.apache.tinkerpop</groupId>
         <artifactId>gremlin-server</artifactId>
-        <version>3.7.4-YTDB-20250814.140341-17</version>
+        <version>${gremlin.version}</version>
         <exclusions>
           <exclusion>
             <groupId>org.apache.tinkerpop</groupId>
@@ -212,7 +217,7 @@
       <dependency>
         <groupId>com.google.testing.compile</groupId>
         <artifactId>compile-testing</artifactId>
-        <version>0.19</version>
+        <version>0.23.0</version>
       </dependency>
       <dependency>
         <groupId>org.apache.logging.log4j</groupId>
@@ -260,7 +265,7 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>versions-maven-plugin</artifactId>
-          <version>2.18.0</version>
+          <version>2.19.0</version>
         </plugin>
 
         <plugin>
@@ -320,7 +325,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
-          <version>3.11.3</version>
+          <version>3.12.0</version>
           <configuration>
             <doclint>none</doclint>
             <maxmemory>2G</maxmemory>
@@ -330,7 +335,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-pmd-plugin</artifactId>
-          <version>3.26.0</version>
+          <version>3.27.0</version>
         </plugin>
 
         <plugin>
@@ -391,7 +396,7 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>license-maven-plugin</artifactId>
-          <version>2.6.0</version>
+          <version>2.7.0</version>
 
           <configuration>
             <licenseMerges>
@@ -429,7 +434,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-shade-plugin</artifactId>
-          <version>3.6.0</version>
+          <version>3.6.1</version>
         </plugin>
         <plugin>
           <groupId>io.fabric8</groupId>
@@ -439,7 +444,7 @@
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>flatten-maven-plugin</artifactId>
-          <version>1.7.2</version>
+          <version>1.7.3</version>
           <configuration>
             <updatePomFile>true</updatePomFile>
             <flattenMode>resolveCiFriendliesOnly</flattenMode>
@@ -555,7 +560,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-enforcer-plugin</artifactId>
-        <version>3.5.0</version>
+        <version>3.6.1</version>
         <executions>
           <execution>
             <id>enforce-maven</id>

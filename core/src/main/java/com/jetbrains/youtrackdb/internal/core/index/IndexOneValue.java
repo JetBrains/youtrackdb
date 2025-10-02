@@ -27,7 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.stream.Streams;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AscComparator;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.DescComparator;
 import com.jetbrains.youtrackdb.internal.core.index.iterator.PureTxBetweenIndexBackwardSpliterator;
@@ -513,7 +513,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   @Override
   public IndexOneValue put(FrontendTransaction transaction, Object key,
       final Identifiable value) {
-    final var rid = (RecordId) value.getIdentity();
+    final var rid = (RecordIdInternal) value.getIdentity();
 
     if (!rid.isValidPosition()) {
       if (value instanceof DBRecord) {

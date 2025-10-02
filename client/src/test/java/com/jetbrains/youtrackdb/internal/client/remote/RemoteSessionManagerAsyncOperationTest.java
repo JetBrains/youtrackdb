@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.client.remote.db.DatabaseSessionRemote;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataInput;
 import com.jetbrains.youtrackdb.internal.enterprise.channel.binary.ChannelDataOutput;
@@ -293,7 +294,7 @@ public class RemoteSessionManagerAsyncOperationTest {
         new RecordId(-1, -1),
         new RecordCallback<BinaryResponse>() {
           @Override
-          public void call(RecordId iRID, BinaryResponse iParameter) {
+          public void call(RecordIdInternal iRID, BinaryResponse iParameter) {
             callBackDone.countDown();
           }
         }, "");

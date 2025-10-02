@@ -45,8 +45,10 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableIdentity;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
@@ -83,24 +85,24 @@ public class FrontendTransactionImpl implements
   protected DatabaseSessionEmbedded session;
   protected TXSTATUS status = TXSTATUS.INVALID;
 
-  protected final HashMap<RecordId, RecordOperation> recordOperations = new HashMap<>();
-  private final IdentityHashMap<RecordId, RecordOperation> recordOperationsIdentityMap =
+  protected final HashMap<RecordIdInternal, RecordOperation> recordOperations = new HashMap<>();
+  private final IdentityHashMap<RecordIdInternal, RecordOperation> recordOperationsIdentityMap =
       new IdentityHashMap<>();
-  protected final TreeSet<RecordId> recordsInTransaction = new TreeSet<>();
+  protected final TreeSet<RecordIdInternal> recordsInTransaction = new TreeSet<>();
 
-  protected final HashMap<RecordId, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
-  private final IdentityHashMap<RecordId, RecordOperation> operationsBetweenCallbacksIdentityMap =
+  protected final HashMap<RecordIdInternal, RecordOperation> operationsBetweenCallbacks = new HashMap<>();
+  private final IdentityHashMap<RecordIdInternal, RecordOperation> operationsBetweenCallbacksIdentityMap =
       new IdentityHashMap<>();
   private final ArrayList<RecordOperation> operationsForCallbackIteration = new ArrayList<>();
 
-  protected HashMap<RecordId, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
+  protected HashMap<RecordIdInternal, List<FrontendTransactionRecordIndexOperation>> recordIndexOperations =
       new HashMap<>();
-  private final IdentityHashMap<RecordId, List<FrontendTransactionRecordIndexOperation>> recordIndexOperationsIdentityMap =
+  private final IdentityHashMap<RecordIdInternal, List<FrontendTransactionRecordIndexOperation>> recordIndexOperationsIdentityMap =
       new IdentityHashMap<>();
 
   protected HashMap<String, FrontendTransactionIndexChanges> indexEntries = new HashMap<>();
 
-  protected final HashMap<RecordId, RecordId> originalChangedRecordIdMap = new HashMap<>();
+  protected final HashMap<RecordIdInternal, RecordIdInternal> originalChangedRecordIdMap = new HashMap<>();
 
   protected long id;
   protected int newRecordsPositionsGenerator = -2;
@@ -290,11 +292,11 @@ public class FrontendTransactionImpl implements
         }
 
         var transactionIndexOperations =
-            recordIndexOperations.get((RecordId) value.getIdentity());
+            recordIndexOperations.get((RecordIdInternal) value.getIdentity());
 
         if (transactionIndexOperations == null) {
           transactionIndexOperations = new ArrayList<>();
-          recordIndexOperations.put(((RecordId) value.getIdentity()).copy(),
+          recordIndexOperations.put(((RecordIdInternal) value.getIdentity()).copy(),
               transactionIndexOperations);
         }
 
@@ -419,7 +421,7 @@ public class FrontendTransactionImpl implements
     }
 
     // DELEGATE TO THE STORAGE, NO TOMBSTONES SUPPORT IN TX MODE
-    return session.executeReadRecord((RecordId) rid, false, false, true);
+    return session.executeReadRecord((RecordIdInternal) rid, false, false, true);
   }
 
   @Override
@@ -479,9 +481,19 @@ public class FrontendTransactionImpl implements
 
       if (rid.getCollectionId() == RID.COLLECTION_ID_INVALID) {
         var collectionId = session.assignAndCheckCollection(record);
-        rid.setCollectionAndPosition(collectionId, newRecordsPositionsGenerator--);
+        if (rid instanceof ChangeableRecordId changeableRecordId) {
+          changeableRecordId.setCollectionAndPosition(collectionId, newRecordsPositionsGenerator--);
+        } else {
+          throw new DatabaseException(session,
+              "Provided record is not new and its identity can not be changed");
+        }
       } else if (!rid.isValidPosition()) {
-        rid.setCollectionPosition(newRecordsPositionsGenerator--);
+        if (rid instanceof ChangeableRecordId changeableRecordId) {
+          changeableRecordId.setCollectionPosition(newRecordsPositionsGenerator--);
+        } else {
+          throw new DatabaseException(session,
+              "Provided record is not new and its identity can not be changed");
+        }
       }
 
       txEntry = getRecordEntry(rid);
@@ -602,7 +614,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public boolean isScheduledForCallbackProcessing(RecordId rid) {
+  public boolean isScheduledForCallbackProcessing(RecordIdInternal rid) {
     if (operationsBetweenCallbacks.containsKey(rid)) {
       return true;
     }
@@ -618,7 +630,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public List<RecordId> preProcessRecordsAndExecuteCallCallbacks() {
+  public List<RecordIdInternal> preProcessRecordsAndExecuteCallCallbacks() {
     if (beforeCallBacksInProgress) {
       throw new IllegalStateException(
           "Callback processing is in progress, if you trigger this operation"
@@ -629,7 +641,7 @@ public class FrontendTransactionImpl implements
       return null;
     }
 
-    ArrayList<RecordId> newDeletedRecords = null;
+    ArrayList<RecordIdInternal> newDeletedRecords = null;
     callbacksInProgress = true;
     try {
       var serializer = session.getSerializer();
@@ -861,7 +873,8 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public boolean assertIdentityChangedAfterCommit(final RecordId oldRid, final RecordId newRid) {
+  public boolean assertIdentityChangedAfterCommit(final RecordIdInternal oldRid,
+      final RecordIdInternal newRid) {
     if (oldRid.equals(newRid))
     // NO CHANGE, IGNORE IT
     {
@@ -1040,7 +1053,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void onBeforeIdentityChange(Object source) {
-    var rid = (RecordId) source;
+    var rid = (RecordIdInternal) source;
 
     var recordOperation = recordOperations.remove(rid);
 
@@ -1069,7 +1082,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void onAfterIdentityChange(Object source) {
-    var rid = (RecordId) source;
+    var rid = (RecordIdInternal) source;
 
     var recordOperation = recordOperationsIdentityMap.remove(rid);
     if (recordOperation != null) {
@@ -1090,7 +1103,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public RecordId getFirstRid(int collectionId) {
+  public RecordIdInternal getFirstRid(int collectionId) {
     var result = recordsInTransaction.ceiling(new RecordId(collectionId, Long.MIN_VALUE));
 
     if (result == null) {
@@ -1111,7 +1124,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public RecordId getLastRid(int collectionId) {
+  public RecordIdInternal getLastRid(int collectionId) {
     var result = recordsInTransaction.floor(new RecordId(collectionId, Long.MAX_VALUE));
 
     if (result == null) {
@@ -1132,7 +1145,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public RecordId getNextRidInCollection(@Nonnull RecordId rid) {
+  public RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid) {
     var collectionId = rid.getCollectionId();
 
     while (true) {
@@ -1157,7 +1170,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public RecordId getPreviousRidInCollection(@Nonnull RecordId rid) {
+  public RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid) {
     var collectionId = rid.getCollectionId();
     while (true) {
       var result = recordsInTransaction.lower(rid);
@@ -1227,7 +1240,7 @@ public class FrontendTransactionImpl implements
 
   @Override
   public RecordOperation getRecordEntry(RID rid) {
-    assert rid instanceof RecordId;
+    assert rid instanceof RecordIdInternal;
     var operation = recordOperations.get(rid);
 
     if (operation == null) {

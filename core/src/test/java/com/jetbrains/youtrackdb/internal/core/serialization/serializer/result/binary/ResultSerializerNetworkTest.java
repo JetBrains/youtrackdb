@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
@@ -33,7 +33,7 @@ public class ResultSerializerNetworkTest {
         original.setProperty("float", 12.4f);
         original.setProperty("double", 12.4d);
         original.setProperty("boolean", true);
-        original.setProperty("rid", new RecordId("#12:0"));
+        original.setProperty("rid", RecordIdInternal.fromString("#12:0", false));
 
         var embeddedProj = new ResultInternal(db);
         embeddedProj.setProperty("name", "bar");

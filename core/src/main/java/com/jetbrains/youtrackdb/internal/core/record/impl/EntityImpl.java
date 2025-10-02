@@ -65,7 +65,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.StorageBackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -134,7 +134,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
   /**
    * Internal constructor used on unmarshalling.
    */
-  public EntityImpl(@Nonnull RecordId recordId, @Nonnull DatabaseSessionEmbedded session) {
+  public EntityImpl(@Nonnull RecordIdInternal recordId, @Nonnull DatabaseSessionEmbedded session) {
     super(recordId, session);
     assert session.assertIfNotActive();
 
@@ -145,7 +145,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * Internal constructor used on unmarshalling.
    */
   public EntityImpl(@Nonnull DatabaseSessionEmbedded database,
-      RecordId rid) {
+      RecordIdInternal rid) {
     super(rid, database);
     assert assertIfAlreadyLoaded(rid);
 
@@ -159,7 +159,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    * @param session    the session the instance will be attached to
    * @param iClassName Class name
    */
-  public EntityImpl(@Nonnull RecordId recordId, @Nonnull DatabaseSessionEmbedded session,
+  public EntityImpl(@Nonnull RecordIdInternal recordId, @Nonnull DatabaseSessionEmbedded session,
       final String iClassName) {
     super(recordId, session);
 
@@ -678,8 +678,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
         "Property " + name + " is not a link set type, but " + value.getClass().getName());
   }
 
-  private void validatePropertyUpdate(String propertyName, Object propertyValue) {
-    validatePropertyName(propertyName, false);
+  private void validatePropertyUpdate(String propertyName, Object propertyValue,
+      boolean allowMetadata) {
+    validatePropertyName(propertyName, allowMetadata);
     validatePropertyValue(propertyName, propertyValue);
 
     if (!isPropertyAccessible(propertyName)) {
@@ -1057,7 +1058,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   protected void validatePropertyName(String propertyName, boolean allowMetadata) {
     final var c = SchemaShared.checkPropertyNameIfValid(propertyName);
-    if (allowMetadata && propertyName.charAt(0) == '@') {
+    if (allowMetadata && (propertyName.charAt(0) == '@' || propertyName.charAt(0) == '~')) {
       return;
     }
 
@@ -1180,7 +1181,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
    */
   @Override
   public void setProperty(final @Nonnull String propertyName, @Nullable Object propertyValue) {
-    setPropertyInternal(propertyName, propertyValue, null, null, true);
+    setPropertyInternal(propertyName, propertyValue, null, null, PropertyValidationMode.FULL);
   }
 
   /**
@@ -1196,7 +1197,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return setPropertyInternal(
         propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(type), null,
-        true);
+        PropertyValidationMode.FULL);
   }
 
 
@@ -1208,7 +1209,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         propertyName, propertyValue,
         PropertyTypeInternal.convertFromPublicType(propertyType),
         PropertyTypeInternal.convertFromPublicType(linkedType),
-        true);
+        PropertyValidationMode.FULL);
   }
 
   public void compareAndSetPropertyInternal(String name, Object value, PropertyTypeInternal type) {
@@ -1229,14 +1230,14 @@ public class EntityImpl extends RecordAbstract implements Entity {
       String name, Object value,
       @Nullable PropertyTypeInternal type
   ) {
-    setPropertyInternal(name, value, type, null, false);
+    setPropertyInternal(name, value, type, null, PropertyValidationMode.SKIP);
   }
 
   public Object setPropertyInternal(
       String name, Object value,
       @Nullable PropertyTypeInternal type,
       @Nullable PropertyTypeInternal linkedType,
-      boolean validate
+      PropertyValidationMode validationMode
   ) {
 
     if (name == null) {
@@ -1247,8 +1248,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
       throw new IllegalArgumentException("Field name is empty");
     }
 
-    if (validate) {
-      validatePropertyUpdate(name, value);
+    if (validationMode != PropertyValidationMode.SKIP) {
+      validatePropertyUpdate(name, value, validationMode == PropertyValidationMode.ALLOW_METADATA);
     }
 
     checkForBinding();
@@ -1270,12 +1271,8 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (begin == '@') {
       switch (name.toLowerCase(Locale.ROOT)) {
         case EntityHelper.ATTRIBUTE_RID -> {
-          if (status == STATUS.UNMARSHALLING) {
-            recordId.fromString(value.toString());
-          } else {
-            throw new DatabaseException(getSession().getDatabaseName(),
-                "Attribute " + EntityHelper.ATTRIBUTE_RID + " is read-only");
-          }
+          throw new DatabaseException(getSession().getDatabaseName(),
+              "Attribute " + EntityHelper.ATTRIBUTE_RID + " is read-only");
         }
         case EntityHelper.ATTRIBUTE_VERSION -> {
           if (status == STATUS.UNMARSHALLING) {
@@ -1445,14 +1442,20 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   @Override
-  public <RET> RET removeProperty(@Nonnull final String iFieldName) {
-    validatePropertyName(iFieldName, false);
-    return removePropertyInternal(iFieldName);
+  public <RET> RET removeProperty(@Nonnull final String name) {
+    return removePropertyInternal(name, PropertyValidationMode.FULL);
   }
 
+  public void removePropertyInternal(String name) {
+    removePropertyInternal(name, PropertyValidationMode.SKIP);
+  }
 
   @Nullable
-  public <RET> RET removePropertyInternal(String name) {
+  public <RET> RET removePropertyInternal(String name, PropertyValidationMode validationMode) {
+
+    if (validationMode != PropertyValidationMode.SKIP) {
+      validatePropertyName(name, validationMode == PropertyValidationMode.ALLOW_METADATA);
+    }
     checkForBinding();
     checkForProperties();
 
@@ -1926,7 +1929,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (propertyValue == null) {
       return;
     }
-    if (propertyValue instanceof RecordId) {
+    if (propertyValue instanceof RecordIdInternal) {
       throw new ValidationException(session.getDatabaseName(),
           "The property '"
               + p.getFullName()
@@ -1936,7 +1939,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
               + propertyValue);
     } else {
       if (propertyValue instanceof Identifiable embedded) {
-        if (((RecordId) embedded.getIdentity()).isValidPosition()) {
+        if (((RecordIdInternal) embedded.getIdentity()).isValidPosition()) {
           throw new ValidationException(session.getDatabaseName(),
               "The property '"
                   + p.getFullName()
@@ -2213,7 +2216,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
             }
           }
           case EntityHelper.ATTRIBUTE_RID -> {
-            if (value instanceof RecordId rid) {
+            if (value instanceof RecordIdInternal rid) {
               if (!rid.equals(recordId)) {
                 throw new IllegalArgumentException("Invalid  entity record id provided: "
                     + rid + " expected: " + recordId);
@@ -2333,12 +2336,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
       if (key.equals(EntityHelper.ATTRIBUTE_RID)) {
         var ridValue = entry.getValue();
-        RecordId rid;
+        RecordIdInternal rid;
 
-        if (ridValue instanceof RecordId ridVal) {
+        if (ridValue instanceof RecordIdInternal ridVal) {
           rid = ridVal;
         } else if (ridValue instanceof String ridString) {
-          rid = new RecordId(ridString);
+          rid = RecordIdInternal.fromString(ridString, false);
         } else {
           throw new IllegalArgumentException("Invalid  entity record id provided: " + ridValue);
         }
@@ -2454,7 +2457,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         embeddedEntity.updateFromMap(mapValue);
         value = embeddedEntity;
       } else if (rid != null) {
-        var record = session.load(new RecordId(rid.toString()));
+        var record = session.load(RecordIdInternal.fromString(rid.toString(), false));
         if (record instanceof EntityImpl entity) {
           if (className != null && !className.equals(entity.getSchemaClassName())) {
             throw new IllegalArgumentException("Invalid  entity class name provided: "
@@ -3023,32 +3026,6 @@ public class EntityImpl extends RecordAbstract implements Entity {
   }
 
   /**
-   * Resets the record values and class type to being reused. It's like you create a EntityImpl from
-   * scratch.
-   */
-  @Override
-  public EntityImpl reset() {
-    checkForBinding();
-
-    if (session.getTransactionInternal().isActive()) {
-      throw new IllegalStateException(
-          "Cannot reset entities during a transaction. Create a new one each time");
-    }
-
-    super.reset();
-
-    propertyAccess = null;
-    className = null;
-    immutableClazz = null;
-    immutableSchemaVersion = -1;
-
-    internalReset();
-
-    owner = null;
-    return this;
-  }
-
-  /**
    * Rollbacks changes to the loaded version without reloading the entity.
    */
   public void undo() {
@@ -3458,7 +3435,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Override
   public final RecordAbstract fill(
-      final @Nonnull RID rid, final int version, final byte[] buffer, final boolean dirty) {
+      final int version, final byte[] buffer, final boolean dirty) {
     var session = getSession();
     if (this.dirty > 0) {
       throw new DatabaseException(session.getDatabaseName(),
@@ -3467,7 +3444,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
     schema = null;
     fetchSchema();
-    return super.fill(rid, version, buffer, dirty);
+    return super.fill(version, buffer, dirty);
   }
 
   @Override
@@ -4153,5 +4130,9 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (dirty) {
       setDirty();
     }
+  }
+
+  public enum PropertyValidationMode {
+    SKIP, ALLOW_METADATA, FULL,
   }
 }

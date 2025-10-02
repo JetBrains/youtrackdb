@@ -8,7 +8,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
@@ -31,15 +31,15 @@ public abstract class LinkBagTest extends BaseDBTest {
     session.begin();
     var bag = new LinkBag(session);
 
-    bag.add(new RecordId("#77:1"));
-    assertTrue(bag.contains(new RecordId("#77:1")));
-    Assert.assertFalse(bag.contains(new RecordId("#78:2")));
+    bag.add(RecordIdInternal.fromString("#77:1", false));
+    assertTrue(bag.contains(RecordIdInternal.fromString("#77:1", false)));
+    Assert.assertFalse(bag.contains(RecordIdInternal.fromString("#78:2", false)));
 
     var iterator = bag.iterator();
     assertTrue(iterator.hasNext());
 
     Identifiable identifiable = iterator.next();
-    assertEquals(identifiable, new RecordId("#77:1"));
+    assertEquals(identifiable, RecordIdInternal.fromString("#77:1", false));
     Assert.assertFalse(iterator.hasNext());
     assertEmbedded(bag.isEmbedded());
     session.commit();
@@ -49,11 +49,11 @@ public abstract class LinkBagTest extends BaseDBTest {
     session.begin();
     var bag = new LinkBag(session);
 
-    bag.add(new RecordId("#77:2"));
-    bag.add(new RecordId("#77:2"));
+    bag.add(RecordIdInternal.fromString("#77:2", false));
+    bag.add(RecordIdInternal.fromString("#77:2", false));
 
-    assertTrue(bag.contains(new RecordId("#77:2")));
-    Assert.assertFalse(bag.contains(new RecordId("#77:3")));
+    assertTrue(bag.contains(RecordIdInternal.fromString("#77:2", false)));
+    Assert.assertFalse(bag.contains(RecordIdInternal.fromString("#77:3", false)));
 
     assertEquals(bag.size(), 2);
     assertEmbedded(bag.isEmbedded());
@@ -625,11 +625,11 @@ public abstract class LinkBagTest extends BaseDBTest {
     session.begin();
     final Set<RID> expected = new HashSet<>(8);
 
-    expected.add(new RecordId("#77:12"));
-    expected.add(new RecordId("#77:13"));
-    expected.add(new RecordId("#77:14"));
-    expected.add(new RecordId("#77:15"));
-    expected.add(new RecordId("#77:16"));
+    expected.add(RecordIdInternal.fromString("#77:12", false));
+    expected.add(RecordIdInternal.fromString("#77:13", false));
+    expected.add(RecordIdInternal.fromString("#77:14", false));
+    expected.add(RecordIdInternal.fromString("#77:15", false));
+    expected.add(RecordIdInternal.fromString("#77:16", false));
 
     var bag = new LinkBag(session);
 
@@ -978,18 +978,18 @@ public abstract class LinkBagTest extends BaseDBTest {
   public void testRemove() {
     final Set<RID> expected = new HashSet<>(8);
 
-    expected.add(new RecordId("#77:12"));
-    expected.add(new RecordId("#77:13"));
-    expected.add(new RecordId("#77:14"));
-    expected.add(new RecordId("#77:15"));
-    expected.add(new RecordId("#77:16"));
+    expected.add(RecordIdInternal.fromString("#77:12", false));
+    expected.add(RecordIdInternal.fromString("#77:13", false));
+    expected.add(RecordIdInternal.fromString("#77:14", false));
+    expected.add(RecordIdInternal.fromString("#77:15", false));
+    expected.add(RecordIdInternal.fromString("#77:16", false));
 
     final var bag = new LinkBag(session);
     assertEmbedded(bag.isEmbedded());
     bag.addAll(expected);
     assertEmbedded(bag.isEmbedded());
 
-    bag.remove(new RecordId("#77:23"));
+    bag.remove(RecordIdInternal.fromString("#77:23", false));
     assertEmbedded(bag.isEmbedded());
 
     final Set<Identifiable> expectedTwo = new HashSet<>(8);
@@ -1001,8 +1001,8 @@ public abstract class LinkBagTest extends BaseDBTest {
 
     assertTrue(expectedTwo.isEmpty());
 
-    expected.remove(new RecordId("#77:14"));
-    bag.remove(new RecordId("#77:14"));
+    expected.remove(RecordIdInternal.fromString("#77:14", false));
+    bag.remove(RecordIdInternal.fromString("#77:14", false));
     assertEmbedded(bag.isEmbedded());
 
     expectedTwo.addAll(expected);

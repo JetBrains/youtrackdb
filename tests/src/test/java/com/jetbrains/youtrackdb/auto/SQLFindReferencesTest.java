@@ -17,7 +17,7 @@ package com.jetbrains.youtrackdb.auto;
 
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -31,13 +31,13 @@ public class SQLFindReferencesTest extends BaseDBTest {
   private static final String WORKER = "Worker";
   private static final String CAR = "Car";
 
-  private RecordId carID;
-  private RecordId johnDoeID;
-  private RecordId janeDoeID;
-  private RecordId chuckNorrisID;
-  private RecordId jackBauerID;
-  private RecordId ctuID;
-  private RecordId fbiID;
+  private RecordIdInternal carID;
+  private RecordIdInternal johnDoeID;
+  private RecordIdInternal janeDoeID;
+  private RecordIdInternal chuckNorrisID;
+  private RecordIdInternal jackBauerID;
+  private RecordIdInternal ctuID;
+  private RecordIdInternal fbiID;
 
   @Test
   public void findSimpleReference() {
@@ -158,19 +158,12 @@ public class SQLFindReferencesTest extends BaseDBTest {
   public void deleteTestEnvironment() {
     session = createSessionInstance();
 
-    carID.reset();
     carID = null;
-    johnDoeID.reset();
     johnDoeID = null;
-    janeDoeID.reset();
     janeDoeID = null;
-    chuckNorrisID.reset();
     chuckNorrisID = null;
-    jackBauerID.reset();
     jackBauerID = null;
-    ctuID.reset();
     ctuID = null;
-    fbiID.reset();
     fbiID = null;
     deleteSchema();
 

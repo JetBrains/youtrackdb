@@ -19,12 +19,12 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage;
 
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 
 /**
  * Callback to handle response against record operations.
  */
 public interface RecordCallback<T> {
 
-  void call(RecordId iRID, T iParameter);
+  void call(RecordIdInternal iRID, T iParameter);
 }

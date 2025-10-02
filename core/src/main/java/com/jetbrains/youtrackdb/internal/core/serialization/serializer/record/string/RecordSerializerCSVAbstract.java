@@ -40,6 +40,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
@@ -77,18 +78,18 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
     }
 
     Identifiable resultRid = null;
-    RecordId rid;
+    RecordIdInternal rid;
 
     if (iLinked instanceof RID) {
       // JUST THE REFERENCE
-      rid = (RecordId) iLinked;
+      rid = (RecordIdInternal) iLinked;
 
-      assert ((RecordId) rid.getIdentity()).isValidPosition()
+      assert ((RecordIdInternal) rid.getIdentity()).isValidPosition()
           : "Impossible to serialize invalid link " + rid.getIdentity();
       resultRid = rid;
     } else {
       if (iLinked instanceof String) {
-        iLinked = new RecordId((String) iLinked);
+        iLinked = RecordIdInternal.fromString((String) iLinked, false);
       }
 
       if (!(iLinked instanceof Identifiable)) {
@@ -102,9 +103,9 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
       // RECORD
       var transaction = session.getActiveTransaction();
       var iLinkedRecord = transaction.load(((Identifiable) iLinked));
-      rid = (RecordId) iLinkedRecord.getIdentity();
+      rid = (RecordIdInternal) iLinkedRecord.getIdentity();
 
-      assert ((RecordId) rid.getIdentity()).isValidPosition()
+      assert ((RecordIdInternal) rid.getIdentity()).isValidPosition()
           : "Impossible to serialize invalid link " + rid.getIdentity();
 
       if (iParentRecord != null) {
@@ -195,7 +196,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                   fieldTypeFromStream(session, (EntityImpl) iSourceRecord,
                       PropertyTypeInternal.STRING,
                       entry.get(0)),
-                  new RecordId(mapValue));
+                  RecordIdInternal.fromString(mapValue, false));
             }
           }
         }
@@ -219,7 +220,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
 
           final var linkAsString = iValue.substring(pos + 1);
           try {
-            return new RecordId(linkAsString);
+            return RecordIdInternal.fromString(linkAsString, false);
           } catch (IllegalArgumentException e) {
             LogManager.instance()
                 .error(
@@ -229,7 +230,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                     iName,
                     iSourceRecord,
                     linkAsString);
-            return new RecordId();
+            return new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID);
           }
         } else {
           return null;
@@ -366,7 +367,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
                   + iValue);
         }
 
-        if (!((RecordId) ((Identifiable) iValue).getIdentity()).isValidPosition()
+        if (!((RecordIdInternal) ((Identifiable) iValue).getIdentity()).isValidPosition()
             && iValue instanceof EntityImpl
             && ((EntityImpl) iValue).isEmbedded()) {
           // WRONG: IT'S EMBEDDED!
@@ -674,7 +675,8 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         iLinkedClass = StringSerializerHelper.getRecordClassName(session, item, iLinkedClass);
 
         if (iLinkedClass != null) {
-          var entity = new EntityImpl(session, new RecordId());
+          var entity = new EntityImpl(session,
+              new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
           objectToAdd = fromString(session, item, entity, null);
           entity.setClassNameWithoutPropertiesPostProcessing(iLinkedClass.getName());
         } else
@@ -754,7 +756,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         if (iLinkedType == null)
         // AUTO-DETERMINE LINKED TYPE
         {
-          if (((RecordId) id.getIdentity()).isValidPosition()) {
+          if (((RecordIdInternal) id.getIdentity()).isValidPosition()) {
             linkedType = PropertyTypeInternal.LINK;
           } else {
             linkedType = PropertyTypeInternal.EMBEDDED;
@@ -769,7 +771,7 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
           }
 
           assert linkedType == PropertyTypeInternal.EMBEDDED
-              || ((RecordId) id.getIdentity()).isValidPosition()
+              || ((RecordIdInternal) id.getIdentity()).isValidPosition()
               : "Impossible to serialize invalid link " + id.getIdentity();
 
           SchemaImmutableClass result = null;
@@ -843,10 +845,10 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         StringSerializerHelper.smartSplit(value, StringSerializerHelper.RECORD_SEPARATOR);
     for (var item : items) {
       if (item.isEmpty()) {
-        coll.add(new RecordId());
+        coll.add(new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
       } else {
         if (item.startsWith("#")) {
-          coll.add(new RecordId(item));
+          coll.add(RecordIdInternal.fromString(item, false));
         } else {
           final var entity = fromString(db, item);
           if (entity instanceof EntityImpl) {
@@ -868,10 +870,10 @@ public abstract class RecordSerializerCSVAbstract extends RecordSerializerString
         StringSerializerHelper.smartSplit(value, StringSerializerHelper.RECORD_SEPARATOR);
     for (var item : items) {
       if (item.isEmpty()) {
-        coll.add(new RecordId());
+        coll.add(new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
       } else {
         if (item.startsWith("#")) {
-          coll.add(new RecordId(item));
+          coll.add(RecordIdInternal.fromString(item, false));
         } else {
           final var entity = fromString(db, item);
           if (entity instanceof EntityImpl) {

@@ -20,7 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.conflict;
 
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -32,7 +32,7 @@ public interface RecordConflictStrategy {
   byte[] onUpdate(
       Storage storage,
       byte iRecordType,
-      RecordId rid,
+      RecordIdInternal rid,
       int iRecordVersion,
       byte[] iRecordContent,
       AtomicInteger iDatabaseVersion);

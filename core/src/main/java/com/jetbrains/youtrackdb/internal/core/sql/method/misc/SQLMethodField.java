@@ -22,7 +22,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemAbstract;
@@ -82,7 +82,7 @@ public class SQLMethodField extends AbstractSQLMethod {
       }
       if (ioResult instanceof String) {
         try {
-          RecordId recordId = new RecordId((String) ioResult);
+          RecordIdInternal recordId = RecordIdInternal.fromString((String) ioResult, false);
           var transaction = session.getActiveTransaction();
           ioResult = transaction.load(recordId);
         } catch (Exception e) {

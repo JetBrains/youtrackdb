@@ -5,6 +5,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.io.YTDBIoRegistry.n
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.IOException;
 import java.util.Collections;
@@ -26,6 +27,7 @@ import org.apache.tinkerpop.shaded.jackson.databind.JsonDeserializer;
  * Created by Enrico Risa on 06/09/2017.
  */
 public class YTDBGraphSONV3 extends YTDBGraphSON {
+
   public static final YTDBGraphSONV3 INSTANCE = new YTDBGraphSONV3();
 
   @SuppressWarnings("rawtypes")
@@ -34,6 +36,7 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
           new LinkedHashMap<>() {
             {
               put(RecordId.class, "RecordId");
+              put(ChangeableRecordId.class, "NRecordId");
               put(YTDBVertexPropertyId.class, "VertexPropertyId");
             }
           });
@@ -41,7 +44,9 @@ public class YTDBGraphSONV3 extends YTDBGraphSON {
   public YTDBGraphSONV3() {
     super("ytdb-graphson-v3");
     addSerializer(RID.class, new YTDBRecordIdJacksonSerializer());
-    addDeserializer(RID.class, new YTDBRecordIdJacksonDeserializer());
+
+    addDeserializer(RecordId.class, new YTDBImmutableRecordIdJacksonDeserializer());
+    addDeserializer(ChangeableRecordId.class, new YTDBChangeableRecordIdJacksonSerializer());
 
     addSerializer(YTDBVertexPropertyId.class, new YTDBVertexPropertyIdJacksonSerializer());
     addDeserializer(YTDBVertexPropertyId.class, new YTDBVertexPropertyIdJacksonDeserializer());
