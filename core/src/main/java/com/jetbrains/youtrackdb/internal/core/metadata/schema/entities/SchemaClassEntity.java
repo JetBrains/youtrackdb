@@ -102,7 +102,27 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public List<StorageComponentId> getCollectionIds() {
-    return getEmbeddedList(PropertyNames.COLLECTION_IDS);
+    List<StorageComponentId> result = getEmbeddedList(PropertyNames.COLLECTION_IDS);
+    if (result == null) {
+      return Collections.emptyList();
+    }
+    return result;
+  }
+
+  @Nonnull
+  public int[] getPrimitiveCollectionIds() {
+    List<StorageComponentId> idsList = getEmbeddedList(PropertyNames.COLLECTION_IDS);
+    if (idsList == null) {
+      return ArrayUtils.EMPTY_INT_ARRAY;
+    }
+
+    var ids = new int[idsList.size()];
+
+    for (var i = 0; i < idsList.size(); i++) {
+      ids[i] = idsList.get(i).getId();
+    }
+
+    return ids;
   }
 
   public void clearCollectionIds() {
@@ -122,6 +142,20 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     polymorphicCollectionIds.addAll(collectionIds);
 
     return polymorphicCollectionIds;
+  }
+
+  @Nonnull
+  public int[] getPrimitivePolymorphicCollectionIds() {
+    var polymorphicCollectionIds = getPolymorphicCollectionIds();
+    var ids = new int[polymorphicCollectionIds.size()];
+
+    var i = 0;
+    for (var polymorphicCollectionId : polymorphicCollectionIds) {
+      ids[i] = polymorphicCollectionId.getId();
+      i++;
+    }
+
+    return ids;
   }
 
   public Iterator<SchemaClassEntity> getParentClasses() {
@@ -217,8 +251,13 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     schemaClass.removeParentClass(this);
   }
 
+  public void clearParentClasses() {
+    var linkSet = getOrCreateLinkSet(PropertyNames.PARENT_CLASSES);
+    linkSet.clear();
+  }
+
   public void addParentClass(@Nonnull SchemaClassEntity parentClass) {
-    if (parentClass.isChildClassOf(this)) {
+    if (parentClass.isChildOf(this)) {
       throw new DatabaseException(session,
           "Recursion detected. Class : " + parentClass.getName() + " is already a child of class "
               + getName());
@@ -235,7 +274,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     }
   }
 
-  public boolean isChildClassOf(String className) {
+  public boolean isChildOf(String className) {
     var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     if (parentClasses == null) {
       return false;
@@ -259,7 +298,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
         parentClassEntity = session.load(parentClassIdentifiable.getIdentity());
       }
 
-      if (parentClassEntity.isChildClassOf(className)) {
+      if (parentClassEntity.isChildOf(className)) {
         return true;
       }
     }
@@ -267,7 +306,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return false;
   }
 
-  public boolean isChildClassOf(SchemaClassEntity schemaClass) {
+  public boolean isChildOf(SchemaClassEntity schemaClass) {
     var parentClasses = getLinkSet(PropertyNames.PARENT_CLASSES);
     if (parentClasses == null) {
       return false;
@@ -286,7 +325,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
         parentClassEntity = session.load(parentClassIdentifiable.getIdentity());
       }
 
-      if (parentClassEntity.isChildClassOf(schemaClass)) {
+      if (parentClassEntity.isChildOf(schemaClass)) {
         return true;
       }
     }
@@ -294,17 +333,17 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return false;
   }
 
-  public boolean isParentClassOf(String className) {
+  public boolean isParentOf(String className) {
     var childClass = SchemaManager.getClass(session, className);
     if (childClass == null) {
       throw new DatabaseException("Class " + className + " not found");
     }
 
-    return childClass.isChildClassOf(this);
+    return childClass.isChildOf(this);
   }
 
-  public boolean isParentClassOf(SchemaClassEntity schemaClass) {
-    return schemaClass.isChildClassOf(this);
+  public boolean isParentOf(SchemaClassEntity schemaClass) {
+    return schemaClass.isChildOf(this);
   }
 
   @Nullable
@@ -337,7 +376,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     removeProperty(PropertyNames.CUSTOM_PROPERTIES);
   }
 
-  public Set<String> customPropertyNames() {
+  public Set<String> getCustomPropertiesNames() {
     var customProperties = this.<Map<String, String>>getEmbeddedMap(
         PropertyNames.CUSTOM_PROPERTIES);
     if (customProperties == null) {
@@ -349,6 +388,17 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   public boolean hasCollectionId(StorageComponentId collectionId) {
     return getCollectionIds().contains(collectionId);
+  }
+
+  public boolean hasCollectionId(int collectionId) {
+    var collectionIds = getCollectionIds();
+    for (var collection : collectionIds) {
+      if (collection.getId() == collectionId) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   public boolean hasPolymorphicCollectionId(StorageComponentId collectionId) {
@@ -367,6 +417,27 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
     return false;
   }
+
+  public boolean hasPolymorphicCollectionId(int collectionId) {
+    var collectionIds = getCollectionIds();
+    for (var collection : collectionIds) {
+      if (collection.getId() == collectionId) {
+        return true;
+      }
+    }
+
+    var parentClasses = getParentClasses();
+    while (parentClasses.hasNext()) {
+      var parentClass = parentClasses.next();
+
+      if (parentClass.hasPolymorphicCollectionId(collectionId)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
 
   public Iterator<SchemaPropertyEntity> getDeclaredProperties(String... name) {
     var declaredPropertiesLinks = getLinkSet(PropertyNames.DECLARED_PROPERTIES);

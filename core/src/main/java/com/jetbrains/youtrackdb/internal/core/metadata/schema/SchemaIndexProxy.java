@@ -13,6 +13,7 @@ import java.util.ArrayList;
 public final class SchemaIndexProxy implements SchemaIndex {
 
   private final SchemaIndexEntity entity;
+  private IndexDefinition indexDefinition;
 
   public SchemaIndexProxy(SchemaIndexEntity entity) {
     this.entity = entity;
@@ -23,6 +24,10 @@ public final class SchemaIndexProxy implements SchemaIndex {
     var classToIndex = entity.getClassToIndex();
     if (classToIndex == null) {
       throw new DatabaseException(entity.getSession(), "classToIndex is null");
+    }
+
+    if (indexDefinition != null) {
+      return indexDefinition;
     }
 
     var schemaClass = new SchemaClassProxy(classToIndex, entity.getSession());
@@ -51,8 +56,10 @@ public final class SchemaIndexProxy implements SchemaIndex {
     }
 
     var keyTypes = entity.getKeyTypes();
-    return IndexDefinitionFactory.createIndexDefinition(schemaClass, propertyNames, keyTypes,
+    indexDefinition = IndexDefinitionFactory.createIndexDefinition(schemaClass, propertyNames,
+        keyTypes,
         collates, indexType.name());
+    return indexDefinition;
   }
 
   @Override

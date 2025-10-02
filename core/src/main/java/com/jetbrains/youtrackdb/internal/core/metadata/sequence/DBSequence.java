@@ -399,29 +399,29 @@ public abstract class DBSequence {
 
   public static void initClass(SchemaClass sequenceClass) {
     sequenceClass.createProperty(DBSequence.FIELD_START, PropertyTypeInternal.LONG,
-        (PropertyTypeInternal) null, true);
+        (PropertyTypeInternal) null);
     sequenceClass.createProperty(DBSequence.FIELD_INCREMENT, PropertyTypeInternal.INTEGER,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
     sequenceClass.createProperty(DBSequence.FIELD_VALUE, PropertyTypeInternal.LONG,
-        (PropertyTypeInternal) null, true);
+        (PropertyTypeInternal) null);
 
     sequenceClass.createProperty(DBSequence.FIELD_NAME, PropertyTypeInternal.STRING,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
     sequenceClass.createProperty(DBSequence.FIELD_TYPE, PropertyTypeInternal.STRING,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
 
     sequenceClass.createProperty(DBSequence.FIELD_LIMIT_VALUE, PropertyTypeInternal.LONG,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
     sequenceClass.createProperty(DBSequence.FIELD_ORDER_TYPE, PropertyTypeInternal.BYTE,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
     sequenceClass.createProperty(DBSequence.FIELD_RECYCLABLE, PropertyTypeInternal.BOOLEAN,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
   }
 
   /*

@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v
 import java.io.IOException;
 import java.util.Iterator;
 import org.apache.commons.collections4.IteratorUtils;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public final class BTreeSingleValueIndexEngine
     implements SingleValueIndexEngine, BTreeIndexEngine {
@@ -151,7 +152,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> ascEntries() {
+  public CloseableIterator<RawPair<Object, RID>> ascEntries() {
     final var firstKey = sbTree.firstKey();
     if (firstKey == null) {
       return IteratorUtils.emptyIterator();
@@ -160,7 +161,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> descEntries() {
+  public CloseableIterator<RawPair<Object, RID>> descEntries() {
     final var lastKey = sbTree.lastKey();
     if (lastKey == null) {
       return IteratorUtils.emptyIterator();
@@ -169,7 +170,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Iterator<Object> keys() {
+  public CloseableIterator<Object> keys() {
     return sbTree.keys();
   }
 
@@ -202,7 +203,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> iterateEntriesBetween(
+  public CloseableIterator<RawPair<Object, RID>> iterateEntriesBetween(
       DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
@@ -213,7 +214,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> iterateEntriesMajor(
+  public CloseableIterator<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder) {
@@ -221,7 +222,7 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> iterateEntriesMinor(
+  public CloseableIterator<RawPair<Object, RID>> iterateEntriesMinor(
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder) {

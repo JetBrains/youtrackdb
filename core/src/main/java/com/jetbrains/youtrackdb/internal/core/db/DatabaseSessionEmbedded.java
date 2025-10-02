@@ -2605,7 +2605,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
 
     this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
-    var clazz = getMetadata().getSlowMutableSchema().getClass(name);
+    var clazz = getMetadata().getFastImmutableSchema().getClass(name);
     int[] collectionIds;
     if (polimorfic) {
       collectionIds = clazz.getPolymorphicCollectionIds();

@@ -115,8 +115,8 @@ public class TestSchemaImportExport extends DbTestBase {
         (DatabaseSessionEmbedded)
             youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
       var clazz = db.getMetadata().getSlowMutableSchema().createClass("Test");
-      clazz.addSuperClass(db.getMetadata().getSlowMutableSchema().getClass("O"));
-      clazz.addSuperClass(db.getMetadata().getSlowMutableSchema().getClass("OIdentity"));
+      clazz.addParentClass(db.getMetadata().getSlowMutableSchema().getClass("O"));
+      clazz.addParentClass(db.getMetadata().getSlowMutableSchema().getClass("OIdentity"));
 
       var exp = new DatabaseExport(db, output, new MockOutputListener());
       exp.exportDatabase();

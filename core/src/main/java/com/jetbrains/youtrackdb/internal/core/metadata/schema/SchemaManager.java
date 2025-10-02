@@ -262,32 +262,40 @@ public final class SchemaManager {
 
   @Nonnull
   public static SchemaPropertyEntity createProperty(@Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaClassEntity classEntity,
       @Nonnull final String propertyName,
       @Nonnull final PropertyTypeInternal type) {
-    return session.newSchemaPropertyEntity(propertyName, type);
+    var property = session.newSchemaPropertyEntity(propertyName, type);
+    classEntity.addSchemaProperty(property);
+    return property;
   }
 
 
   @Nonnull
   public static SchemaPropertyEntity createProperty(
-      @Nonnull DatabaseSessionEmbedded session, @Nonnull final String propertyName,
+      @Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaClassEntity classEntity,
+      @Nonnull final String propertyName,
       @Nonnull final PropertyTypeInternal type,
       @Nonnull final SchemaClassEntity linkedClass) {
-    var entity = session.newSchemaPropertyEntity(propertyName, type);
-    entity.setLinkedClass(linkedClass);
-    return entity;
+    var propertyEntity = session.newSchemaPropertyEntity(propertyName, type);
+    propertyEntity.setLinkedClass(linkedClass);
+    classEntity.addSchemaProperty(propertyEntity);
+    return propertyEntity;
   }
 
 
   @Nonnull
   public static SchemaPropertyEntity createProperty(
-      @Nonnull DatabaseSessionEmbedded session, @Nonnull final String propertyName,
+      @Nonnull DatabaseSessionEmbedded session,
+      @Nonnull SchemaClassEntity classEntity,
+      @Nonnull final String propertyName,
       @Nonnull final PropertyTypeInternal type,
       @Nonnull final PropertyTypeInternal linkedType) {
-    var entity = session.newSchemaPropertyEntity(propertyName, type);
-    entity.setLinkedPropertyType(linkedType);
-
-    return entity;
+    var propertyEntity = session.newSchemaPropertyEntity(propertyName, type);
+    propertyEntity.setLinkedPropertyType(linkedType);
+    classEntity.addSchemaProperty(propertyEntity);
+    return propertyEntity;
   }
 
   public static void createIndex(
@@ -463,11 +471,6 @@ public final class SchemaManager {
       @Nonnull SchemaClassEntity schemaClassEntity,
       @Nonnull Collection<String> properties) {
     if (properties.isEmpty()) {
-      return Collections.emptySet();
-    }
-
-    var propertyEntities = schemaClassEntity.getSchemaProperties(properties.toArray(new String[0]));
-    if (propertyEntities.size() != properties.size()) {
       return Collections.emptySet();
     }
 

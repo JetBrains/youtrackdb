@@ -29,7 +29,7 @@ public class TestSerializationCompatibilityDBRecord extends DbTestBase {
     session.commit();
 
     klass.createProperty("map", PropertyTypeInternal.EMBEDDEDMAP,
-        (PropertyTypeInternal) null, true);
+        (PropertyTypeInternal) null);
 
     session.begin();
     session.setValidationEnabled(false);

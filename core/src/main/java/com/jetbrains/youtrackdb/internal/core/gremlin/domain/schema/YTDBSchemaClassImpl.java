@@ -163,27 +163,27 @@ public class YTDBSchemaClassImpl extends
   @Override
   public boolean isSubClassOf(@Nonnull String className) {
     var entity = propertyReadPreprocessing();
-    return entity.isChildClassOf(className);
+    return entity.isChildOf(className);
   }
 
   @Override
   public boolean isSubClassOf(@Nonnull YTDBSchemaClass classInstance) {
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
     var entity = propertyReadPreprocessing();
-    return entity.isChildClassOf(schemaClassImpl.getRawEntity());
+    return entity.isChildOf(schemaClassImpl.getRawEntity());
   }
 
   @Override
   public boolean isSuperClassOf(@Nonnull String className) {
     var entity = propertyReadPreprocessing();
-    return entity.isChildClassOf(className);
+    return entity.isChildOf(className);
   }
 
   @Override
   public boolean isSuperClassOf(@Nonnull YTDBSchemaClass classInstance) {
     var entity = propertyReadPreprocessing();
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
-    return entity.isParentClassOf(schemaClassImpl.getRawEntity());
+    return entity.isParentOf(schemaClassImpl.getRawEntity());
   }
 
   @Override
@@ -214,7 +214,7 @@ public class YTDBSchemaClassImpl extends
   @Override
   public Iterator<String> customPropertyNames() {
     var entity = propertyReadPreprocessing();
-    return entity.customPropertyNames();
+    return entity.getCustomPropertiesNames();
   }
 
   @Override

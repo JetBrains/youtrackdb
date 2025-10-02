@@ -184,9 +184,8 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     clazz.createIndex(
         "compositeIndexNullRangeQueryIndex",
         SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
-        null,
         metadata,
-        null, new String[]{"prop1", "prop2", "prop3"});
+        new String[]{"prop1", "prop2", "prop3"});
 
     for (var i = 0; i < 20; i++) {
       session.begin();
@@ -235,9 +234,8 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     clazz.createIndex(
         "compositeIndexNullRangeQueryInMiddleTxIndex",
         SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
-        null,
         metadata,
-        null, new String[]{"prop1", "prop2", "prop3"});
+        new String[]{"prop1", "prop2", "prop3"});
 
     session.begin();
     for (var i = 0; i < 20; i++) {
@@ -287,9 +285,8 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     clazz.createIndex(
         "compositeIndexNullPointQueryNullInTheMiddleIndex",
         SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
-        null,
         metadata,
-        null, new String[]{"prop1", "prop2", "prop3"});
+        new String[]{"prop1", "prop2", "prop3"});
 
     for (var i = 0; i < 20; i++) {
       session.begin();
@@ -350,9 +347,8 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
     clazz.createIndex(
         "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxIndex",
         SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
-        null,
         metadata,
-        null, new String[]{"prop1", "prop2", "prop3"});
+        new String[]{"prop1", "prop2", "prop3"});
 
     session.begin();
 

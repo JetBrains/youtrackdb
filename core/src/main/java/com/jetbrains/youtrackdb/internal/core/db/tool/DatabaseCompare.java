@@ -207,7 +207,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
                 + " in DB1 is not equals in collections in DB2.");
         ok = false;
       }
-      if (!clazz.getCustomKeys().equals(clazz2.getCustomKeys())) {
+      if (!clazz.getCustomPopertiesNames().equals(clazz2.getCustomPopertiesNames())) {
         listener.onMessage(
             "\n- ERR: Class definition for "
                 + clazz.getName()

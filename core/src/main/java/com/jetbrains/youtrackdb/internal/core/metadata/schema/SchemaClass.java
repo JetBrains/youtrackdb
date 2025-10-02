@@ -19,59 +19,33 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
 /**
  * Schema class
  */
 public interface SchemaClass extends ImmutableSchemaClass {
 
-  SchemaClass setAbstract(boolean iAbstract);
+  void setAbstract(boolean iAbstract);
 
   void setStrictMode(boolean iMode);
 
-  SchemaClass setSuperClasses(List<? extends SchemaClass> classes);
+  void setParents(@Nonnull List<? extends SchemaClass> classes);
 
-  SchemaClass addSuperClass(SchemaClass superClass);
+  void addParentClass(SchemaClass parentClass);
 
-  void removeSuperClass(SchemaClass superClass);
+  void removeSuperClass(SchemaClass parentClass);
 
   SchemaClass setName(String iName);
 
   SchemaClass setDescription(String iDescription);
 
-  SchemaProperty createProperty(String iPropertyName, PropertyType iType);
-
-  /**
-   * Create a property in the class with the specified options.
-   *
-   * @param iPropertyName the name of the property.
-   * @param iType         the type of the property.
-   * @param iLinkedClass  in case of property of type
-   *                      LINK,LINKLIST,LINKSET,LINKMAP,EMBEDDED,EMBEDDEDLIST,EMBEDDEDSET,EMBEDDEDMAP
-   *                      can be specified a linked class in all the other cases should be null
-   * @return the created property.
-   */
-  SchemaProperty createProperty(String iPropertyName, PropertyType iType,
-      SchemaClass iLinkedClass);
-
-  /**
-   * Create a property in the class with the specified options.
-   *
-   * @param iPropertyName the name of the property.
-   * @param iType         the type of the property.
-   * @param iLinkedType   in case of property of type EMBEDDEDLIST,EMBEDDEDSET,EMBEDDEDMAP can be
-   *                      specified a linked type in all the other cases should be null
-   * @return the created property.
-   */
-  SchemaProperty createProperty(String iPropertyName, PropertyType iType,
-      PropertyType iLinkedType);
+  SchemaProperty createProperty(String iPropertyName, PropertyTypeInternal iType);
 
   void dropProperty(String iPropertyName);
 
@@ -80,75 +54,28 @@ public interface SchemaClass extends ImmutableSchemaClass {
    * Creates database index that is based on passed in field names. Given index will be added into
    * class instance and associated with database index.
    *
-   * @param iName  Database index name
-   * @param iType  Index type.
-   * @param fields Field names from which index will be created.
+   * @param iName      Database index name
+   * @param indexType  Index type.
+   * @param properties Field names from which index will be created.
    */
-  void createIndex(String iName, INDEX_TYPE iType, String... fields);
-
-  /**
-   * Creates database index that is based on passed in field names. Given index will be added into
-   * class instance and associated with database index.
-   *
-   * @param iName  Database index name
-   * @param iType  Index type.
-   * @param fields Field names from which index will be created.
-   */
-  void createIndex(String iName, String iType, String... fields);
+  void createIndex(String iName, INDEX_TYPE indexType, String... properties);
 
   /**
    * Creates database index that is based on passed in field names. Given index will be added into
    * class instance.
    *
-   * @param iName             Database index name.
-   * @param iType             Index type.
-   * @param iProgressListener Progress listener.
-   * @param fields            Field names from which index will be created.
-   */
-  void createIndex(
-      String iName, INDEX_TYPE iType,
-      ProgressListener iProgressListener,
-      String... fields);
-
-  /**
-   * Creates database index that is based on passed in field names. Given index will be added into
-   * class instance.
-   *
-   * @param iName             Database index name.
-   * @param iType             Index type.
-   * @param iProgressListener Progress listener.
-   * @param metadata          Additional parameters which will be added in index configuration
-   *                          document as "metadata" field.
-   * @param algorithm         Algorithm to use for indexing.
-   * @param fields            Field names from which index will be created. @return Class index
-   *                          registered inside of given class ans associated with database index.
+   * @param iName      Database index name.
+   * @param indexType  Index type.
+   * @param metadata   Additional parameters which will be added in index configuration document as
+   *                   "metadata" field.
+   * @param properties Field names from which index will be created. @return Class index registered
+   *                   inside of given class ans associated with database index.
    */
   void createIndex(
       String iName,
-      String iType,
-      ProgressListener iProgressListener,
+      INDEX_TYPE indexType,
       Map<String, Object> metadata,
-      String algorithm,
-      String... fields);
-
-  /**
-   * Creates database index that is based on passed in field names. Given index will be added into
-   * class instance.
-   *
-   * @param iName             Database index name.
-   * @param iType             Index type.
-   * @param iProgressListener Progress listener.
-   * @param metadata          Additional parameters which will be added in index configuration
-   *                          document as "metadata" field.
-   * @param fields            Field names from which index will be created. @return Class index
-   *                          registered inside of given class ans associated with database index.
-   */
-  void createIndex(
-      String iName,
-      String iType,
-      ProgressListener iProgressListener,
-      Map<String, Object> metadata,
-      String... fields);
+      String... properties);
 
 
   SchemaClass setCustom(String iName, String iValue);
@@ -160,19 +87,14 @@ public interface SchemaClass extends ImmutableSchemaClass {
   SchemaProperty createProperty(
       final String iPropertyName,
       final PropertyTypeInternal iType,
-      final PropertyTypeInternal iLinkedType,
-      final boolean unsafe);
+      final PropertyTypeInternal iLinkedType);
 
   SchemaProperty createProperty(
       final String iPropertyName,
       final PropertyTypeInternal iType,
-      final SchemaClass iLinkedClass,
-      final boolean unsafe);
+      final SchemaClass iLinkedClass);
 
   void truncate();
-
-
-  SchemaClass set(final ATTRIBUTES attribute, final Object value);
 
   @Override
   List<SchemaClass> getParents();

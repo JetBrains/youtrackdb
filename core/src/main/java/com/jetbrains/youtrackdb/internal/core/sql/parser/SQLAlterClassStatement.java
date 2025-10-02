@@ -335,11 +335,11 @@ public class SQLAlterClassStatement extends DDLStatement {
           "superclass not found: " + this);
     }
     if (Boolean.TRUE.equals(add)) {
-      oClass.addSuperClass(superclass);
+      oClass.addParentClass(superclass);
     } else if (Boolean.TRUE.equals(remove)) {
       oClass.removeSuperClass(superclass);
     } else {
-      oClass.setSuperClasses(Collections.singletonList(superclass));
+      oClass.setParents(Collections.singletonList(superclass));
     }
   }
 
@@ -363,14 +363,14 @@ public class SQLAlterClassStatement extends DDLStatement {
     }
     if (Boolean.TRUE.equals(add)) {
       for (var superclass : superclasses) {
-        oClass.addSuperClass(superclass);
+        oClass.addParentClass(superclass);
       }
     } else if (Boolean.TRUE.equals(remove)) {
       for (var superclass : superclasses) {
         oClass.removeSuperClass(superclass);
       }
     } else {
-      oClass.setSuperClasses(superclasses);
+      oClass.setParents(superclasses);
     }
   }
 }

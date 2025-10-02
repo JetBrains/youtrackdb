@@ -734,7 +734,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             .getClass(superClassName);
 
         if (!cls.getParents().contains(superClass)) {
-          cls.addSuperClass(superClass);
+          cls.addParentClass(superClass);
         }
       }
     }
@@ -764,8 +764,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     if (prop == null) {
       // CREATE IT
       prop = iClass.createProperty(propName, type,
-          (PropertyTypeInternal) null,
-          true);
+          (PropertyTypeInternal) null
+      );
     }
     prop.setMandatory(mandatory);
     prop.setReadonly(readonly);

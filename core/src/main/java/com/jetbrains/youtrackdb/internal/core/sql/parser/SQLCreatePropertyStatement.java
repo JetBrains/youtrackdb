@@ -93,9 +93,9 @@ public class SQLCreatePropertyStatement extends DDLStatement {
 
     SchemaProperty internalProp;
     if (linkedType != null) {
-      internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedType, unsafe);
+      internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedType);
     } else if (linkedClass != null) {
-      internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedClass, unsafe);
+      internalProp = clazz.createProperty(propertyName.getStringValue(), type, linkedClass);
     } else {
       internalProp = clazz.createProperty(propertyName.getStringValue(),
           type.getPublicPropertyType());

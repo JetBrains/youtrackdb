@@ -3,22 +3,23 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyShared> implements
+public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEntity> implements
     SchemaProperty {
 
   private int hashCode = 0;
 
-  public SchemaPropertyProxy(SchemaPropertyShared iDelegate,
+  public SchemaPropertyProxy(SchemaPropertyEntity iDelegate,
       DatabaseSessionEmbedded session) {
     super(iDelegate, session);
   }

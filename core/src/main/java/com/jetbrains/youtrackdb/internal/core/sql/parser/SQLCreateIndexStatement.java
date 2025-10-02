@@ -166,8 +166,8 @@ public class SQLCreateIndexStatement extends DDLStatement {
     if ((keyTypes == null || keyTypes.isEmpty()) && collatesList == null) {
       var indexName = name.getValue();
       oClass.createIndex(
-          indexName, type.getStringValue(), null, metadata,
-          engine, fields);
+          indexName, type.getStringValue(), metadata,
+          fields);
       idx = session.getIndex(indexName);
     } else {
       final List<PropertyTypeInternal> fieldTypeList;

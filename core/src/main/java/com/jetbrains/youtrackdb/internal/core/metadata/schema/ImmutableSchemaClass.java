@@ -108,7 +108,7 @@ public interface ImmutableSchemaClass {
 
   String getCustom(String iName);
 
-  Set<String> getCustomKeys();
+  Set<String> getCustomPopertiesNames();
 
   boolean hasCollectionId(int collectionId);
 
@@ -116,20 +116,20 @@ public interface ImmutableSchemaClass {
 
   int getCollectionForNewInstance(final EntityImpl entity);
 
-  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields);
+  Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... properties);
 
   Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      final Collection<String> fields);
+      final Collection<String> properties);
 
 
-  void getIndexes(DatabaseSessionInternal session, Collection<Index> indices);
+  void getIndexes(DatabaseSessionEmbedded session, Collection<Index> indices);
 
   long count(DatabaseSessionInternal session);
 
 
   long count(DatabaseSessionInternal session, final boolean isPolymorphic);
 
-  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       String... properties);
 
   Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
@@ -162,11 +162,11 @@ public interface ImmutableSchemaClass {
    * for the given set of fields in super class they will be taken into account.
    *
    * @param session
-   * @param fields  Field names.
+   * @param properties  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    * @see #getInvolvedIndexes(DatabaseSessionInternal, Collection)
    */
-  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields);
+  Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... properties);
 
   /**
    * Returns list of indexes that contain passed in fields names as their first keys. Order of
@@ -174,12 +174,11 @@ public interface ImmutableSchemaClass {
    *
    * <p>Indexes that related only to the given class will be returned.
    *
-   * @param session
-   * @param fields  Field names.
+   * @param properties  Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
   Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> fields);
+      Collection<String> properties);
 
   /**
    * @param session
@@ -202,11 +201,11 @@ public interface ImmutableSchemaClass {
 
   /**
    * @param session
-   * @param fields  Field names.
+   * @param properties  Field names.
    * @return <code>true</code> if given fields are contained as first key fields in class indexes.
    * @see #areIndexed(DatabaseSessionInternal, Collection)
    */
-  boolean areIndexed(DatabaseSessionInternal session, String... fields);
+  boolean areIndexed(DatabaseSessionInternal session, String... properties);
 
   /**
    * @return All indexes for given class, not the inherited ones.

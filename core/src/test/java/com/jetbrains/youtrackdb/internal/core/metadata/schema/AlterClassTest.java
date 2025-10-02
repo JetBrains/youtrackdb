@@ -11,7 +11,7 @@ public class AlterClassTest extends DbTestBase {
     Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.getClass("O");
     var v = oSchema.getClass("V");
-    v.addSuperClass(oClass);
+    v.addParentClass(oClass);
 
     var ovt = oSchema.createClass("Some", v);
     ovt.setAbstract(true);

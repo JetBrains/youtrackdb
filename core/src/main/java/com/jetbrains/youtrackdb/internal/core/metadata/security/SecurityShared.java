@@ -1020,12 +1020,12 @@ public class SecurityShared implements SecurityInternal {
     } else if (!roleClass.getParents().contains(identityClass))
     // MIGRATE AUTOMATICALLY TO 1.2.0
     {
-      roleClass.setSuperClasses(Collections.singletonList(identityClass));
+      roleClass.setParents(Collections.singletonList(identityClass));
     }
 
     if (!roleClass.existsProperty("name")) {
       roleClass
-          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, unsafe)
+          .createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null)
           .setMandatory(true)
           .setNotNull(true)
           .setCollate("ci");
@@ -1041,21 +1041,21 @@ public class SecurityShared implements SecurityInternal {
     }
 
     if (!roleClass.existsProperty("mode")) {
-      roleClass.createProperty("mode", PropertyTypeInternal.BYTE, (PropertyTypeInternal) null,
-          unsafe);
+      roleClass.createProperty("mode", PropertyTypeInternal.BYTE, (PropertyTypeInternal) null
+      );
     }
 
     if (!roleClass.existsProperty("rules")) {
-      roleClass.createProperty("rules", PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.BYTE,
-          unsafe);
+      roleClass.createProperty("rules", PropertyTypeInternal.EMBEDDEDMAP, PropertyTypeInternal.BYTE
+      );
     }
     if (!roleClass.existsProperty("inheritedRole")) {
-      roleClass.createProperty("inheritedRole", PropertyTypeInternal.LINK, roleClass, unsafe);
+      roleClass.createProperty("inheritedRole", PropertyTypeInternal.LINK, roleClass);
     }
 
     if (!roleClass.existsProperty("policies")) {
       roleClass.createProperty(
-          "policies", PropertyTypeInternal.LINKMAP, database.getClass("OSecurityPolicy"), unsafe);
+          "policies", PropertyTypeInternal.LINKMAP, database.getClass("OSecurityPolicy"));
     }
 
     return roleClass;

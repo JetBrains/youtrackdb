@@ -874,10 +874,10 @@ public class IndexTest extends BaseDBTest {
             db.getMetadata().getSlowMutableSchema().createClass("AnotherChildTestClass");
 
         if (!baseClass.isParentOf(childClass)) {
-          childClass.addSuperClass(baseClass);
+          childClass.addParentClass(baseClass);
         }
         if (!baseClass.isParentOf(anotherChildClass)) {
-          anotherChildClass.addSuperClass(baseClass);
+          anotherChildClass.addParentClass(baseClass);
         }
 
         baseClass

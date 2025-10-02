@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
-import java.util.Iterator;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public interface BaseIndexEngine {
 
@@ -25,28 +25,28 @@ public interface BaseIndexEngine {
 
   void close();
 
-  Iterator<RawPair<Object, RID>> iterateEntriesBetween(
+  CloseableIterator<RawPair<Object, RID>> iterateEntriesBetween(
       DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
       boolean toInclusive,
       boolean ascSortOrder);
 
-  Iterator<RawPair<Object, RID>> iterateEntriesMajor(
+  CloseableIterator<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder);
 
-  Iterator<RawPair<Object, RID>> iterateEntriesMinor(
+  CloseableIterator<RawPair<Object, RID>> iterateEntriesMinor(
       final Object toKey,
       final boolean isInclusive,
       boolean ascSortOrder);
 
-  Iterator<RawPair<Object, RID>> ascEntries();
+  CloseableIterator<RawPair<Object, RID>> ascEntries();
 
-  Iterator<RawPair<Object, RID>> descEntries();
+  CloseableIterator<RawPair<Object, RID>> descEntries();
 
-  Iterator<Object> keys();
+  CloseableIterator<Object> keys();
 
   long size(Storage storage);
 

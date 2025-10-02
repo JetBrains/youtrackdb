@@ -55,7 +55,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
 
     var oClass = oSchema.createClass("Test21");
     oClass.createProperty("some", PropertyType.LINKLIST, (SchemaClass) null);
-    oClass.createProperty("some2", PropertyTypeInternal.LINKLIST, (SchemaClass) null, true);
+    oClass.createProperty("some2", PropertyTypeInternal.LINKLIST, (SchemaClass) null);
 
     assertNotNull(oClass.getProperty("some"));
     assertNotNull(oClass.getProperty("some2"));

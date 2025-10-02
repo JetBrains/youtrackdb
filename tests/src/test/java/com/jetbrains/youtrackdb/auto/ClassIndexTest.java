@@ -80,7 +80,7 @@ public class ClassIndexTest extends BaseDBTest {
     oClass.createProperty("fRidBag", PropertyType.LINKBAG);
 
     oSuperClass.createProperty("fNine", PropertyType.INTEGER);
-    oClass.addSuperClass(oSuperClass);
+    oClass.addParentClass(oSuperClass);
 
     session.close();
   }

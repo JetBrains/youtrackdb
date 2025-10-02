@@ -167,32 +167,32 @@ public class SchedulerImpl {
         .createClass(ScheduledEvent.CLASS_NAME);
 
     f.createProperty(ScheduledEvent.PROP_NAME, PropertyTypeInternal.STRING,
-            (PropertyTypeInternal) null,
-            true)
+            (PropertyTypeInternal) null
+        )
         .setMandatory(true)
         .setNotNull(true);
     f.createIndex(ScheduledEvent.PROP_NAME + "Index", SchemaManager.INDEX_TYPE.UNIQUE,
         ScheduledEvent.PROP_NAME);
     f.createProperty(ScheduledEvent.PROP_RULE, PropertyTypeInternal.STRING,
-            (PropertyTypeInternal) null,
-            true)
+            (PropertyTypeInternal) null
+        )
         .setMandatory(true)
         .setNotNull(true);
     f.createProperty(ScheduledEvent.PROP_ARGUMENTS, PropertyTypeInternal.EMBEDDEDMAP,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
     f.createProperty(ScheduledEvent.PROP_STATUS, PropertyTypeInternal.STRING,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
     f.createProperty(
             ScheduledEvent.PROP_FUNC,
             PropertyTypeInternal.LINK,
-            database.getMetadata().getSlowMutableSchema().getClass(Function.CLASS_NAME), true)
+            database.getMetadata().getSlowMutableSchema().getClass(Function.CLASS_NAME))
         .setMandatory(true)
         .setNotNull(true);
     f.createProperty(ScheduledEvent.PROP_STARTTIME, PropertyTypeInternal.DATETIME,
-        (PropertyTypeInternal) null,
-        true);
+        (PropertyTypeInternal) null
+    );
   }
 
   public void initScheduleRecord(EntityImpl entity) {

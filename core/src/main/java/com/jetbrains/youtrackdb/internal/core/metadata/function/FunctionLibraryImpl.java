@@ -173,15 +173,15 @@ public class FunctionLibraryImpl {
     }
 
     var f = session.getMetadata().getSlowMutableSchema().createClass("OFunction");
-    var prop = f.createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null,
-        true);
+    var prop = f.createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null
+    );
     prop.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
 
-    f.createProperty("code", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, true);
-    f.createProperty("language", PropertyTypeInternal.STRING, (PropertyTypeInternal) null, true);
-    f.createProperty("idempotent", PropertyTypeInternal.BOOLEAN, (PropertyTypeInternal) null, true);
-    f.createProperty("parameters", PropertyTypeInternal.EMBEDDEDLIST, PropertyTypeInternal.STRING,
-        true);
+    f.createProperty("code", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
+    f.createProperty("language", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
+    f.createProperty("idempotent", PropertyTypeInternal.BOOLEAN, (PropertyTypeInternal) null);
+    f.createProperty("parameters", PropertyTypeInternal.EMBEDDEDLIST, PropertyTypeInternal.STRING
+    );
   }
 
   public synchronized void dropFunction(DatabaseSessionInternal session, Function function) {

@@ -26,7 +26,7 @@ public class AlterSuperclassTest extends DbTestBase {
     assertEquals(classChild.getParents(), List.of(classA));
     var classChild2 = schema.createClass("ChildClass2", classChild);
     assertEquals(classChild2.getParents(), List.of(classChild));
-    classChild2.setSuperClasses(List.of(classA));
+    classChild2.setParents(List.of(classA));
     assertEquals(classChild2.getParents(), List.of(classA));
   }
 
@@ -40,7 +40,7 @@ public class AlterSuperclassTest extends DbTestBase {
     assertEquals(classChild.getParents(), List.of(classA));
     var classChild2 = schema.createClass("ChildClass2");
     classChild2.createProperty("RevNumberNine", PropertyType.STRING);
-    classChild2.setSuperClasses(List.of(classChild));
+    classChild2.setParents(List.of(classChild));
   }
 
   @Test(expected = SchemaException.class)
@@ -49,7 +49,7 @@ public class AlterSuperclassTest extends DbTestBase {
     var classA = schema.createClass("ParentClass");
     var classChild = schema.createClass("ChildClass1", classA);
     assertEquals(classChild.getParents(), Collections.singletonList(classA));
-    classChild.addSuperClass(classA);
+    classChild.addParentClass(classA);
   }
 
   @Test(expected = SchemaException.class)
@@ -58,7 +58,7 @@ public class AlterSuperclassTest extends DbTestBase {
     var classA = schema.createClass("ParentClass");
     var classChild = schema.createClass("ChildClass1", classA);
     assertEquals(classChild.getParents(), Collections.singletonList(classA));
-    classChild.setSuperClasses(Arrays.asList(classA, classA));
+    classChild.setParents(Arrays.asList(classA, classA));
   }
 
   /**
@@ -72,7 +72,7 @@ public class AlterSuperclassTest extends DbTestBase {
     var classChild = schema.createClass("ChildClass1", classA);
     var classChild2 = schema.createClass("ChildClass2", classA);
 
-    classChild2.setSuperClasses(List.of(classChild));
+    classChild2.setParents(List.of(classChild));
 
     schema.dropClass("ChildClass2");
   }

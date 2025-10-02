@@ -560,7 +560,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           }
           jsonGenerator.writeEndArray();
         }
-        final var customKeys = cls.getCustomKeys();
+        final var customKeys = cls.getCustomPopertiesNames();
         final Map<String, String> custom = new HashMap<>();
         for (var key : customKeys) {
           custom.put(key, cls.getCustom(key));

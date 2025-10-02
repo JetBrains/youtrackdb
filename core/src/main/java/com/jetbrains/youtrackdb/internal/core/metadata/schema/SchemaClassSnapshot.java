@@ -46,7 +46,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public class SchemaClassSnapshot implements ImmutableSchemaClass {
-
   private final boolean isAbstract;
   private final boolean strictMode;
   private final String name;
@@ -159,7 +158,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
           new SchemaPropertySnapshot(session, declaredProperty, this));
     }
 
-    var customPropertyNames = classEntity.customPropertyNames();
+    var customPropertyNames = classEntity.getCustomPropertiesNames();
     var customProperties = new HashMap<String, String>();
     for (var key : customPropertyNames) {
       customProperties.put(key, classEntity.getCustomProperty(key));
@@ -449,29 +448,30 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
-      Collection<String> fields) {
-    final Set<Index> result = new HashSet<>(getClassInvolvedIndexesInternal(session, fields));
+      Collection<String> properties) {
+    final Set<Index> result = new HashSet<>(getClassInvolvedIndexesInternal(session, properties));
     for (var superClass : parentClasses) {
-      result.addAll(superClass.getInvolvedIndexesInternal(session, fields));
+      result.addAll(superClass.getInvolvedIndexesInternal(session, properties));
     }
 
     return result;
   }
 
   @Override
-  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... fields) {
-    return getInvolvedIndexes(session, Arrays.asList(fields));
+  public Set<String> getInvolvedIndexes(DatabaseSessionInternal session, String... properties) {
+    return getInvolvedIndexes(session, Arrays.asList(properties));
   }
 
   @Override
-  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session, String... fields) {
-    return getInvolvedIndexesInternal(session, Arrays.asList(fields));
+  public Set<Index> getInvolvedIndexesInternal(DatabaseSessionInternal session,
+      String... properties) {
+    return getInvolvedIndexesInternal(session, Arrays.asList(properties));
   }
 
   @Override
   public Set<String> getClassInvolvedIndexes(DatabaseSessionInternal session,
-      Collection<String> fields) {
-    return getClassInvolvedIndexesInternal(session, fields).stream().map(Index::getName)
+      Collection<String> properties) {
+    return getClassInvolvedIndexesInternal(session, properties).stream().map(Index::getName)
         .collect(HashSet::new, HashSet::add, HashSet::addAll);
   }
 
@@ -504,7 +504,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionInternal session,
+  public Set<Index> getClassInvolvedIndexesInternal(DatabaseSessionEmbedded session,
       String... properties) {
     assert session.assertIfNotActive();
     return getClassInvolvedIndexesInternal(session, Arrays.asList(properties));
@@ -528,9 +528,9 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public boolean areIndexed(DatabaseSessionInternal session, String... fields) {
+  public boolean areIndexed(DatabaseSessionInternal session, String... properties) {
     assert session.assertIfNotActive();
-    return areIndexed(session, Arrays.asList(fields));
+    return areIndexed(session, Arrays.asList(properties));
   }
 
   @Override
@@ -556,7 +556,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
 
   @Override
-  public void getIndexes(DatabaseSessionInternal session, final Collection<Index> indexes) {
+  public void getIndexes(DatabaseSessionEmbedded session, final Collection<Index> indexes) {
     getClassIndexes(session, indexes);
 
     for (var superClass : parentClasses) {
@@ -581,7 +581,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
 
   @Override
-  public Set<String> getCustomKeys() {
+  public Set<String> getCustomPopertiesNames() {
     return customFields.keySet();
   }
 

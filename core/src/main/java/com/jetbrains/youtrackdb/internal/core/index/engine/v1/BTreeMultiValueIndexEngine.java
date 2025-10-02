@@ -24,6 +24,7 @@ import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.commons.collections4.IteratorUtils;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public final class BTreeMultiValueIndexEngine
     implements MultiValueIndexEngine, BTreeIndexEngine {
@@ -237,7 +238,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> ascEntries() {
+  public CloseableIterator<RawPair<Object, RID>> ascEntries() {
     final var firstKey = svTree.firstKey();
     if (firstKey == null) {
       return IteratorUtils.emptyIterator();
@@ -254,7 +255,7 @@ public final class BTreeMultiValueIndexEngine
 
 
   @Override
-  public Iterator<RawPair<Object, RID>> descEntries() {
+  public CloseableIterator<RawPair<Object, RID>> descEntries() {
     final var lastKey = svTree.lastKey();
     if (lastKey == null) {
       return IteratorUtils.emptyIterator();
@@ -263,7 +264,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Iterator<Object> keys() {
+  public CloseableIterator<Object> keys() {
     return YTDBIteratorUtils.map(svTree.keys(), BTreeMultiValueIndexEngine::extractKey);
   }
 
@@ -291,7 +292,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> iterateEntriesBetween(
+  public CloseableIterator<RawPair<Object, RID>> iterateEntriesBetween(
       DatabaseSessionEmbedded db, Object rangeFrom,
       boolean fromInclusive,
       Object rangeTo,
@@ -327,7 +328,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> iterateEntriesMajor(
+  public CloseableIterator<RawPair<Object, RID>> iterateEntriesMajor(
       Object fromKey,
       boolean isInclusive,
       boolean ascSortOrder) {
@@ -336,7 +337,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Iterator<RawPair<Object, RID>> iterateEntriesMinor(
+  public CloseableIterator<RawPair<Object, RID>> iterateEntriesMinor(
       Object toKey,
       boolean isInclusive,
       boolean ascSortOrder) {

@@ -97,7 +97,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     var bClass = oSchema.createAbstractClass("cycleB", aClass);
     var cClass = oSchema.createAbstractClass("cycleC", bClass);
 
-    aClass.setSuperClasses(Collections.singletonList(cClass));
+    aClass.setParents(Collections.singletonList(cClass));
   }
 
   @Test
@@ -128,7 +128,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.getClass("O");
     var vClass = oSchema.getClass("V");
-    vClass.setSuperClasses(Collections.singletonList(oClass));
+    vClass.setParents(Collections.singletonList(oClass));
     var dummy1Class = oSchema.createClass("Dummy1", oClass, vClass);
     var dummy2Class = oSchema.createClass("Dummy2");
     var dummy3Class = oSchema.createClass("Dummy3", dummy1Class, dummy2Class);

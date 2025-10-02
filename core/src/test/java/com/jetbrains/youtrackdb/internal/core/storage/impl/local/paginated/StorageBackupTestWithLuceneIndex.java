@@ -72,8 +72,7 @@ public class StorageBackupTestWithLuceneIndex {
         "backupLuceneIndex",
         SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         null,
-        null,
-        "LUCENE", new String[]{"name"});
+        new String[]{"name"});
 
     db.begin();
     final var document = ((EntityImpl) db.newEntity("BackupClass"));
@@ -126,8 +125,7 @@ public class StorageBackupTestWithLuceneIndex {
         "backupLuceneIndex",
         SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
         null,
-        null,
-        "LUCENE", new String[]{"name"});
+        new String[]{"name"});
 
     final var backupDir = new File(buildDirectory, "backupDir");
     FileUtils.deleteRecursively(backupDir);
