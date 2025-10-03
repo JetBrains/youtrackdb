@@ -79,6 +79,7 @@ import javax.annotation.Nullable;
 
 public final class FrontendTransactionImpl implements
     IdentityChangeListener, FrontendTransaction {
+
   private static final AtomicLong txSerial = new AtomicLong();
 
   @Nonnull
@@ -368,14 +369,6 @@ public final class FrontendTransactionImpl implements
     }
 
     if (txStartCounter == 0) {
-      for (var rollbackAction : rollbackActions) {
-        try {
-          rollbackAction.accept(session);
-        } catch (Throwable e) {
-          LogManager.instance().error(this, "Error during rollback action", e);
-        }
-      }
-
       close();
       status = TXSTATUS.ROLLED_BACK;
 
@@ -894,10 +887,9 @@ public final class FrontendTransactionImpl implements
     {
       return true;
     }
-    final var database = session;
-    final var indexManager = database.getSharedContext().getIndexManager();
+    var schema = session.getMetadata().getFastImmutableSchema();
     for (var entry : indexEntries.entrySet()) {
-      final var index = indexManager.getIndex(entry.getKey());
+      final var index = schema.getIndex(entry.getKey());
       if (index == null) {
         throw new TransactionException(session,
             "Cannot find index '" + entry.getValue() + "' while committing transaction");
