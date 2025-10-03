@@ -33,9 +33,8 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Objects;
+import java.util.Iterator;
 import java.util.Set;
-import java.util.stream.Stream;
 
 public class DatabaseCompare extends DatabaseImpExpAbstract {
 
@@ -46,7 +45,6 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   private boolean autoDetectExportImportMap = true;
 
   private int differences = 0;
-  private boolean compareIndexMetadata = false;
 
   private final Set<String> excludeIndexes = new HashSet<>();
 
@@ -346,15 +344,15 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     var ok = true;
 
-    final var indexManagerOne = sessionOne.getSharedContext().getIndexManager();
-    final var indexManagerTwo = sessionTwo.getSharedContext().getIndexManager();
+    var schemaOne = sessionOne.getMetadata().getFastImmutableSchema();
+    var schemaTwo = sessionTwo.getMetadata().getFastImmutableSchema();
 
-    final var indexesOne = indexManagerOne.getIndexes();
+    final var indexesOne = schemaOne.getIndexes();
     var indexesSizeOne = indexesOne.size();
 
-    var indexesSizeTwo = indexManagerTwo.getIndexes().size();
+    var indexesSizeTwo = schemaTwo.getIndexes().size();
 
-    if (indexManagerTwo.getIndex(DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
+    if (schemaTwo.getIndex(DatabaseImport.EXPORT_IMPORT_INDEX_NAME) != null) {
       indexesSizeTwo--;
     }
 
@@ -373,7 +371,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         continue;
       }
 
-      final var indexTwo = indexManagerTwo.getIndex(indexOne.getName());
+      final var indexTwo = schemaTwo.getIndex(indexOne.getName());
       if (indexTwo == null) {
         ok = false;
         listener.onMessage("\n- ERR: Index " + indexOne.getName() + " is absent in DB2.");
@@ -392,12 +390,13 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         continue;
       }
 
-      if (!indexOne.getCollections().equals(indexTwo.getCollections())) {
+      if (!indexOne.getDefinition().getClassName()
+          .equals(indexTwo.getDefinition().getClassName())) {
         ok = false;
         listener.onMessage(
-            "\n- ERR: Collections to index for index " + indexOne.getName() + " are different.");
-        listener.onMessage("\n--- DB1: " + indexOne.getCollections());
-        listener.onMessage("\n--- DB2: " + indexTwo.getCollections());
+            "\n- ERR: Classes to index for index " + indexOne.getName() + " are different.");
+        listener.onMessage("\n--- DB1: " + indexOne.getDefinition().getClassName());
+        listener.onMessage("\n--- DB2: " + indexTwo.getDefinition().getClassName());
         listener.onMessage("\n");
         ++differences;
         continue;
@@ -444,57 +443,15 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         ++differences;
       }
 
-      if (compareIndexMetadata) {
-        final var metadataOne = indexOne.getMetadata();
-        final var metadataTwo = indexTwo.getMetadata();
-
-        if (metadataOne == null && metadataTwo != null) {
-          ok = false;
-          listener.onMessage(
-              "\n- ERR: Metadata for index "
-                  + indexOne.getName()
-                  + " for DB1 is null but for DB2 is not.");
-          listener.onMessage("\n");
-          ++differences;
-        } else {
-          if (metadataOne != null && metadataTwo == null) {
-            ok = false;
-            listener.onMessage(
-                "\n- ERR: Metadata for index "
-                    + indexOne.getName()
-                    + " for DB1 is not null but for DB2 is null.");
-            listener.onMessage("\n");
-            ++differences;
-          } else {
-            if (!Objects.equals(metadataOne, metadataTwo)) {
-              ok = false;
-              listener.onMessage(
-                  "\n- ERR: Metadata for index "
-                      + indexOne.getName()
-                      + " for DB1 and for DB2 are different.");
-
-              listener.onMessage("\n--- M1: " + metadataOne);
-              listener.onMessage("\n--- M2: " + metadataTwo);
-
-              listener.onMessage("\n");
-              ++differences;
-            }
-          }
-        }
-      }
-
-      if (((compareEntriesForAutomaticIndexes && !indexOne.getType().equals("DICTIONARY"))
-          || !indexOne.isAutomatic())) {
-
-        try (final var keyStream = indexOne.keys()) {
-          final var indexKeyIteratorOne = keyStream.iterator();
+      if (compareEntriesForAutomaticIndexes) {
+        try (final var indexKeyIteratorOne = indexOne.keys()) {
           while (indexKeyIteratorOne.hasNext()) {
             final var indexKey = indexKeyIteratorOne.next();
-            try (var indexOneStream = indexOne.getRids(sessionOne, indexKey)) {
-              try (var indexTwoValue = indexTwo.getRids(sessionTwo, indexKey)) {
+            try (var indexOneIterator = indexOne.getRids(sessionOne, indexKey)) {
+              try (var indexTwoIterator = indexTwo.getRids(sessionTwo, indexKey)) {
                 differences +=
-                    compareIndexStreams(
-                        indexKey, indexOneStream, indexTwoValue, ridMapper, listener);
+                    compareIndexIterators(
+                        indexKey, indexOneIterator, indexTwoIterator, ridMapper, listener);
               }
             }
             ok = ok && differences > 0;
@@ -508,24 +465,21 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     }
   }
 
-  private static int compareIndexStreams(
+  private static int compareIndexIterators(
       final Object indexKey,
-      final Stream<RID> streamOne,
-      final Stream<RID> streamTwo,
+      final Iterator<RID> iteratorOne,
+      final Iterator<RID> iteratorTwo,
       final EntityHelper.RIDMapper ridMapper,
       final CommandOutputListener listener) {
     final Set<RID> streamTwoSet = new HashSet<>();
 
-    final var streamOneIterator = streamOne.iterator();
-    final var streamTwoIterator = streamTwo.iterator();
-
     var differences = 0;
-    while (streamOneIterator.hasNext()) {
+    while (iteratorOne.hasNext()) {
       RID rid;
       if (ridMapper == null) {
-        rid = streamOneIterator.next();
+        rid = iteratorOne.next();
       } else {
-        final var streamOneRid = streamOneIterator.next();
+        final var streamOneRid = iteratorOne.next();
         rid = ridMapper.map(streamOneRid);
         if (rid == null) {
           rid = streamOneRid;
@@ -533,14 +487,14 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       }
 
       if (!streamTwoSet.remove(rid)) {
-        if (!streamTwoIterator.hasNext()) {
+        if (!iteratorTwo.hasNext()) {
           listener.onMessage(
               "\r\nEntry " + indexKey + ":" + rid + " is present in DB1 but absent in DB2");
           differences++;
         } else {
           var found = false;
-          while (streamTwoIterator.hasNext()) {
-            final var streamRid = streamTwoIterator.next();
+          while (iteratorTwo.hasNext()) {
+            final var streamRid = iteratorTwo.next();
             if (streamRid.equals(rid)) {
               found = true;
               break;
@@ -557,8 +511,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
       }
     }
 
-    while (streamTwoIterator.hasNext()) {
-      final var rid = streamTwoIterator.next();
+    while (iteratorTwo.hasNext()) {
+      final var rid = iteratorTwo.next();
       listener.onMessage(
           "\r\nEntry " + indexKey + ":" + rid + " is present in DB2 but absent in DB1");
 
@@ -677,10 +631,11 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
           try {
             recordsCounter++;
 
-            final var entity1 = new EntityImpl(sessionOne,
-                new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
-            final var entity2 = new EntityImpl(sessionTwo,
-                new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID));
+            final var entity1 = new EntityImpl(
+                new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID), sessionOne);
+            final var entity2 = new EntityImpl(
+                new RecordId(RID.COLLECTION_ID_INVALID, RID.COLLECTION_POS_INVALID),
+                sessionTwo);
 
             final var position = physicalPosition.collectionPosition;
             rid1 = new RecordId(collectionId1, position);
@@ -891,9 +846,6 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     return false;
   }
 
-  public void setCompareIndexMetadata(boolean compareIndexMetadata) {
-    this.compareIndexMetadata = compareIndexMetadata;
-  }
 
   public void setCompareEntriesForAutomaticIndexes(boolean compareEntriesForAutomaticIndexes) {
     this.compareEntriesForAutomaticIndexes = compareEntriesForAutomaticIndexes;
