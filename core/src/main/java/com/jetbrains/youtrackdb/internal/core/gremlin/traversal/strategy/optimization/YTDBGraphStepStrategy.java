@@ -67,36 +67,37 @@ public final class YTDBGraphStepStrategy
         traversal.addStep(idx, currentGraphStep);
       } else if (current instanceof HasStep<?> hch) {
 
-        // HasContainers that will be handled natively by YouTrackDB.
-        // Those are 1) all "has" steps that strictly follow a GraphStep and 2) all "hasLabel" steps.
-        final List<HasContainer> specialContainers = new ArrayList<>();
-
-        // if we replace all HasContainers, then we want to remove the original "has" step.
-        var removeOriginalStep = true;
-        for (var hc : hch.getHasContainers()) {
-          if (isTraversalStart || T.label.getAccessor().equals(hc.getKey())) {
-            specialContainers.add(hc);
-          } else {
-            removeOriginalStep = false;
-          }
-        }
-
+        final boolean removeOriginalStep;
         if (isTraversalStart) {
           // This is the situation when the "has" step follows directly a GraphStep.
           // In this case, all HasContainers will be added to the new YTDBGraphStep to
           // be translated to YouTrackDB SQL.
           hch.getHasContainers().forEach(currentGraphStep::addHasContainer);
           current.getLabels().forEach(currentGraphStep::addLabel);
-        } else if (!specialContainers.isEmpty()) {
+          removeOriginalStep = true;
+        } else {
+
           // "hasLabel" steps that don't directly follow a GraphStep are replaced by
           // YTDBHasLabelStep, that handles the "polymorphic" flag correctly.
-          final var predicates = specialContainers.stream()
-              .<P<? super String>>map(hc -> ((P<? super String>) hc.getPredicate()))
-              .toList();
-          final var ytdbHasLabelStep = new YTDBHasLabelStep<>(traversal, predicates, polymorphic);
-          traversal.addStep(idx, ytdbHasLabelStep);
-          idx++;
-          specialContainers.forEach(hch::removeHasContainer);
+          final List<P<? super String>> labelPredicates = new ArrayList<>();
+          for (var hc : new ArrayList<>(hch.getHasContainers())) {
+            if (T.label.getAccessor().equals(hc.getKey())) {
+              //noinspection unchecked
+              labelPredicates.add((P<? super String>) hc.getPredicate());
+              hch.removeHasContainer(hc);
+            }
+          }
+
+          if (!labelPredicates.isEmpty()) {
+            // adding a new YTDBHasLabelStep that handles all label predicates
+            final var ytdbHasLabelStep =
+                new YTDBHasLabelStep<>(traversal, labelPredicates, polymorphic);
+            traversal.addStep(idx, ytdbHasLabelStep);
+            idx++;
+          }
+
+          // if we've replaced all HasContainers, then we want to remove the original step
+          removeOriginalStep = hch.getHasContainers().isEmpty();
         }
 
         if (removeOriginalStep) {
