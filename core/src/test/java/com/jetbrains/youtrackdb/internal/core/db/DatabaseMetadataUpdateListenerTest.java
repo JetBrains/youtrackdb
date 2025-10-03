@@ -50,13 +50,6 @@ public class DatabaseMetadataUpdateListenerTest {
           }
 
           @Override
-          public void onIndexManagerUpdate(DatabaseSessionInternal session, String databaseName,
-              IndexManagerAbstract indexManager) {
-            indexManagerUpdateCount++;
-            assertNotNull(indexManager);
-          }
-
-          @Override
           public void onFunctionLibraryUpdate(DatabaseSessionInternal session, String database) {
             functionCount++;
           }

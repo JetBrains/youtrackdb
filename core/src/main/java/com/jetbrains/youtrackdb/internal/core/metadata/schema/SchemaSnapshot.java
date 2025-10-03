@@ -108,6 +108,11 @@ public final class SchemaSnapshot implements ImmutableSchema {
   }
 
   @Override
+  public Index getIndex(String indexName) {
+    return indexes.get(indexName);
+  }
+
+  @Override
   public SchemaClassSnapshot getClassByCollectionId(int collectionId) {
     return collectionsToClasses.get(collectionId);
   }

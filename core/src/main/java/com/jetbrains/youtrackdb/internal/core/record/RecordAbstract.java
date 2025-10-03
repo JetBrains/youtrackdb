@@ -124,7 +124,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
           "Cannot call fromStream() on dirty records");
     }
 
-    contentChanged = false;
     source = iRecordBuffer;
     size = iRecordBuffer != null ? iRecordBuffer.length : 0;
     status = STATUS.LOADED;
@@ -143,8 +142,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
     checkForBinding();
 
     if (status != STATUS.UNMARSHALLING) {
-      contentChanged = true;
-
       incrementDirtyCounterAndRegisterInTx();
     } else {
       assert dirty == 0;
@@ -457,10 +454,6 @@ public abstract class RecordAbstract implements DBRecord, RecordElement, Seriali
         + " by calling : "
         + Transaction.class.getSimpleName()
         + ".load(record) before using it.";
-  }
-
-  public boolean isContentChanged() {
-    return contentChanged;
   }
 
 

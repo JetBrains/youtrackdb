@@ -50,7 +50,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -227,8 +226,7 @@ public class JSONSerializerJackson {
           defaultClassName,
           Collections.emptyMap(),
           false,
-          record != null ? record.getVersion() : null,
-          null
+          record != null ? record.getVersion() : null
       );
     }
 
@@ -262,11 +260,7 @@ public class JSONSerializerJackson {
       } else {
         if (EntityHelper.isEntity(recordMetaData.recordType)) {
           if (recordMetaData.className == null) {
-            if (recordMetaData.entityType.isInternal()) {
-              record = session.newInternalInstance();
-            } else {
-              record = session.newInstance();
-            }
+            record = session.newInstance();
           } else {
             var schemaSnapshot = session.getMetadata().getFastImmutableSchema();
             var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
@@ -385,12 +379,10 @@ public class JSONSerializerJackson {
     var recordType = defaultRecordType;
     var className = defaultClassName;
     Map<String, String> fieldTypes = new HashMap<>();
-    var entityType = EntityType.PUBLIC;
     Boolean embeddedFlag = null;
     Integer recordVersion = null;
 
     var fieldsCount = 0;
-
     while (token != JsonToken.END_OBJECT) {
       if (token == JsonToken.FIELD_NAME) {
         var fieldName = jsonParser.currentName();
@@ -438,51 +430,6 @@ public class JSONSerializerJackson {
             }
             var fieldValueAsString = jsonParser.getText();
             className = "null".equals(fieldValueAsString) ? null : fieldValueAsString;
-            token = jsonParser.nextToken();
-          }
-          case EntityHelper.ATTRIBUTE_INTERNAL_ENTITY -> {
-            token = jsonParser.nextToken();
-            if (token != JsonToken.VALUE_TRUE && token != JsonToken.VALUE_FALSE) {
-              throw new SerializationException(session,
-                  "Expected field value as boolean");
-            }
-            var internalRecord = jsonParser.getBooleanValue();
-            if (internalRecord) {
-              entityType = EntityType.INTERNAL;
-            }
-            token = jsonParser.nextToken();
-          }
-          case EntityHelper.ATTRIBUTE_INDEX_MANAGER_ENTITY -> {
-            token = jsonParser.nextToken();
-            if (token != JsonToken.VALUE_TRUE && token != JsonToken.VALUE_FALSE) {
-              throw new SerializationException(session,
-                  "Expected field value as boolean");
-            }
-            var internalRecord = jsonParser.getBooleanValue();
-            if (internalRecord) {
-              if (entityType != EntityType.PUBLIC) {
-                throw new SerializationException(
-                    "Entity type already marked as internal : " + entityType);
-              }
-              entityType = EntityType.INDEX_MANAGER;
-            }
-            token = jsonParser.nextToken();
-          }
-
-          case EntityHelper.ATTRIBUTE_SCHEMA_MANAGER_ENTITY -> {
-            token = jsonParser.nextToken();
-            if (token != JsonToken.VALUE_TRUE && token != JsonToken.VALUE_FALSE) {
-              throw new SerializationException(session,
-                  "Expected field value as boolean");
-            }
-            var internalRecord = jsonParser.getBooleanValue();
-            if (internalRecord) {
-              if (entityType != EntityType.PUBLIC) {
-                throw new SerializationException(
-                    "Entity type already marked as internal : " + entityType);
-              }
-              entityType = EntityType.SCHEMA_MANAGER;
-            }
             token = jsonParser.nextToken();
           }
           case EntityHelper.ATTRIBUTE_EMBEDDED -> {
@@ -568,8 +515,9 @@ public class JSONSerializerJackson {
     return new RecordMetadata(
         recordType,
         recordId,
-        entityType.isInternal() ? null : className,
-        fieldTypes, embeddedValue, recordVersion, entityType
+        className,
+        fieldTypes, embeddedValue,
+        recordVersion
     );
   }
 
@@ -773,14 +721,6 @@ public class JSONSerializerJackson {
         if (formatSettings.includeClazz) {
           jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_CLASS);
           jsonGenerator.writeString(schemaClass.getName());
-        }
-      } else if (formatSettings.internalRecords && !entity.isEmbedded()) {
-        var collectionName = session.getCollectionName(record);
-
-        if (collectionName.equals(SessionMetadata.COLLECTION_INTERNAL_NAME)) {
-          jsonGenerator.writeFieldName(EntityHelper.ATTRIBUTE_INTERNAL_ENTITY);
-          jsonGenerator.writeBoolean(true);
-
         }
       }
 
@@ -1192,7 +1132,7 @@ public class JSONSerializerJackson {
         metadata = new RecordMetadata(
             EntityImpl.RECORD_TYPE, null,
             linkedClass != null ? linkedClass.getName() : null,
-            Collections.emptyMap(), true, null, null
+            Collections.emptyMap(), true, null
         );
       }
     }
@@ -1320,23 +1260,12 @@ public class JSONSerializerJackson {
       @Nullable String className,
       Map<String, String> fieldTypes,
       boolean isEmbedded,
-      @Nullable Integer recordVersion,
-      @Nullable EntityType entityType
+      @Nullable Integer recordVersion
   ) {
 
   }
 
-  public enum EntityType {
-    INTERNAL, PUBLIC, INDEX_MANAGER, SCHEMA_MANAGER;
-
-    boolean isInternal() {
-      return this == INTERNAL || this == INDEX_MANAGER || this == SCHEMA_MANAGER;
-    }
-  }
-
   public static class FormatSettings {
-
-    public boolean internalRecords;
     public boolean includeType;
     public boolean includeId;
     public boolean includeClazz;
@@ -1349,7 +1278,6 @@ public class JSONSerializerJackson {
         includeType = true;
         includeId = true;
         includeClazz = true;
-        internalRecords = false;
       } else {
         includeType = false;
         includeId = false;
@@ -1365,7 +1293,6 @@ public class JSONSerializerJackson {
               case "rid" -> includeId = true;
               case "class" -> includeClazz = true;
               case "keepTypes" -> keepTypes = true;
-              case "internal" -> internalRecords = true;
               case "markEmbeddedEntities" -> markEmbeddedEntities = true;
               case "version" -> includeVersion = true;
               default -> LogManager.instance().warn(this, "Unknown format option: %s. "

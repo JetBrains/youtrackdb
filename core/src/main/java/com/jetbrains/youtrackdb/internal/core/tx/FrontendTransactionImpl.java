@@ -1617,8 +1617,7 @@ public final class FrontendTransactionImpl implements
   }
 
   @Override
-  public Edge newLightweightEdge(Vertex from, Vertex to,
-      @Nonnull @org.jetbrains.annotations.UnknownNullability ImmutableSchemaClass type) {
+  public Edge newLightweightEdge(Vertex from, Vertex to, @Nonnull ImmutableSchemaClass type) {
     checkIfActive();
     return session.newLightweightEdge(from, to, type);
   }

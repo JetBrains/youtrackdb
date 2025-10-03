@@ -24,12 +24,6 @@ class QueryMetadataUpdateListener implements MetadataUpdateListener {
   }
 
   @Override
-  public void onIndexManagerUpdate(DatabaseSessionInternal session, String databaseName,
-      IndexManagerAbstract indexManager) {
-    updated = true;
-  }
-
-  @Override
   public void onFunctionLibraryUpdate(DatabaseSessionInternal session, String databaseName) {
     updated = true;
   }

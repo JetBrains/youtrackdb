@@ -30,6 +30,7 @@ import javax.annotation.Nullable;
 import org.jspecify.annotations.NonNull;
 
 public final class SchemaProxy implements Schema {
+
   @Nonnull
   private final DatabaseSessionEmbedded session;
 
@@ -169,6 +170,28 @@ public final class SchemaProxy implements Schema {
 
     return new GlobalPropertySnapshot(globalProperty.getName(), globalProperty.getType(),
         globalProperty.getId());
+  }
+
+  @Override
+  public void dropIndex(String indexName) {
+    var indexEntity = SchemaManager.getIndex(session, indexName);
+    if (indexEntity == null) {
+      return;
+    }
+
+    indexEntity.delete();
+  }
+
+  @Nullable
+  @Override
+  public Index getIndex(String indexName) {
+    var indexEntity = SchemaManager.getIndex(session, indexName);
+
+    if (indexEntity == null) {
+      return null;
+    }
+
+    return IndexFactory.newIndexProxy(indexEntity);
   }
 
   public String toString() {

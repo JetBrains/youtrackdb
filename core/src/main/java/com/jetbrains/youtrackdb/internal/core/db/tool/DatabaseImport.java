@@ -19,19 +19,14 @@
  */
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession.STATUS;
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Edge;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
-import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
@@ -42,7 +37,6 @@ import com.jetbrains.youtrackdb.internal.core.db.tool.importer.ConverterData;
 import com.jetbrains.youtrackdb.internal.core.db.tool.importer.LinksRewriter;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -61,8 +55,6 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.JSONReade
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.StringSerializerHelper;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson.RecordMetadata;
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
-import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.io.BufferedInputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -70,11 +62,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.lang.reflect.InvocationTargetException;
 import java.text.ParseException;
 import java.util.AbstractList;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -114,7 +104,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   private final Set<String> indexesToRebuild = new HashSet<>();
 
   private static final int COLLECTION_NOT_FOUND_VALUE = -2;
-  private final Int2IntOpenHashMap collectionToCollectionMapping = new Int2IntOpenHashMap();
 
   private int maxRidbagStringSizeBeforeLazyImport = 100_000_000;
 
@@ -125,7 +114,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       throws IOException {
     super(database, fileName, outputListener);
     validateSessionImpl();
-    collectionToCollectionMapping.defaultReturnValue(COLLECTION_NOT_FOUND_VALUE);
+
     // TODO: check unclosed stream?
     final var bufferedInputStream =
         new BufferedInputStream(new FileInputStream(this.fileName));
@@ -147,7 +136,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       throws IOException {
     super(database, "streaming", outputListener);
     validateSessionImpl();
-    collectionToCollectionMapping.defaultReturnValue(COLLECTION_NOT_FOUND_VALUE);
     createJsonReaderDefaultListenerAndDeclareIntent(outputListener, inputStream);
   }
 
@@ -209,16 +197,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       session.setUser(null);
 
       removeDefaultNonSecurityClasses();
-      session.getSharedContext().getIndexManager().reload(session);
 
-      for (final var index :
-          session.getSharedContext().getIndexManager().getIndexes()) {
-        if (index.isAutomatic()) {
-          indexesToRebuild.add(index.getName());
-        }
+      var beforeImportSchemaSnapshot = session.getMetadata().getFastImmutableSchema();
+      for (final var index : beforeImportSchemaSnapshot.getIndexes()) {
+        indexesToRebuild.add(index.getName());
       }
-
-      var beforeImportSchemaSnapshot = session.getMetadata().getFastImmutableSchema(session);
 
       var collectionsImported = false;
       while (jsonReader.hasNext() && jsonReader.lastChar() != '}') {
@@ -226,12 +209,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
         switch (tag) {
           case "info" -> importInfo();
-          case "collections", "clusters" -> {
-            importCollections();
-            collectionsImported = true;
-          }
           case "schema" -> importSchema(collectionsImported);
-          case "records" -> importRecords(beforeImportSchemaSnapshot);
+          case "records" -> importRecords();
           case "indexes" -> importIndexes();
           case "brokenRids" -> processBrokenRids();
           default -> throw new DatabaseImportException(
@@ -318,14 +297,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   }
 
   public void rebuildIndexes() {
-    session.getSharedContext().getIndexManager().reload(session);
-
-    var indexManager = session.getSharedContext().getIndexManager();
+    var schema = session.getMetadata().getFastImmutableSchema();
 
     listener.onMessage("\nRebuild of stale indexes...");
     for (var indexName : indexesToRebuild) {
-
-      if (indexManager.getIndex(indexName) == null) {
+      if (schema.getIndex(indexName) == null) {
         listener.onMessage(
             "\nIndex " + indexName + " is skipped because it is absent in imported DB.");
         continue;
@@ -444,10 +420,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       }
     }
 
-    final var indexManager = session.getSharedContext()
-        .getIndexManager();
     for (final var indexName : indexNames) {
-      indexManager.dropIndex(session, indexName);
+      schema.dropIndex(indexName);
     }
 
     var removedClasses = 0;
@@ -522,7 +496,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
     }
 
-
     jsonReader.checkContent("\"classes\"").readNext(JSONReader.BEGIN_COLLECTION);
     long classImported = 0;
 
@@ -557,14 +530,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         final var originalCollectionIds =
             StringSerializerHelper.splitIntArray(
                 collectionIdsStr.substring(1, collectionIdsStr.length() - 1));
-
-        // it's important to use previously created collections here because later the indexes
-        // are created on collections (not on classes).
-        final var newCollectionIds =
-            Arrays.stream(originalCollectionIds)
-                .map(collectionToCollectionMapping::get)
-                .filter(cid -> cid != COLLECTION_NOT_FOUND_VALUE)
-                .toArray();
 
         jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
         if (className.contains(".")) {
@@ -676,7 +641,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                 isVertex ? new SchemaClass[]{vertexClass} :
                     isEdge ? new SchemaClass[]{edgeClass} :
                         new SchemaClass[]{};
-            cls = schema.createClass(className, newCollectionIds, superClassesToAdd);
+            cls = schema.createClass(className, superClassesToAdd);
           } else if (className.equalsIgnoreCase("ORestricted")) {
             cls = schema.createAbstractClass(className);
           } else {
@@ -781,7 +746,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       linkedClasses.put(prop, linkedClass);
     }
     if (linkedType != null) {
-      prop.setLinkedType(linkedType.getPublicPropertyType());
+      prop.setLinkedType(linkedType);
     }
     if (collate != null) {
       prop.setCollate(collate);
@@ -816,148 +781,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     return result;
   }
 
-  private void importCollections() throws ParseException, IOException {
-    listener.onMessage("\nImporting collections...");
-
-    long total = 0;
-
-    jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
-
-    if (exporterVersion <= 4) {
-      removeDefaultCollections();
-    }
-
-    while (jsonReader.lastChar() != ']') {
-      jsonReader.readNext(JSONReader.BEGIN_OBJECT);
-
-      var name =
-          jsonReader
-              .readNext(JSONReader.FIELD_ASSIGNMENT)
-              .checkContent("\"name\"")
-              .readString(JSONReader.COMMA_SEPARATOR);
-
-      if (name.isEmpty()) {
-        name = null;
-      }
-
-      name = SchemaManager.decodeClassName(name);
-
-      if (exporterVersion <= 13 && name != null &&
-          (name.equals("index") || name.equals("manindex") || name.equals("default"))) {
-        listener.onMessage(
-            "\nWARNING: collection '" + name + "' cannot be imported. It will be skipped.");
-        jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
-        continue;
-      }
-
-      int collectionIdFromJson;
-      if (exporterVersion < 9) {
-        collectionIdFromJson =
-            jsonReader
-                .readNext(JSONReader.FIELD_ASSIGNMENT)
-                .checkContent("\"id\"")
-                .readInteger(JSONReader.COMMA_SEPARATOR);
-        jsonReader
-            .readNext(JSONReader.FIELD_ASSIGNMENT)
-            .checkContent("\"type\"")
-            .readString(JSONReader.NEXT_IN_OBJECT);
-      } else {
-        collectionIdFromJson =
-            jsonReader
-                .readNext(JSONReader.FIELD_ASSIGNMENT)
-                .checkContent("\"id\"")
-                .readInteger(JSONReader.NEXT_IN_OBJECT);
-      }
-
-      if (jsonReader.lastChar() == ',') {
-        jsonReader
-            .readNext(JSONReader.FIELD_ASSIGNMENT)
-            .checkContent("\"type\"")
-            .readString(JSONReader.NEXT_IN_OBJECT);
-      }
-
-      if (jsonReader.lastChar() == ',') {
-        jsonReader
-            .readNext(JSONReader.FIELD_ASSIGNMENT)
-            .checkContent("\"rid\"")
-            .readString(JSONReader.NEXT_IN_OBJECT);
-      }
-
-      listener.onMessage(
-          "\n- Creating collection " + (name != null ? "'" + name + "'" : "NULL") + "...");
-
-      var createdCollectionId = name == null ? -1 : session.getCollectionIdByName(name);
-      if (createdCollectionId == -1) {
-        createdCollectionId = session.allocateCollection(name);
-      }
-
-      collectionToCollectionMapping.put(collectionIdFromJson, createdCollectionId);
-
-      listener.onMessage(
-          "OK, assigned id=" + createdCollectionId + ", was " + collectionIdFromJson);
-
-      total++;
-
-      jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
-    }
-    jsonReader.readNext(JSONReader.COMMA_SEPARATOR);
-
-    listener.onMessage("\nRebuilding indexes of truncated collections ...");
-
-    for (final var indexName : indexesToRebuild) {
-      session
-          .getSharedContext()
-          .getIndexManager()
-          .getIndex(indexName)
-          .rebuild(session,
-              new ProgressListener() {
-                private long last = 0;
-
-                @Override
-                public void onBegin(Object iTask, long iTotal, Object metadata) {
-                  listener.onMessage(
-                      "\n- Collection content was updated: rebuilding index '" + indexName
-                          + "'...");
-                }
-
-                @Override
-                public boolean onProgress(Object iTask, long iCounter, float iPercent) {
-                  final var now = System.currentTimeMillis();
-                  if (last == 0) {
-                    last = now;
-                  } else {
-                    if (now - last > 1000) {
-                      listener.onMessage(
-                          String.format(
-                              "\nIndex '%s' is rebuilding (%.2f/100)", indexName, iPercent));
-                      last = now;
-                    }
-                  }
-                  return true;
-                }
-
-                @Override
-                public void onCompletition(DatabaseSessionEmbedded session, Object iTask,
-                    boolean iSucceed) {
-                  listener.onMessage(" Index " + indexName + " was successfully rebuilt.");
-                }
-              });
-    }
-    listener.onMessage("\nDone " + indexesToRebuild.size() + " indexes were rebuilt.");
-    listener.onMessage("\nDone. Imported " + total + " collections");
-  }
-
   /**
    * From `exporterVersion` >= `13`, `fromStream()` will be used. However, the import is still of
    * type String, and thus has to be converted to InputStream, which can only be avoided by
    * introducing a new interface method.
    */
   @Nullable
-  private RID importRecord(
-      HashSet<RID> recordsBeforeImport,
-      Schema beforeImportSchemaSnapshot
-  ) throws Exception {
-
+  private RID importRecord() throws Exception {
     session.disableLinkConsistencyCheck();
     session.begin();
     var ok = true;
@@ -985,53 +815,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         fixRoleRulesAndPolicies(entity.getEmbeddedMap("rules"));
         fixRoleRulesAndPolicies(entity.getLinkMap("policies"));
       }
-
-      switch (metadata.entityType()) {
-        case SCHEMA_MANAGER, INDEX_MANAGER -> {
-          record.delete();
-          rid = null;
-        }
-        default -> {
-          final var collectionId = rid.getCollectionId();
-
-          if (isSystemRecord(beforeImportSchemaSnapshot, collectionId)) {
-
-            final var entity = (Entity) record;
-            final var name = entity.getString("name");
-            final var recordMap = entity.toMap(false);
-
-            //or we will find ourselves.
-            record.delete();
-            var systemRecord =
-                findRelatedSystemRecord(beforeImportSchemaSnapshot, collectionId, name);
-            if (systemRecord != null) {
-              if (!record.getClass().isAssignableFrom(systemRecord.getClass())) {
-                throw new IllegalStateException(
-                    "Imported record and record stored in database under id "
-                        + rid
-                        + " have different types. "
-                        + "Stored record class is : "
-                        + record.getClass()
-                        + " and imported "
-                        + systemRecord.getClass()
-                        + " .");
-              }
-
-              systemRecord.updateFromMap(recordMap);
-              recordsBeforeImport.remove(systemRecord.getIdentity());
-              rid = systemRecord.getIdentity();
-            } else {
-
-              // parse it again, because we've removed it earlier
-              rid = jsonSerializer
-                  .fromStringWithMetadata(session, recordJson, null, true)
-                  .first()
-                  .getIdentity();
-            }
-          }
-        }
-      }
-
     } catch (Throwable t) {
       ok = false;
 
@@ -1061,6 +844,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     if (rid != null && originalRid != null && !originalRid.equals(rid)) {
       assert originalRid.isPersistent();
       assert rid.isPersistent();
+
       final var originalRidFinal = originalRid;
       final var ridFinal = rid;
 
@@ -1147,15 +931,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     return false;
   }
 
-  private void importRecords(Schema beforeImportSchemaSnapshot) throws Exception {
+  private void importRecords() throws Exception {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
     if (schema.getClass(EXPORT_IMPORT_CLASS_NAME) != null) {
       schema.dropClass(EXPORT_IMPORT_CLASS_NAME);
     }
 
     final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
-    cls.createProperty("key", PropertyType.STRING);
-    cls.createProperty("value", PropertyType.STRING);
+    cls.createProperty("key", PropertyTypeInternal.STRING);
+    cls.createProperty("value", PropertyTypeInternal.STRING);
     cls.createIndex(EXPORT_IMPORT_CLASS_NAME + "_key_unique", SchemaManager.INDEX_TYPE.UNIQUE,
         "key");
     final var begin = System.currentTimeMillis();
@@ -1213,7 +997,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             logger);
       }
       while (jsonReader.lastChar() != ']') {
-        rid = importRecord(recordsBeforeImport, beforeImportSchemaSnapshot);
+        rid = importRecord();
 
         total++;
         if (rid != null) {
@@ -1278,180 +1062,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private void importIndexes() throws IOException, ParseException {
     listener.onMessage("\n\nImporting indexes ...");
-
-    var indexManager = session.getSharedContext().getIndexManager();
-    indexManager.reload(session);
-
-    jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
-
     var numberOfCreatedIndexes = 0;
-    while (jsonReader.lastChar() != ']') {
-      jsonReader.readNext(JSONReader.NEXT_OBJ_IN_ARRAY);
-      if (jsonReader.lastChar() == ']') {
-        break;
-      }
-
-      String indexName = null;
-      String indexType = null;
-      String indexAlgorithm = null;
-      Set<String> collectionsToIndex = new HashSet<>();
-      IndexDefinition indexDefinition = null;
-      Map<String, Object> metadata = null;
-      var objectMapper = new ObjectMapper();
-      var typeRef = new TypeReference<HashMap<String, Object>>() {
-      };
-
-      while (jsonReader.lastChar() != '}') {
-        final var fieldName = jsonReader.readString(JSONReader.FIELD_ASSIGNMENT);
-        switch (fieldName) {
-          case "name" -> indexName = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
-          case "type" -> indexType = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
-          case "algorithm" -> indexAlgorithm = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
-          case "collectionsToIndex", "clustersToIndex" ->
-              collectionsToIndex = importCollectionsToIndex();
-          case "definition" -> {
-            indexDefinition = importIndexDefinition(objectMapper);
-            jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
-          }
-          case "metadata" -> {
-            final var jsonMetadata = jsonReader.readString(JSONReader.END_OBJECT, true);
-            metadata = objectMapper.readValue(jsonMetadata, typeRef);
-          }
-          default -> {
-            if (fieldName.equals("engineProperties")) {
-              jsonReader.readString(JSONReader.END_OBJECT, true);
-              jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
-            }
-          }
-        }
-
-      }
-      jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
-
-      numberOfCreatedIndexes =
-          dropAutoCreatedIndexesAndCountCreatedIndexes(
-              indexManager,
-              numberOfCreatedIndexes,
-              indexName,
-              indexType,
-              indexAlgorithm,
-              collectionsToIndex,
-              indexDefinition,
-              metadata);
-    }
     listener.onMessage("\nDone. Created " + numberOfCreatedIndexes + " indexes.");
     jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
   }
 
-  private int dropAutoCreatedIndexesAndCountCreatedIndexes(
-      final IndexManagerEmbedded indexManager,
-      int numberOfCreatedIndexes,
-      final String indexName,
-      String indexType,
-      String indexAlgorithm,
-      final Set<String> collectionsToIndex,
-      IndexDefinition indexDefinition,
-      final Map<String, Object> metadata) {
-    if (indexName == null) {
-      throw new IllegalArgumentException("Index name is missing");
-    }
-
-    if ("CELL_BTREE".equals(indexAlgorithm) || "HASH_INDEX".equals(indexAlgorithm)) {
-      indexAlgorithm = "BTREE";
-    }
-
-    if ("UNIQUE_HASH_INDEX".equals(indexType)) {
-      indexType = "UNIQUE";
-    }
-
-    // drop automatically created indexes
-    if (!indexName.equalsIgnoreCase(EXPORT_IMPORT_INDEX_NAME)) {
-      listener.onMessage("\n- Index '" + indexName + "'...");
-
-      indexManager.dropIndex(session, indexName);
-      indexesToRebuild.remove(indexName);
-      var collectionIds = new IntArrayList();
-
-      for (final var collectionName : collectionsToIndex) {
-        var id = session.getCollectionIdByName(collectionName);
-        if (id != -1) {
-          collectionIds.add(id);
-        } else {
-          listener.onMessage(
-              String.format(
-                  "found not existent collection '%s' in index '%s' configuration, skipping",
-                  collectionName, indexName));
-        }
-      }
-      var collectionIdsToIndex = new int[collectionIds.size()];
-
-      var i = 0;
-      for (var n = 0; n < collectionIds.size(); n++) {
-        var collectionId = collectionIds.getInt(n);
-        collectionIdsToIndex[i] = collectionId;
-        i++;
-      }
-
-      var oldValue = GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT.getValueAsBoolean();
-      GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT.setValue(
-          indexDefinition.isNullValuesIgnored());
-      indexManager.createIndex(
-          session,
-          indexName,
-          indexType,
-          indexDefinition,
-          collectionIdsToIndex,
-          null,
-          metadata,
-          indexAlgorithm);
-      GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT.setValue(oldValue);
-      numberOfCreatedIndexes++;
-      listener.onMessage("OK");
-    }
-    return numberOfCreatedIndexes;
-  }
-
-  private Set<String> importCollectionsToIndex() throws IOException, ParseException {
-    final Set<String> collectionsToIndex = new HashSet<>();
-
-    jsonReader.readNext(JSONReader.BEGIN_COLLECTION);
-
-    while (jsonReader.lastChar() != ']') {
-      final var collectionToIndex = jsonReader.readString(JSONReader.NEXT_IN_ARRAY);
-      collectionsToIndex.add(collectionToIndex);
-    }
-
-    jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
-    return collectionsToIndex;
-  }
-
-  private IndexDefinition importIndexDefinition(ObjectMapper mapper)
-      throws IOException, ParseException {
-    jsonReader.readString(JSONReader.BEGIN_OBJECT);
-    jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
-
-    final var className = jsonReader.readString(JSONReader.NEXT_IN_OBJECT);
-
-    jsonReader.readNext(JSONReader.FIELD_ASSIGNMENT);
-
-    final var value = jsonReader.readString(JSONReader.END_OBJECT, true);
-    final IndexDefinition indexDefinition;
-    TypeReference<HashMap<String, Object>> typeRef = new TypeReference<>() {
-    };
-    var indexDefinitionMap = mapper.readValue(value, typeRef);
-    try {
-      final var indexDefClass = Class.forName(className);
-      indexDefinition = (IndexDefinition) indexDefClass.getDeclaredConstructor().newInstance();
-      indexDefinition.fromMap(indexDefinitionMap);
-    } catch (final ClassNotFoundException | NoSuchMethodException | InvocationTargetException |
-                   InstantiationException | IllegalAccessException e) {
-      throw new IOException("Error during deserialization of index definition", e);
-    }
-
-    jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
-
-    return indexDefinition;
-  }
 
   private void migrateLinksInImportedDocuments(Set<RID> brokenRids) {
     listener.onMessage(

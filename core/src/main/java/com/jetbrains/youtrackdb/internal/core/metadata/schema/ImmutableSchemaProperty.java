@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import java.util.Collection;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public interface ImmutableSchemaProperty {
 
@@ -92,6 +93,11 @@ public interface ImmutableSchemaProperty {
    */
   String getMax();
 
+  @Nullable
+  Comparable<Object> getMinComparable();
+
+  @Nullable
+  Comparable<Object> getMaxComparable();
 
   /**
    * Default value for the property; can be function

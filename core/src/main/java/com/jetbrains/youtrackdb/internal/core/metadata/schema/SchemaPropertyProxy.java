@@ -19,6 +19,9 @@ import javax.annotation.Nullable;
 public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEntity> implements
     SchemaProperty {
 
+  private Comparable<Object> maxComparable;
+  private Comparable<Object> minComparable;
+
   public SchemaPropertyProxy(SchemaPropertyEntity iDelegate,
       DatabaseSessionEmbedded session) {
     super(iDelegate, session);
@@ -178,6 +181,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEnti
   @Override
   public void setMin(String min) {
     assert session.assertIfNotActive();
+    minComparable = null;
     delegate.setMin(min);
   }
 
@@ -187,9 +191,42 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEnti
     return delegate.getMax();
   }
 
+  @Nullable
+  @Override
+  public Comparable<Object> getMinComparable() {
+    var min = getMin();
+    if (min == null) {
+      return null;
+    }
+
+    if (minComparable == null) {
+      minComparable = SchemaPropertySnapshot.createMinComparable(session, min, getType(),
+          getFullName());
+    }
+
+    return minComparable;
+  }
+
+  @Nullable
+  @Override
+  public Comparable<Object> getMaxComparable() {
+    var max = getMax();
+    if (max == null) {
+      return null;
+    }
+
+    if (maxComparable == null) {
+      maxComparable = SchemaPropertySnapshot.createMaxComparable(session, max, getType(),
+          getFullName());
+    }
+
+    return maxComparable;
+  }
+
   @Override
   public void setMax(String max) {
     assert session.assertIfNotActive();
+    maxComparable = null;
     delegate.setMax(max);
   }
 

@@ -581,17 +581,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return status == STATUS.CLOSED || storage.isClosed(this);
   }
 
-  public void rebuildIndexes() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    var indexManager = sharedContext.getIndexManager();
-    if (indexManager.autoRecreateIndexesAfterCrash(this)) {
-      indexManager.recreateIndexes(this);
-    }
-  }
-
   private void installHooksEmbedded() {
     assert assertIfNotActive();
     hooks.clear();
@@ -4797,17 +4786,4 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void enableLinkConsistencyCheck() {
     this.ensureLinkConsistency = true;
   }
-
-  public void remoteWrapperClosed() {
-    openedAsRemoteSession = false;
-  }
-
-  public void startRemoteCall() {
-    remoteCallsCount++;
-  }
-
-  public void endRemoteCall() {
-    remoteCallsCount--;
-  }
-
 }

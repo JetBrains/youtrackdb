@@ -10,8 +10,5 @@ public interface MetadataUpdateListener {
   void onStorageConfigurationUpdate(String databaseName,
       StorageConfiguration update);
 
-  void onIndexManagerUpdate(DatabaseSessionInternal session, String databaseName,
-      IndexManagerAbstract indexManager);
-
   void onFunctionLibraryUpdate(DatabaseSessionInternal session, String databaseName);
 }

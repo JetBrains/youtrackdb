@@ -198,7 +198,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Override
   public Edge newLightweightEdge(Vertex from, Vertex to,
-      @Nonnull @org.jetbrains.annotations.UnknownNullability ImmutableSchemaClass type) {
+      @Nonnull ImmutableSchemaClass type) {
     throw new UnsupportedOperationException("not supported in no tx mode");
   }
 

@@ -36,5 +36,6 @@ public interface ImmutableSchema {
   @Nullable
   GlobalProperty getGlobalPropertyById(int id);
 
+  @Nullable
   Index getIndex(String indexName);
 }

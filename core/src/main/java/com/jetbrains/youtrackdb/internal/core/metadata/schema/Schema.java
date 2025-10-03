@@ -90,9 +90,11 @@ public interface Schema extends ImmutableSchema {
 
   @Override
   @Nonnull
-  Collection<? extends ImmutableSchemaClass> getClasses();
+  Collection<SchemaClass> getClasses();
 
   @Nullable
   @Override
   SchemaClass getClassByCollectionId(int collectionId);
+
+  void dropIndex(String indexName);
 }

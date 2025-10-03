@@ -27,7 +27,6 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
-import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
 import com.jetbrains.youtrackdb.api.query.LiveQueryResultListener;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
@@ -42,7 +41,6 @@ import com.jetbrains.youtrackdb.api.record.RecordHook;
 import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
@@ -52,12 +50,10 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EdgeInternal;
@@ -1075,138 +1071,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
     execute(query, args).close();
   }
 
-
-  /**
-   * creates a new vertex class (a class that extends V)
-   *
-   * @param className the class name
-   * @return The object representing the class in the schema
-   * @throws SchemaException if the class already exists or if V class is not defined (Eg. if it was
-   *                         deleted from the schema)
-   */
-  default SchemaClass createVertexClass(String className) throws SchemaException {
-    return createClass(className, SchemaClass.VERTEX_CLASS_NAME);
-  }
-
-  /**
-   * Creates a non-abstract new edge class (a class that extends E)
-   *
-   * @param className the class name
-   * @return The object representing the class in the schema
-   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
-   *                         deleted from the schema)
-   */
-  default SchemaClass createEdgeClass(String className) {
-    var edgeClass = createClass(className, SchemaClass.EDGE_CLASS_NAME);
-
-    edgeClass.createProperty(Edge.DIRECTION_IN, PropertyType.LINK);
-    edgeClass.createProperty(Edge.DIRECTION_OUT, PropertyType.LINK);
-
-    return edgeClass;
-  }
-
-  /**
-   * Creates a new edge class for lightweight edge (an abstract class that extends E)
-   *
-   * @param className the class name
-   * @return The object representing the class in the schema
-   * @throws SchemaException if the class already exists or if E class is not defined (Eg. if it was
-   *                         deleted from the schema)
-   */
-  default SchemaClass createLightweightEdgeClass(String className) {
-    return createAbstractClass(className, SchemaClass.EDGE_CLASS_NAME);
-  }
-
-  /**
-   * Creates a new class in the schema
-   *
-   * @param className    the class name
-   * @param superclasses a list of superclasses for the class (can be empty)
-   * @return the class with the given name
-   * @throws SchemaException if a class with this name already exists or if one of the superclasses
-   *                         does not exist.
-   */
-  default SchemaClass createClass(String className, String... superclasses) throws SchemaException {
-    var schema = getMetadata().getSlowMutableSchema();
-    SchemaClass[] superclassInstances = null;
-    if (superclasses != null) {
-      superclassInstances = new SchemaClass[superclasses.length];
-      for (var i = 0; i < superclasses.length; i++) {
-        var superclass = superclasses[i];
-        var superclazz = schema.getClass(superclass);
-        if (superclazz == null) {
-          throw new SchemaException(getDatabaseName(), "Class " + superclass + " does not exist");
-        }
-        superclassInstances[i] = superclazz;
-      }
-    }
-    var result = schema.getClass(className);
-    if (result != null) {
-      throw new SchemaException(getDatabaseName(), "Class " + className + " already exists");
-    }
-    if (superclassInstances == null) {
-      return schema.createClass(className);
-    } else {
-      return schema.createClass(className, superclassInstances);
-    }
-  }
-
-  /**
-   * Creates a new abstract class in the schema
-   *
-   * @param className    the class name
-   * @param superclasses a list of superclasses for the class (can be empty)
-   * @return the class with the given name
-   * @throws SchemaException if a class with this name already exists or if one of the superclasses
-   *                         does not exist.
-   */
-  default SchemaClass createAbstractClass(String className, String... superclasses)
-      throws SchemaException {
-    var schema = getMetadata().getSlowMutableSchema();
-    SchemaClass[] superclassInstances = null;
-    if (superclasses != null) {
-      superclassInstances = new SchemaClass[superclasses.length];
-      for (var i = 0; i < superclasses.length; i++) {
-        var superclass = superclasses[i];
-        var superclazz = schema.getClass(superclass);
-        if (superclazz == null) {
-          throw new SchemaException(getDatabaseName(), "Class " + superclass + " does not exist");
-        }
-        superclassInstances[i] = superclazz;
-      }
-    }
-    var result = schema.getClass(className);
-    if (result != null) {
-      throw new SchemaException(getDatabaseName(), "Class " + className + " already exists");
-    }
-    if (superclassInstances == null) {
-      return schema.createAbstractClass(className);
-    } else {
-      return schema.createAbstractClass(className, superclassInstances);
-    }
-  }
-
-  /**
-   * If a class with given name already exists, it's just returned, otherwise the method creates a
-   * new class and returns it.
-   *
-   * @param className    the class name
-   * @param superclasses a list of superclasses for the class (can be empty)
-   * @return the class with the given name
-   * @throws SchemaException if one of the superclasses does not exist in the schema
-   */
-  default SchemaClass createClassIfNotExist(String className, String... superclasses)
-      throws SchemaException {
-    var schema = getMetadata().getSlowMutableSchema();
-
-    var result = schema.getClass(className);
-    if (result == null) {
-      result = createClass(className, superclasses);
-    }
-
-    return result;
-  }
-
   <X extends Exception> void executeInTxInternal(@Nonnull TxConsumer<FrontendTransaction, X> code)
       throws X;
 
@@ -1263,11 +1127,6 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   @Override
   FrontendTransaction begin();
-
-  default Index getIndex(String indexName) {
-    var indexManager = getSharedContext().getIndexManager();
-    return indexManager.getIndex(indexName);
-  }
 
   enum ATTRIBUTES_INTERNAL {
     VALIDATION
