@@ -723,6 +723,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     final var collate = (String) propRaw.get("collate");
     final var regexp = (String) propRaw.get("regexp");
     final var defaultValue = (String) propRaw.get("default-value");
+    @SuppressWarnings("unchecked")
     final var customFields = (Map<String, String>) propRaw.get("customFields");
 
     var prop = iClass.getProperty(propName);
@@ -1078,7 +1079,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     final var ridMapCollections =
         IntStream
-            .of(session.getSchema().getClass(EXPORT_IMPORT_CLASS_NAME).getCollectionIds())
+            .of(session.getMetadata().getFastImmutableSchema()
+                .getClass(EXPORT_IMPORT_CLASS_NAME).getCollectionIds())
             .boxed()
             .map(session::getCollectionNameById)
             .collect(Collectors.toSet());
