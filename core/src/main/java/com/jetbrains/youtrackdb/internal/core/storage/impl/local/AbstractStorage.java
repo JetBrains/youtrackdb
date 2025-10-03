@@ -83,10 +83,12 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.MultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.query.live.YTLiveQueryMonitorEmbedded;
@@ -98,7 +100,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.LiveQueryListenerImpl
 import com.jetbrains.youtrackdb.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
-import com.jetbrains.youtrackdb.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
@@ -714,9 +715,7 @@ public abstract class AbstractStorage
 
     for (final var indexName : indexNames) {
       final var engineData = configuration.getIndexEngine(indexName, counter);
-
-      final var engine = Indexes.createIndexEngine(this, engineData);
-
+      var engine = newIndexEngineInstance(engineData);
       engine.load(engineData);
 
       indexEngineNameMap.put(engineData.getName(), engine);
@@ -726,6 +725,21 @@ public abstract class AbstractStorage
       indexEngines.set(engineData.getIndexId(), engine);
       counter++;
     }
+  }
+
+  @Nonnull
+  private BTreeIndexEngine newIndexEngineInstance(@Nonnull IndexEngineData engineData) {
+    var indexType = SchemaManager.INDEX_TYPE.valueOf(engineData.getIndexType());
+    return switch (indexType) {
+      case UNIQUE -> new BTreeSingleValueIndexEngine(engineData.getIndexId(), engineData.getName(),
+          this, engineData.getVersion());
+      case NOTUNIQUE ->
+          new BTreeMultiValueIndexEngine(engineData.getIndexId(), engineData.getName(), this,
+              engineData.getVersion());
+
+      case null, default ->
+          throw new DatabaseException(name, "Unsupported index type " + indexType);
+    };
   }
 
   protected final void openCollections(final AtomicOperation atomicOperation) throws IOException {
@@ -2107,32 +2121,6 @@ public abstract class AbstractStorage
     }
   }
 
-  public int loadIndexEngine(final String name) {
-    try {
-      stateLock.readLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        final var engine = indexEngineNameMap.get(name);
-        if (engine == null) {
-          return -1;
-        }
-        final var indexId = indexEngines.indexOf(engine);
-        assert indexId == engine.getId();
-        return generateIndexId(indexId, engine);
-      } finally {
-        stateLock.readLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
-  }
-
   private int addIndexEngine(
       final SchemaIndexEntity indexEntity,
       final Map<String, String> engineProperties) {
@@ -2185,10 +2173,15 @@ public abstract class AbstractStorage
                   new IndexEngineData(
                       genenrateId,
                       indexEntity.getName(),
+                      "BTree",
                       indexEntity.getIndexType().name(),
+                      false,
+                      BTreeIndexEngine.VERSION,
+                      BTreeIndexEngine.API_VERSION,
                       indexEntity.getIndexType() != INDEX_TYPE.UNIQUE,
                       valueSerializerId,
                       keySerializer.getId(),
+                      true,
                       keyTypes.toArray(new PropertyTypeInternal[0]),
                       !indexEntity.isNullValuesIgnored(),
                       keySize,
@@ -2196,8 +2189,7 @@ public abstract class AbstractStorage
                       cfgEncryptionKey,
                       engineProperties);
 
-              final var engine = Indexes.createIndexEngine(this, engineData);
-
+              final var engine = newIndexEngineInstance(engineData);
               engine.create(atomicOperation, engineData);
               indexEngineNameMap.put(indexEntity.getName(), engine);
               indexEngines.add(engine);
@@ -2404,8 +2396,7 @@ public abstract class AbstractStorage
 
       final var engine = indexEngines.get(indexId);
 
-      final var v1IndexEngine = (V1IndexEngine) engine;
-      if (!v1IndexEngine.isMultiValue()) {
+      if (!engine.isMultiValue()) {
         ((SingleValueIndexEngine) engine).remove(atomicOperation, key);
       } else {
         throw new StorageException(name,
@@ -2505,7 +2496,7 @@ public abstract class AbstractStorage
     final var engine = indexEngines.get(indexId);
     assert indexId == engine.getId();
 
-    return ((V1IndexEngine) engine).get(key);
+    return engine.get(key);
   }
 
   public BaseIndexEngine getIndexEngine(int indexId) {
@@ -2601,7 +2592,7 @@ public abstract class AbstractStorage
     final var engine = indexEngines.get(indexId);
     assert engine.getId() == indexId;
 
-    ((V1IndexEngine) engine).put(atomicOperation, key, value);
+    engine.put(atomicOperation, key, value);
   }
 
   public void removeRidIndexEntry(int indexId, final Object key, final RID value) {
@@ -3953,7 +3944,6 @@ public abstract class AbstractStorage
       @Nonnull final byte[] content,
       int recordVersion,
       final byte recordType,
-      final RecordCallback<Long> callback,
       final StorageCollection collection,
       final PhysicalPosition allocated) {
     //noinspection ConstantValue
@@ -3983,10 +3973,6 @@ public abstract class AbstractStorage
           .error(this, "Error on creating record in collection: " + collection, e);
       throw DatabaseException.wrapException(
           new StorageException(name, "Error during creation of record"), e, name);
-    }
-
-    if (callback != null) {
-      callback.call(rid, ppos.collectionPosition);
     }
 
     if (logger.isDebugEnabled()) {
@@ -4568,7 +4554,6 @@ public abstract class AbstractStorage
                   stream,
                   rec.getVersion(),
                   recordType,
-                  null,
                   collection, allocated);
 
           rec.setVersion(ppos.recordVersion);

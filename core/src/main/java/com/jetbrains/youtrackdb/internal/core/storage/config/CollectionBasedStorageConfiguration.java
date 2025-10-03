@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageSegmentConfiguration
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
@@ -215,7 +214,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       collection.delete(atomicOperation);
 
-      try (var keyStream = btree.keys()) {
+      try (var keyStream = btree.keyStream()) {
         keyStream.forEach((key) -> btree.remove(atomicOperation, key));
       }
 
@@ -455,19 +454,16 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       write(buffer, engines.size());
       for (final var engineData : engines) {
         write(buffer, engineData.getName());
-        //alghorithm
-        write(buffer, "");
+        write(buffer, engineData.getAlgorithm());
         write(buffer, engineData.getIndexType() == null ? "" : engineData.getIndexType());
 
         write(buffer, engineData.getValueSerializerId());
         write(buffer, engineData.getKeySerializedId());
 
-        //is automatic
-        write(buffer, true);
-        //durable in non-tx mode
-        write(buffer, false);
+        write(buffer, engineData.isAutomatic());
+        write(buffer, engineData.getDurableInNonTxMode());
 
-        write(buffer, 1);
+        write(buffer, engineData.getVersion());
         write(buffer, engineData.isNullValuesSupport());
         write(buffer, engineData.getKeySize());
         write(buffer, engineData.getEncryption());
@@ -493,7 +489,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           }
         }
 
-        write(buffer, V1IndexEngine.API_VERSION);
+        write(buffer, engineData.getApiVersion());
         write(buffer, engineData.isMultivalue());
       }
 
