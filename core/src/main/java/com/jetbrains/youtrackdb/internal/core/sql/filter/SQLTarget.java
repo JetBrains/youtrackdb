@@ -284,7 +284,7 @@ public class SQLTarget extends BaseParser {
           final var cls =
               session
                   .getMetadata()
-                  .getFastImmutableSchema(session)
+                  .getFastImmutableSchema()
                   .getClass(subjectName);
           if (cls == null) {
             throw new CommandExecutionException(session,

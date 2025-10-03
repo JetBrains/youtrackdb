@@ -1,33 +1,32 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.domain;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
-
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBDomainVertex;
-import com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema.YTDBSchemaClassOutTokenInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import java.util.ArrayList;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import org.apache.commons.collections4.IteratorUtils;
 import org.apache.tinkerpop.gremlin.structure.Direction;
-import org.apache.tinkerpop.gremlin.structure.Edge;
-import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
-public class YTDBDomainEdgeImpl implements Edge {
+public class YTDBDomainEdgeImpl<O extends YTDBDomainVertex, I extends YTDBDomainVertex> implements
+    YTDBEdge {
   private final @Nonnull YTDBGraph graph;
 
-  private final @Nonnull YTDBDomainVertex from;
-  private final @Nonnull YTDBDomainVertex to;
+  private final @Nonnull O from;
+  private final @Nonnull I to;
 
-  private final @Nonnull YTDBSchemaClassOutTokenInternal outToken;
+  private final @Nonnull YTDBOutTokenInternal<O> outToken;
 
 
-  public YTDBDomainEdgeImpl(@Nonnull YTDBGraph graph, @Nonnull YTDBDomainVertex from,
-      @Nonnull YTDBDomainVertex ytdbDomainVertex, YTDBSchemaClassOutTokenInternal outToken) {
+  public YTDBDomainEdgeImpl(@Nonnull YTDBGraph graph, @Nonnull O from,
+      @Nonnull I to, @Nonnull YTDBOutTokenInternal<O> outToken) {
     this.graph = graph;
     this.from = from;
-    to = ytdbDomainVertex;
+    this.to = to;
     this.outToken = outToken;
   }
 
@@ -58,7 +57,7 @@ public class YTDBDomainEdgeImpl implements Edge {
   }
 
   @Override
-  public Graph graph() {
+  public YTDBGraph graph() {
     return graph;
   }
 

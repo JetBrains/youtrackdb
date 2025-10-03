@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.io;
 
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
@@ -231,7 +232,7 @@ public class LinkBagStub extends LinkBag {
 
   @Nullable
   @Override
-  public DatabaseSessionInternal getSession() {
+  public DatabaseSessionEmbedded getSession() {
     throw new UnsupportedOperationException("Not supported for stubs");
   }
 }

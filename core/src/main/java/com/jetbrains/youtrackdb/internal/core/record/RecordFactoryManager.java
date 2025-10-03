@@ -54,15 +54,15 @@ public class RecordFactoryManager {
         EntityImpl.RECORD_TYPE,
         "entity",
         EntityImpl.class,
-        (rid, database) -> new EntityImpl(database, rid));
+        EntityImpl::new);
     declareRecordType(VertexEntityImpl.RECORD_TYPE,
         "vertex",
         VertexEntityImpl.class,
-        (rid, database) -> new VertexEntityImpl(database, rid));
+        (rid, database) -> new VertexEntityImpl(rid, database));
     declareRecordType(StatefullEdgeEntityImpl.RECORD_TYPE,
         "statefulEdge",
         StatefullEdgeEntityImpl.class,
-        (rid, database) -> new StatefullEdgeEntityImpl(database, rid));
+        (rid, database) -> new StatefullEdgeEntityImpl(rid, database));
     declareRecordType(
         Blob.RECORD_TYPE, "blob",
         Blob.class, (rid, database) -> new RecordBytes(database, rid));

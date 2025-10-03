@@ -29,19 +29,19 @@ public class SQLTruncateClassStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var schema = session.getMetadata().getSchemaInternal();
-    var clazz = schema.getClassInternal(className.getStringValue());
+    var schema = session.getMetadata().getFastImmutableSchema();
+    var clazz = schema.getClass(className.getStringValue());
     if (clazz == null) {
       throw new CommandExecutionException(session, "Schema Class not found: " + className);
     }
 
     final var recs = clazz.count(session, polymorphic);
     if (recs > 0 && !unsafe) {
-      if (clazz.isSubClassOf("V")) {
+      if (clazz.isChildOf("V")) {
         throw new CommandExecutionException(session,
             "'TRUNCATE CLASS' command cannot be used on not empty vertex classes. Apply the"
                 + " 'UNSAFE' keyword to force it (at your own risk)");
-      } else if (clazz.isSubClassOf("E")) {
+      } else if (clazz.isChildOf("E")) {
         throw new CommandExecutionException(session,
             "'TRUNCATE CLASS' command cannot be used on not empty edge classes. Apply the 'UNSAFE'"
                 + " keyword to force it (at your own risk)");
@@ -49,17 +49,17 @@ public class SQLTruncateClassStatement extends DDLStatement {
     }
 
     List<Result> rs = new ArrayList<>();
-    var subclasses = clazz.getAllSubclasses();
+    var subclasses = clazz.getChildClasses();
     if (polymorphic && !unsafe) { // for multiple inheritance
       for (var subclass : subclasses) {
         var subclassRecs = clazz.count(session);
         if (subclassRecs > 0) {
-          if (subclass.isSubClassOf("V")) {
+          if (subclass.isChildOf("V")) {
             throw new CommandExecutionException(session,
                 "'TRUNCATE CLASS' command cannot be used on not empty vertex classes ("
                     + subclass.getName()
                     + "). Apply the 'UNSAFE' keyword to force it (at your own risk)");
-          } else if (subclass.isSubClassOf("E")) {
+          } else if (subclass.isChildOf("E")) {
             throw new CommandExecutionException(session,
                 "'TRUNCATE CLASS' command cannot be used on not empty edge classes ("
                     + subclass.getName()

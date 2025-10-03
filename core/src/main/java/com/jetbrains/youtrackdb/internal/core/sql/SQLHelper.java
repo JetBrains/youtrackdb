@@ -111,7 +111,7 @@ public class SQLHelper {
     }
 
     if (propertyType == null && schemaProperty != null) {
-      propertyType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getType());
+      propertyType = schemaProperty.getType();
     }
 
     iValue = iValue.trim();
@@ -154,7 +154,7 @@ public class SQLHelper {
       }
 
       if (schemaProperty != null) {
-        var linkedType = PropertyTypeInternal.convertFromPublicType(schemaProperty.getLinkedType());
+        var linkedType = schemaProperty.getLinkedType();
         var linkedClass = schemaProperty.getLinkedClass();
         for (var item : items) {
           coll.add(parseValue(item, context, resolveContextVariables,
@@ -223,8 +223,7 @@ public class SQLHelper {
           Object key;
           Object value;
           if (schemaProperty != null) {
-            var linkedType = PropertyTypeInternal.convertFromPublicType(
-                schemaProperty.getLinkedType());
+            var linkedType = schemaProperty.getLinkedType();
             var linkedClass = schemaProperty.getLinkedClass();
             key = parseValue(parts.get(0), context, resolveContextVariables,
                 null,

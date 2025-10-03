@@ -24,7 +24,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBagDelegate;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbstractLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
@@ -51,10 +51,10 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
   private int bottomThreshold;
 
   @Nonnull
-  private final DatabaseSessionInternal session;
+  private final DatabaseSessionEmbedded session;
 
 
-  public EntityLinkSetImpl(@Nonnull DatabaseSessionInternal session) {
+  public EntityLinkSetImpl(@Nonnull DatabaseSessionEmbedded session) {
     this.session = session;
     initThresholds(session);
     init();
@@ -74,14 +74,14 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
     }
   }
 
-  public EntityLinkSetImpl(@Nonnull DatabaseSessionInternal session, LinkBagDelegate delegate) {
+  public EntityLinkSetImpl(@Nonnull DatabaseSessionEmbedded session, LinkBagDelegate delegate) {
     assert ((AbstractLinkBag) delegate).getCounterMaxValue() == 1;
     this.session = session;
     initThresholds(session);
     this.delegate = delegate;
   }
 
-  private void initThresholds(@Nonnull DatabaseSessionInternal session) {
+  private void initThresholds(@Nonnull DatabaseSessionEmbedded session) {
     assert session.assertIfNotActive();
     var conf = session.getConfiguration();
     topThreshold =
@@ -118,7 +118,7 @@ public class EntityLinkSetImpl extends AbstractSet<Identifiable> implements
 
   @Nonnull
   @Override
-  public DatabaseSessionInternal getSession() {
+  public DatabaseSessionEmbedded getSession() {
     return session;
   }
 

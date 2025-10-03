@@ -2,16 +2,9 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.api.exception.BaseException;
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
-import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import java.util.Arrays;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -36,74 +29,7 @@ public class SQLAlterPropertyStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
-    var clazz = session.getMetadata().getSlowMutableSchema().getClass(className.getStringValue());
-
-    if (clazz == null) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "Invalid class name or class not found: " + clazz);
-    }
-
-    var property = clazz.getProperty(propertyName.getStringValue());
-    if (property == null) {
-      throw new CommandExecutionException(ctx.getDatabaseSession(),
-          "Property " + propertyName.getStringValue() + " not found on class " + clazz);
-    }
-
-    var result = new ResultInternal(session);
-    result.setProperty("class", className.getStringValue());
-    result.setProperty("property", propertyName.getStringValue());
-
-    if (customPropertyName != null) {
-      var customName = customPropertyName.getStringValue();
-      Object oldValue = property.getCustomProperty(customName);
-      var finalValue = customPropertyValue.execute((Identifiable) null, ctx);
-      property.setCustomProperty(customName, finalValue == null ? null : "" + finalValue);
-
-      result.setProperty("operation", "alter property custom");
-      result.setProperty("customAttribute", customPropertyName.getStringValue());
-      result.setProperty("oldValue", oldValue != null ? oldValue.toString() : null);
-      result.setProperty("newValue", finalValue != null ? finalValue.toString() : null);
-    } else {
-      var setting = settingName.getStringValue();
-      var isCollate = setting.equalsIgnoreCase("collate");
-      var finalValue = settingValue.execute((Identifiable) null, ctx);
-      if (finalValue == null
-          && (setting.equalsIgnoreCase("name")
-          || setting.equalsIgnoreCase("shortname")
-          || setting.equalsIgnoreCase("type")
-          || isCollate)) {
-        finalValue = settingValue.toString();
-        var stringFinalValue = (String) finalValue;
-        if (!stringFinalValue.isEmpty() && stringFinalValue.charAt(0) == '`'
-            && stringFinalValue.charAt(stringFinalValue.length() - 1) == '`'
-            && stringFinalValue.length() > 2) {
-          stringFinalValue = stringFinalValue.substring(1, stringFinalValue.length() - 1);
-          finalValue = stringFinalValue;
-        }
-      }
-      SchemaProperty.ATTRIBUTES attribute;
-      try {
-        attribute = SchemaProperty.ATTRIBUTES.valueOf(setting.toUpperCase(Locale.ENGLISH));
-      } catch (IllegalArgumentException e) {
-        throw BaseException.wrapException(
-            new CommandExecutionException(ctx.getDatabaseSession(),
-                "Unknown property attribute '"
-                    + setting
-                    + "'. Supported attributes are: "
-                    + Arrays.toString(SchemaProperty.ATTRIBUTES.values())),
-            e, ctx.getDatabaseSession());
-      }
-      var oldValue = property.get(attribute);
-      property.set(attribute, finalValue);
-      finalValue = property.get(attribute); // it makes some conversions...
-
-      result.setProperty("operation", "alter property");
-      result.setProperty("attribute", setting);
-      result.setProperty("oldValue", oldValue != null ? oldValue.toString() : null);
-      result.setProperty("newValue", finalValue != null ? finalValue.toString() : null);
-    }
-    return ExecutionStream.singleton(result);
+    throw new UnsupportedOperationException();
   }
 
   @Override

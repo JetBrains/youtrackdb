@@ -2,9 +2,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Map;
 import java.util.Objects;
@@ -26,46 +24,7 @@ public class SQLDropClassStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
-    var schema = session.getMetadata().getSchemaInternal();
-    String className;
-    if (name != null) {
-      className = name.getStringValue();
-    } else {
-      className = String.valueOf(nameParam.getValue(ctx.getInputParameters()));
-    }
-    var clazz = schema.getClassInternal(className);
-    if (clazz == null) {
-      if (ifExists) {
-        return ExecutionStream.empty();
-      }
-      throw new CommandExecutionException(session, "Class " + className + " does not exist");
-    }
-
-    if (!unsafe && clazz.count(session) > 0) {
-      // check vertex or edge
-      if (clazz.isVertexType()) {
-        throw new CommandExecutionException(session,
-            "'DROP CLASS' command cannot drop class '"
-                + className
-                + "' because it contains Vertices. Use 'DELETE VERTEX' command first to avoid"
-                + " broken edges in a database, or apply the 'UNSAFE' keyword to force it");
-      } else if (clazz.isEdgeType()) {
-        // FOUND EDGE CLASS
-        throw new CommandExecutionException(session,
-            "'DROP CLASS' command cannot drop class '"
-                + className
-                + "' because it contains Edges. Use 'DELETE EDGE' command first to avoid broken"
-                + " vertices in a database, or apply the 'UNSAFE' keyword to force it");
-      }
-    }
-
-    schema.dropClass(className);
-
-    var result = new ResultInternal(session);
-    result.setProperty("operation", "drop class");
-    result.setProperty("className", className);
-    return ExecutionStream.singleton(result);
+    throw new UnsupportedOperationException();
   }
 
   @Override

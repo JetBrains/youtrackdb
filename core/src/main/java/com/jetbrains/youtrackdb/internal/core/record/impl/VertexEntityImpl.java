@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Relation;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -21,7 +20,6 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -37,14 +35,14 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   public static final byte RECORD_TYPE = 'v';
 
-  public VertexEntityImpl(DatabaseSessionEmbedded database, RID rid) {
-    super(database, (RecordIdInternal) rid);
+  public VertexEntityImpl(RID rid, DatabaseSessionEmbedded session) {
+    super((RecordIdInternal) rid, session);
   }
 
   public VertexEntityImpl(RecordIdInternal recordId, DatabaseSessionEmbedded session,
       String klass) {
     super(recordId, session, klass);
-    if (!getImmutableSchemaClass(session).isVertexType()) {
+    if (!getImmutableSchemaClass().isVertexType()) {
       throw new IllegalArgumentException(getSchemaClassName() + " is not a vertex class");
     }
   }
@@ -171,7 +169,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       return session.newStatefulEdge(this, to, EdgeInternal.CLASS_NAME);
     }
 
-    var schemaClass = session.getClass(type);
+    var schemaClass = session.getMetadata().getFastImmutableSchema().getClass(type);
     if (schemaClass == null) {
       throw new IllegalArgumentException("Schema class for label " + type + " not found");
     }
@@ -296,8 +294,8 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   private Iterable<EdgeInternal> getEdgesInternal(Direction direction,
       String[] labels) {
-    var schema = session.getMetadata().getFastImmutableSchema(session);
-    labels = resolveAliases(session, schema, labels);
+    var schema = session.getMetadata().getFastImmutableSchema();
+    labels = resolveAliases(schema, labels);
 
     Collection<String> propertyNames = null;
     if (labels != null && labels.length > 0) {
@@ -604,7 +602,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
   }
 
   @Nullable
-  private static String[] resolveAliases(DatabaseSessionInternal db, Schema schema,
+  private static String[] resolveAliases(ImmutableSchema schema,
       String[] labels) {
     if (labels == null) {
       return null;
@@ -612,13 +610,13 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     var result = new String[labels.length];
 
     for (var i = 0; i < labels.length; i++) {
-      result[i] = resolveAlias(db, labels[i], schema);
+      result[i] = resolveAlias(labels[i], schema);
     }
 
     return result;
   }
 
-  private static String resolveAlias(DatabaseSessionInternal db, String label, Schema schema) {
+  private static String resolveAlias(String label, ImmutableSchema schema) {
     var clazz = schema.getClass(label);
     if (clazz != null) {
       return clazz.getName();
@@ -654,7 +652,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
     var outType = fromVertex.getPropertyTypeInternal(fieldName);
     var found = fromVertex.getPropertyInternal(fieldName);
 
-    var result = fromVertex.getImmutableSchemaClass(session);
+    var result = fromVertex.getImmutableSchemaClass();
     if (result == null) {
       throw new IllegalArgumentException("Class not found in source vertex: " + fromVertex);
     }
@@ -665,19 +663,19 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
     switch (found) {
       case null -> {
-        if (propType == PropertyType.LINKLIST
+        if (propType == PropertyTypeInternal.LINKLIST
             || (prop != null
             && "true".equalsIgnoreCase(prop.getCustomProperty("ordered")))) { // TODO constant
           var coll = new EntityLinkListImpl(fromVertex);
           coll.add(to);
           out = coll;
           outType = PropertyTypeInternal.LINKLIST;
-        } else if (propType == null || propType == PropertyType.LINKBAG) {
+        } else if (propType == null || propType == PropertyTypeInternal.LINKBAG) {
           final var bag = new LinkBag(fromVertex.getSession());
           bag.add(to.getIdentity());
           out = bag;
           outType = PropertyTypeInternal.LINKBAG;
-        } else if (propType == PropertyType.LINK) {
+        } else if (propType == PropertyTypeInternal.LINK) {
           out = to;
           outType = PropertyTypeInternal.LINK;
         } else {
@@ -688,7 +686,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
         }
       }
       case Identifiable foundId -> {
-        if (prop != null && propType == PropertyType.LINK) {
+        if (prop != null && propType == PropertyTypeInternal.LINK) {
           throw new DatabaseException(session.getDatabaseName(),
               "Type of field provided in schema '"
                   + prop.getType()

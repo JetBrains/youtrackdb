@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -12,7 +11,7 @@ import java.util.Map;
 
 public class MultipleIndexCanditate implements IndexCandidate {
 
-  public final List<IndexCandidate> canditates = new ArrayList<IndexCandidate>();
+  public final List<IndexCandidate> canditates = new ArrayList<>();
 
   public MultipleIndexCanditate() {
   }
@@ -98,9 +97,9 @@ public class MultipleIndexCanditate implements IndexCandidate {
     Map<String, IndexCandidate> newCanditates = new HashMap<>();
     for (var cand : canditates) {
       if (!newCanditates.containsKey(cand.getName())) {
-        var index = session.getSharedContext().getIndexManager()
+        var index = session.getMetadata().getFastImmutableSchema()
             .getIndex(cand.getName());
-        List<SchemaProperty> foundProps = new ArrayList<>();
+        List<ImmutableSchemaProperty> foundProps = new ArrayList<>();
         for (var field : index.getDefinition().getProperties()) {
           var found = false;
           for (var property : propeties) {
@@ -128,7 +127,7 @@ public class MultipleIndexCanditate implements IndexCandidate {
 
   @Override
   public List<ImmutableSchemaProperty> properties() {
-    List<SchemaProperty> props = new ArrayList<>();
+    List<ImmutableSchemaProperty> props = new ArrayList<>();
     for (var cand : this.canditates) {
       props.addAll(cand.properties());
     }

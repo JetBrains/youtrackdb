@@ -507,7 +507,7 @@ public class SQLSuffixIdentifier extends SimpleNode {
       var session = ctx.getDatabaseSession();
       if (currentResult.isEntity()) {
         var record = (EntityImpl) currentResult.asEntity();
-        var schemaClass = record.getImmutableSchemaClass(session);
+        var schemaClass = record.getImmutableSchemaClass();
         if (schemaClass != null) {
           var property = schemaClass.getProperty(identifier.getStringValue());
           if (property != null) {

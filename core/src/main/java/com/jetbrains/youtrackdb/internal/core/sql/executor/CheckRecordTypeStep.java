@@ -39,7 +39,7 @@ public class CheckRecordTypeStep extends AbstractExecutionStep {
           "record " + result + " is not an instance of " + clazz);
     }
     var session = ctx.getDatabaseSession();
-    var schema = entity.getImmutableSchemaClass(session);
+    var schema = entity.getImmutableSchemaClass();
 
     if (schema == null || !schema.isChildOf(clazz)) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

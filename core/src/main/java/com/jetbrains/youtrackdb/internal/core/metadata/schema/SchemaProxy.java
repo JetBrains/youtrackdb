@@ -117,7 +117,7 @@ public final class SchemaProxy implements Schema {
   }
 
   @Override
-  public @Nonnull Collection<? extends ImmutableSchemaClass> getClasses() {
+  public @Nonnull Collection<SchemaClass> getClasses() {
     var classes = SchemaManager.getClasses(session);
     var result = new ArrayList<SchemaClass>(classes.size());
 

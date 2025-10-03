@@ -35,8 +35,8 @@ public class QueryStats {
     if (val != null) {
       return val;
     }
-    if (database != null && database instanceof DatabaseSessionInternal db) {
-      var idx = db.getSharedContext().getIndexManager().getIndex(indexName);
+    if (database instanceof DatabaseSessionInternal db) {
+      var idx = db.getMetadata().getFastImmutableSchema().getIndex(indexName);
       if (idx != null
           && idx.isUnique()
           && (idx.getDefinition().getProperties().size() == params)

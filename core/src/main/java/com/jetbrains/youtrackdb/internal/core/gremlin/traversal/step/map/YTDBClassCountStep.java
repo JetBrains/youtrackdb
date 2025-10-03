@@ -50,7 +50,7 @@ public class YTDBClassCountStep<S> extends AbstractStep<S, Long> {
 
   private boolean filterClass(String klass) {
     var session = getDatabaseSession();
-    var schema = session.getMetadata().getFastImmutableSchema(session);
+    var schema = session.getMetadata().getFastImmutableSchema();
     assert schema != null;
 
     var schemaClass = schema.getClass(klass);

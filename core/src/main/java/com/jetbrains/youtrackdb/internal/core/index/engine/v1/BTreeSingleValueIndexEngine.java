@@ -155,7 +155,7 @@ public final class BTreeSingleValueIndexEngine
   public CloseableIterator<RawPair<Object, RID>> ascEntries() {
     final var firstKey = sbTree.firstKey();
     if (firstKey == null) {
-      return IteratorUtils.emptyIterator();
+      return CloseableIterator.empty();
     }
     return sbTree.iterateEntriesMajor(firstKey, true, true);
   }
@@ -164,7 +164,7 @@ public final class BTreeSingleValueIndexEngine
   public CloseableIterator<RawPair<Object, RID>> descEntries() {
     final var lastKey = sbTree.lastKey();
     if (lastKey == null) {
-      return IteratorUtils.emptyIterator();
+      return CloseableIterator.empty();
     }
     return sbTree.iterateEntriesMinor(lastKey, true, false);
   }

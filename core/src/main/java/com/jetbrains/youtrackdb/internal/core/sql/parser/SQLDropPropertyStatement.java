@@ -2,17 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.query.Result;
-import com.jetbrains.youtrackdb.internal.common.comparator.CaseInsentiveComparator;
-import com.jetbrains.youtrackdb.internal.common.util.Collections;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -33,79 +24,7 @@ public class SQLDropPropertyStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-
-    final var session = ctx.getDatabaseSession();
-    final var sourceClass = session.getMetadata().getSlowMutableSchema()
-            .getClass(className.getStringValue());
-    if (sourceClass == null) {
-      throw new CommandExecutionException(session, "Source class '" + className + "' not found");
-    }
-
-    if (sourceClass.getProperty(propertyName.getStringValue()) == null) {
-      if (ifExists) {
-        return ExecutionStream.empty();
-      }
-      throw new CommandExecutionException(session,
-          "Property '" + propertyName + "' not found on class " + className);
-    }
-    final var indexes = relatedIndexes(propertyName.getStringValue(), session);
-    List<Result> rs = new ArrayList<>();
-    if (!indexes.isEmpty()) {
-      if (force) {
-        for (final var index : indexes) {
-          session.getSharedContext().getIndexManager().dropIndex(session, index.getName());
-          var result = new ResultInternal(session);
-          result.setProperty("operation", "cascade drop index");
-          result.setProperty("indexName", index.getName());
-          rs.add(result);
-        }
-      } else {
-        final var indexNames = new StringBuilder();
-
-        var first = true;
-        for (final var index :
-            sourceClass.getClassInvolvedIndexes(propertyName.getStringValue())) {
-          if (!first) {
-            indexNames.append(", ");
-          } else {
-            first = false;
-          }
-          indexNames.append(index.getName());
-        }
-
-        throw new CommandExecutionException(session,
-            "Property used in indexes ("
-                + indexNames
-                + "). Please drop these indexes before removing property or use FORCE parameter.");
-      }
-    }
-
-    // REMOVE THE PROPERTY
-    sourceClass.dropProperty(propertyName.getStringValue());
-
-    var result = new ResultInternal(session);
-    result.setProperty("operation", "drop property");
-    result.setProperty("className", className.getStringValue());
-    result.setProperty("propertyname", propertyName.getStringValue());
-    rs.add(result);
-    return ExecutionStream.resultIterator(rs.iterator());
-  }
-
-  private List<Index> relatedIndexes(final String fieldName, DatabaseSessionInternal database) {
-    final List<Index> result = new ArrayList<Index>();
-    for (final var index :
-        database
-            .getSharedContext()
-            .getIndexManager()
-            .getClassIndexes(database, className.getStringValue())) {
-      if (Collections.indexOf(
-          index.getDefinition().getProperties(), fieldName, new CaseInsentiveComparator())
-          > -1) {
-        result.add(index);
-      }
-    }
-
-    return result;
+    throw new UnsupportedOperationException("Not supported yet.");
   }
 
   @Override

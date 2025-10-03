@@ -55,7 +55,7 @@ public class SequenceLibraryImpl {
     try {
       sequences.clear();
 
-      if (session.getMetadata().getFastImmutableSchema(session)
+      if (session.getMetadata().getFastImmutableSchema()
           .existsClass(DBSequence.CLASS_NAME)) {
         session.executeInTx(tx -> {
           try (final var result = session.query("SELECT FROM " + DBSequence.CLASS_NAME)) {

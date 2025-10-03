@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
@@ -80,7 +79,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     var sourceClass =
         session
             .getMetadata()
-            .getFastImmutableSchema(session)
+            .getFastImmutableSchema()
             .getClass(this.sourceClass.getStringValue());
     if (sourceClass == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
@@ -90,7 +89,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     var destClass =
         session
             .getMetadata()
-            .getFastImmutableSchema(session)
+            .getFastImmutableSchema()
             .getClass(this.destClass.getStringValue());
     if (destClass == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
@@ -234,7 +233,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
           destClass = session.getMetadata().getSlowMutableSchema()
               .getClass(this.destClass.getStringValue());
           if (prop != null) {
-            if (linkType != PropertyTypeInternal.convertFromPublicType(prop.getType())) {
+            if (linkType != prop.getType()) {
               throw new CommandExecutionException(session,
                   "Cannot create the link because the property '"
                       + linkName
@@ -259,7 +258,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
           sourceClass = session.getMetadata().getSlowMutableSchema()
               .getClass(this.destClass.getStringValue());
           if (prop != null) {
-            if (prop.getType() != PropertyType.LINK) {
+            if (prop.getType() != PropertyTypeInternal.LINK) {
               throw new CommandExecutionException(session,
                   "Cannot create the link because the property '"
                       + linkName

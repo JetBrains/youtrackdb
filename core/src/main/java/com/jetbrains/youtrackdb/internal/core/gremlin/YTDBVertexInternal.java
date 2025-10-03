@@ -5,6 +5,7 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
@@ -100,13 +101,14 @@ public interface YTDBVertexInternal extends YTDBVertex {
 
     var session = tx.getDatabaseSession();
 
-    var edgeClass = session.getMetadata().getFastImmutableSchema(session).getClass(label);
+    var edgeClass = session.getMetadata().getFastImmutableSchema().getClass(label);
     if (edgeClass == null) {
-      try (var copy = session.copy()) {
-        var schemaCopy = copy.getSchema();
-        var edgeCls = schemaCopy.getClass(
-            com.jetbrains.youtrackdb.api.record.Edge.CLASS_NAME);
-        schemaCopy.getOrCreateClass(label, edgeCls);
+      var mutableSchema = session.getMetadata().getSlowMutableSchema();
+      edgeClass = mutableSchema.getClass(label);
+      var baseClass = mutableSchema.getClass(ImmutableSchemaClass.EDGE_CLASS_NAME);
+
+      if (edgeClass == null) {
+        mutableSchema.createClass(label, baseClass);
       }
     }
 

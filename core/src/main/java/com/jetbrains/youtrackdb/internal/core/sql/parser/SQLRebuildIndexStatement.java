@@ -29,29 +29,17 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
     result.setProperty("operation", "rebuild index");
 
     if (all) {
-      long totalIndexed = 0;
-      for (var idx : session.getSharedContext().getIndexManager().getIndexes()) {
-        if (idx.isAutomatic()) {
-          totalIndexed += idx.rebuild(session);
-        }
+      for (var idx : session.getMetadata().getFastImmutableSchema().getIndexes()) {
+        idx.rebuild(session);
       }
-      result.setProperty("totalIndexed", totalIndexed);
     } else {
       final var idx =
-          session.getSharedContext().getIndexManager().getIndex(name.getValue());
+          session.getMetadata().getFastImmutableSchema().getIndex(name.getValue());
       if (idx == null) {
         throw new CommandExecutionException(session, "Index '" + name + "' not found");
       }
 
-      if (!idx.isAutomatic()) {
-        throw new CommandExecutionException(session,
-            "Cannot rebuild index '"
-                + name
-                + "' because it's manual and there aren't indications of what to index");
-      }
-
-      var val = idx.rebuild(session);
-      result.setProperty("totalIndexed", val);
+      idx.rebuild(session);
     }
     return ExecutionStream.singleton(result);
   }

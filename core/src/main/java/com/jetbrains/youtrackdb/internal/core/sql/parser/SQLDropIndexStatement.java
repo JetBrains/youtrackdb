@@ -2,13 +2,8 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_CLASS_VISIBILITY_PUBLIC=true */
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -28,31 +23,7 @@ public class SQLDropIndexStatement extends DDLStatement {
 
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
-    List<Result> rs = new ArrayList<>();
-    var session = ctx.getDatabaseSession();
-    var idxMgr = session.getSharedContext().getIndexManager();
-    if (all) {
-      for (var idx : idxMgr.getIndexes()) {
-        idxMgr.dropIndex(session, idx.getName());
-        var result = new ResultInternal(session);
-        result.setProperty("operation", "drop index");
-        result.setProperty("collectionName", idx.getName());
-        rs.add(result);
-      }
-
-    } else {
-      if (!idxMgr.existsIndex(name.getValue()) && !ifExists) {
-        throw new CommandExecutionException(ctx.getDatabaseSession(),
-            "Index not found: " + name.getValue());
-      }
-      idxMgr.dropIndex(session, name.getValue());
-      var result = new ResultInternal(session);
-      result.setProperty("operation", "drop index");
-      result.setProperty("indexName", name.getValue());
-      rs.add(result);
-    }
-
-    return ExecutionStream.resultIterator(rs.iterator());
+    throw new UnsupportedOperationException("Not supported yet.");
   }
 
   @Override

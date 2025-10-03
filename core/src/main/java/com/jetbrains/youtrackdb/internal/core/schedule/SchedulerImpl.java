@@ -159,37 +159,40 @@ public class SchedulerImpl {
   public static void create(DatabaseSessionInternal database) {
     if (database
         .getMetadata()
-        .getFastImmutableSchema(session)
+        .getFastImmutableSchema()
         .existsClass(ScheduledEvent.CLASS_NAME)) {
       return;
     }
     var f = database.getMetadata().getSlowMutableSchema()
         .createClass(ScheduledEvent.CLASS_NAME);
 
-    f.createProperty(ScheduledEvent.PROP_NAME, PropertyTypeInternal.STRING,
-            (PropertyTypeInternal) null
-        )
-        .setMandatory(true)
-        .setNotNull(true);
+    var p = f.createProperty(ScheduledEvent.PROP_NAME, PropertyTypeInternal.STRING,
+        (PropertyTypeInternal) null
+    );
+    p.setMandatory(true);
+    p.setNotNull(true);
     f.createIndex(ScheduledEvent.PROP_NAME + "Index", SchemaManager.INDEX_TYPE.UNIQUE,
         ScheduledEvent.PROP_NAME);
-    f.createProperty(ScheduledEvent.PROP_RULE, PropertyTypeInternal.STRING,
-            (PropertyTypeInternal) null
-        )
-        .setMandatory(true)
-        .setNotNull(true);
+
+    p = f.createProperty(ScheduledEvent.PROP_RULE, PropertyTypeInternal.STRING,
+        (PropertyTypeInternal) null
+    );
+    p.setMandatory(true);
+    p.setNotNull(true);
+
     f.createProperty(ScheduledEvent.PROP_ARGUMENTS, PropertyTypeInternal.EMBEDDEDMAP,
         (PropertyTypeInternal) null
     );
     f.createProperty(ScheduledEvent.PROP_STATUS, PropertyTypeInternal.STRING,
         (PropertyTypeInternal) null
     );
-    f.createProperty(
-            ScheduledEvent.PROP_FUNC,
-            PropertyTypeInternal.LINK,
-            database.getMetadata().getSlowMutableSchema().getClass(Function.CLASS_NAME))
-        .setMandatory(true)
-        .setNotNull(true);
+    p = f.createProperty(
+        ScheduledEvent.PROP_FUNC,
+        PropertyTypeInternal.LINK,
+        database.getMetadata().getSlowMutableSchema().getClass(Function.CLASS_NAME));
+    p.setMandatory(true);
+    p.setNotNull(true);
+
     f.createProperty(ScheduledEvent.PROP_STARTTIME, PropertyTypeInternal.DATETIME,
         (PropertyTypeInternal) null
     );

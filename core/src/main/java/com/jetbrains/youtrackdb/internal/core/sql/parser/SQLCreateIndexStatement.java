@@ -3,24 +3,16 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
-import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -68,153 +60,7 @@ public class SQLCreateIndexStatement extends DDLStatement {
 
   @Nullable
   Object execute(CommandContext ctx) {
-    final var session = ctx.getDatabaseSession();
-
-    if (session.getSharedContext().getIndexManager().existsIndex(name.getValue())) {
-      if (ifNotExists) {
-        return null;
-      } else {
-        throw new CommandExecutionException(session, "Index " + name + " already exists");
-      }
-    }
-
-    final Index idx;
-    var collatesList = calculateCollates(ctx);
-    var engine =
-        this.engine == null ? null : this.engine.getStringValue().toUpperCase(Locale.ENGLISH);
-    var metadata = calculateMetadata(ctx);
-
-    if (propertyList == null || propertyList.isEmpty()) {
-      var keyTypes = calculateKeyTypes(ctx);
-
-      if (keyTypes.length > 0) {
-        idx =
-            session
-                .getSharedContext()
-                .getIndexManager()
-                .createIndex(
-                    session,
-                    name.getValue(),
-                    type.getStringValue(),
-                    new SimpleKeyIndexDefinition(keyTypes, collatesList),
-                    null,
-                    null,
-                    metadata,
-                    engine);
-      } else if ("LUCENE_CROSS_CLASS".equalsIgnoreCase(engine)) {
-        // handle special case of cross class  Lucene index: awful but works
-        IndexDefinition keyDef =
-            new SimpleKeyIndexDefinition(new PropertyTypeInternal[]{PropertyTypeInternal.STRING},
-                collatesList);
-        idx =
-            session
-                .getSharedContext()
-                .getIndexManager()
-                .createIndex(
-                    session,
-                    name.getValue(),
-                    type.getStringValue(),
-                    keyDef,
-                    null,
-                    null,
-                    metadata,
-                    engine);
-
-      } else {
-        // legacy: create index without specifying property names
-        var split = name.getValue().split("\\.");
-        if (split.length != 2) {
-          throw new DatabaseException(session,
-              "Impossible to create an index without specify class and property name nor key types:"
-                  + " "
-                  + this);
-        }
-        var oClass = session.getClass(split[0]);
-        if (oClass == null) {
-          throw new DatabaseException(session,
-              "Impossible to create an index, class not found: " + split[0]);
-        }
-        if (oClass.getProperty(split[1]) == null) {
-          throw new DatabaseException(session,
-              "Impossible to create an index, property not found: " + name.getValue());
-        }
-        var fields = new String[]{split[1]};
-        idx = getoIndex(oClass, fields, engine, session, collatesList, metadata);
-
-      }
-    } else {
-      var fields = calculateProperties(ctx);
-      var oClass = getIndexClass(ctx);
-      idx = getoIndex(oClass, fields, engine, session, collatesList, metadata);
-    }
-
-    if (idx != null) {
-      return session.computeInTx(transaction -> idx.size(session));
-    }
-
-    return null;
-  }
-
-  private Index getoIndex(
-      SchemaClass oClass,
-      String[] fields,
-      String engine,
-      DatabaseSessionEmbedded session,
-      List<Collate> collatesList,
-      Map<String, Object> metadata) {
-    Index idx;
-    if ((keyTypes == null || keyTypes.isEmpty()) && collatesList == null) {
-      var indexName = name.getValue();
-      oClass.createIndex(
-          indexName, type.getStringValue(), metadata,
-          fields);
-      idx = session.getIndex(indexName);
-    } else {
-      final List<PropertyTypeInternal> fieldTypeList;
-      if (keyTypes == null || keyTypes.isEmpty() && fields.length > 0) {
-        for (final var fieldName : fields) {
-          if (!fieldName.equals("@rid") && !oClass.existsProperty(fieldName)) {
-            throw new IndexException(session,
-                "Index with name : '"
-                    + name.getValue()
-                    + "' cannot be created on class : '"
-                    + oClass.getName()
-                    + "' because field: '"
-                    + fieldName
-                    + "' is absent in class definition.");
-          }
-        }
-        fieldTypeList = oClass.extractFieldTypes(fields);
-      } else {
-        fieldTypeList =
-            keyTypes.stream()
-                .map(x -> PropertyTypeInternal.valueOf(x.getStringValue()))
-                .collect(Collectors.toList());
-      }
-
-      final var idxDef =
-          IndexDefinitionFactory.createIndexDefinition(
-              oClass,
-              Arrays.asList(fields),
-              fieldTypeList,
-              collatesList,
-              type.getStringValue());
-
-      idx =
-          session
-              .getSharedContext()
-              .getIndexManager()
-              .createIndex(
-                  session,
-                  name.getValue(),
-                  type.getStringValue(),
-                  idxDef,
-                  oClass.getPolymorphicCollectionIds(),
-                  null,
-                  metadata,
-                  engine);
-    }
-    return idx;
+    throw new UnsupportedOperationException();
   }
 
   /**

@@ -1,9 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.domain;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Strings.isNullOrEmpty;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBDomainVertex;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -35,7 +36,6 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 import org.apache.tinkerpop.gremlin.util.iterator.MultiIterator;
 
 public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements YTDBDomainVertex {
-
   private final ThreadLocal<E> threadLocalEntity = new ThreadLocal<>();
 
   @Nullable
@@ -74,8 +74,29 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
   protected abstract YTDBOutTokenInternal<YTDBDomainVertexAbstract<?>> outToken(String label);
 
   @Override
-  public YTDBEdge addEdge(String label, Vertex inVertex, Object... keyValues) {
+  public YTDBDomainEdgeImpl<?, ?> addEdge(String label, Vertex inVertex, Object... keyValues) {
+    if (inVertex == null) {
+      throw new IllegalArgumentException("Destination vertex is null");
+    }
+    checkArgument(!isNullOrEmpty(label), "label is invalid");
 
+    if (keyValues.length > 0) {
+      throw new IllegalArgumentException("Edges of domain vertices can not have properties");
+    }
+
+    var tx = graph.tx();
+    tx.readWrite();
+
+    var outToken = outToken(label);
+    if (outToken == null) {
+      throw new IllegalArgumentException("Edge with " + label + " is not defined in vertex");
+    }
+    if (!(inVertex instanceof YTDBDomainVertex domainVertex)) {
+      throw new IllegalArgumentException(
+          "Edge with " + label + " is not of type " + YTDBDomainVertex.class.getSimpleName());
+    }
+
+    return outToken.add(this, domainVertex);
   }
 
   @Override
@@ -85,7 +106,7 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
 
       if (direction == Direction.IN) {
         for (var inToken : inTokens()) {
-
+          @SuppressWarnings("unchecked")
           var res = (Iterator<Vertex>) inToken.apply(this);
           multiIterator.addIterator(res);
         }
@@ -107,7 +128,8 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
       if (edgeLabels.length == 1) {
         var inToken = inToken(edgeLabels[0]);
         if (inToken != null) {
-          return inToken.apply(this);
+          //noinspection unchecked,rawtypes
+          return (Iterator) inToken.apply(this);
         }
 
         return IteratorUtils.emptyIterator();
@@ -116,7 +138,8 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
         for (var label : edgeLabels) {
           var inToken = inToken(label);
           if (inToken != null) {
-            multiIterator.addIterator(inToken.apply(this));
+            //noinspection rawtypes,unchecked
+            multiIterator.addIterator((Iterator) inToken.apply(this));
           }
         }
 
@@ -126,7 +149,8 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
       if (edgeLabels.length == 1) {
         var outToken = outToken(edgeLabels[0]);
         if (outToken != null) {
-          return outToken.apply(this);
+          //noinspection unchecked,rawtypes
+          return (Iterator) outToken.apply(this);
         }
 
         return IteratorUtils.emptyIterator();
@@ -134,7 +158,8 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
         var multiIterator = new MultiIterator<Vertex>();
         for (var label : edgeLabels) {
           var inToken = inToken(label);
-          multiIterator.addIterator(inToken.apply(this));
+          //noinspection rawtypes,unchecked
+          multiIterator.addIterator((Iterator) inToken.apply(this));
         }
 
         return multiIterator;
@@ -288,12 +313,15 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
     for (var edgeLabel : edgeLabels) {
       if (direction == Direction.IN) {
         var inToken = inToken(edgeLabel);
+
         if (inToken != null) {
           var vIterator = inToken.apply(this);
           var edgeIterator = YTDBIteratorUtils.map(vIterator,
-              v
-                  -> (Edge) new YTDBDomainEdgeImpl(graph, (YTDBDomainVertex) v, this,
-                  inToken.name()));
+              v -> {
+                //noinspection rawtypes,unchecked
+                return (Edge) new YTDBDomainEdgeImpl(graph, v, this,
+                    ((YTDBDomainVertexAbstract<?>) v).outToken(inToken.name()));
+              });
           multiIterator.addIterator(edgeIterator);
         }
       } else if (direction == Direction.OUT) {
@@ -301,8 +329,10 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
         if (outToken != null) {
           var vIterator = outToken.apply(this);
           var edgeIterator = YTDBIteratorUtils.map(vIterator,
-              v -> (Edge) new YTDBDomainEdgeImpl(graph, this, (YTDBDomainVertex) v,
-                  outToken.name()));
+              v -> {
+                //noinspection rawtypes,unchecked
+                return (Edge) new YTDBDomainEdgeImpl(graph, this, v, outToken);
+              });
           multiIterator.addIterator(edgeIterator);
         }
       }
@@ -327,7 +357,11 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
             this);
         var edgeIterator = YTDBIteratorUtils.map(vIterator,
             v
-                -> (Edge) new YTDBDomainEdgeImpl(graph, v, this, inToken.name()));
+                -> {
+              //noinspection rawtypes,unchecked
+              return (Edge) new YTDBDomainEdgeImpl(graph, v, this,
+                  ((YTDBDomainVertexAbstract<?>) v).outToken(inToken.name()));
+            });
         multiIterator.addIterator(edgeIterator);
       }
 
@@ -339,7 +373,10 @@ public abstract class YTDBDomainVertexAbstract<E extends EntityImpl> implements 
         @SuppressWarnings("unchecked")
         var vIterator = (Iterator<YTDBDomainVertex>) outToken.apply(this);
         var edgeIterator = YTDBIteratorUtils.map(vIterator,
-            v -> (Edge) new YTDBDomainEdgeImpl(graph, this, v, outToken.name()));
+            v -> {
+              //noinspection rawtypes,unchecked
+              return (Edge) new YTDBDomainEdgeImpl(graph, this, v, outToken);
+            });
         multiIterator.addIterator(edgeIterator);
       }
     }

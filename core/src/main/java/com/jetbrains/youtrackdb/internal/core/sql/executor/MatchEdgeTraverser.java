@@ -142,7 +142,7 @@ public class MatchEdgeTraverser {
       iCommandContext.setVariable("$currentMatch", startingPoint);
 
       if (matchesFilters(iCommandContext, filter, startingPoint)
-          && matchesClass(iCommandContext, className, startingPoint)
+          && matchesClass(className, startingPoint)
           && matchesRid(iCommandContext, targetRid, startingPoint)) {
         // set traversal depth in the metadata
         ResultInternal rs;
@@ -208,7 +208,7 @@ public class MatchEdgeTraverser {
     }
     iCommandContext.setVariable("$currentMatch", next);
     if (matchesFilters(iCommandContext, theFilter, next)
-        && matchesClass(iCommandContext, theClassName, next)
+        && matchesClass(theClassName, next)
         && matchesRid(iCommandContext, theTargetRid, next)) {
       ctx.setVariable("$currentMatch", previousMatch);
       return next;
@@ -231,16 +231,14 @@ public class MatchEdgeTraverser {
     return item.getFilter().getRid(iCommandContext);
   }
 
-  private static boolean matchesClass(
-      CommandContext context, String className, Result origin) {
+  private static boolean matchesClass(String className, Result origin) {
     if (className == null) {
       return true;
     }
 
-    var session = context.getDatabaseSession();
     var entity = (EntityImpl) origin.asEntityOrNull();
     if (entity != null) {
-      var clazz = entity.getImmutableSchemaClass(session);
+      var clazz = entity.getImmutableSchemaClass();
       if (clazz == null) {
         return false;
       }

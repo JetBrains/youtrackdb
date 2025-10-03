@@ -73,7 +73,7 @@ public class SQLJson extends SimpleNode {
     if (className == null) {
       entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
-      var cls = session.getMetadata().getFastImmutableSchema(session).getClass(className);
+      var cls = session.getMetadata().getFastImmutableSchema().getClass(className);
 
       if (cls.isAbstract()) {
         entity = (EntityImpl) session.newEmbeddedEntity();
@@ -96,7 +96,7 @@ public class SQLJson extends SimpleNode {
         value = item.right.execute(source, ctx);
       }
 
-      var schemaClass = entity.getImmutableSchemaClass(session);
+      var schemaClass = entity.getImmutableSchemaClass();
       var schemaProperty = schemaClass != null ? schemaClass.getProperty(name) : null;
       entity.setProperty(name, SQLUpdateItem.cleanPropertyValue(value, session, schemaProperty));
     }
@@ -110,7 +110,7 @@ public class SQLJson extends SimpleNode {
     if (className == null) {
       entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
-      var cls = session.getMetadata().getFastImmutableSchema(session).getClass(className);
+      var cls = session.getMetadata().getFastImmutableSchema().getClass(className);
 
       if (cls.isAbstract()) {
         entity = (EntityImpl) session.newEmbeddedEntity(cls);
@@ -121,7 +121,7 @@ public class SQLJson extends SimpleNode {
       }
     }
 
-    var schemaClass = entity.getImmutableSchemaClass(session);
+    var schemaClass = entity.getImmutableSchemaClass();
 
     Map<String, Character> types = null;
     for (var item : items) {

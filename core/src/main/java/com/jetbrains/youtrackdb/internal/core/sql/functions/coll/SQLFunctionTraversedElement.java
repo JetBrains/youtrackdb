@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.traverse.TraverseRecordProcess;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionConfigurableAbstract;
@@ -106,12 +105,11 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
         if (o instanceof TraverseRecordProcess) {
           final var record = ((TraverseRecordProcess) o).getTarget();
 
-          SchemaClassSnapshot result1 = null;
           var transaction = session.getActiveTransaction();
           final EntityImpl entity = transaction.load(record);
-          result1 = entity.getImmutableSchemaClass(session);
+          var cls = entity.getImmutableSchemaClass();
           if (iClassName == null
-              || result1
+              || cls
               .isChildOf(iClassName)) {
             if (i <= beginIndex) {
               if (items == 1) {
@@ -127,14 +125,11 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
         } else if (o instanceof Identifiable record) {
 
-          SchemaClassSnapshot result1 = null;
           var transaction = session.getActiveTransaction();
           final EntityImpl entity = transaction.load(record);
-          if (entity != null) {
-            result1 = entity.getImmutableSchemaClass(session);
-          }
+          var schemaClass = entity.getImmutableSchemaClass();
           if (iClassName == null
-              || result1
+              || schemaClass
               .isChildOf(iClassName)) {
             if (i <= beginIndex) {
               if (items == 1) {
@@ -158,14 +153,12 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
         if (o instanceof TraverseRecordProcess) {
           final var record = ((TraverseRecordProcess) o).getTarget();
 
-          SchemaClassSnapshot result1 = null;
           var transaction = session.getActiveTransaction();
           final EntityImpl entity = transaction.load(record);
-          if (entity != null) {
-            result1 = entity.getImmutableSchemaClass(session);
-          }
+
+          var schemaClass = entity.getImmutableSchemaClass();
           if (iClassName == null
-              || result1
+              || schemaClass
               .isChildOf(iClassName)) {
             if (i >= beginIndex) {
               if (items == 1) {
@@ -181,14 +174,11 @@ public class SQLFunctionTraversedElement extends SQLFunctionConfigurableAbstract
           }
         } else if (o instanceof Identifiable record) {
 
-          SchemaClassSnapshot result1 = null;
           var transaction = session.getActiveTransaction();
           final EntityImpl entity = transaction.load(record);
-          if (entity != null) {
-            result1 = entity.getImmutableSchemaClass(session);
-          }
+          var schemaClass = entity.getImmutableSchemaClass();
           if (iClassName == null
-              || result1
+              || schemaClass
               .isChildOf(iClassName)) {
             if (i >= beginIndex) {
               if (items == 1) {

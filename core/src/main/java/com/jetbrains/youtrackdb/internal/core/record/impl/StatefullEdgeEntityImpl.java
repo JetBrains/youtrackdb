@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.HashSet;
 import java.util.List;
@@ -27,8 +28,8 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     super(recordId, session, iClassName);
   }
 
-  public StatefullEdgeEntityImpl(DatabaseSessionEmbedded database, RecordIdInternal rid) {
-    super(database, rid);
+  public StatefullEdgeEntityImpl(RecordIdInternal rid, DatabaseSessionEmbedded session) {
+    super(rid, session);
   }
 
   @Nullable
@@ -53,10 +54,10 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
     }
     Set<String> types = new HashSet<>();
 
-    var typeClass = getImmutableSchemaClass(session);
+    var typeClass = getImmutableSchemaClass();
 
     types.add(typeClass.getName());
-    typeClass.getAscendantClasses().stream().map(SchemaClass::getName)
+    typeClass.getAscendantClasses().stream().map(ImmutableSchemaClass::getName)
         .forEach(types::add);
 
     for (var s : labels) {
@@ -80,7 +81,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public Identifiable getFromLink() {
     var db = getSession();
-    var schema = db.getMetadata().getFastImmutableSchema(session);
+    var schema = db.getMetadata().getFastImmutableSchema();
 
     var result = getLinkPropertyInternal(DIRECTION_OUT);
     if (result == null) {
@@ -114,7 +115,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public Identifiable getToLink() {
     checkForBinding();
-    var schema = session.getMetadata().getFastImmutableSchema(session);
+    var schema = session.getMetadata().getFastImmutableSchema();
     var result = getLinkPropertyInternal(DIRECTION_IN);
     if (result == null) {
       return null;
@@ -141,7 +142,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
 
   @Override
   public String label() {
-    var typeClass = getImmutableSchemaClass(session);
+    var typeClass = getImmutableSchemaClass();
     return typeClass.getName();
   }
 

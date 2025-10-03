@@ -71,7 +71,7 @@ public class FunctionLibraryImpl {
     functions.clear();
 
     // LOAD ALL THE FUNCTIONS IN MEMORY
-    if (session.getMetadata().getFastImmutableSchema(session).existsClass("OFunction")) {
+    if (session.getMetadata().getFastImmutableSchema().existsClass("OFunction")) {
       session.executeInTx(tx -> {
         try (var result = tx.query("select from OFunction order by name")) {
           while (result.hasNext()) {

@@ -189,7 +189,7 @@ public class SQLProjection extends SimpleNode {
             result.setProperty("@version", x.getVersion());
           }
           if (!this.excludes.contains("@class")) {
-            var clazz = x.getImmutableSchemaClass(session);
+            var clazz = x.getImmutableSchemaClass();
             if (clazz != null) {
               result.setProperty("@class", clazz.getName());
             }
