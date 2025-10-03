@@ -404,7 +404,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
         var storage = getAndOpenStorage(name, config);
         embedded = newSessionInstance(storage, config);
       }
-      embedded.rebuildIndexes();
       embedded.internalOpen(user, "nopwd", false);
       embedded.callOnOpenListeners();
       return embedded;
@@ -439,7 +438,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
         var storage = getAndOpenStorage(name, config);
         embedded = newSessionInstance(storage, config);
       }
-      embedded.rebuildIndexes();
       embedded.callOnOpenListeners();
       return embedded;
     } catch (Exception e) {
@@ -505,7 +503,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
 
         embedded = newSessionInstance(storage, (YouTrackDBConfigImpl) config);
       }
-      embedded.rebuildIndexes();
       embedded.internalOpen(user, password);
       embedded.callOnOpenListeners();
       return embedded;
@@ -532,7 +529,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
             (YouTrackDBConfigImpl) config);
         embedded = newSessionInstance(storage, (YouTrackDBConfigImpl) config);
       }
-      embedded.rebuildIndexes();
       embedded.internalOpen(authenticationInfo);
       embedded.callOnOpenListeners();
       return embedded;
@@ -594,7 +590,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
       embedded = newPooledSessionInstance(pool, storage, getOrCreateSharedContext(storage),
           serverMode);
     }
-    embedded.rebuildIndexes();
     embedded.internalOpen(user, password);
     embedded.callOnOpenListeners();
     return embedded;
@@ -610,7 +605,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal<DatabaseSe
           serverMode);
     }
 
-    embedded.rebuildIndexes();
     embedded.internalOpen(user, "nopwd", false);
     embedded.callOnOpenListeners();
 
