@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.config;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -44,7 +45,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public final class CollectionBasedStorageConfiguration implements StorageConfiguration {
@@ -214,8 +214,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       collection.delete(atomicOperation);
 
-      try (var keyStream = btree.keyStream()) {
-        keyStream.forEach((key) -> btree.remove(atomicOperation, key));
+      try (var keysIterator = btree.keys()) {
+        keysIterator.forEachRemaining((key) -> btree.remove(atomicOperation, key));
       }
 
       btree.delete(atomicOperation);
@@ -1106,26 +1106,32 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private void preloadConfigurationProperties() {
     final Map<String, String> properties;
-    try (var stream =
+    try (var iterator =
         btree.iterateEntriesMajor(PROPERTY_PREFIX_PROPERTY, false, true)) {
-      properties =
-          stream
-              .filter((pair) -> pair.first().startsWith(PROPERTY_PREFIX_PROPERTY))
-              .map(
-                  (entry) -> {
-                    final RawBuffer buffer;
-                    try {
-                      buffer = collection.readRecord(entry.second().getCollectionPosition());
-                      return new RawPair<>(
-                          entry.first().substring(PROPERTY_PREFIX_PROPERTY.length()),
-                          deserializeStringValue(buffer.buffer(), 0));
-                    } catch (IOException e) {
-                      throw BaseException.wrapException(
-                          new StorageException(storage.getName(),
-                              "Can not preload configuration properties"), e, storage.getName());
-                    }
-                  })
-              .collect(Collectors.toMap(RawPair::first, RawPair::second));
+      var propertyPairs =
+          YTDBIteratorUtils.map(
+              YTDBIteratorUtils.filter(iterator,
+                  (pair) -> pair.first().startsWith(PROPERTY_PREFIX_PROPERTY)),
+              entry -> {
+                final RawBuffer buffer;
+                try {
+                  buffer = collection.readRecord(entry.second().getCollectionPosition());
+                  return new RawPair<>(
+                      entry.first().substring(PROPERTY_PREFIX_PROPERTY.length()),
+                      deserializeStringValue(buffer.buffer(), 0));
+                } catch (IOException e) {
+                  throw BaseException.wrapException(
+                      new StorageException(storage.getName(),
+                          "Can not preload configuration properties"), e, storage.getName());
+                }
+              });
+
+      properties = new HashMap<>();
+
+      while (propertyPairs.hasNext()) {
+        var pair = propertyPairs.next();
+        properties.put(pair.first(), pair.second());
+      }
     }
 
     cache.put(PROPERTIES, properties);
@@ -1173,15 +1179,15 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     try {
       final List<String> keysToRemove;
       final List<RID> ridsToRemove;
-      try (var stream =
+      try (var iterator =
           btree.iterateEntriesMajor(PROPERTY_PREFIX_PROPERTY, false, true)) {
 
         keysToRemove = new ArrayList<>(8);
         ridsToRemove = new ArrayList<>(8);
 
-        stream
-            .filter((entry) -> entry.first().startsWith(PROPERTY_PREFIX_PROPERTY))
-            .forEach(
+        YTDBIteratorUtils.filter(iterator,
+                entry -> entry.first().startsWith(PROPERTY_PREFIX_PROPERTY))
+            .forEachRemaining(
                 (entry) -> {
                   keysToRemove.add(entry.first());
                   ridsToRemove.add(entry.second());
@@ -1250,12 +1256,16 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public Set<String> indexEngines() {
     lock.readLock().lock();
     try {
-      try (var stream =
+      try (var iterator =
           btree.iterateEntriesMajor(ENGINE_PREFIX_PROPERTY, false, true)) {
-        return stream
-            .filter((entry) -> entry.first().startsWith(ENGINE_PREFIX_PROPERTY))
-            .map((entry) -> entry.first().substring(ENGINE_PREFIX_PROPERTY.length()))
-            .collect(Collectors.toSet());
+        return YTDBIteratorUtils.set(
+            YTDBIteratorUtils.map(YTDBIteratorUtils.filter(
+                    iterator,
+                    entry -> entry.first().startsWith(ENGINE_PREFIX_PROPERTY)
+                ),
+                entry -> entry.first().substring(ENGINE_PREFIX_PROPERTY.length())
+            )
+        );
       }
     } finally {
       lock.readLock().unlock();
@@ -1263,11 +1273,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private List<IndexEngineData> loadIndexEngines() {
-    try (var stream =
+    try (var iterator =
         btree.iterateEntriesMajor(ENGINE_PREFIX_PROPERTY, false, true)) {
-      return stream
-          .filter((entry) -> entry.first().startsWith(ENGINE_PREFIX_PROPERTY))
-          .map(
+      return YTDBIteratorUtils.list(
+          YTDBIteratorUtils.map(YTDBIteratorUtils.filter(iterator,
+                  (entry) -> entry.first().startsWith(ENGINE_PREFIX_PROPERTY)),
               (entry) -> {
                 String name = null;
                 try {
@@ -1286,7 +1296,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       e, storage.getName());
                 }
               })
-          .collect(Collectors.toList());
+      );
     }
   }
 
@@ -1349,12 +1359,12 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private void preloadCollections() {
     final List<StorageCollectionConfiguration> collections = new ArrayList<>(1024);
-    try (var stream =
+    try (var iterator =
         btree.iterateEntriesMajor(COLLECTIONS_PREFIX_PROPERTY, false, true)) {
 
-      stream
-          .filter((entry) -> entry.first().startsWith(COLLECTIONS_PREFIX_PROPERTY))
-          .forEach(
+      YTDBIteratorUtils.filter(iterator,
+              (entry) -> entry.first().startsWith(COLLECTIONS_PREFIX_PROPERTY))
+          .forEachRemaining(
               (entry) -> {
                 final var id =
                     Integer.parseInt(entry.first().substring(COLLECTIONS_PREFIX_PROPERTY.length()));
