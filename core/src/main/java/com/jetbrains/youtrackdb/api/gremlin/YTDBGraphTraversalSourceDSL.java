@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
+import com.jetbrains.youtrackdb.api.gremlin.service.YTDBCommandService;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import java.util.Map;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
@@ -75,5 +77,27 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
       @Nonnull FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
     var tx = tx();
     return YTDBTransaction.computeInTx(code, (YTDBTransaction) tx);
+  }
+
+  /// Execute a generic YouTrackDB command. The result of the execution is ignored, so it only makes
+  /// sense to use this method for running non-idempotent commands.
+  ///
+  /// @param command The command to execute.
+  public void command(@Nonnull String command) {
+    command(command, Map.of());
+  }
+
+  /// Execute a generic parameterized YouTrackDB command. The result of the execution is ignored, so
+  /// it only makes sense to use this method for running non-idempotent commands.
+  ///
+  /// @param command   The command to execute.
+  /// @param arguments The arguments to pass to the command.
+  public void command(@Nonnull String command, @Nonnull Map<?, ?> arguments) {
+    call(
+        YTDBCommandService.NAME, Map.of(
+            YTDBCommandService.COMMAND, command,
+            YTDBCommandService.ARGUMENTS, arguments
+        )
+    ).iterate();
   }
 }

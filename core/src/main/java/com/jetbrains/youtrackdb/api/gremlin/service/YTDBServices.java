@@ -14,6 +14,7 @@ public final class YTDBServices {
 
     {
       registerService(new YTDBRemovePropertyService.Factory<>());
+      registerService(new YTDBCommandService.Factory<>());
       frozen = true;
     }
 

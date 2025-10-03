@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -208,6 +209,13 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
   public <R> R computeSchemaCode(Function<DatabaseSessionEmbedded, R> code) {
     try (var session = acquireSession()) {
       return code.apply(session);
+    }
+  }
+
+  @Override
+  public void executeCommand(String command, Map<?, ?> params) {
+    try (var session = acquireSession()) {
+      session.command(command, params);
     }
   }
 
