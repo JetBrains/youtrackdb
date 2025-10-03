@@ -5,8 +5,8 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
-import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaSnapshot;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
@@ -28,7 +28,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
 
   YouTrackDBInternalEmbedded youtrackDB;
   private AbstractStorage storage;
-  private SchemaManager schema;
   private SecurityInternal security;
 
   private FunctionLibraryImpl functionLibrary;
@@ -64,7 +63,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
                 .getConfiguration()
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.DB_STRING_CAHCE_SIZE));
-    schema = new SchemaManager();
     security = youtrackDB.getSecuritySystem().newSecurity(storage.getName());
     functionLibrary = new FunctionLibraryImpl();
     scheduler = new SchedulerImpl(youtrackDB);
@@ -104,7 +102,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
     lock.lock();
     try {
       database.executeInTx(transaction -> {
-        indexManager.load(database);
         security.load(database);
         functionLibrary.load(database);
         scheduler.load(database);
@@ -122,7 +119,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
     try {
       stringCache.close();
       security.close();
-      indexManager.close();
       functionLibrary.close();
       scheduler.close();
       sequenceLibrary.close();
@@ -140,7 +136,6 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
   public void reload(DatabaseSessionInternal database) {
     lock.lock();
     try {
-      indexManager.reload(database);
       security.load(database);
       functionLibrary.load(database);
       sequenceLibrary.load(database);
@@ -153,28 +148,15 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
   public void create(DatabaseSessionEmbedded session) {
     lock.lock();
     try {
-      indexManager.create(session);
       security.create(session);
       FunctionLibraryImpl.create(session);
       SequenceLibraryImpl.create(session);
       SchedulerImpl.create(session);
 
       // CREATE BASE VERTEX AND EDGE CLASSES
-      schema.createClass(session, Entity.DEFAULT_CLASS_NAME);
-      schema.createClass(session, "V");
-      schema.createClass(session, "E");
-
-      // create geospatial classes
-      try {
-        var factory = Indexes.getFactory(SchemaManager.INDEX_TYPE.SPATIAL.toString(),
-            "LUCENE");
-        if (factory instanceof DatabaseLifecycleListener) {
-          ((DatabaseLifecycleListener) factory).onCreate(session);
-        }
-      } catch (IndexException x) {
-        // the index does not exist
-      }
-
+      SchemaManager.createClass(session, Entity.DEFAULT_CLASS_NAME);
+      SchemaManager.createClass(session, ImmutableSchemaClass.VERTEX_CLASS_NAME);
+      SchemaManager.createClass(session, ImmutableSchemaClass.EDGE_CLASS_NAME);
       loaded = true;
     } finally {
       lock.unlock();
@@ -277,7 +259,7 @@ public final class SharedContext extends ListenerManger<MetadataUpdateListener> 
       snapshotLock.lock();
       try {
         if (this.snapshot == null) {
-          this.snapshot = new SchemaSnapshot(this, session);
+          this.snapshot = new SchemaSnapshot(session);
         }
 
         return this.snapshot;
