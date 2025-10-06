@@ -1,22 +1,29 @@
 package com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.github;
 
 import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.JarDownloader;
+import com.jetbrains.youtrackdb.auto.binarycompat.fetcher.code.maven.UnixMavenBuilder;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import javax.annotation.Nonnull;
 
 public class GithubJarBuilder implements JarDownloader {
 
   private final GithubRepoDownloader githubRepoDownloader;
-  private final MavenBuilder mavenBuilder;
+  private final Map<OS, MavenBuilder> mavenBuilders;
   private final File root;
 
-  public GithubJarBuilder(GithubRepoDownloader githubRepoDownloader, MavenBuilder mavenBuilder) {
+  public GithubJarBuilder(GithubRepoDownloader githubRepoDownloader) {
     this.githubRepoDownloader = githubRepoDownloader;
-    this.mavenBuilder = mavenBuilder;
+    UnixMavenBuilder unixMavenBuilder = new UnixMavenBuilder();
+    this.mavenBuilders = Map.of(
+        OS.LINUX, unixMavenBuilder,
+        OS.MAC, unixMavenBuilder,
+         OS.WINDOWS, new WindowsMavenBuilder()
+    );
     try {
       this.root = Files.createTempDirectory("ytdb-github-jar-builder").toFile();
     } catch (IOException e) {
@@ -67,7 +74,27 @@ public class GithubJarBuilder implements JarDownloader {
       localRepoPath = repoDirContent.getFirst().toString();
     }
 
-    var repo = mavenBuilder.build(localRepoPath);
+    var repo = mavenBuilders.get(getCanonicalOsName()).build(localRepoPath);
     return Path.of(repo + "/core/target/youtrackdb-core-1.0.0-SNAPSHOT.jar").toFile();
+  }
+
+  private static OS getCanonicalOsName() {
+    String osName = System.getProperty("os.name").toLowerCase();
+    if (osName.startsWith("windows")) {
+      return OS.WINDOWS;
+    }
+    if (osName.startsWith("linux")) {
+      return OS.LINUX;
+    }
+    if (osName.startsWith("macos") || osName.startsWith("mac os") || osName.startsWith("darwin")) {
+      return OS.MAC;
+    }
+    throw new IllegalArgumentException("Unsupported operating system: " + osName);
+  }
+
+  private enum OS {
+    WINDOWS,
+    LINUX,
+    MAC,
   }
 }

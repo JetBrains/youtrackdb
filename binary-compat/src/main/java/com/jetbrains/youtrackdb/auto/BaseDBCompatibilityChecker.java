@@ -39,7 +39,7 @@ import javax.annotation.Nonnull;
 public class BaseDBCompatibilityChecker {
 
   private final CommonDownloader downloader = new CommonDownloader(Map.of(
-      LocationType.GIT, new GithubJarBuilder(new GithubRepoDownloader(), new MavenBuilder()),
+      LocationType.GIT, new GithubJarBuilder(new GithubRepoDownloader()),
       LocationType.MAVEN, new MavenJarDownloader("/tmp/youtrackdb/binarycompat/local-repo")
   ));
   private final CommonDbDownloader dbDownloader = new CommonDbDownloader();
