@@ -13,7 +13,7 @@ runs:
         user: "admin"
         password: "admin"
     versions:
-      - name: io.youtrackdb:youtrackdb-core:1.0.0-SNAPSHOT
+      - name: io.youtrackdb:youtrackdb-core:0.5.0-SNAPSHOT
         location:
           source: https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily
           type: MAVEN
