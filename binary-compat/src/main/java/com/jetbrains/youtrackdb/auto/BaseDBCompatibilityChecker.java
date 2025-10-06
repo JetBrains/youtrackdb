@@ -145,7 +145,11 @@ public class BaseDBCompatibilityChecker {
         }
     );
     var exportDir = Files.createTempDirectory(
-        "ytdb-export" + dbMetadata.name() + "___" + version.name());
+        "ytdb-export" + dbMetadata.name()
+            .replaceAll(":", "_")
+            + "___"
+            + version.name().replaceAll(":", "_")
+    );
     var exportPath = exportDir.toAbsolutePath().toString() + ".json";
     var exportDbObject = exportDbObjectConstructor.newInstance(session.session(), exportPath,
         noOpListener);
