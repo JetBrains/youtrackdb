@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -30,8 +29,8 @@ public class ClassIndexFinder implements IndexFinder {
     var cand =
         new PrePath() {
           {
-            this.cl = ctx.getDatabaseSession().getMetadata().getFastImmutableSchema(session)
-                .getClassInternal(ClassIndexFinder.this.clazz);
+            this.cl = ctx.getDatabaseSession().getMetadata().getFastImmutableSchema()
+                .getClass(ClassIndexFinder.this.clazz);
             valid = true;
             last = lastP;
           }
@@ -40,8 +39,8 @@ public class ClassIndexFinder implements IndexFinder {
       var prop = cand.cl.getProperty(ele);
       if (prop != null) {
         var linkedClass = prop.getLinkedClass();
-        var indexes = prop.getAllIndexesInternal();
-        if (PropertyTypeInternal.convertFromPublicType(prop.getType()).isLink()
+        var indexes = prop.getIndexes();
+        if (prop.getType().isLink()
             && linkedClass != null) {
           var found = false;
           for (var index : indexes) {
@@ -88,7 +87,7 @@ public class ClassIndexFinder implements IndexFinder {
 
     var prop = cl.getProperty(last);
     if (prop != null) {
-      var indexes = prop.getAllIndexesInternal();
+      var indexes = prop.getIndexes();
       for (var index : indexes) {
         if (index.canBeUsedInEqualityOperators()) {
           if (cand != null) {
@@ -120,8 +119,8 @@ public class ClassIndexFinder implements IndexFinder {
 
     var prop = cl.getProperty(last);
     if (prop != null) {
-      if (prop.getType() == PropertyType.EMBEDDEDMAP) {
-        var indexes = prop.getAllIndexesInternal();
+      if (prop.getType() == PropertyTypeInternal.EMBEDDEDMAP) {
+        var indexes = prop.getIndexes();
         for (var index : indexes) {
           if (index.canBeUsedInEqualityOperators()) {
             var def = index.getDefinition();
@@ -158,7 +157,7 @@ public class ClassIndexFinder implements IndexFinder {
 
     var prop = cl.getProperty(last);
     if (prop != null) {
-      var indexes = prop.getAllIndexesInternal();
+      var indexes = prop.getIndexes();
       for (var index : indexes) {
         if (index.canBeUsedInEqualityOperators()
             && index.supportsOrderedIterations()) {
@@ -190,8 +189,8 @@ public class ClassIndexFinder implements IndexFinder {
 
     var prop = cl.getProperty(last);
     if (prop != null) {
-      if (prop.getType() == PropertyType.EMBEDDEDMAP) {
-        var indexes = prop.getAllIndexesInternal();
+      if (prop.getType() == PropertyTypeInternal.EMBEDDEDMAP) {
+        var indexes = prop.getIndexes();
         for (var index : indexes) {
           var def = index.getDefinition();
           if (index.canBeUsedInEqualityOperators()) {

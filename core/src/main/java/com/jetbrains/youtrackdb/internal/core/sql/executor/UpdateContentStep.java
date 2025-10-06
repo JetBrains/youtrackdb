@@ -47,7 +47,7 @@ public class UpdateContentStep extends AbstractExecutionStep {
   private void handleContent(EntityImpl record, CommandContext ctx) {
     // REPLACE ALL THE CONTENT
     var session = ctx.getDatabaseSession();
-    var cls = record.getImmutableSchemaClass(session);
+    var cls = record.getImmutableSchemaClass();
 
     for (var propertyNames : record.getPropertyNames()) {
       record.removeProperty(propertyNames);

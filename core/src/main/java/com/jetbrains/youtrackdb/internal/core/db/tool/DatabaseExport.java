@@ -31,9 +31,9 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
@@ -415,34 +415,17 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       jsonGenerator.writeStartObject();
 
       jsonGenerator.writeStringField("name", index.getName());
-      jsonGenerator.writeStringField("type", index.getType());
+      jsonGenerator.writeStringField("type", index.getType().name());
 
-      if (index.getAlgorithm() != null) {
-        jsonGenerator.writeStringField("algorithm", index.getAlgorithm());
-      }
-
-      if (!index.getCollections().isEmpty()) {
-        jsonGenerator.writeArrayFieldStart("collectionsToIndex");
-        for (var collection : index.getCollections()) {
-          jsonGenerator.writeString(collection);
-        }
-        jsonGenerator.writeEndArray();
-      }
 
       if (index.getDefinition() != null) {
         jsonGenerator.writeObjectFieldStart("definition");
         jsonGenerator.writeStringField("defClass", index.getDefinition().getClass().getName());
 
         jsonGenerator.writeFieldName("stream");
-        index.getDefinition().toJson(jsonGenerator);
         jsonGenerator.writeEndObject();
       }
 
-      final var metadata = index.getMetadata();
-      if (metadata != null) {
-        jsonGenerator.writeFieldName("metadata");
-        JSONSerializerJackson.INSTANCE.serializeEmbeddedMap(session, jsonGenerator, metadata, null);
-      }
 
       jsonGenerator.writeEndObject();
       listener.onMessage("OK");
@@ -500,8 +483,8 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         if (!cls.getProperties().isEmpty()) {
           jsonGenerator.writeArrayFieldStart("properties");
 
-          final List<SchemaProperty> properties = new ArrayList<>(cls.getDeclaredProperties());
-          properties.sort(Comparator.comparing(SchemaProperty::getName));
+          var properties = new ArrayList<>(cls.getDeclaredProperties());
+          properties.sort(Comparator.comparing(ImmutableSchemaProperty::getName));
 
           for (var p : properties) {
             jsonGenerator.writeStartObject();

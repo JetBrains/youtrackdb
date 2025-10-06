@@ -4,7 +4,6 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 
 /**
@@ -45,7 +44,7 @@ public class CheckClassTypeStep extends AbstractExecutionStep {
     }
     var session = context.getDatabaseSession();
 
-    Schema schema = session.getMetadata().getFastImmutableSchema(session);
+    var schema = session.getMetadata().getFastImmutableSchema();
     var parentClazz = schema.getClass(this.parentClass);
     if (parentClazz == null) {
       throw new CommandExecutionException(context.getDatabaseSession(),

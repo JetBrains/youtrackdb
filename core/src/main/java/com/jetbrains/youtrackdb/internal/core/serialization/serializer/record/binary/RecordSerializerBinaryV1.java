@@ -792,7 +792,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
     HelperClasses.writeByte(bytes, (byte) 0);
   }
 
-  protected static EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+  protected static EntityLinkSetImpl readLinkSet(DatabaseSessionEmbedded session,
       BytesContainer bytes) {
     var configByte = bytes.bytes[bytes.offset++];
     var isEmbedded = (configByte & 1) != 0;

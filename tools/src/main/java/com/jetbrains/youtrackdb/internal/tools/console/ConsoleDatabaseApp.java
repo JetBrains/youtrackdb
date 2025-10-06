@@ -279,7 +279,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
         currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) embeddedYouTrackDB.open(
             urlConnection.getDbName(), iUserName,
             iUserPassword);
-        currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
+        //currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
       } else {
         currentDatabaseSession = remoteYouTrackDB.open(urlConnection.getDbName(), iUserName,
             iUserPassword);
@@ -458,7 +458,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) youTrackDB.open(
           urlConnection.getDbName(), userName,
           userPassword);
-      currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
+      //currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
     } else {
       basicYouTrackDB.create(urlConnection.getDbName(), type);
       var remoteYouTrackDB = (YouTrackDBRemoteImpl) basicYouTrackDB;
@@ -1782,7 +1782,7 @@ public class ConsoleDatabaseApp extends ConsoleApplication
       currentEmbeddedDatabaseSession = (DatabaseSessionEmbedded) embeddedYouTrackDB.open(dbName,
           user,
           password);
-      currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
+      //currentDatabaseSession = currentEmbeddedDatabaseSession.asRemoteSession();
     } else {
       var remoteYouTrackDB = (YouTrackDBRemoteImpl) basicYouTrackDB;
       currentDatabaseSession = remoteYouTrackDB.open(dbName, user, password);

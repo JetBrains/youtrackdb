@@ -487,6 +487,11 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
+  public int generateTempStorageComponentId() {
+    throw new UnsupportedOperationException("Operation is not supported in no tx mode");
+  }
+
+  @Override
   public FrontendTransactionIndexChanges getIndexChangesInternal(String indexName) {
     return null;
   }

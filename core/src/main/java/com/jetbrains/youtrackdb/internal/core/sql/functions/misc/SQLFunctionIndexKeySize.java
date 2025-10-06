@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.query.Result;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
@@ -49,14 +50,15 @@ public class SQLFunctionIndexKeySize extends SQLFunctionAbstract {
 
     var indexName = String.valueOf(value);
     final var database = context.getDatabaseSession();
-    var index = database.getSharedContext().getIndexManager().getIndex(indexName);
+    var index = database.getMetadata().getFastImmutableSchema().getIndex(indexName);
     if (index == null) {
       return null;
     }
-    try (var stream = index
+    try (var iterator = index
         .ascEntries(context.getDatabaseSession())) {
       try (var rids = index.getRids(context.getDatabaseSession(), null)) {
-        return stream.map(RawPair::first).distinct().count() + rids.count();
+        return YTDBIteratorUtils.set(YTDBIteratorUtils.map(iterator, RawPair::first)).size()
+            + YTDBIteratorUtils.count(rids);
       }
     }
   }
