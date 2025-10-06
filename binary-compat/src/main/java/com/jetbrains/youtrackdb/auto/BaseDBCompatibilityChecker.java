@@ -166,7 +166,7 @@ public class BaseDBCompatibilityChecker {
         version.location().source(),
         version.name()
     );
-    // this class loader "sees", all the classes from the current class loader which could issues,
+    // this class loader "sees", all the classes from the current class loader which could cause issues,
     // in case some classes are removed in the newer version of the code, but still present in the older one
     // but without it, I will need a mechanism to load all the db dependencies,
     // without specifying them manually one more time in the db compatibility test
