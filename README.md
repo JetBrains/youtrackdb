@@ -16,7 +16,7 @@ Tell us about exciting applications you are building, ask for help, or just chat
 
 ### What is YouTrackDB?
 
-YouTrackDB is an object-oriented graph database that supports full-text search, reactivity, and geospatial concepts.\
+YouTrackDB is a *<b>general use</b>* object-oriented graph database that supports full-text search, and geospatial concepts.\
 YouTrackDB is being supported and developed by JetBrains.
 
 YouTrackDB's key features are:
@@ -29,9 +29,9 @@ YouTrackDB's key features are:
 4. **Scalable development workflow**: YouTrackDB works in schema-less, schema-mixed, and schema-full
    modes.
 5. **Strong security**: A strong security profiling system based on user, role, and predicate
-   security.
+   security. (Currently implemented using a private API. Implementation of the public API is in progress.)
 6. **Encryption of data at rest**: Optionally encrypts all data stored on disk.
-7. **GEO-queries and full-text search**: GEO-queries and full-text search are supported using Lucene integration.
+7. **GEO-queries and full-text search**: GEO-queries and full-text search are supported via Lucene integration. (Currently implemented using a private API. Implementation of the public API is in progress.)
 
 ### Easy to install and use
 YouTrackDB can run on any platform without configuration and installation.
