@@ -19,6 +19,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -55,7 +56,7 @@ public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
 
   @Override
   public void run() {
-    for (var index : session.getSharedContext().getIndexManager().getIndexes()) {
+    for (var index : session.getMetadata().getFastImmutableSchema().getIndexes()) {
       if (!canCheck(index)) {
         continue;
       }
@@ -85,7 +86,7 @@ public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
   private void checkIndex(DatabaseSessionEmbedded session, Index index) {
     var fields = index.getDefinition().getProperties();
     var className = index.getDefinition().getClassName();
-    var clazz = this.session.getMetadata().getFastImmutableSchema(session).getClass(className);
+    var clazz = this.session.getMetadata().getFastImmutableSchema().getClass(className);
     var collectionIds = clazz.getPolymorphicCollectionIds();
     for (var collectionId : collectionIds) {
       checkCollection(session, collectionId, index, fields);
@@ -156,8 +157,8 @@ public class CheckIndexTool extends DatabaseTool<DatabaseSessionEmbedded> {
     }
 
     for (final var key : indexKeys) {
-      try (final var stream = index.getRids(session, key)) {
-        if (stream.noneMatch((rid) -> rid.equals(entityId))) {
+      try (final var iterator = index.getRids(session, key)) {
+        if (YTDBIteratorUtils.noneMatch(iterator, rid -> rid.equals(entityId))) {
           totalErrors++;
           message(
               "\rERROR: Index "

@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.query.live.LiveQueryHookV2;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -38,13 +37,10 @@ public class CopyRecordContentBeforeUpdateStep extends AbstractExecutionStep {
       prevValue.setProperty("@rid", rec.getIdentity());
       prevValue.setProperty("@version", rec.getVersion());
       if (rec instanceof EntityImpl) {
-        SchemaClassSnapshot result1 = null;
-        if (rec != null) {
-          result1 = ((EntityImpl) rec).getImmutableSchemaClass(session);
-        }
+        var schemaClass = ((EntityImpl) rec).getImmutableSchemaClass();
         prevValue.setProperty(
             "@class",
-            result1.getName());
+            schemaClass.getName());
       }
       if (!result.asEntityOrNull().getIdentity().isNew()) {
         for (var propName : result.getPropertyNames()) {

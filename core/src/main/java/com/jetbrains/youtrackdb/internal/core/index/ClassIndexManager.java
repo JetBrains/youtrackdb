@@ -51,7 +51,7 @@ public class ClassIndexManager {
       cls = entity.getImmutableSchemaClass();
     }
     if (cls != null) {
-      final Collection<Index> indexes = cls.getIndexesInternal();
+      final Collection<Index> indexes = cls.getIndexes();
       addIndexesEntries(transaction, entity, indexes);
     }
   }
@@ -71,7 +71,7 @@ public class ClassIndexManager {
       return;
     }
 
-    final Collection<Index> indexes = cls.getIndexesInternal();
+    final Collection<Index> indexes = cls.getIndexes();
     if (!indexes.isEmpty()) {
       var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);
       var dirtyFields = new HashSet<>(dirtyProperties);
@@ -430,7 +430,7 @@ public class ClassIndexManager {
       return;
     }
 
-    final Collection<Index> indexes = new ArrayList<>(cls.getIndexesInternal());
+    final Collection<Index> indexes = new ArrayList<>(cls.getIndexes());
 
     if (!indexes.isEmpty()) {
       var dirtyProperties = entity.getDirtyPropertiesBetweenCallbacksInternal(false, false);

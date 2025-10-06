@@ -114,13 +114,13 @@ public class QueryOperatorContains extends QueryOperatorEqualityNotNulls {
           if (fieldName != null) {
             if (iRecord.isEntity()) {
               var entity = iRecord.asEntity();
-              var result = ((EntityImpl) entity).getImmutableSchemaClass(session);
+              var result = ((EntityImpl) entity).getImmutableSchemaClass();
               var property =
                   result
                       .getProperty(fieldName);
-              if (property != null && PropertyTypeInternal.convertFromPublicType(property.getType())
+              if (property != null && property.getType()
                   .isMultiValue()) {
-                type = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
+                type = property.getLinkedType();
               }
             }
           }

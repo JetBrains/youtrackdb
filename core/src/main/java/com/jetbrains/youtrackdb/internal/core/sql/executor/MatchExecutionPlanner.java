@@ -845,7 +845,7 @@ public class MatchExecutionPlanner {
     allAliases.addAll(aliasRids.keySet());
 
     var db = ctx.getDatabaseSession();
-    var schema = db.getMetadata().getFastImmutableSchema(session);
+    var schema = db.getMetadata().getFastImmutableSchema();
 
     Map<String, Long> result = new LinkedHashMap<String, Long>();
     for (var alias : allAliases) {
@@ -865,7 +865,7 @@ public class MatchExecutionPlanner {
         throw new CommandExecutionException(ctx.getDatabaseSession(),
             "class not defined: " + className);
       }
-      var oClass = schema.getClassInternal(className);
+      var oClass = schema.getClass(className);
       long upperBound;
       var filter = aliasFilters.get(alias);
       if (filter != null) {

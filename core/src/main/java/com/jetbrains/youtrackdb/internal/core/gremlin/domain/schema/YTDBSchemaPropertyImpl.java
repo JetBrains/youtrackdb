@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbs
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -48,7 +49,7 @@ public class YTDBSchemaPropertyImpl extends
   @Override
   public void propertyType(@Nonnull PropertyType propertyType) {
     var entity = propertyWritePreprocessing();
-    entity.setPropertyType(propertyType);
+    entity.setPropertyType(PropertyTypeInternal.convertFromPublicType(propertyType));
   }
 
   @Override
@@ -86,13 +87,13 @@ public class YTDBSchemaPropertyImpl extends
   @Override
   public PropertyType linkedPropertyType() {
     var entity = propertyReadPreprocessing();
-    return entity.getLinkedPropertyType();
+    return entity.getLinkedPropertyType().getPublicPropertyType();
   }
 
   @Override
   public void linkedPropertyType(@Nullable PropertyType linkedPropertyType) {
     var entity = propertyWritePreprocessing();
-    entity.setLinkedPropertyType(linkedPropertyType);
+    entity.setLinkedPropertyType(PropertyTypeInternal.convertFromPublicType(linkedPropertyType));
   }
 
   @Override

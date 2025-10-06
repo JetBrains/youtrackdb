@@ -58,7 +58,6 @@ import com.jetbrains.youtrackdb.api.record.RecordHook;
 import com.jetbrains.youtrackdb.api.record.RecordHook.TYPE;
 import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxBiFunction;
@@ -87,7 +86,6 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordElement;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.db.remotewrapper.RemoteDatabaseSessionWrapper;
 import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrackdb.internal.core.exception.TransactionBlockedException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
@@ -3066,15 +3064,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   @Override
-  public RemoteDatabaseSession asRemoteSession() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    return new RemoteDatabaseSessionWrapper(this);
-  }
-
-  @Override
   public String getURL() {
     return url != null ? url : getStorageInfo().getURL();
   }
@@ -3722,7 +3711,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       }
     }
   }
-
 
 
   /**

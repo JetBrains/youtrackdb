@@ -60,10 +60,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
+  public CloseableIterator<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
     final var collatedKey = getCollatingValue(key);
-    Iterator<RID> backedStream;
-    Iterator<RID> iterator;
+    CloseableIterator<RID> backedStream;
+    CloseableIterator<RID> iterator;
     iterator = storage.getIndexValues(schemaIndex.getId(), collatedKey);
     backedStream = IndexStreamSecurityDecorator.decorateRidIterator(this, iterator, session);
 
@@ -145,7 +145,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
       boolean toInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
     toKey = getCollatingValue(toKey);
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this,
@@ -162,7 +162,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
       return iterator;
     }
 
-    final Iterator<RawPair<Object, RID>> txIterator;
+    final CloseableIterator<RawPair<Object, RID>> txIterator;
     if (ascOrder) {
       txIterator = new PureTxMultiValueBetweenIndexForwardIterator(
           this, fromKey, fromInclusive, toKey, toInclusive, indexChanges);
@@ -183,7 +183,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   public CloseableIterator<RawPair<Object, RID>> entriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this,
@@ -196,7 +196,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
       return iterator;
     }
 
-    final Iterator<RawPair<Object, RID>> txIterator;
+    final CloseableIterator<RawPair<Object, RID>> txIterator;
 
     final var lastKey = indexChanges.getLastKey();
     if (ascOrder) {
@@ -221,7 +221,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   public CloseableIterator<RawPair<Object, RID>> entriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
     toKey = getCollatingValue(toKey);
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
 
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
@@ -236,8 +236,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
       return iterator;
     }
 
-    final Iterator<RawPair<Object, RID>> txIterator;
-
+    final CloseableIterator<RawPair<Object, RID>> txIterator;
     final var firstKey = indexChanges.getFirstKey();
     if (ascOrder) {
       txIterator = new PureTxMultiValueBetweenIndexForwardIterator(
@@ -295,11 +294,14 @@ public abstract class IndexMultiValues extends IndexAbstract {
     txList.sort(keyComparator);
 
     if (indexChanges.cleared) {
-      return IndexStreamSecurityDecorator.decorateIterator(this, txList.iterator(), session);
+      return IndexStreamSecurityDecorator.decorateIterator(this,
+          CloseableIterator.of(txList.iterator()), session);
     }
 
     return IndexStreamSecurityDecorator.decorateIterator(
-        this, mergeTxAndBackedIterators(indexChanges, txList.iterator(), iterator, ascSortOrder),
+        this,
+        mergeTxAndBackedIterators(indexChanges, CloseableIterator.of(txList.iterator()), iterator,
+            ascSortOrder),
         session);
   }
 
@@ -365,7 +367,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   @Override
   public CloseableIterator<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session) {
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this, storage.getIndexIterator(schemaIndex.getId()),
@@ -389,10 +391,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
         this, mergeTxAndBackedIterators(indexChanges, txIterator, iterator, true), session);
   }
 
-  private Iterator<RawPair<Object, RID>> mergeTxAndBackedIterators(
+  private CloseableIterator<RawPair<Object, RID>> mergeTxAndBackedIterators(
       FrontendTransactionIndexChanges indexChanges,
-      Iterator<RawPair<Object, RID>> txIterator,
-      Iterator<RawPair<Object, RID>> backedIterator,
+      CloseableIterator<RawPair<Object, RID>> txIterator,
+      CloseableIterator<RawPair<Object, RID>> backedIterator,
       boolean ascOrder) {
     Comparator<RawPair<Object, RID>> keyComparator;
     if (ascOrder) {
@@ -439,7 +441,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   @Override
   public CloseableIterator<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session) {
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this, storage.getIndexDescIterator(schemaIndex.getId()),

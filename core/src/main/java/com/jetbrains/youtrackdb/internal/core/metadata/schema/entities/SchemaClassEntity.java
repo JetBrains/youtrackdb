@@ -101,8 +101,8 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     newEmbeddedList(PropertyNames.COLLECTION_IDS, collectionIds);
   }
 
-  public List<StorageComponentId> getCollectionIds() {
-    List<StorageComponentId> result = getEmbeddedList(PropertyNames.COLLECTION_IDS);
+  public List<Integer> getCollectionIds() {
+    List<Integer> result = getEmbeddedList(PropertyNames.COLLECTION_IDS);
     if (result == null) {
       return Collections.emptyList();
     }
@@ -111,27 +111,17 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
   @Nonnull
   public int[] getPrimitiveCollectionIds() {
-    List<StorageComponentId> idsList = getEmbeddedList(PropertyNames.COLLECTION_IDS);
-    if (idsList == null) {
-      return ArrayUtils.EMPTY_INT_ARRAY;
-    }
-
-    var ids = new int[idsList.size()];
-
-    for (var i = 0; i < idsList.size(); i++) {
-      ids[i] = idsList.get(i).getId();
-    }
-
-    return ids;
+    List<Integer> idsList = getEmbeddedList(PropertyNames.COLLECTION_IDS);
+    return idsList.stream().mapToInt(Integer::intValue).toArray();
   }
 
   public void clearCollectionIds() {
     removeProperty(PropertyNames.COLLECTION_IDS);
   }
 
-  public Set<StorageComponentId> getPolymorphicCollectionIds() {
+  public Set<Integer> getPolymorphicCollectionIds() {
     var parentClasses = getParentClasses();
-    var polymorphicCollectionIds = new HashSet<StorageComponentId>();
+    var polymorphicCollectionIds = new HashSet<Integer>();
 
     while (parentClasses.hasNext()) {
       var parentClass = parentClasses.next();
@@ -147,15 +137,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   @Nonnull
   public int[] getPrimitivePolymorphicCollectionIds() {
     var polymorphicCollectionIds = getPolymorphicCollectionIds();
-    var ids = new int[polymorphicCollectionIds.size()];
-
-    var i = 0;
-    for (var polymorphicCollectionId : polymorphicCollectionIds) {
-      ids[i] = polymorphicCollectionId.getId();
-      i++;
-    }
-
-    return ids;
+    return polymorphicCollectionIds.stream().mapToInt(Integer::intValue).toArray();
   }
 
   public Iterator<SchemaClassEntity> getParentClasses() {
@@ -386,14 +368,10 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return customProperties.keySet();
   }
 
-  public boolean hasCollectionId(StorageComponentId collectionId) {
-    return getCollectionIds().contains(collectionId);
-  }
-
   public boolean hasCollectionId(int collectionId) {
     var collectionIds = getCollectionIds();
     for (var collection : collectionIds) {
-      if (collection.getId() == collectionId) {
+      if (collection == collectionId) {
         return true;
       }
     }
@@ -401,7 +379,7 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return false;
   }
 
-  public boolean hasPolymorphicCollectionId(StorageComponentId collectionId) {
+  public boolean hasPolymorphicCollectionId(int collectionId) {
     var collectionIds = getCollectionIds();
     if (collectionIds.contains(collectionId)) {
       return true;
@@ -417,27 +395,6 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
 
     return false;
   }
-
-  public boolean hasPolymorphicCollectionId(int collectionId) {
-    var collectionIds = getCollectionIds();
-    for (var collection : collectionIds) {
-      if (collection.getId() == collectionId) {
-        return true;
-      }
-    }
-
-    var parentClasses = getParentClasses();
-    while (parentClasses.hasNext()) {
-      var parentClass = parentClasses.next();
-
-      if (parentClass.hasPolymorphicCollectionId(collectionId)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
 
   public Iterator<SchemaPropertyEntity> getDeclaredProperties(String... name) {
     var declaredPropertiesLinks = getLinkSet(PropertyNames.DECLARED_PROPERTIES);

@@ -181,6 +181,7 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipOutputStream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -2458,7 +2459,7 @@ public abstract class AbstractStorage
     }
   }
 
-  public Iterator<RID> getIndexValues(int indexId, final Object key) {
+  public CloseableIterator<RID> getIndexValues(int indexId, final Object key) {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     if (engineAPIVersion != 1) {
       throw new IllegalStateException(
@@ -2490,7 +2491,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<RID> doGetIndexValues(final int indexId, final Object key) {
+  private CloseableIterator<RID> doGetIndexValues(final int indexId, final Object key) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);
@@ -2683,7 +2684,7 @@ public abstract class AbstractStorage
         "Invalid type of index engine " + engine.getClass().getName());
   }
 
-  public Iterator<RawPair<Object, RID>> iterateIndexEntriesBetween(
+  public CloseableIterator<RawPair<Object, RID>> iterateIndexEntriesBetween(
       DatabaseSessionEmbedded db, int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
@@ -2717,7 +2718,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<RawPair<Object, RID>> doIterateIndexEntriesBetween(
+  private CloseableIterator<RawPair<Object, RID>> doIterateIndexEntriesBetween(
       DatabaseSessionEmbedded db, final int indexId,
       final Object rangeFrom,
       final boolean fromInclusive,
@@ -2733,7 +2734,7 @@ public abstract class AbstractStorage
         , rangeFrom, fromInclusive, rangeTo, toInclusive, ascSortOrder);
   }
 
-  public Iterator<RawPair<Object, RID>> iterateIndexEntriesMajor(
+  public CloseableIterator<RawPair<Object, RID>> iterateIndexEntriesMajor(
       int indexId,
       final Object fromKey,
       final boolean isInclusive,
@@ -2764,7 +2765,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<RawPair<Object, RID>> doIterateIndexEntriesMajor(
+  private CloseableIterator<RawPair<Object, RID>> doIterateIndexEntriesMajor(
       final int indexId,
       final Object fromKey,
       final boolean isInclusive,
@@ -2777,7 +2778,7 @@ public abstract class AbstractStorage
     return engine.iterateEntriesMajor(fromKey, isInclusive, ascSortOrder);
   }
 
-  public Iterator<RawPair<Object, RID>> iterateIndexEntriesMinor(
+  public CloseableIterator<RawPair<Object, RID>> iterateIndexEntriesMinor(
       int indexId,
       final Object toKey,
       final boolean isInclusive,
@@ -2809,7 +2810,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<RawPair<Object, RID>> doIterateIndexEntriesMinor(
+  private CloseableIterator<RawPair<Object, RID>> doIterateIndexEntriesMinor(
       final int indexId,
       final Object toKey,
       final boolean isInclusive,
@@ -2822,7 +2823,7 @@ public abstract class AbstractStorage
     return engine.iterateEntriesMinor(toKey, isInclusive, ascSortOrder);
   }
 
-  public Iterator<RawPair<Object, RID>> getIndexIterator(
+  public CloseableIterator<RawPair<Object, RID>> getIndexIterator(
       int indexId) {
     indexId = extractInternalId(indexId);
 
@@ -2849,7 +2850,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<RawPair<Object, RID>> doGetIndexAscIterator(
+  private CloseableIterator<RawPair<Object, RID>> doGetIndexAscIterator(
       final int indexId) {
     checkIndexId(indexId);
 
@@ -2859,7 +2860,7 @@ public abstract class AbstractStorage
     return engine.ascEntries();
   }
 
-  public Iterator<RawPair<Object, RID>> getIndexDescIterator(
+  public CloseableIterator<RawPair<Object, RID>> getIndexDescIterator(
       int indexId) {
     indexId = extractInternalId(indexId);
 
@@ -2886,7 +2887,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<RawPair<Object, RID>> doGetIndexDescStream(
+  private CloseableIterator<RawPair<Object, RID>> doGetIndexDescStream(
       final int indexId) {
     checkIndexId(indexId);
 
@@ -2896,7 +2897,7 @@ public abstract class AbstractStorage
     return engine.descEntries();
   }
 
-  public Iterator<Object> getIndexKeys(int indexId) {
+  public CloseableIterator<Object> getIndexKeys(int indexId) {
     indexId = extractInternalId(indexId);
 
     try {
@@ -2922,7 +2923,7 @@ public abstract class AbstractStorage
     }
   }
 
-  private Iterator<Object> doGetIndexKeys(final int indexId) {
+  private CloseableIterator<Object> doGetIndexKeys(final int indexId) {
     checkIndexId(indexId);
 
     final var engine = indexEngines.get(indexId);

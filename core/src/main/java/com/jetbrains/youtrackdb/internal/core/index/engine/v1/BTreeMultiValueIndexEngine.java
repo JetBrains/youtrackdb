@@ -20,10 +20,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
-import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.collections4.IteratorUtils;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public final class BTreeMultiValueIndexEngine
@@ -220,7 +218,7 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
-  public Iterator<RID> get(Object key) {
+  public CloseableIterator<RID> get(Object key) {
     if (key != null) {
       final var firstKey = convertToCompositeKey(key);
       final var lastKey = convertToCompositeKey(key);
@@ -241,14 +239,14 @@ public final class BTreeMultiValueIndexEngine
   public CloseableIterator<RawPair<Object, RID>> ascEntries() {
     final var firstKey = svTree.firstKey();
     if (firstKey == null) {
-      return IteratorUtils.emptyIterator();
+      return CloseableIterator.empty();
     }
 
     return mapSVIterator(svTree.iterateEntriesMajor(firstKey, true, true));
   }
 
-  private static Iterator<RawPair<Object, RID>> mapSVIterator(
-      Iterator<RawPair<CompositeKey, RID>> iterator) {
+  private static CloseableIterator<RawPair<Object, RID>> mapSVIterator(
+      CloseableIterator<RawPair<CompositeKey, RID>> iterator) {
     return YTDBIteratorUtils.map(iterator,
         entry -> new RawPair<>(extractKey(entry.first()), entry.second()));
   }
@@ -258,7 +256,7 @@ public final class BTreeMultiValueIndexEngine
   public CloseableIterator<RawPair<Object, RID>> descEntries() {
     final var lastKey = svTree.lastKey();
     if (lastKey == null) {
-      return IteratorUtils.emptyIterator();
+      return CloseableIterator.empty();
     }
     return mapSVIterator(svTree.iterateEntriesMinor(lastKey, true, false));
   }

@@ -100,7 +100,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     var classCollectionIds = classEntity.getCollectionIds();
     collectionIds = new int[classCollectionIds.size()];
     for (var i = 0; i < classCollectionIds.size(); i++) {
-      collectionIds[i] = classCollectionIds.get(i).getId();
+      collectionIds[i] = classCollectionIds.get(i);
     }
 
     var classPolymorphicCollectionIds = classEntity.getPolymorphicCollectionIds();
@@ -109,7 +109,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
     {
       var i = 0;
       for (var collectionId : classPolymorphicCollectionIds) {
-        polymorphicCollectionIds[i] = collectionId.getId();
+        polymorphicCollectionIds[i] = collectionId;
         i++;
       }
     }

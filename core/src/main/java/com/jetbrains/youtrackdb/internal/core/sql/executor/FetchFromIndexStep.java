@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -55,8 +56,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public class FetchFromIndexStep extends AbstractExecutionStep {
 
@@ -84,19 +85,19 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     var tx = session.getTransactionInternal();
     tx.preProcessRecordsAndExecuteCallCallbacks();
 
-    var streams = init(desc, orderAsc, ctx);
+    var iterators = init(desc, orderAsc, ctx);
     var res =
         new ExecutionStreamProducer() {
-          private final Iterator<Stream<RawPair<Object, RID>>> iter = streams.iterator();
+          private final Iterator<CloseableIterator<RawPair<Object, RID>>> iter = iterators.iterator();
 
           @Override
           public ExecutionStream next(CommandContext ctx) {
-            var s = iter.next();
+            var iter = this.iter.next();
             return ExecutionStream.resultIterator(
-                s.map((nextEntry) -> {
+                YTDBIteratorUtils.map(iter, (nextEntry) -> {
                   tx.preProcessRecordsAndExecuteCallCallbacks();
                   return readResult(ctx, nextEntry);
-                }).iterator());
+                }));
           }
 
           @Override
@@ -168,7 +169,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     stats.pushIndexStats(indexName, size, range, additionalRangeCondition != null, count);
   }
 
-  private static List<Stream<RawPair<Object, RID>>> init(
+  private static List<CloseableIterator<RawPair<Object, RID>>> init(
       IndexSearchDescriptor desc, boolean isOrderAsc, CommandContext ctx) {
 
     var index = desc.getIndex();
@@ -187,10 +188,10 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     };
   }
 
-  private static List<Stream<RawPair<Object, RID>>> processInCondition(
+  private static List<CloseableIterator<RawPair<Object, RID>>> processInCondition(
       Index index, SQLBooleanExpression condition, CommandContext ctx, boolean orderAsc) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-    Set<Stream<RawPair<Object, RID>>> acquiredStreams =
+    List<CloseableIterator<RawPair<Object, RID>>> iterators = new ArrayList<>();
+    Set<CloseableIterator<RawPair<Object, RID>>> acquiredIterators =
         Collections.newSetFromMap(new IdentityHashMap<>());
     var definition = index.getDefinition();
     var inCondition = (SQLInCondition) condition;
@@ -219,27 +220,27 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             createCursor(transaction, index, equals, definition, item, orderAsc,
                 condition);
 
-        if (acquiredStreams.add(localCursor)) {
-          streams.add(localCursor);
+        if (acquiredIterators.add(localCursor)) {
+          iterators.add(localCursor);
         }
       }
     } else {
       var stream =
           createCursor(
               transaction, index, equals, definition, rightValue, orderAsc, condition);
-      if (acquiredStreams.add(stream)) {
-        streams.add(stream);
+      if (acquiredIterators.add(stream)) {
+        iterators.add(stream);
       }
     }
 
-    return streams;
+    return iterators;
   }
 
   /**
    * it's not key = [...] but a real condition on field names, already ordered (field names will be
    * ignored)
    */
-  private static List<Stream<RawPair<Object, RID>>> processAndBlock(
+  private static List<CloseableIterator<RawPair<Object, RID>>> processAndBlock(
       Index index,
       SQLBooleanExpression condition,
       SQLBinaryCondition additionalRangeCondition,
@@ -262,36 +263,37 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         ctx);
   }
 
-  private static List<Stream<RawPair<Object, RID>>> processFlatIteration(
+  private static List<CloseableIterator<RawPair<Object, RID>>> processFlatIteration(
       DatabaseSessionEmbedded session, Index index, boolean isOrderAsc) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-    Set<Stream<RawPair<Object, RID>>> acquiredStreams =
+    List<CloseableIterator<RawPair<Object, RID>>> iterators = new ArrayList<>();
+    Set<CloseableIterator<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
 
-    var stream = fetchNullKeys(session, index);
-    if (stream != null) {
-      acquiredStreams.add(stream);
-      streams.add(stream);
+    var iterator = fetchNullKeys(session, index);
+    if (iterator != null) {
+      acquiredStreams.add(iterator);
+      iterators.add(iterator);
     }
 
-    stream = isOrderAsc ? index.ascEntries(session) : index.descEntries(session);
-    if (acquiredStreams.add(stream)) {
-      streams.add(stream);
+    iterator = isOrderAsc ? index.ascEntries(session) : index.descEntries(session);
+    if (acquiredStreams.add(iterator)) {
+      iterators.add(iterator);
     }
-    return streams;
+    return iterators;
   }
 
   @Nullable
-  private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionEmbedded session,
+  private static CloseableIterator<RawPair<Object, RID>> fetchNullKeys(
+      DatabaseSessionEmbedded session,
       Index index) {
     if (index.getDefinition().isNullValuesIgnored()) {
       return null;
     }
 
-    return getStreamForNullKey(session, index);
+    return getIteratorForNullKey(session, index);
   }
 
-  private static List<Stream<RawPair<Object, RID>>> multipleRange(
+  private static List<CloseableIterator<RawPair<Object, RID>>> multipleRange(
       Index index,
       SQLCollection fromKey,
       boolean fromKeyIncluded,
@@ -302,8 +304,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       SQLBinaryCondition additionalRangeCondition,
       CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-    Set<Stream<RawPair<Object, RID>>> acquiredStreams =
+    List<CloseableIterator<RawPair<Object, RID>>> streams = new ArrayList<>();
+    Set<CloseableIterator<RawPair<Object, RID>>> acquiredIterators =
         Collections.newSetFromMap(new IdentityHashMap<>());
     var secondValueCombinations = cartesianProduct(fromKey, ctx);
     var thirdValueCombinations = cartesianProduct(toKey, ctx);
@@ -342,7 +344,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           ((Collection) secondValue)
               .forEach(
                   item -> {
-                    Stream<RawPair<Object, RID>> stream;
+                    CloseableIterator<RawPair<Object, RID>> iterator;
                     var itemVal =
                         convertToIndexDefinitionTypes(session, condition, item,
                             indexDef.getTypes());
@@ -354,36 +356,29 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                         // manage null value explicitly, as the index API does not seem to work
                         // correctly in this
                         // case
-                        stream = getStreamForNullKey(session, index);
-                        if (acquiredStreams.add(stream)) {
-                          streams.add(stream);
+                        iterator = getIteratorForNullKey(session, index);
+                        if (acquiredIterators.add(iterator)) {
+                          streams.add(iterator);
                         }
                       } else {
-                        stream =
+                        iterator =
                             index.entriesBetween(session,
                                 from, fromKeyIncluded, to, toKeyIncluded, isOrderAsc);
-                        if (acquiredStreams.add(stream)) {
-                          streams.add(stream);
+                        if (acquiredIterators.add(iterator)) {
+                          streams.add(iterator);
                         }
                       }
 
                     } else if (additionalRangeCondition == null
                         && allEqualities((SQLAndBlock) condition)) {
-                      stream =
+                      iterator =
                           index.entries(session,
                               toIndexKey(transaction, indexDef, itemVal), isOrderAsc);
 
-                      if (acquiredStreams.add(stream)) {
-                        streams.add(stream);
+                      if (acquiredIterators.add(iterator)) {
+                        streams.add(iterator);
                       }
 
-                    } else if (isFullTextIndex(index)) {
-                      stream =
-                          index.entries(session,
-                              toIndexKey(transaction, indexDef, itemVal), isOrderAsc);
-                      if (acquiredStreams.add(stream)) {
-                        streams.add(stream);
-                      }
                     } else {
                       throw new UnsupportedOperationException(
                           "Cannot evaluate " + condition + " on index " + index);
@@ -394,7 +389,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         // some problems in key conversion, so the params do not match the key types
         continue;
       }
-      Stream<RawPair<Object, RID>> stream;
+      CloseableIterator<RawPair<Object, RID>> iterator;
       if (index.supportsOrderedIterations()) {
 
         var from = toBetweenIndexKey(transaction, indexDef, secondValue);
@@ -403,9 +398,9 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         if (from == null && to == null) {
           // manage null value explicitly, as the index API does not seem to work correctly in this
           // case
-          stream = getStreamForNullKey(session, index);
-          if (acquiredStreams.add(stream)) {
-            streams.add(stream);
+          iterator = getIteratorForNullKey(session, index);
+          if (acquiredIterators.add(iterator)) {
+            streams.add(iterator);
           }
         } else {
           if (from instanceof Collection<?> fromColl) {
@@ -423,38 +418,30 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
               var fromVal = fromIter.next();
               var toVal = toIter.next();
 
-              stream = index.entriesBetween(session, fromVal, fromKeyIncluded, toVal,
+              iterator = index.entriesBetween(session, fromVal, fromKeyIncluded, toVal,
                   toKeyIncluded,
                   isOrderAsc);
-              if (acquiredStreams.add(stream)) {
-                streams.add(stream);
+              if (acquiredIterators.add(iterator)) {
+                streams.add(iterator);
               }
             }
           } else {
-            stream = index.entriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
+            iterator = index.entriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
                 isOrderAsc);
-            if (acquiredStreams.add(stream)) {
-              streams.add(stream);
+            if (acquiredIterators.add(iterator)) {
+              streams.add(iterator);
             }
           }
 
         }
 
       } else if (additionalRangeCondition == null && allEqualities((SQLAndBlock) condition)) {
-        stream =
+        iterator =
             index.entries(session,
                 toIndexKey(transaction, indexDef, secondValue),
                 isOrderAsc);
-        if (acquiredStreams.add(stream)) {
-          streams.add(stream);
-        }
-      } else if (isFullTextIndex(index)) {
-        stream =
-            index.entries(session,
-                toIndexKey(transaction, indexDef, secondValue),
-                isOrderAsc);
-        if (acquiredStreams.add(stream)) {
-          streams.add(stream);
+        if (acquiredIterators.add(iterator)) {
+          streams.add(iterator);
         }
       } else {
         throw new UnsupportedOperationException(
@@ -464,15 +451,11 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return streams;
   }
 
-  private static boolean isFullTextIndex(Index index) {
-    return index.getType().equalsIgnoreCase("FULLTEXT")
-        && !index.getAlgorithm().equalsIgnoreCase("LUCENE");
-  }
 
-  private static Stream<RawPair<Object, RID>> getStreamForNullKey(
+  private static CloseableIterator<RawPair<Object, RID>> getIteratorForNullKey(
       DatabaseSessionEmbedded session, Index index) {
-    final var stream = index.getRids(session, null);
-    return stream.map((rid) -> new RawPair<>(null, rid));
+    final var iterator = index.getRids(session, null);
+    return YTDBIteratorUtils.map(iterator, rid -> new RawPair<>(rid, null));
   }
 
   /**
@@ -604,10 +587,10 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return true;
   }
 
-  private static List<Stream<RawPair<Object, RID>>> processBetweenCondition(
+  private static List<CloseableIterator<RawPair<Object, RID>>> processBetweenCondition(
       Index index, SQLBooleanExpression condition, boolean isOrderAsc,
       CommandContext ctx) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
+    List<CloseableIterator<RawPair<Object, RID>>> iterators = new ArrayList<>();
 
     var definition = index.getDefinition();
     var key = ((SQLBetweenCondition) condition).getFirst();
@@ -624,24 +607,24 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     thirdValue = unboxResult(thirdValue);
     var session = ctx.getDatabaseSession();
     var transaction = session.getActiveTransaction();
-    var stream =
+    var iterator =
         index.entriesBetween(session,
             toBetweenIndexKey(transaction, definition, secondValue),
             true,
             toBetweenIndexKey(transaction, definition, thirdValue),
             true, isOrderAsc);
-    streams.add(stream);
-    return streams;
+    iterators.add(iterator);
+    return iterators;
   }
 
-  private static List<Stream<RawPair<Object, RID>>> processBinaryCondition(
+  private static List<CloseableIterator<RawPair<Object, RID>>> processBinaryCondition(
       FrontendTransaction transaction,
       Index index,
       SQLBooleanExpression condition,
       boolean isOrderAsc,
       CommandContext ctx) {
-    List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
-    Set<Stream<RawPair<Object, RID>>> acquiredStreams =
+    List<CloseableIterator<RawPair<Object, RID>>> iterators = new ArrayList<>();
+    Set<CloseableIterator<RawPair<Object, RID>>> acquiredIterators =
         Collections.newSetFromMap(new IdentityHashMap<>());
 
     var definition = index.getDefinition();
@@ -652,13 +635,13 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           "search for index for " + condition + " is not supported yet");
     }
     var rightValue = ((SQLBinaryCondition) condition).getRight().execute((Result) null, ctx);
-    var stream =
+    var iterator =
         createCursor(transaction, index, operator, definition, rightValue, isOrderAsc, condition);
-    if (acquiredStreams.add(stream)) {
-      streams.add(stream);
+    if (acquiredIterators.add(iterator)) {
+      iterators.add(iterator);
     }
 
-    return streams;
+    return iterators;
   }
 
   private static Collection<?> toIndexKey(
@@ -696,7 +679,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return rightValue;
   }
 
-  private static Stream<RawPair<Object, RID>> createCursor(
+  private static CloseableIterator<RawPair<Object, RID>> createCursor(
       FrontendTransaction transaction,
       Index index,
       SQLBinaryCompareOperator operator,
@@ -892,7 +875,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         additionalRangeCondition = new SQLBinaryCondition(-1);
         additionalRangeCondition.deserialize(fromResult.getProperty("additionalRangeCondition"));
       }
-      var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+
+      var index = session.getMetadata().getFastImmutableSchema().getIndex(indexName);
       desc = new IndexSearchDescriptor(index, condition, additionalRangeCondition, null);
       orderAsc = fromResult.getProperty("orderAsc");
     } catch (Exception e) {

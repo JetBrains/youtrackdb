@@ -5,6 +5,6 @@ import java.util.Iterator;
 import java.util.function.Function;
 
 public interface YTDBDomainTokenInternal<T extends YTDBDomainVertex> extends
-    Function<T, Iterator<YTDBDomainVertex>> {
+    Function<T, Iterator<? extends YTDBDomainVertex>> {
   String name();
 }

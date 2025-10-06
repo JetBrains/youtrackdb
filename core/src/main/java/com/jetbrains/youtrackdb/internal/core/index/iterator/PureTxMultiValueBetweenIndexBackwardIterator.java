@@ -10,9 +10,10 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public class PureTxMultiValueBetweenIndexBackwardIterator
-    implements Iterator<RawPair<Object, RID>> {
+    implements CloseableIterator<RawPair<Object, RID>> {
   private final FrontendTransactionIndexChanges indexChanges;
 
   private Object firstKey;

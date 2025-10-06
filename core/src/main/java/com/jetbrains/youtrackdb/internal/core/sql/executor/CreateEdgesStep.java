@@ -97,7 +97,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
     if (uniqueIndexName != null) {
       final var session = ctx.getDatabaseSession();
       var uniqueIndex =
-          session.getSharedContext().getIndexManager().getIndex(uniqueIndexName);
+          session.getMetadata().getFastImmutableSchema().getIndex(uniqueIndexName);
       if (uniqueIndex == null) {
         throw new CommandExecutionException(session,
             "Index not found for upsert: " + uniqueIndexName);
@@ -221,9 +221,7 @@ public class CreateEdgesStep extends AbstractExecutionStep {
             .createValue(db.getActiveTransaction(), currentFrom.getIdentity(),
                 currentTo.getIdentity());
 
-    final Iterator<RID> iterator;
-    try (var stream = uniqueIndex.getRids(db, key)) {
-      iterator = stream.iterator();
+    try (var iterator = uniqueIndex.getRids(db, key)) {
       if (iterator.hasNext()) {
         Identifiable identifiable = iterator.next();
         var transaction = db.getActiveTransaction();

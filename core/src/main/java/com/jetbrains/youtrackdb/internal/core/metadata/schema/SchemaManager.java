@@ -672,7 +672,7 @@ public final class SchemaManager {
 
         if (collectionIds != null) {
           for (var collectionId : collectionIds) {
-            if (!collectionId.isTemporary()) {
+            if (collectionId < 0) {
               throw new DatabaseException(session,
                   "Cannot change abstract class to non-abstract as it "
                       + "is associated with existing collections");
@@ -741,7 +741,7 @@ public final class SchemaManager {
     } else if (recordOperation.type == RecordOperation.DELETED) {
       var collectionIds = entity.getCollectionIds();
 
-      if (!collectionIds.isEmpty() && !collectionIds.getFirst().isTemporary()) {
+      if (!collectionIds.isEmpty() && collectionIds.getFirst() >= 0) {
         @SuppressWarnings("unchecked")
         var collectinIdsToFree = (List<Integer>) transaction.getCustomData(
             COLLECTION_IDS_TO_FREE_TRANSACTION_KEY);
@@ -752,8 +752,8 @@ public final class SchemaManager {
         }
 
         for (var collectionId : collectionIds) {
-          if (!collectionId.isTemporary()) {
-            collectinIdsToFree.add(collectionId.getId());
+          if (collectionId >= 0) {
+            collectinIdsToFree.add(collectionId);
           }
         }
       }

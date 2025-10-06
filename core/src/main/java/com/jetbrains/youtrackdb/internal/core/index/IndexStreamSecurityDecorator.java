@@ -5,11 +5,12 @@ import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityShared;
-import java.util.Iterator;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
 public class IndexStreamSecurityDecorator {
-  public static Iterator<RawPair<Object, RID>> decorateIterator(
-      Index originalIndex, Iterator<RawPair<Object, RID>> iterator,
+
+  public static CloseableIterator<RawPair<Object, RID>> decorateIterator(
+      Index originalIndex, CloseableIterator<RawPair<Object, RID>> iterator,
       DatabaseSessionEmbedded session) {
     var indexClass = originalIndex.getDefinition().getClassName();
     if (indexClass == null) {
@@ -26,7 +27,8 @@ public class IndexStreamSecurityDecorator {
         (pair) -> Index.securityFilterOnRead(session, originalIndex, pair.second()) != null);
   }
 
-  public static Iterator<RID> decorateRidIterator(Index originalIndex, Iterator<RID> iterator,
+  public static CloseableIterator<RID> decorateRidIterator(Index originalIndex,
+      CloseableIterator<RID> iterator,
       DatabaseSessionEmbedded session) {
     var indexClass = originalIndex.getDefinition().getClassName();
     if (indexClass == null) {

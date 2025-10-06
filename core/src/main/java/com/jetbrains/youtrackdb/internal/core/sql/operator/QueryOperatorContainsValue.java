@@ -23,8 +23,8 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassSnapshot;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.filter.SQLFilterItemField;
@@ -78,7 +78,6 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
       condition = null;
     }
 
-    var session = iContext.getDatabaseSession();
     PropertyTypeInternal type = null;
     if (iCondition.getLeft() instanceof SQLFilterItemField
         && ((SQLFilterItemField) iCondition.getLeft()).isFieldChain()
@@ -87,15 +86,14 @@ public class QueryOperatorContainsValue extends QueryOperatorEqualityNotNulls {
           ((SQLFilterItemField) iCondition.getLeft()).getFieldChain().getItemName(0);
       if (fieldName != null) {
         if (iRecord.isEntity()) {
-          SchemaClassSnapshot result;
+          ImmutableSchemaClass result;
           var entity = iRecord.asEntity();
-          result = ((EntityImpl) entity).getImmutableSchemaClass(session);
+          result = ((EntityImpl) entity).getImmutableSchemaClass();
           var property =
               result
                   .getProperty(fieldName);
-          if (property != null && PropertyTypeInternal.convertFromPublicType(property.getType())
-              .isMultiValue()) {
-            type = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
+          if (property != null && property.getType().isMultiValue()) {
+            type = property.getLinkedType();
           }
         }
       }

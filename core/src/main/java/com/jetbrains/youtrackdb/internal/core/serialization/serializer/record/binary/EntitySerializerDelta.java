@@ -1387,7 +1387,7 @@ public class EntitySerializerDelta {
     return result;
   }
 
-  private static EntityLinkSetImpl readLinkSet(DatabaseSessionInternal session,
+  private static EntityLinkSetImpl readLinkSet(DatabaseSessionEmbedded session,
       BytesContainer bytes) {
     var b = bytes.bytes[bytes.offset];
     bytes.skip(1);

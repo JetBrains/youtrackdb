@@ -40,7 +40,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import javax.annotation.Nullable;
@@ -59,7 +58,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   }
 
   @Override
-  public Iterator<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
+  public CloseableIterator<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
     key = getCollatingValue(key);
 
     var iterator = storage.getIndexValues(schemaIndex.getId(), key);
@@ -95,11 +94,11 @@ public abstract class IndexOneValue extends IndexAbstract {
 
     final var txIndexEntry = calculateTxIndexEntry(key, rid, indexChanges);
     if (txIndexEntry == null) {
-      return IteratorUtils.emptyIterator();
+      return CloseableIterator.empty();
     }
 
     return IndexStreamSecurityDecorator.decorateRidIterator(this,
-        IteratorUtils.singletonIterator(txIndexEntry.second()),
+        CloseableIterator.of(IteratorUtils.singletonIterator(txIndexEntry.second())),
         session);
   }
 
@@ -151,7 +150,7 @@ public abstract class IndexOneValue extends IndexAbstract {
                 Objects::nonNull)
         );
     txResult.sort(keyComparator);
-    var txIterator = txResult.iterator();
+    var txIterator = CloseableIterator.of(txResult.iterator());
 
     if (indexChanges.cleared) {
       return IndexStreamSecurityDecorator.decorateIterator(this, txIterator, session);
@@ -167,7 +166,7 @@ public abstract class IndexOneValue extends IndexAbstract {
       boolean toInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
     toKey = getCollatingValue(toKey);
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this,
@@ -181,7 +180,7 @@ public abstract class IndexOneValue extends IndexAbstract {
       return iterator;
     }
 
-    final Iterator<RawPair<Object, RID>> txIterator;
+    final CloseableIterator<RawPair<Object, RID>> txIterator;
     if (ascOrder) {
       //noinspection resource
       txIterator =
@@ -206,7 +205,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   public CloseableIterator<RawPair<Object, RID>> entriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
     fromKey = getCollatingValue(fromKey);
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this,
@@ -221,7 +220,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
     fromKey = getCollatingValue(fromKey);
 
-    final Iterator<RawPair<Object, RID>> txIterator;
+    final CloseableIterator<RawPair<Object, RID>> txIterator;
 
     final var lastKey = indexChanges.getLastKey();
     if (ascOrder) {
@@ -246,7 +245,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   public CloseableIterator<RawPair<Object, RID>> entriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
     toKey = getCollatingValue(toKey);
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this,
@@ -262,7 +261,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
     toKey = getCollatingValue(toKey);
 
-    final Iterator<RawPair<Object, RID>> txIterator;
+    final CloseableIterator<RawPair<Object, RID>> txIterator;
 
     final var firstKey = indexChanges.getFirstKey();
     if (ascOrder) {
@@ -291,7 +290,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Override
   public CloseableIterator<RawPair<Object, RID>> ascEntries(DatabaseSessionEmbedded session) {
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this, storage.getIndexIterator(schemaIndex.getId()), session);
@@ -314,7 +313,7 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Override
   public CloseableIterator<RawPair<Object, RID>> descEntries(DatabaseSessionEmbedded session) {
-    Iterator<RawPair<Object, RID>> iterator;
+    CloseableIterator<RawPair<Object, RID>> iterator;
     iterator =
         IndexStreamSecurityDecorator.decorateIterator(
             this, storage.getIndexDescIterator(schemaIndex.getId()), session);
@@ -369,10 +368,10 @@ public abstract class IndexOneValue extends IndexAbstract {
     return new RawPair<>(key, result);
   }
 
-  private Iterator<RawPair<Object, RID>> mergeTxAndBackedIterators(
+  private CloseableIterator<RawPair<Object, RID>> mergeTxAndBackedIterators(
       FrontendTransactionIndexChanges indexChanges,
-      Iterator<RawPair<Object, RID>> txIterator,
-      Iterator<RawPair<Object, RID>> backedIterator,
+      CloseableIterator<RawPair<Object, RID>> txIterator,
+      CloseableIterator<RawPair<Object, RID>> backedIterator,
       boolean ascSortOrder) {
     Comparator<RawPair<Object, RID>> comparator;
     if (ascSortOrder) {

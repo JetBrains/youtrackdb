@@ -17,20 +17,19 @@ public class FetchFromIndexManagerStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    var schema = ctx.getDatabaseSession().getSchema();
+    var schema = ctx.getDatabaseSession().getMetadata().getFastImmutableSchema();
     var indexes = schema.getIndexes();
 
-    return ExecutionStream.iterator(indexes.stream().map(indexName -> {
-      var indexDefinition = schema.getIndexDefinition(indexName);
+    return ExecutionStream.iterator(indexes.stream().map(index -> {
+      var indexDefinition = index.getDefinition();
 
       var result = new ResultInternal(ctx.getDatabaseSession());
-      result.setProperty("name", indexDefinition.name());
-      result.setProperty("className", indexDefinition.className());
-      result.setProperty("properties", indexDefinition.properties());
-      result.setProperty("type", indexDefinition.type().name());
-      result.setProperty("nullValuesIgnored", indexDefinition.nullValuesIgnored());
-      result.setProperty("collate", indexDefinition.collate());
-      result.setProperty("metadata", indexDefinition.metadata());
+      result.setProperty("name", index.getName());
+      result.setProperty("className", indexDefinition.getClassName());
+      result.setProperty("properties", indexDefinition.getProperties());
+      result.setProperty("type", index.getType().name());
+      result.setProperty("nullValuesIgnored", indexDefinition.isNullValuesIgnored());
+      result.setProperty("collate", indexDefinition.getCollate().getName());
       return result;
     }).iterator());
   }

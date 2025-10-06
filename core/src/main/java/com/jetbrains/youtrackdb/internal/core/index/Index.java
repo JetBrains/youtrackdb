@@ -257,7 +257,7 @@ public interface Index extends Comparable<Index> {
 
   void doRemove(AbstractStorage storage, Object key, DatabaseSessionInternal session);
 
-  Iterator<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key);
+  CloseableIterator<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key);
 
   int getIndexId();
 }

@@ -41,7 +41,7 @@ public enum YTDBSchemaClassPTokenInternal implements YTDBPTokenInternal<YTDBSche
   hasSuperClasses {
     @Override
     public Object fetch(YTDBSchemaClassImpl domainObject) {
-      return domainObject.hasSuperClasses();
+      return domainObject.hasParentClasses();
     }
 
 

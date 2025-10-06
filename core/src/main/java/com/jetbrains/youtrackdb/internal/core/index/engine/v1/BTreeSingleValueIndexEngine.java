@@ -15,7 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.io.IOException;
-import java.util.Iterator;
 import org.apache.commons.collections4.IteratorUtils;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
@@ -142,13 +141,13 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
-  public Iterator<RID> get(Object key) {
+  public CloseableIterator<RID> get(Object key) {
     final var rid = sbTree.get(key);
     if (rid == null) {
-      return IteratorUtils.emptyIterator();
+      return CloseableIterator.empty();
     }
 
-    return IteratorUtils.singletonIterator(rid);
+    return CloseableIterator.of(IteratorUtils.singletonIterator(rid));
   }
 
   @Override

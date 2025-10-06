@@ -211,14 +211,14 @@ public final class YTDBIteratorUtils {
   }
 
   @SafeVarargs
-  public static <S> Iterator<S> concat(final Iterator<S>... iterators) {
+  public static <S> CloseableIterator<S> concat(final Iterator<S>... iterators) {
     final var iterator = new MultiIterator<S>();
 
     for (final var itty : iterators) {
       iterator.addIterator(itty);
     }
 
-    return iterator;
+    return CloseableIterator.of(iterator);
   }
 
   public static <T> Optional<T> findFirst(final Iterator<T> iterator) {
@@ -227,6 +227,19 @@ public final class YTDBIteratorUtils {
         return Optional.ofNullable(iterator.next());
       }
       return Optional.empty();
+    } finally {
+      CloseableIterator.closeIterator(iterator);
+    }
+  }
+
+  public static <T> boolean noneMatch(final Iterator<T> iterator, final Predicate<T> predicate) {
+    try {
+      while (iterator.hasNext()) {
+        if (predicate.test(iterator.next())) {
+          return false;
+        }
+      }
+      return true;
     } finally {
       CloseableIterator.closeIterator(iterator);
     }

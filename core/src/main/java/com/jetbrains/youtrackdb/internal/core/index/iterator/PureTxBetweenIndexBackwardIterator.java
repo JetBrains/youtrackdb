@@ -5,10 +5,10 @@ import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.index.IndexOneValue;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges;
-import java.util.Iterator;
 import java.util.NoSuchElementException;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 
-public class PureTxBetweenIndexBackwardIterator implements Iterator<RawPair<Object, RID>> {
+public class PureTxBetweenIndexBackwardIterator implements CloseableIterator<RawPair<Object, RID>> {
 
   private final IndexOneValue indexTxAwareOneValue;
 

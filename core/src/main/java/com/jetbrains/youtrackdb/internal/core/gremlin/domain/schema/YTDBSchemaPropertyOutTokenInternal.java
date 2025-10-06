@@ -13,7 +13,7 @@ public enum YTDBSchemaPropertyOutTokenInternal implements
     YTDBOutTokenInternal<YTDBSchemaPropertyImpl> {
   linkedClass {
     @Override
-    public Iterator<YTDBDomainVertex> apply(YTDBSchemaPropertyImpl ytdbSchemaProperty) {
+    public Iterator<YTDBSchemaClass> apply(YTDBSchemaPropertyImpl ytdbSchemaProperty) {
       return IteratorUtils.singletonIterator(ytdbSchemaProperty.linkedClass());
     }
 

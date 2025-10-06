@@ -70,7 +70,7 @@ public class IndexDefinitionFactory {
         if (collate == null) {
           collate = property.getCollate();
         }
-        linkedType = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
+        linkedType = property.getLinkedType();
       }
 
       final var indexBy = extractMapIndexSpecifier(field);
@@ -139,7 +139,7 @@ public class IndexDefinitionFactory {
         if (collate == null) {
           collate = property.getCollate();
         }
-        linkedType = PropertyTypeInternal.convertFromPublicType(property.getLinkedType());
+        linkedType = property.getLinkedType();
       }
       final var indexBy = extractMapIndexSpecifier(field);
 
@@ -168,8 +168,7 @@ public class IndexDefinitionFactory {
       final var type = types.get(i);
 
       final var property = oClass.getProperty(fieldName);
-      if (property != null && type != PropertyTypeInternal.convertFromPublicType(
-          property.getType())) {
+      if (property != null && type != property.getType()) {
         throw new IllegalArgumentException("Property type list not match with real property types");
       }
     }

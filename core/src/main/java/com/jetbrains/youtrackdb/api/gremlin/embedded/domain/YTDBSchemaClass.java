@@ -41,7 +41,7 @@ public interface YTDBSchemaClass extends YTDBDomainVertex {
 
   void strictMode(boolean mode);
 
-  boolean hasSuperClasses();
+  boolean hasParentClasses();
 
   @Nonnull
   String name();
@@ -64,10 +64,10 @@ public interface YTDBSchemaClass extends YTDBDomainVertex {
   boolean isVertexType();
 
   @Nonnull
-  Iterator<YTDBSchemaClass> superClasses();
+  Iterator<YTDBSchemaClass> parentClasses();
 
   @Nonnull
-  Iterator<YTDBSchemaClass> subClasses();
+  Iterator<YTDBSchemaClass> childClasses();
 
   @Nonnull
   Iterator<YTDBSchemaClass> descendants();
@@ -75,17 +75,21 @@ public interface YTDBSchemaClass extends YTDBDomainVertex {
   @Nonnull
   Iterator<YTDBSchemaClass> ascendants();
 
-  void addSuperClass(@Nonnull YTDBSchemaClass childClass);
+  void addParentClass(@Nonnull YTDBSchemaClass parentClass);
 
-  void removeSuperClass(@Nonnull YTDBSchemaClass childClass);
+  void removeParentClass(@Nonnull YTDBSchemaClass parentClass);
 
-  boolean isSubClassOf(@Nonnull String className);
+  void addChildClass(@Nonnull YTDBSchemaClass childClass);
 
-  boolean isSubClassOf(@Nonnull YTDBSchemaClass classInstance);
+  void removeChildClass(@Nonnull YTDBSchemaClass childClass);
 
-  boolean isSuperClassOf(@Nonnull String className);
+  boolean isChildOf(@Nonnull String className);
 
-  boolean isSuperClassOf(@Nonnull YTDBSchemaClass classInstance);
+  boolean isChildOf(@Nonnull YTDBSchemaClass classInstance);
+
+  boolean isParentOf(@Nonnull String className);
+
+  boolean isParentOf(@Nonnull YTDBSchemaClass classInstance);
 
   @Nullable
   String customProperty(@Nonnull String propertyName);

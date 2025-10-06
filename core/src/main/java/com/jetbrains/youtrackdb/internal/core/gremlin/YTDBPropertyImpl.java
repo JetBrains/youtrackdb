@@ -32,7 +32,7 @@ public class YTDBPropertyImpl<V> implements
     if (result instanceof RID rid) {
       var session = graphTx.getDatabaseSession();
 
-      var immutableSchema = session.getMetadata().getFastImmutableSchema(session);
+      var immutableSchema = session.getMetadata().getFastImmutableSchema();
       var cls = immutableSchema.getClassByCollectionId(rid.getCollectionId());
 
       if (cls.isVertexType()) {

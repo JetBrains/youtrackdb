@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbs
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -47,7 +48,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public boolean hasSuperClasses() {
+  public boolean hasParentClasses() {
     var entity = propertyReadPreprocessing();
     return entity.hasParentClasses();
   }
@@ -116,14 +117,14 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public @Nonnull Iterator<YTDBSchemaClass> superClasses() {
+  public @Nonnull Iterator<YTDBSchemaClass> parentClasses() {
     var entity = propertyReadPreprocessing();
     var superClasses = entity.getParentClasses();
     return mapToDomainClassIterator(superClasses);
   }
 
   @Override
-  public @Nonnull Iterator<YTDBSchemaClass> subClasses() {
+  public @Nonnull Iterator<YTDBSchemaClass> childClasses() {
     var entity = propertyReadPreprocessing();
     var subClasses = entity.getChildClasses();
 
@@ -135,7 +136,7 @@ public class YTDBSchemaClassImpl extends
     var entity = propertyReadPreprocessing();
     var descendants = entity.getDescendants();
 
-    return mapToDomainClassIterator(descendants);
+    return mapToDomainClassIterator(descendants.iterator());
   }
 
   @Override
@@ -143,44 +144,58 @@ public class YTDBSchemaClassImpl extends
     var entity = propertyReadPreprocessing();
     var ascendants = entity.getAscendants();
 
-    return mapToDomainClassIterator(ascendants);
+    return mapToDomainClassIterator(ascendants.iterator());
+  }
+
+  @Override
+  public void addParentClass(@Nonnull YTDBSchemaClass parentClass) {
+    var entity = propertyWritePreprocessing();
+    var classImpl = (YTDBSchemaClassImpl) parentClass;
+    entity.addParentClass(classImpl.getRawEntity());
+  }
+
+  @Override
+  public void removeParentClass(@Nonnull YTDBSchemaClass parentClass) {
+    var entity = propertyWritePreprocessing();
+    var classImpl = (YTDBSchemaClassImpl) parentClass;
+    entity.removeParentClass(classImpl.getRawEntity());
   }
 
   @Override
   public void addChildClass(@Nonnull YTDBSchemaClass childClass) {
     var entity = propertyWritePreprocessing();
-    var childClassImpl = (YTDBSchemaClassImpl) childClass;
-    entity.addChildClass(childClassImpl.getRawEntity());
+    var classImpl = (YTDBSchemaClassImpl) childClass;
+    entity.addChildClass(classImpl.getRawEntity());
   }
 
   @Override
   public void removeChildClass(@Nonnull YTDBSchemaClass childClass) {
     var entity = propertyWritePreprocessing();
-    var childClassImpl = (YTDBSchemaClassImpl) childClass;
-    entity.removeChildClass(childClassImpl.getRawEntity());
+    var classImpl = (YTDBSchemaClassImpl) childClass;
+    entity.removeChildClass(classImpl.getRawEntity());
   }
 
   @Override
-  public boolean isSubClassOf(@Nonnull String className) {
+  public boolean isChildOf(@Nonnull String className) {
     var entity = propertyReadPreprocessing();
     return entity.isChildOf(className);
   }
 
   @Override
-  public boolean isSubClassOf(@Nonnull YTDBSchemaClass classInstance) {
+  public boolean isChildOf(@Nonnull YTDBSchemaClass classInstance) {
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
     var entity = propertyReadPreprocessing();
     return entity.isChildOf(schemaClassImpl.getRawEntity());
   }
 
   @Override
-  public boolean isSuperClassOf(@Nonnull String className) {
+  public boolean isParentOf(@Nonnull String className) {
     var entity = propertyReadPreprocessing();
     return entity.isChildOf(className);
   }
 
   @Override
-  public boolean isSuperClassOf(@Nonnull YTDBSchemaClass classInstance) {
+  public boolean isParentOf(@Nonnull YTDBSchemaClass classInstance) {
     var entity = propertyReadPreprocessing();
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
     return entity.isParentOf(schemaClassImpl.getRawEntity());
@@ -214,7 +229,7 @@ public class YTDBSchemaClassImpl extends
   @Override
   public Iterator<String> customPropertyNames() {
     var entity = propertyReadPreprocessing();
-    return entity.getCustomPropertiesNames();
+    return entity.getCustomPropertiesNames().iterator();
   }
 
   @Override
@@ -241,7 +256,7 @@ public class YTDBSchemaClassImpl extends
   public @Nonnull Iterator<YTDBSchemaProperty> schemaProperty(@Nonnull String... name) {
     var entity = propertyReadPreprocessing();
     var schemaProperties = entity.getSchemaProperties(name);
-    return mapToDomainPropertyIterator(schemaProperties);
+    return mapToDomainPropertyIterator(schemaProperties.iterator());
   }
 
   @Override
@@ -251,10 +266,24 @@ public class YTDBSchemaClassImpl extends
     var tx = graph.tx();
     var session = tx.getDatabaseSession();
 
-    var propertyEntity = session.newSchemaPropertyEntity(propertyName, propertyType);
+    var propertyEntity = session.newSchemaPropertyEntity(propertyName,
+        PropertyTypeInternal.convertFromPublicType(propertyType));
     entity.addSchemaProperty(propertyEntity);
 
     return new YTDBSchemaPropertyImpl(graph, propertyEntity);
+  }
+
+  public void addSchemaProperty(@Nonnull YTDBSchemaProperty property) {
+    var entity = propertyWritePreprocessing();
+    var schemaImpl = (YTDBSchemaPropertyImpl) property;
+
+    entity.addSchemaProperty(schemaImpl.getRawEntity());
+  }
+
+  public void removeSchemaProperty(@Nonnull YTDBSchemaProperty property) {
+    var entity = propertyWritePreprocessing();
+    var schemaImpl = (YTDBSchemaPropertyImpl) property;
+    entity.removeSchemaProperty(schemaImpl.getRawEntity());
   }
 
   @Override
@@ -266,7 +295,8 @@ public class YTDBSchemaClassImpl extends
     var session = tx.getDatabaseSession();
 
     var linkedClassImpl = (YTDBSchemaClassImpl) linkedClass;
-    var propertyEntity = session.newSchemaPropertyEntity(propertyName, propertyType);
+    var propertyEntity = session.newSchemaPropertyEntity(propertyName,
+        PropertyTypeInternal.convertFromPublicType(propertyType));
     propertyEntity.setLinkedClass(linkedClassImpl.getRawEntity());
     entity.addSchemaProperty(propertyEntity);
 
@@ -281,8 +311,9 @@ public class YTDBSchemaClassImpl extends
     var tx = graph.tx();
     var session = tx.getDatabaseSession();
 
-    var propertyEntity = session.newSchemaPropertyEntity(propertyName, propertyType);
-    propertyEntity.setLinkedPropertyType(linkedType);
+    var propertyEntity = session.newSchemaPropertyEntity(propertyName,
+        PropertyTypeInternal.convertFromPublicType(propertyType));
+    propertyEntity.setLinkedPropertyType(PropertyTypeInternal.convertFromPublicType(linkedType));
     entity.addSchemaProperty(propertyEntity);
 
     return new YTDBSchemaPropertyImpl(graph, propertyEntity);

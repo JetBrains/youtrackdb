@@ -13,7 +13,6 @@ import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RecordHook;
-import com.jetbrains.youtrackdb.api.remote.RemoteDatabaseSession;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxBiFunction;
@@ -418,13 +417,6 @@ public interface DatabaseSession extends BasicDatabaseSession<Result, ResultSet>
   @Override
   String getDatabaseName();
 
-  /**
-   * Opens the current session in remote mode. This instance cannot be used until the remote session
-   * returned will not be closed.
-   *
-   * @return remote session wrapper around the current instance.
-   */
-  RemoteDatabaseSession asRemoteSession();
 
   <T> EmbeddedList<T> newEmbeddedList();
 
