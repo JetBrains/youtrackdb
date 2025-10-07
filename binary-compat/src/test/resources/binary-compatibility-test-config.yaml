@@ -15,7 +15,7 @@ runs:
     versions:
       - name: io.youtrackdb:youtrackdb-core:0.5.0-SNAPSHOT
         location:
-          source: https://packages.jetbrains.team/maven/p/xodus/youtrackdb-daily
+          source: https://central.sonatype.com/repository/maven-snapshots/
           type: MAVEN
       - name: "develop"
         location:
