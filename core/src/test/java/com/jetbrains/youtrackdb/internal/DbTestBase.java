@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import java.io.File;
@@ -28,6 +29,7 @@ public class DbTestBase {
   protected DatabaseSessionEmbedded session;
   protected SessionPool<DatabaseSession> pool;
   protected YouTrackDBImpl youTrackDB;
+  protected YTDBGraph graph;
 
   @Rule
   public TestName name = new TestName();
@@ -62,6 +64,10 @@ public class DbTestBase {
     if (session != null && !session.isClosed()) {
       session.close();
     }
+    if (graph != null && graph.isOpen()) {
+      graph.close();
+
+    }
     if (pool != null && !pool.isClosed()) {
       pool.close();
     }
@@ -73,6 +79,7 @@ public class DbTestBase {
     pool = youTrackDB.cachedPool(this.databaseName, adminUser, adminPassword, builder.build());
 
     session = openDatabase(config);
+    graph = youTrackDB.openGraph(databaseName, adminUser, adminPassword, config);
   }
 
   private DatabaseSessionEmbedded openDatabase(Configuration config) {
@@ -120,14 +127,20 @@ public class DbTestBase {
   protected void reOpen(String user, String password) {
     if (!pool.isClosed()) {
       pool.close();
-      this.pool = youTrackDB.cachedPool(this.databaseName, user, password);
     }
+    this.pool = youTrackDB.cachedPool(this.databaseName, user, password);
+
+    if (graph != null && graph.isOpen()) {
+      graph.close();
+    }
+    this.graph = youTrackDB.openGraph(this.databaseName, user, password);
 
     if (!session.isClosed()) {
       session.activateOnCurrentThread();
       session.close();
-      this.session = (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
     }
+
+    this.session = (DatabaseSessionEmbedded) youTrackDB.open(this.databaseName, user, password);
   }
 
   public DatabaseSessionEmbedded openDatabase() {
@@ -155,6 +168,9 @@ public class DbTestBase {
     }
     if (!pool.isClosed()) {
       pool.close();
+    }
+    if (graph != null && graph.isOpen()) {
+      graph.close();
     }
 
     if (youTrackDB.exists(this.databaseName)) {

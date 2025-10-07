@@ -2,28 +2,30 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
 
 public class ChainIndexFetchTest extends DbTestBase {
-
   @Test
   public void testFetchChaninedIndex() {
-    var baseClass = session.getMetadata().getSlowMutableSchema().createClass("BaseClass");
-    var propr = baseClass.createProperty("ref", PropertyType.LINK);
+    graph.executeInTx(g -> {
+      var schemaProperty = (YTDBSchemaProperty) g.addSchemaClass("BaseClass").
+          addSchemaProperty("ref", PropertyType.LINK).next();
+      var linkedClass = (YTDBSchemaClass) g.addSchemaClass("LinkedClass").next();
+      var id = linkedClass.createSchemaProperty("id", PropertyType.STRING);
+      id.createIndex("idIndex", IndexType.UNIQUE);
 
-    var linkedClass = session.getMetadata().getSlowMutableSchema().createClass("LinkedClass");
-    var id = linkedClass.createProperty("id", PropertyType.STRING);
-    id.createIndex(INDEX_TYPE.UNIQUE);
-
-    propr.setLinkedClass(linkedClass);
-    propr.createIndex(INDEX_TYPE.NOTUNIQUE);
+      schemaProperty.linkedClass(linkedClass);
+      schemaProperty.createIndex("propertyIndex", IndexType.NOT_UNIQUE);
+    });
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(linkedClass);
+    var doc = (EntityImpl) session.newEntity("LinkedClass");
     doc.setProperty("id", "referred");
     session.commit();
 
@@ -31,7 +33,7 @@ public class ChainIndexFetchTest extends DbTestBase {
 
     var activeTx = session.getActiveTransaction();
     doc = activeTx.load(doc);
-    var doc1 = (EntityImpl) session.newEntity(baseClass);
+    var doc1 = (EntityImpl) session.newEntity("BaseClass");
     doc1.setProperty("ref", doc);
 
     session.commit();

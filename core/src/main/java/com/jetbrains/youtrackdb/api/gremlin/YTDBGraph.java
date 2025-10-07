@@ -63,4 +63,9 @@ public interface YTDBGraph extends Graph {
     var tx = tx();
     YTDBTransaction.executeInTX(code, (YTDBTransaction) tx);
   }
+
+  @Override
+  void close();
+
+  boolean isOpen();
 }

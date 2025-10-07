@@ -7,8 +7,6 @@ import java.util.function.Function;
 import javax.annotation.Nullable;
 
 public interface YTDBGraphInternal extends YTDBGraph {
-  boolean isOpen();
-
   @Override
   YTDBTransaction tx();
 

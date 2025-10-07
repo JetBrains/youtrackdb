@@ -115,7 +115,6 @@ public class YouTrackDBServer {
   private String databaseDirectory;
   private ClientConnectionManager clientConnectionManager;
   private HttpSessionManager httpSessionManager;
-  private PushManager pushManager;
   private TokenHandler tokenHandler;
 
   private YouTrackDBImpl context;
@@ -197,10 +196,6 @@ public class YouTrackDBServer {
 
   public HttpSessionManager getHttpSessionManager() {
     return httpSessionManager;
-  }
-
-  public PushManager getPushManager() {
-    return pushManager;
   }
 
   /**
@@ -301,7 +296,6 @@ public class YouTrackDBServer {
 
     clientConnectionManager = new ClientConnectionManager(this);
     httpSessionManager = new HttpSessionManager(this);
-    pushManager = new PushManager();
     rejectRequests = false;
 
     if (contextConfiguration.getValueAsBoolean(
@@ -533,7 +527,6 @@ public class YouTrackDBServer {
         }
 
         rejectRequests = true;
-        pushManager.shutdown();
         clientConnectionManager.shutdown();
         httpSessionManager.shutdown();
 
