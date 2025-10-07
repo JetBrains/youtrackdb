@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
-import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassOutToken.superClass;
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassOutToken.parentClass;
 import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken.abstractClass;
 import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken.name;
 
@@ -62,7 +62,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
 
     return traversal.addV(YTDBSchemaClass.LABEL).as("result")
-        .addE(superClass).to(__.V().hasLabel(YTDBSchemaClass.LABEL).
+        .addE(parentClass).to(__.V().hasLabel(YTDBSchemaClass.LABEL).
             has(name, P.within(parentClasses)))
         .select("result");
   }
@@ -87,7 +87,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
 
     return traversal.as("result").
         property(name, className, abstractClass, true).
-        addE(superClass).to(__.V()
+        addE(parentClass).to(__.V()
             .hasLabel(YTDBSchemaClass.LABEL).has(name, P.within(superClasses)))
         .select("result");
   }
@@ -99,11 +99,11 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
     traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
 
-    return traversal.addV(YTDBSchemaClass.LABEL).as("result").
-        addE(superClass).to(
+    return traversal.addV(YTDBSchemaClass.LABEL).property(name, className).as("schemaClass").
+        addE(parentClass).to(
             __.V().hasLabel(YTDBSchemaClass.LABEL)
                 .has(name, P.eq(YTDBSchemaClass.EDGE_CLASS_NAME))
-        ).select("result");
+        ).select("schemaClass");
   }
 
 

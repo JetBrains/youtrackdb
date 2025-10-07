@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.api.gremlin.embedded.domain;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -105,5 +106,5 @@ public interface YTDBSchemaProperty extends YTDBDomainVertex {
 
   void description(@Nullable String description);
 
-  YTDBSchemaIndex createIndex(YTDBSchemaIndex.IndexType indexType);
+  YTDBSchemaIndex createIndex(String indexName, IndexType indexType);
 }

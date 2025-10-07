@@ -260,14 +260,13 @@ public class YTDBSchemaPropertyImpl extends
 
   @Override
   public YTDBSchemaIndex createIndex(
-      YTDBSchemaIndex.IndexType indexType) {
+      String indexName, YTDBSchemaIndex.IndexType indexType) {
     var entity = propertyWritePreprocessing();
 
-    var fullName = entity.getFullName();
     var session = graph.tx().getDatabaseSession();
 
     var declaringClass = entity.getDeclaringClass();
-    var indexEntity = SchemaManager.createIndex(session, declaringClass, fullName,
+    var indexEntity = SchemaManager.createIndex(session, declaringClass, indexName,
         IndexType.fromPublicIndexType(indexType), entity.getName());
 
     return new YTDBSchemaIndexImpl(graph, indexEntity);

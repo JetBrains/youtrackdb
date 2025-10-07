@@ -8,6 +8,8 @@ import javax.annotation.Nullable;
 
 public interface YTDBSchemaIndex extends YTDBDomainVertex {
 
+  String LABEL = "$schemaIndex";
+
   @Nonnull
   String name();
 

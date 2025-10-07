@@ -2,14 +2,13 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class GraphIndexTest extends GraphBaseTest {
-
   String vertexLabel1 = "SomeVertexLabel1";
   String vertexLabel2 = "SomeVertexLabel2";
 
@@ -20,13 +19,12 @@ public class GraphIndexTest extends GraphBaseTest {
 
   @Test
   public void vertexUniqueConstraint() {
-    graph.executeInTx(g -> {
-      g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING);
-      property.createIndex(INDEX_TYPE.UNIQUE);
-    });
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING)
+            .addPropertyIndex("vIndex",
+                IndexType.UNIQUE));
 
     var value = "value1";
-
     graph.addVertex(T.label, vertexLabel1, key, value);
     graph.addVertex(T.label, vertexLabel2, key, value);
 
@@ -46,10 +44,10 @@ public class GraphIndexTest extends GraphBaseTest {
 
   @Test
   public void edgeUniqueConstraint() {
-    var schema = session.getSchema();
-    var cls = schema.createEdgeClass(edgeLabel1);
-    var property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.addStateFullEdgeClass(edgeLabel1).addSchemaProperty(key, PropertyType.STRING)
+            .addPropertyIndex("eIndex", IndexType.UNIQUE));
+
     var value = "value1";
 
     var v1 = graph.addVertex(T.label, vertexLabel1);
@@ -74,10 +72,10 @@ public class GraphIndexTest extends GraphBaseTest {
 
   @Test
   public void vertexUniqueIndexLookupWithValue() {
-    var schema = session.getSchema();
-    var cls = schema.createVertexClass(vertexLabel1);
-    var property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.NOTUNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING)
+            .addPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
+
     var value = "value1";
 
     var v1 = graph.addVertex(T.label, vertexLabel1, key, value);
@@ -95,15 +93,13 @@ public class GraphIndexTest extends GraphBaseTest {
 
   @Test
   public void vertexUniqueIndexLookupWithValueInMidTraversal() {
-    var schema = session.getSchema();
-    var cls = schema.createVertexClass(vertexLabel1);
-    var property = cls.createProperty(key, PropertyType.STRING);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING)
+            .addPropertyIndex("vIndex1", IndexType.NOT_UNIQUE));
 
-    property.createIndex(INDEX_TYPE.NOTUNIQUE);
-
-    cls = schema.createVertexClass(vertexLabel2);
-    property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.NOTUNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(vertexLabel2).addSchemaProperty(key, PropertyType.STRING)
+            .addPropertyIndex("vIndex2", IndexType.NOT_UNIQUE));
 
     var value = "value1";
 
@@ -142,18 +138,15 @@ public class GraphIndexTest extends GraphBaseTest {
 
     final var value1 = "value1";
 
-    var schema = session.getSchema();
-    var cls = schema.createVertexClass(label1);
-    var property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.NOTUNIQUE);
-
-    cls = schema.createVertexClass(label2);
-    property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.NOTUNIQUE);
-
-    cls = schema.createVertexClass(label3);
-    property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.NOTUNIQUE);
+    graph.executeInTx(g -> {
+          g.addSchemaClass(label1).addSchemaProperty(key, PropertyType.STRING)
+              .addPropertyIndex("vIndex", IndexType.NOT_UNIQUE).iterate();
+          g.addSchemaClass(label2).addSchemaProperty(key, PropertyType.STRING)
+              .addPropertyIndex("vIndex2", IndexType.NOT_UNIQUE).iterate();
+          g.addSchemaClass(label3).addSchemaProperty(key, PropertyType.STRING)
+              .addPropertyIndex("vIndex3", IndexType.NOT_UNIQUE).iterate();
+        }
+    );
 
     graph.addVertex(T.label, label1, key, value1);
     graph.addVertex(T.label, label2, key, value1);
@@ -170,10 +163,9 @@ public class GraphIndexTest extends GraphBaseTest {
   // TODO Enable when it's fixed
   //  @Test
   public void vertexUniqueIndexLookupWithMultipleValues() {
-    var schema = session.getSchema();
-    var cls = schema.createVertexClass(vertexLabel1);
-    var property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.NOTUNIQUE);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING).
+            addPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
 
     var value1 = "value1";
     var value2 = "value2";
@@ -196,10 +188,11 @@ public class GraphIndexTest extends GraphBaseTest {
 
   @Test
   public void edgeUniqueIndexLookupWithValue() {
-    var schema = session.getSchema();
-    var cls = schema.createEdgeClass(edgeLabel1);
-    var property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.UNIQUE);
+    graph.autoExecuteInTx(
+        g -> g.addStateFullEdgeClass(edgeLabel1).
+            addSchemaProperty(key, PropertyType.STRING)
+            .addPropertyIndex("vIndex", IndexType.UNIQUE));
+
     var value = "value1";
 
     var v1 = graph.addVertex(T.label, vertexLabel1);
@@ -231,10 +224,9 @@ public class GraphIndexTest extends GraphBaseTest {
 
   @Test
   public void edgeNotUniqueIndexLookupWithValue() {
-    var schema = session.getSchema();
-    var cls = schema.createEdgeClass(edgeLabel1);
-    var property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.NOTUNIQUE);
+    graph.autoExecuteInTx(
+        g -> g.addStateFullEdgeClass(edgeLabel1).addSchemaProperty(key, PropertyType.STRING)
+            .addPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
 
     var value = "value1";
 

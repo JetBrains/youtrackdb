@@ -147,6 +147,6 @@ public class YTDBSchemaIndexImpl extends
   @Override
   protected YTDBInTokenInternal<YTDBDomainVertexAbstract<?>> inToken(String label) {
     //noinspection unchecked,rawtypes
-    return (YTDBInTokenInternal) YTDBSchemaIndexPTokenInternal.valueOf(label);
+    return (YTDBInTokenInternal) YTDBSchemaIndexInTokenInternal.valueOf(label);
   }
 }
