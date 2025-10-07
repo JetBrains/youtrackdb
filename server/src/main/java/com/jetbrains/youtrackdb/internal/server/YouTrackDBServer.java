@@ -63,8 +63,6 @@ import com.jetbrains.youtrackdb.internal.server.network.ServerNetworkListener;
 import com.jetbrains.youtrackdb.internal.server.network.ServerSocketFactory;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocolData;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.HttpSessionManager;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPlugin;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginInfo;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginManager;
@@ -114,7 +112,6 @@ public class YouTrackDBServer {
   private String serverRootDirectory;
   private String databaseDirectory;
   private ClientConnectionManager clientConnectionManager;
-  private HttpSessionManager httpSessionManager;
   private TokenHandler tokenHandler;
 
   private YouTrackDBImpl context;
@@ -192,10 +189,6 @@ public class YouTrackDBServer {
 
   public ClientConnectionManager getClientConnectionManager() {
     return clientConnectionManager;
-  }
-
-  public HttpSessionManager getHttpSessionManager() {
-    return httpSessionManager;
   }
 
   /**
@@ -295,7 +288,6 @@ public class YouTrackDBServer {
     initFromConfiguration();
 
     clientConnectionManager = new ClientConnectionManager(this);
-    httpSessionManager = new HttpSessionManager(this);
     rejectRequests = false;
 
     if (contextConfiguration.getValueAsBoolean(
@@ -423,12 +415,6 @@ public class YouTrackDBServer {
 
       var httpAddress = "localhost:2480";
       var ssl = false;
-      for (var listener : networkListeners) {
-        if (listener.getProtocolType().getName().equals(NetworkProtocolHttpDb.class.getName())) {
-          httpAddress = listener.getListeningAddress(true);
-          ssl = listener.getSocketFactory().isEncrypted();
-        }
-      }
       String proto;
       if (ssl) {
         proto = "https";
@@ -528,7 +514,6 @@ public class YouTrackDBServer {
 
         rejectRequests = true;
         clientConnectionManager.shutdown();
-        httpSessionManager.shutdown();
 
         if (pluginManager != null) {
           pluginManager.shutdown();
