@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import java.util.Collection;
 import java.util.List;
@@ -58,7 +58,7 @@ public interface SchemaClass extends ImmutableSchemaClass {
    * @param indexType  Index type.
    * @param properties Field names from which index will be created.
    */
-  void createIndex(String iName, INDEX_TYPE indexType, String... properties);
+  void createIndex(String iName, IndexType indexType, String... properties);
 
   /**
    * Creates database index that is based on passed in field names. Given index will be added into
@@ -73,7 +73,7 @@ public interface SchemaClass extends ImmutableSchemaClass {
    */
   void createIndex(
       String iName,
-      INDEX_TYPE indexType,
+      IndexType indexType,
       Map<String, Object> metadata,
       String... properties);
 

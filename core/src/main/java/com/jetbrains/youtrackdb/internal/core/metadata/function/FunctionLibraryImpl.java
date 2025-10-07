@@ -27,8 +27,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.Collections;
@@ -167,7 +167,7 @@ public class FunctionLibraryImpl {
       var prop = f.getProperty("name");
 
       if (prop.getIndexNames().isEmpty()) {
-        prop.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+        prop.createIndex(IndexType.UNIQUE);
       }
       return;
     }
@@ -175,7 +175,7 @@ public class FunctionLibraryImpl {
     var f = session.getMetadata().getSlowMutableSchema().createClass("OFunction");
     var prop = f.createProperty("name", PropertyTypeInternal.STRING, (PropertyTypeInternal) null
     );
-    prop.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+    prop.createIndex(IndexType.UNIQUE);
 
     f.createProperty("code", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);
     f.createProperty("language", PropertyTypeInternal.STRING, (PropertyTypeInternal) null);

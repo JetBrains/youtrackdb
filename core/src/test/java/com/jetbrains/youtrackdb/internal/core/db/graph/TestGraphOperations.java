@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -22,7 +22,7 @@ public class TestGraphOperations extends DbTestBase {
 
     var key = testLabel.createProperty("key", PropertyType.STRING);
 
-    key.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+    key.createIndex(IndexType.UNIQUE);
 
     session.begin();
     var vertex = session.newVertex("TestVertex");

@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 
 public interface SchemaIndex {
   IndexDefinition getIndexDefinition();
@@ -10,5 +10,5 @@ public interface SchemaIndex {
 
   String getName();
 
-  INDEX_TYPE getType();
+  IndexType getType();
 }

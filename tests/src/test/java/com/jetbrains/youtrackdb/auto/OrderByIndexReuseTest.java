@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -27,10 +27,10 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
     orderByIndexReuse.createIndex(
         "OrderByIndexReuseIndexSecondThirdProp",
-        SchemaManager.INDEX_TYPE.UNIQUE,
+        IndexType.UNIQUE,
         "secondProp", "thirdProp");
     orderByIndexReuse.createIndex(
-        "OrderByIndexReuseIndexFirstPropNotUnique", SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        "OrderByIndexReuseIndexFirstPropNotUnique", IndexType.NOT_UNIQUE,
         "firstProp");
 
     for (var i = 0; i < 100; i++) {

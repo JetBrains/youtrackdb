@@ -17,10 +17,10 @@ import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyLinkBagIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyMapIndexDefinition;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -99,7 +99,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateOnePropertyIndexTest() {
     oClass.createIndex(
         "ClassIndexTestPropertyOne",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fOne"});
     assertEquals(
@@ -116,7 +116,7 @@ public class ClassIndexTest extends BaseDBTest {
     try {
       oClass.createIndex(
           "ClassIndex:TestPropertyOne",
-          SchemaManager.INDEX_TYPE.UNIQUE,
+          IndexType.UNIQUE,
           Map.of("ignoreNullValues", true), "fOne");
       fail();
     } catch (Exception e) {
@@ -136,7 +136,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void createCompositeIndexTestWithoutListener() {
     oClass.createIndex(
         "ClassIndexTestCompositeOne",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fOne", "fTwo"});
 
@@ -173,7 +173,7 @@ public class ClassIndexTest extends BaseDBTest {
 
     oClass.createIndex(
         "ClassIndexTestCompositeTwo",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         progressListener,
         Map.of("ignoreNullValues", true),
         new String[]{"fOne", "fTwo", "fThree"});
@@ -191,7 +191,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateOnePropertyEmbeddedMapIndex() {
     oClass.createIndex(
         "ClassIndexTestPropertyEmbeddedMap",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fEmbeddedMap"});
 
@@ -221,7 +221,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateCompositeEmbeddedMapIndex() {
     oClass.createIndex(
         "ClassIndexTestCompositeEmbeddedMap",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fFifteen", "fEmbeddedMap"});
@@ -250,7 +250,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateCompositeEmbeddedMapByKeyIndex() {
     oClass.createIndex(
         "ClassIndexTestCompositeEmbeddedMapByKey",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fEight", "fEmbeddedMap"});
@@ -282,7 +282,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateCompositeEmbeddedMapByValueIndex() {
     oClass.createIndex(
         "ClassIndexTestCompositeEmbeddedMapByValue",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fTen", "fEmbeddedMap by value"});
@@ -314,7 +314,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateCompositeLinkMapByValueIndex() {
     oClass.createIndex(
         "ClassIndexTestCompositeLinkMapByValue",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fEleven", "fLinkMap by value"});
@@ -345,7 +345,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void testCreateCompositeEmbeddedSetIndex() {
     oClass.createIndex(
         "ClassIndexTestCompositeEmbeddedSet",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fTwelve", "fEmbeddedSet"});
@@ -378,7 +378,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestCompositeLinkSet";
     oClass.createIndex(
         "ClassIndexTestCompositeLinkSet",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fTwelve", "fLinkSet"});
@@ -410,7 +410,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestCompositeEmbeddedList";
     oClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fThirteen", "fEmbeddedList"});
@@ -442,7 +442,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestCompositeLinkList";
     oClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fFourteen", "fLinkList"});
@@ -472,7 +472,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestCompositeRidBag";
     oClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fFourteen", "fRidBag"});
@@ -502,7 +502,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestPropertyLinkedMap";
     oClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fLinkMap"});
 
@@ -532,7 +532,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestPropertyLinkedMapByKey";
     oClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fLinkMap by key"});
 
@@ -562,7 +562,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestPropertyLinkedMapByValue";
     oClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fLinkMap by value"});
 
@@ -593,7 +593,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestPropertyByKeyEmbeddedMap";
     oClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fEmbeddedMap by key"});
@@ -625,7 +625,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexTestPropertyByValueEmbeddedMap";
     oClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"fEmbeddedMap by value"});
@@ -658,7 +658,7 @@ public class ClassIndexTest extends BaseDBTest {
     try {
       oClass.createIndex(
           "ClassIndexTestPropertyWrongSpecifierEmbeddedMap",
-          SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+          IndexType.UNIQUE.toString(),
           null,
           Map.of("ignoreNullValues", true), new String[]{"fEmbeddedMap by ttt"});
     } catch (Exception e) {
@@ -680,7 +680,7 @@ public class ClassIndexTest extends BaseDBTest {
     try {
       oClass.createIndex(
           "ClassIndexTestPropertyWrongSpecifierEmbeddedMap",
-          SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+          IndexType.UNIQUE.toString(),
           null,
           Map.of("ignoreNullValues", true),
           new String[]{"fEmbeddedMap b value"});
@@ -698,7 +698,7 @@ public class ClassIndexTest extends BaseDBTest {
     try {
       oClass.createIndex(
           "ClassIndexTestPropertyWrongSpecifierEmbeddedMap",
-          SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+          IndexType.UNIQUE.toString(),
           null,
           Map.of("ignoreNullValues", true),
           new String[]{"fEmbeddedMap by value t"});
@@ -2116,7 +2116,7 @@ public class ClassIndexTest extends BaseDBTest {
     var indexName = "ClassIndexInTestPropertyOne";
     inClass.createIndex(
         indexName,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fOne"});
 
@@ -2134,14 +2134,14 @@ public class ClassIndexTest extends BaseDBTest {
 
   @Test(expectedExceptions = IndexException.class)
   public void testCreateIndexEmptyFields() {
-    oClass.createIndex("ClassIndexTestCompositeEmpty", SchemaManager.INDEX_TYPE.UNIQUE);
+    oClass.createIndex("ClassIndexTestCompositeEmpty", IndexType.UNIQUE);
   }
 
   @Test(expectedExceptions = IndexException.class)
   public void testCreateIndexAbsentFields() {
     oClass.createIndex(
         "ClassIndexTestCompositeFieldAbsent",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fFive"});
   }
@@ -2149,13 +2149,13 @@ public class ClassIndexTest extends BaseDBTest {
   @Test(dependsOnMethods = "testGetInvolvedIndexesOnePropertyArrayParams")
   public void testCreateNotUniqueIndex() {
     oClass.createIndex("ClassIndexTestNotUniqueIndex",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        IndexType.NOT_UNIQUE,
         "fOne");
 
     assertEquals(oClass.getClassIndex(session, "ClassIndexTestNotUniqueIndex").getName(),
         "ClassIndexTestNotUniqueIndex");
     var index = session.getIndex("ClassIndexTestNotUniqueIndex");
-    assertEquals(index.getType(), SchemaManager.INDEX_TYPE.NOTUNIQUE.toString());
+    assertEquals(index.getType(), IndexType.NOT_UNIQUE.toString());
   }
 
   @Test
@@ -2163,7 +2163,7 @@ public class ClassIndexTest extends BaseDBTest {
     try {
       oClass.createIndex(
           "ClassIndexMapWithoutLinkedTypeIndex",
-          SchemaManager.INDEX_TYPE.NOTUNIQUE, "fEmbeddedMapWithoutLinkedType by value");
+          IndexType.NOT_UNIQUE, "fEmbeddedMapWithoutLinkedType by value");
       fail();
     } catch (IndexException e) {
       assertTrue(
@@ -2177,7 +2177,7 @@ public class ClassIndexTest extends BaseDBTest {
   public void createParentPropertyIndex() {
     oSuperClass.createIndex(
         "ClassIndexTestParentPropertyNine",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"fNine"});
 

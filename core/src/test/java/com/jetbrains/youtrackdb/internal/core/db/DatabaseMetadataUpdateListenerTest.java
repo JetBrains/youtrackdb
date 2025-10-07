@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
 import java.util.Locale;
 import org.junit.After;
@@ -102,7 +102,7 @@ public class DatabaseMetadataUpdateListenerTest {
     session
         .createClass("Some")
         .createProperty("test", PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
     assertEquals(1, indexManagerUpdateCount);
   }
 

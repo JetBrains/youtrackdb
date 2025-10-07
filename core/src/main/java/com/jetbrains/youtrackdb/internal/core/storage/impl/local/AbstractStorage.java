@@ -87,9 +87,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.query.live.YTLiveQueryMonitorEmbedded;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -730,11 +729,11 @@ public abstract class AbstractStorage
 
   @Nonnull
   private BTreeIndexEngine newIndexEngineInstance(@Nonnull IndexEngineData engineData) {
-    var indexType = SchemaManager.INDEX_TYPE.valueOf(engineData.getIndexType());
+    var indexType = IndexType.valueOf(engineData.getIndexType());
     return switch (indexType) {
       case UNIQUE -> new BTreeSingleValueIndexEngine(engineData.getIndexId(), engineData.getName(),
           this, engineData.getVersion());
-      case NOTUNIQUE ->
+      case NOT_UNIQUE ->
           new BTreeMultiValueIndexEngine(engineData.getIndexId(), engineData.getName(), this,
               engineData.getVersion());
 
@@ -2179,7 +2178,7 @@ public abstract class AbstractStorage
                       false,
                       BTreeIndexEngine.VERSION,
                       BTreeIndexEngine.API_VERSION,
-                      indexEntity.getIndexType() != INDEX_TYPE.UNIQUE,
+                      indexEntity.getIndexType() != IndexType.UNIQUE,
                       valueSerializerId,
                       keySerializer.getId(),
                       true,

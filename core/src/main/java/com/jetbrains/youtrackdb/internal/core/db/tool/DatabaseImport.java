@@ -39,10 +39,10 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Identity;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
@@ -941,7 +941,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
     cls.createProperty("key", PropertyTypeInternal.STRING);
     cls.createProperty("value", PropertyTypeInternal.STRING);
-    cls.createIndex(EXPORT_IMPORT_CLASS_NAME + "_key_unique", SchemaManager.INDEX_TYPE.UNIQUE,
+    cls.createIndex(EXPORT_IMPORT_CLASS_NAME + "_key_unique", IndexType.UNIQUE,
         "key");
     final var begin = System.currentTimeMillis();
 

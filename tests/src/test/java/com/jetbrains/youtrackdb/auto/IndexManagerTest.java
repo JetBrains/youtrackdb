@@ -13,9 +13,9 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -55,7 +55,7 @@ public class IndexManagerTest extends BaseDBTest {
         indexManager.createIndex(
             session,
             "propertyone",
-            SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+            IndexType.UNIQUE.toString(),
             new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
             new int[]{session.getCollectionIdByName(CLASS_NAME)},
             null,
@@ -81,7 +81,7 @@ public class IndexManagerTest extends BaseDBTest {
         indexManager.createIndex(
             session,
             "compositeone",
-            SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+            IndexType.NOT_UNIQUE.toString(),
             new CompositeIndexDefinition(
                 CLASS_NAME,
                 Arrays.asList(
@@ -134,7 +134,7 @@ public class IndexManagerTest extends BaseDBTest {
         indexManager.createIndex(
             session,
             "compositetwo",
-            SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+            IndexType.NOT_UNIQUE.toString(),
             new CompositeIndexDefinition(
                 CLASS_NAME,
                 Arrays.asList(
@@ -608,7 +608,7 @@ public class IndexManagerTest extends BaseDBTest {
     indexManager.createIndex(
         session,
         className + "_indexOne_notunique",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+        IndexType.NOT_UNIQUE.toString(),
         new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
         oClass.getCollectionIds(),
         null,
@@ -617,7 +617,7 @@ public class IndexManagerTest extends BaseDBTest {
     indexManager.createIndex(
         session,
         className + "_indexOneTwo_notunique",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+        IndexType.NOT_UNIQUE.toString(),
         new CompositeIndexDefinition(
             className,
             Arrays.asList(
@@ -630,7 +630,7 @@ public class IndexManagerTest extends BaseDBTest {
     indexManager.createIndex(
         session,
         className + "_indexOneTwoThree_notunique",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+        IndexType.NOT_UNIQUE.toString(),
         new CompositeIndexDefinition(
             className,
             Arrays.asList(
@@ -756,7 +756,7 @@ public class IndexManagerTest extends BaseDBTest {
     indexManager.createIndex(
         session,
         "anotherproperty",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
         new int[]{session.getCollectionIdByName(CLASS_NAME)},
         null,
@@ -782,7 +782,7 @@ public class IndexManagerTest extends BaseDBTest {
     indexManager.createIndex(
         session,
         "twoclassproperty",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         new PropertyIndexDefinition("indexManagerTestClassTwo", "fOne",
             PropertyTypeInternal.INTEGER),
         new int[]{session.getCollectionIdByName("indexManagerTestClassTwo")},

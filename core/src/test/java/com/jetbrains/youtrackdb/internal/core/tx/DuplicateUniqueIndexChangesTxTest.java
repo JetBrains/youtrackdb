@@ -23,7 +23,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -41,7 +41,7 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
     var indexName =
         class_
             .createProperty("name", PropertyType.STRING)
-            .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+            .createIndex(IndexType.UNIQUE);
     index = session.getIndex(indexName);
   }
 

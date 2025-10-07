@@ -6,8 +6,8 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -71,7 +71,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     superClass.createProperty("prop0", PropertyType.STRING);
     superClass.createIndex(
         "classIndexManagerTestSuperClass.prop0",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"prop0"});
@@ -80,34 +80,34 @@ public class ClassIndexManagerTest extends BaseDBTest {
     oClass.createProperty("prop1", PropertyType.STRING);
     oClass.createIndex(
         "classIndexManagerTestClass.prop1",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"prop1"});
 
     final var propTwo = oClass.createProperty("prop2", PropertyType.INTEGER);
-    propTwo.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+    propTwo.createIndex(IndexType.NOT_UNIQUE);
 
     oClass.createProperty("prop3", PropertyType.BOOLEAN);
 
     final var propFour = oClass.createProperty("prop4", PropertyType.EMBEDDEDLIST,
         PropertyType.STRING);
-    propFour.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+    propFour.createIndex(IndexType.NOT_UNIQUE);
 
     oClass.createProperty("prop5", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
     oClass.createIndex("classIndexManagerTestIndexByKey",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        IndexType.NOT_UNIQUE,
         "prop5");
     oClass.createIndex(
-        "classIndexManagerTestIndexByValue", SchemaManager.INDEX_TYPE.NOTUNIQUE, "prop5 by value");
+        "classIndexManagerTestIndexByValue", IndexType.NOT_UNIQUE, "prop5 by value");
 
     final var propSix = oClass.createProperty("prop6", PropertyType.EMBEDDEDSET,
         PropertyType.STRING);
-    propSix.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+    propSix.createIndex(IndexType.NOT_UNIQUE);
 
     oClass.createIndex(
         "classIndexManagerComposite",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true), new String[]{"prop1", "prop2"});
 
@@ -123,7 +123,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     compositeCollectionClass.createIndex(
         "classIndexManagerTestIndexValueAndCollection",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"prop1", "prop2"});
@@ -135,7 +135,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     compositeTwoCollectionClass.createProperty("prop2", PropertyType.EMBEDDEDLIST,
         PropertyType.INTEGER);
     compositeTwoCollectionClass.createIndex(COMPOSITE_TWO_COLLECTIONS_INDEX,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{PROP_1, PROP_2});
@@ -149,14 +149,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
     compositeTwoCollectionPrimitiveClass.createProperty(PROP_3, PropertyType.INTEGER);
 
     compositeTwoCollectionPrimitiveClass.createIndex(COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX,
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{PROP_1, PROP_2, PROP_3});
 
     oClass.createIndex(
         "classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"prop0", "prop1"});

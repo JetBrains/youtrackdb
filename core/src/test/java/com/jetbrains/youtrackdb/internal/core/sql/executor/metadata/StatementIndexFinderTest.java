@@ -10,8 +10,8 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ParseException;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
@@ -46,7 +46,7 @@ public class StatementIndexFinderTest {
   public void simpleMatchTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     var stat = parseQuery("select from cl where name='a'");
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -60,7 +60,7 @@ public class StatementIndexFinderTest {
   public void simpleRangeTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     var stat = parseQuery("select from cl where name > 'a'");
 
@@ -81,7 +81,7 @@ public class StatementIndexFinderTest {
   public void multipleSimpleAndMatchTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     var stat = parseQuery("select from cl where name='a' and name='b'");
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -99,7 +99,7 @@ public class StatementIndexFinderTest {
   public void requiredRangeOrMatchTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     var stat = parseQuery("select from cl where name='a' or name='b'");
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -117,7 +117,7 @@ public class StatementIndexFinderTest {
   public void multipleRangeAndTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -136,7 +136,7 @@ public class StatementIndexFinderTest {
   public void requiredRangeOrTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -155,7 +155,7 @@ public class StatementIndexFinderTest {
   public void simpleRangeNotTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -170,9 +170,9 @@ public class StatementIndexFinderTest {
   public void simpleChainTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
     var prop1 = cl.createProperty("friend", PropertyTypeInternal.LINK, cl);
-    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop1.createIndex(IndexType.NOT_UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -187,9 +187,9 @@ public class StatementIndexFinderTest {
   public void simpleNestedAndOrMatchTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
     var prop1 = cl.createProperty("friend", PropertyTypeInternal.LINK, cl);
-    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop1.createIndex(IndexType.NOT_UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -220,7 +220,7 @@ public class StatementIndexFinderTest {
   public void simpleNestedAndOrPartialMatchTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -246,9 +246,9 @@ public class StatementIndexFinderTest {
   public void simpleNestedOrNotMatchTest() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     var prop = cl.createProperty("name", PropertyTypeInternal.STRING);
-    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
     var prop1 = cl.createProperty("friend", PropertyTypeInternal.LINK, cl);
-    prop1.createIndex(INDEX_TYPE.NOTUNIQUE);
+    prop1.createIndex(IndexType.NOT_UNIQUE);
 
     IndexFinder finder = new ClassIndexFinder("cl");
     var ctx = new BasicCommandContext(session);
@@ -267,7 +267,7 @@ public class StatementIndexFinderTest {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     cl.createProperty("name", PropertyTypeInternal.STRING);
     cl.createProperty("surname", PropertyTypeInternal.STRING);
-    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createIndex("cl.name_surname", IndexType.NOT_UNIQUE, "name", "surname");
 
     var stat = parseQuery("select from cl where name = 'a' and surname = 'b'");
 
@@ -285,7 +285,7 @@ public class StatementIndexFinderTest {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     cl.createProperty("name", PropertyTypeInternal.STRING);
     cl.createProperty("surname", PropertyTypeInternal.STRING);
-    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createIndex("cl.name_surname", IndexType.NOT_UNIQUE, "name", "surname");
 
     var stat = parseQuery("select from cl where name = 'a' and other = 'b'");
 
@@ -304,7 +304,7 @@ public class StatementIndexFinderTest {
     cl.createProperty("name", PropertyTypeInternal.STRING);
     cl.createProperty("surname", PropertyTypeInternal.STRING);
     cl.createProperty("other", PropertyTypeInternal.STRING);
-    cl.createIndex("cl.name_surname_other", INDEX_TYPE.NOTUNIQUE, "name", "surname",
+    cl.createIndex("cl.name_surname_other", IndexType.NOT_UNIQUE, "name", "surname",
         "other");
 
     var stat = parseQuery("select from cl where surname = 'a' and other = 'b'");
@@ -322,7 +322,7 @@ public class StatementIndexFinderTest {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     cl.createProperty("name", PropertyTypeInternal.STRING);
     cl.createProperty("surname", PropertyTypeInternal.STRING);
-    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createIndex("cl.name_surname", IndexType.NOT_UNIQUE, "name", "surname");
 
     var stat = parseQuery("select from cl where surname = 'a'");
 
@@ -339,7 +339,7 @@ public class StatementIndexFinderTest {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     cl.createProperty("name", PropertyTypeInternal.STRING);
     cl.createProperty("surname", PropertyTypeInternal.STRING);
-    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createIndex("cl.name_surname", IndexType.NOT_UNIQUE, "name", "surname");
 
     var stat =
         parseQuery(
@@ -365,7 +365,7 @@ public class StatementIndexFinderTest {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     cl.createProperty("name", PropertyTypeInternal.STRING);
     cl.createProperty("surname", PropertyTypeInternal.STRING);
-    cl.createIndex("cl.name_surname", INDEX_TYPE.NOTUNIQUE, "name", "surname");
+    cl.createIndex("cl.name_surname", IndexType.NOT_UNIQUE, "name", "surname");
 
     var stat =
         parseQuery(
@@ -383,7 +383,7 @@ public class StatementIndexFinderTest {
   public void testMutipleConditionBetween() {
     var cl = this.session.getMetadata().getSlowMutableSchema().createClass("cl");
     cl.createProperty("name", PropertyTypeInternal.STRING);
-    cl.createIndex("cl.name", INDEX_TYPE.NOTUNIQUE, "name");
+    cl.createIndex("cl.name", IndexType.NOT_UNIQUE, "name");
 
     var stat = parseQuery("select from cl where name < 'a' and name > 'b'");
     IndexFinder finder = new ClassIndexFinder("cl");

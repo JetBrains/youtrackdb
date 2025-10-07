@@ -25,8 +25,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.schedule.Scheduler.STATUS;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -171,7 +171,7 @@ public class SchedulerImpl {
     );
     p.setMandatory(true);
     p.setNotNull(true);
-    f.createIndex(ScheduledEvent.PROP_NAME + "Index", SchemaManager.INDEX_TYPE.UNIQUE,
+    f.createIndex(ScheduledEvent.PROP_NAME + "Index", IndexType.UNIQUE,
         ScheduledEvent.PROP_NAME);
 
     p = f.createProperty(ScheduledEvent.PROP_RULE, PropertyTypeInternal.STRING,

@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -41,7 +41,7 @@ public class LiveIndexRebuildTest {
         db.executeInTx(transaction -> {
           final var clazz = db.getSchema().createClass(className);
           clazz.createProperty(propertyName, PropertyType.INTEGER);
-          clazz.createIndex(indexName, SchemaManager.INDEX_TYPE.UNIQUE, propertyName);
+          clazz.createIndex(indexName, IndexType.UNIQUE, propertyName);
 
           for (var i = 0; i < 1000000; i++) {
             var document = transaction.newEntity(className);

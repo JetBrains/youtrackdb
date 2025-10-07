@@ -2,8 +2,8 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -25,7 +25,7 @@ public class IndexTxTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var cls = schema.createClass("IndexTxTestClass");
     cls.createProperty("name", PropertyType.STRING);
-    cls.createIndex("IndexTxTestIndex", SchemaManager.INDEX_TYPE.UNIQUE, "name");
+    cls.createIndex("IndexTxTestIndex", IndexType.UNIQUE, "name");
   }
 
   @Override

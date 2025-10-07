@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
@@ -45,7 +45,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEnti
   }
 
   @Override
-  public String createIndex(INDEX_TYPE iType) {
+  public String createIndex(IndexType iType) {
     var declaringClass = delegate.getDeclaringClass();
     var indexName = delegate.getFullName();
     SchemaManager.createIndex(delegate.getSession(), declaringClass, delegate.getFullName(), iType,
@@ -54,7 +54,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEnti
   }
 
   @Override
-  public String createIndex(INDEX_TYPE iType, Map<String, Object> metadata) {
+  public String createIndex(IndexType iType, Map<String, Object> metadata) {
     var declaringClass = delegate.getDeclaringClass();
     var indexName = delegate.getFullName();
     SchemaManager.createIndex(delegate.getSession(), declaringClass, delegate.getFullName(), iType,

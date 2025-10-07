@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.auto;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Iterator;
 import java.util.Map;
@@ -24,10 +24,10 @@ public class LinkMapIndexTest extends BaseDBTest {
         session.getMetadata().getSlowMutableSchema().createClass("LinkMapIndexTestClass");
     linkMapIndexTestClass.createProperty("linkMap", PropertyType.LINKMAP);
 
-    linkMapIndexTestClass.createIndex("mapIndexTestKey", SchemaManager.INDEX_TYPE.NOTUNIQUE,
+    linkMapIndexTestClass.createIndex("mapIndexTestKey", IndexType.NOT_UNIQUE,
         "linkMap");
     linkMapIndexTestClass.createIndex(
-        "mapIndexTestValue", SchemaManager.INDEX_TYPE.NOTUNIQUE, "linkMap by value");
+        "mapIndexTestValue", IndexType.NOT_UNIQUE, "linkMap by value");
   }
 
   @AfterClass

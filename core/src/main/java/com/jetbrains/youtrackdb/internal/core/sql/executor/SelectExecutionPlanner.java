@@ -12,10 +12,10 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -1974,7 +1974,7 @@ public class SelectExecutionPlanner {
 
     var fullTextIndexDescriptors =
         indexes.stream()
-            .filter(idx -> idx.getType() == INDEX_TYPE.FULLTEXT)
+            .filter(idx -> idx.getType() == IndexType.FULL_TEXT)
             .map(idx -> buildIndexSearchDescriptorForFulltext(idx, block))
             .filter(Objects::nonNull)
             .filter(x -> x.getKeyCondition() != null)

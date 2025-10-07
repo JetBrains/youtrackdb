@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIndexIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIndexName;
@@ -46,7 +46,7 @@ public class CountFromIndexStepTest extends TestUtilsFixture {
     clazz.createProperty(PROPERTY_NAME, PropertyType.STRING);
     var className = clazz.getName();
     indexName = className + "." + PROPERTY_NAME;
-    clazz.createIndex(indexName, SchemaManager.INDEX_TYPE.NOTUNIQUE, PROPERTY_NAME);
+    clazz.createIndex(indexName, IndexType.NOT_UNIQUE, PROPERTY_NAME);
 
     for (var i = 0; i < 20; i++) {
       session.begin();

@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -39,7 +39,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     schema
         .createClass(className)
         .createProperty(propertyName, PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
 
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     var result = session.execute("drop property " + className + "." + propertyName + " force");
@@ -64,7 +64,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     schema
         .createClass(className)
         .createProperty(propertyName, PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
 
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     try {

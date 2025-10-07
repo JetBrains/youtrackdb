@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.ValueModifier;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
@@ -14,7 +14,7 @@ public class SchemaIndexSnapshot implements SchemaIndex {
   private final IndexDefinition indexDefinition;
   private final int id;
   private final String name;
-  private final INDEX_TYPE type;
+  private final IndexType type;
 
   public SchemaIndexSnapshot(SchemaIndexEntity entity) {
     name = entity.getName();
@@ -32,7 +32,7 @@ public class SchemaIndexSnapshot implements SchemaIndex {
       var propertyModifierPair = propertiesToIndex.next();
       var property = propertyModifierPair.first();
       var modifier = propertyModifierPair.second();
-      if (modifier == ValueModifier.NONE) {
+      if (modifier == ValueModifier.BY_VALUE) {
         propertyNames.add(property.getName());
       } else {
         propertyNames.add(property.getName() + " by  " + modifier.name());
@@ -69,7 +69,7 @@ public class SchemaIndexSnapshot implements SchemaIndex {
   }
 
   @Override
-  public INDEX_TYPE getType() {
+  public IndexType getType() {
     return type;
   }
 }

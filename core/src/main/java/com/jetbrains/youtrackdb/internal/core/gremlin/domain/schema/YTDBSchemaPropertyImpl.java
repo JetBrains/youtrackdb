@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
@@ -9,7 +10,9 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbs
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
@@ -253,6 +256,21 @@ public class YTDBSchemaPropertyImpl extends
   public void description(String description) {
     var entity = propertyWritePreprocessing();
     entity.setDescription(description);
+  }
+
+  @Override
+  public YTDBSchemaIndex createIndex(
+      YTDBSchemaIndex.IndexType indexType) {
+    var entity = propertyWritePreprocessing();
+
+    var fullName = entity.getFullName();
+    var session = graph.tx().getDatabaseSession();
+
+    var declaringClass = entity.getDeclaringClass();
+    var indexEntity = SchemaManager.createIndex(session, declaringClass, fullName,
+        IndexType.fromPublicIndexType(indexType), entity.getName());
+
+    return new YTDBSchemaIndexImpl(graph, indexEntity);
   }
 
   @SuppressWarnings("rawtypes")

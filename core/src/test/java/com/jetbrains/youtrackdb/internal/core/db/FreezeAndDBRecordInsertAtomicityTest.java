@@ -20,13 +20,12 @@
 
 package com.jetbrains.youtrackdb.internal.core.db;
 
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
@@ -68,7 +67,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
         .getSlowMutableSchema()
         .createClass("Person")
         .createProperty("name", PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+        .createIndex(IndexType.UNIQUE);
 
     executorService = Executors.newFixedThreadPool(THREADS);
     countDownLatch = new CountDownLatch(THREADS);

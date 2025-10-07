@@ -20,10 +20,10 @@ public class GraphIndexTest extends GraphBaseTest {
 
   @Test
   public void vertexUniqueConstraint() {
-    var schema = session.getSchema();
-    var cls = schema.createVertexClass(vertexLabel1);
-    var property = cls.createProperty(key, PropertyType.STRING);
-    property.createIndex(INDEX_TYPE.UNIQUE);
+    graph.executeInTx(g -> {
+      g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING);
+      property.createIndex(INDEX_TYPE.UNIQUE);
+    });
 
     var value = "value1";
 

@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -26,7 +26,7 @@ public class LinkListIndexTest extends BaseDBTest {
     linkListIndexTestClass.createProperty("linkCollection", PropertyType.LINKLIST);
 
     linkListIndexTestClass.createIndex(
-        "linkCollectionIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "linkCollection");
+        "linkCollectionIndex", IndexType.NOT_UNIQUE, "linkCollection");
   }
 
   @AfterClass

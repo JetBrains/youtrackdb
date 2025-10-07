@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.index.StorageComponentId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaGlobalPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
@@ -299,18 +300,18 @@ public final class SchemaManager {
     return propertyEntity;
   }
 
-  public static void createIndex(
+  public static SchemaIndexEntity createIndex(
       @Nonnull final DatabaseSessionEmbedded session,
       @Nonnull final SchemaClassEntity schemaClassEntity,
       @Nonnull final String indexName,
-      @Nonnull final INDEX_TYPE indexType,
+      @Nonnull final IndexType indexType,
       final String... properties) {
     if (properties.length == 0) {
       throw new DatabaseException(session,
           "Index" + indexName + " must have at least one property.");
     }
 
-    createIndexEntityInternal(session, schemaClassEntity, indexName, indexType, properties);
+    return createIndexEntityInternal(session, schemaClassEntity, indexName, indexType, properties);
   }
 
 
@@ -318,7 +319,7 @@ public final class SchemaManager {
       @Nonnull DatabaseSessionEmbedded session,
       @Nonnull final SchemaClassEntity schemaClassEntity,
       @Nonnull String indexName,
-      @Nonnull INDEX_TYPE indexType,
+      @Nonnull IndexType indexType,
       @Nonnull Map<String, Object> metadata,
       String... properties) {
     if (properties.length == 0) {
@@ -334,7 +335,7 @@ public final class SchemaManager {
   private static SchemaIndexEntity createIndexEntityInternal(
       @Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaClassEntity schemaClassEntity,
-      @Nonnull String indexName, @Nonnull INDEX_TYPE indexType,
+      @Nonnull String indexName, @Nonnull IndexType indexType,
       String[] properties) {
     var entity = session.newSchemaIndexEntity();
     entity.setName(indexName);
@@ -1041,13 +1042,6 @@ public final class SchemaManager {
     var globalProperty = findOrCreateGlobalProperty(session, entity.getName(),
         entity.getPropertyType());
     entity.setGlobalPropertyLink(globalProperty);
-  }
-
-  public enum INDEX_TYPE {
-    UNIQUE,
-    NOTUNIQUE,
-    FULLTEXT,
-    SPATIAL
   }
 
   private static void checkPersistentPropertyType(

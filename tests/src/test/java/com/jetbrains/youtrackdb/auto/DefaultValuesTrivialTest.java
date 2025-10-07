@@ -9,8 +9,8 @@ import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Date;
 import java.util.Set;
@@ -153,7 +153,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
 
     var prop = classB.createProperty("name", PropertyType.STRING);
     prop.setDefaultValue("default name");
-    prop.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     session.executeInTx(tx -> {
       var doc = ((EntityImpl) session.newEntity(classB));
@@ -176,7 +176,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
     var prop = classD.createProperty("name", PropertyType.STRING);
     prop.setDefaultValue("default name");
     classD.createProperty("value", PropertyType.STRING);
-    classD.createIndex("multi", SchemaManager.INDEX_TYPE.NOTUNIQUE, "value",
+    classD.createIndex("multi", IndexType.NOT_UNIQUE, "value",
         "name");
     var index = session.getIndex("multi");
 

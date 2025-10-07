@@ -8,8 +8,8 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.io.IOException;
@@ -70,7 +70,7 @@ public class StorageBackupTestWithLuceneIndex {
 
     backupClass.createIndex(
         "backupLuceneIndex",
-        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
+        IndexType.FULL_TEXT.toString(),
         null,
         new String[]{"name"});
 
@@ -123,7 +123,7 @@ public class StorageBackupTestWithLuceneIndex {
 
     backupClass.createIndex(
         "backupLuceneIndex",
-        SchemaManager.INDEX_TYPE.FULLTEXT.toString(),
+        IndexType.FULL_TEXT.toString(),
         null,
         new String[]{"name"});
 

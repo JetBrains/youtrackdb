@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.After;
 import org.junit.Before;
@@ -35,7 +35,7 @@ public class TransactionQueryIndexTests {
   public void test() {
     var clazz = database.createClass("test");
     var prop = clazz.createProperty("test", PropertyType.STRING);
-    prop.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
 
     database.begin();
     EntityImpl doc = database.newInstance("test");
@@ -55,7 +55,7 @@ public class TransactionQueryIndexTests {
     var clazz = database.createClass("Test2");
     clazz.createProperty("foo", PropertyType.STRING);
     clazz.createProperty("bar", PropertyType.STRING);
-    clazz.createIndex("Test2.foo_bar", SchemaManager.INDEX_TYPE.NOTUNIQUE, "foo", "bar");
+    clazz.createIndex("Test2.foo_bar", IndexType.NOT_UNIQUE, "foo", "bar");
 
     database.begin();
     EntityImpl doc = database.newInstance("Test2");

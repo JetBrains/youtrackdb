@@ -11,8 +11,8 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import java.util.Arrays;
@@ -374,14 +374,14 @@ public abstract class BaseDBTest extends BaseTest {
     cls.createProperty("nick", PropertyType.STRING)
         .setMin("3")
         .setMax("30")
-        .createIndex(SchemaManager.INDEX_TYPE.UNIQUE,
+        .createIndex(IndexType.UNIQUE,
             Map.of("ignoreNullValues", true));
     cls.createProperty("followings", PropertyType.LINKSET, cls);
     cls.createProperty("followers", PropertyType.LINKSET, cls);
     cls.createProperty("name", PropertyType.STRING)
         .setMin("3")
         .setMax("30")
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
 
     cls.createProperty("surname", PropertyType.STRING).setMin("3")
         .setMax("30");

@@ -17,8 +17,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.util.ArrayList;
@@ -199,9 +199,9 @@ public class StorageBackupMTStateTest {
     cls.createProperty("stringValue", PropertyType.STRING);
     cls.createProperty("linkedDocuments", PropertyType.LINKBAG);
 
-    cls.createIndex(cls.getName() + "IdIndex", SchemaManager.INDEX_TYPE.UNIQUE, "id");
+    cls.createIndex(cls.getName() + "IdIndex", IndexType.UNIQUE, "id");
     cls.createIndex(
-        cls.getName() + "IntValueIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "intValue");
+        cls.getName() + "IntValueIndex", IndexType.NOT_UNIQUE, "intValue");
 
     classInstancesCounters.put(cls.getName(), new AtomicInteger());
 

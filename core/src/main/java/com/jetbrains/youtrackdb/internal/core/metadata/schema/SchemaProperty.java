@@ -21,7 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 
 import com.jetbrains.youtrackdb.api.schema.Collate;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.Map;
 import javax.annotation.Nullable;
 
@@ -76,7 +76,7 @@ public interface SchemaProperty extends ImmutableSchemaProperty {
    *                <li>NOTUNIQUE: Allow duplicates
    *              </ul>
    */
-  String createIndex(final INDEX_TYPE iType);
+  String createIndex(final IndexType iType);
 
   /**
    * Creates an index on this property. Indexes speed up queries but slow down insert and update
@@ -92,7 +92,7 @@ public interface SchemaProperty extends ImmutableSchemaProperty {
    * @param metadata the index metadata
    * @return Index name
    */
-  String createIndex(INDEX_TYPE iType, Map<String, Object> metadata);
+  String createIndex(IndexType iType, Map<String, Object> metadata);
 
   void setRegexp(String regexp);
 

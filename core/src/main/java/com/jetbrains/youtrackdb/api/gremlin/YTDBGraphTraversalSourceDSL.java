@@ -1,13 +1,22 @@
 package com.jetbrains.youtrackdb.api.gremlin;
 
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassOutToken.superClass;
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken.abstractClass;
+import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken.name;
+
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import javax.annotation.Nonnull;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexStartStep;
 import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
 
@@ -32,6 +41,71 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     }
     return (YTDBGraphTraversalSource) with(key.name(), value);
   }
+
+  public YTDBGraphTraversal<Vertex, Vertex> addSchemaClass(String className) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
+
+    var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
+    traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
+    traversal.property(name, className);
+
+    return traversal;
+  }
+
+  public YTDBGraphTraversal<Vertex, Vertex> addSchemaClass(String className,
+      String... parentClasses) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
+
+    var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
+    traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
+
+    return traversal.addV(YTDBSchemaClass.LABEL).as("result")
+        .addE(superClass).to(__.V().hasLabel(YTDBSchemaClass.LABEL).
+            has(name, P.within(parentClasses)))
+        .select("result");
+  }
+
+  public YTDBGraphTraversal<Vertex, Vertex> addAbstractSchemaClass(String className) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
+
+    var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
+    traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
+
+    return traversal.property(name, className, abstractClass, true);
+  }
+
+  public YTDBGraphTraversal<Vertex, Vertex> addAbstractSchemaClass(String className,
+      String... superClasses) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
+
+    var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
+    traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
+
+    return traversal.as("result").
+        property(name, className, abstractClass, true).
+        addE(superClass).to(__.V()
+            .hasLabel(YTDBSchemaClass.LABEL).has(name, P.within(superClasses)))
+        .select("result");
+  }
+
+  public YTDBGraphTraversal<Vertex, Vertex> addStateFullEdgeClass(String className) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+    clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
+
+    var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
+    traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
+
+    return traversal.addV(YTDBSchemaClass.LABEL).as("result").
+        addE(superClass).to(
+            __.V().hasLabel(YTDBSchemaClass.LABEL)
+                .has(name, P.eq(YTDBSchemaClass.EDGE_CLASS_NAME))
+        ).select("result");
+  }
+
 
   public YTDBGraphTraversalSource with(final YTDBQueryConfigParam key) {
     return with(key, true);

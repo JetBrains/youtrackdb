@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.auto;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -26,7 +26,7 @@ public class LinkBagIndexTest extends BaseDBTest {
 
     ridBagIndexTestClass.createProperty("ridBag", PropertyType.LINKBAG);
 
-    ridBagIndexTestClass.createIndex("ridBagIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE,
+    ridBagIndexTestClass.createIndex("ridBagIndex", IndexType.NOT_UNIQUE,
         "ridBag");
 
     session.close();

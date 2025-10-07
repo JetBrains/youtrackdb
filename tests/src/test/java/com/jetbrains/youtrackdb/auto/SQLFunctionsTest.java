@@ -25,7 +25,7 @@ import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.security.SecurityManager;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunctionAbstract;
@@ -130,7 +130,7 @@ public class SQLFunctionsTest extends BaseDBTest {
   public void queryCountWithConditions() {
     var indexed = session.getMetadata().getSlowMutableSchema().getOrCreateClass("Indexed");
     indexed.createProperty("key", PropertyType.STRING);
-    indexed.createIndex("keyed", SchemaManager.INDEX_TYPE.NOTUNIQUE, "key");
+    indexed.createIndex("keyed", IndexType.NOT_UNIQUE, "key");
 
     session.begin();
     session.newInstance("Indexed").setProperty("key", "one");

@@ -21,7 +21,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
@@ -143,7 +143,7 @@ public class TransactionAtomicTest extends BaseDBTest {
           .getSlowMutableSchema()
           .getClass("Fruit")
           .getProperty("color")
-          .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+          .createIndex(IndexType.UNIQUE);
     }
 
     Assert.assertEquals(session.countCollectionElements("Fruit"), 0);

@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -22,7 +22,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
         session.getMetadata().getSlowMutableSchema().createClass("ByteArrayKeyTest");
     byteArrayKeyTest.createProperty("byteArrayKey", PropertyType.BINARY);
 
-    byteArrayKeyTest.createIndex("byteArrayKeyIndex", SchemaManager.INDEX_TYPE.UNIQUE,
+    byteArrayKeyTest.createIndex("byteArrayKeyIndex", IndexType.UNIQUE,
         "byteArrayKey");
 
     final var compositeByteArrayKeyTest =
@@ -31,7 +31,7 @@ public class ByteArrayKeyTest extends BaseDBTest {
     compositeByteArrayKeyTest.createProperty("intKey", PropertyType.INTEGER);
 
     compositeByteArrayKeyTest.createIndex(
-        "compositeByteArrayKey", SchemaManager.INDEX_TYPE.UNIQUE, "byteArrayKey", "intKey");
+        "compositeByteArrayKey", IndexType.UNIQUE, "byteArrayKey", "intKey");
   }
 
   public void testAutomaticUsage() {

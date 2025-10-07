@@ -9,8 +9,8 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.Triple;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,7 +29,7 @@ public class UniqueIndexTest extends DbTestBase {
     entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
     entityClass.createProperty("type", PropertyType.STRING);
-    entityClass.createIndex("typeLink", SchemaManager.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createIndex("typeLink", IndexType.UNIQUE, "type",
         edgeOutPropertyName);
 
     session.begin();
@@ -68,7 +68,7 @@ public class UniqueIndexTest extends DbTestBase {
     entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
     entityClass.createProperty("type", PropertyType.STRING);
-    entityClass.createIndex("typeLink", SchemaManager.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createIndex("typeLink", IndexType.UNIQUE, "type",
         edgeOutPropertyName);
 
     session.begin();
@@ -96,7 +96,7 @@ public class UniqueIndexTest extends DbTestBase {
     entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
 
     entityClass.createProperty("type", PropertyType.STRING);
-    entityClass.createIndex("typeLink", SchemaManager.INDEX_TYPE.UNIQUE, "type",
+    entityClass.createIndex("typeLink", IndexType.UNIQUE, "type",
         edgeOutPropertyName);
 
     session.begin();
@@ -119,7 +119,7 @@ public class UniqueIndexTest extends DbTestBase {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
     var userClass = schema.createClass("User");
     userClass.createProperty("MailAddress", PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+        .createIndex(IndexType.UNIQUE);
 
     session.begin();
     var john = (EntityImpl) session.newEntity("User");
@@ -153,7 +153,7 @@ public class UniqueIndexTest extends DbTestBase {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
     var userClass = schema.createClass("User");
     userClass.createProperty("MailAddress", PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+        .createIndex(IndexType.UNIQUE);
 
     session.begin();
     var jane = (EntityImpl) session.newEntity("User");
@@ -200,7 +200,7 @@ public class UniqueIndexTest extends DbTestBase {
 
     // a unique index on the LINKBAG property
     aClass.createIndex(
-        "unique_index_123", SchemaManager.INDEX_TYPE.UNIQUE, "bLinks"
+        "unique_index_123", IndexType.UNIQUE, "bLinks"
     );
 
     // 2 entities with different "bLinks" fields.

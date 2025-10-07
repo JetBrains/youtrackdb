@@ -19,9 +19,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaProperty;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -30,7 +30,7 @@ import javax.annotation.Nullable;
 public record IndexMetadata(@Nonnull String name,
                             int indexId,
                             @Nonnull
-                            INDEX_TYPE type,
+                            IndexType type,
                             @Nonnull
                             IndexDefinition indexDefinition,
                             @Nonnull

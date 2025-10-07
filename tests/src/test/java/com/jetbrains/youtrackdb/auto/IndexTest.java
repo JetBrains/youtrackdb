@@ -26,8 +26,8 @@ import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -87,7 +87,7 @@ public class IndexTest extends BaseDBTest {
     Assert.assertEquals(
         session.getMetadata().getSlowMutableSchema().getClassInternal("Profile")
             .getInvolvedIndexesInternal(session, "nick").iterator().next().getType(),
-        SchemaManager.INDEX_TYPE.UNIQUE.toString());
+        IndexType.UNIQUE.toString());
     try (var resultSet =
         session.query(
             "SELECT * FROM Profile WHERE nick in ['ZZZJayLongNickIndex0'"
@@ -180,7 +180,7 @@ public class IndexTest extends BaseDBTest {
         .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
   }
 
   private void dropIndexes() {
@@ -210,7 +210,7 @@ public class IndexTest extends BaseDBTest {
           .getSlowMutableSchema()
           .getClass("Profile")
           .getProperty("nick")
-          .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+          .createIndex(IndexType.UNIQUE);
       Assert.fail();
     } catch (RecordDuplicatedException e) {
       Assert.assertTrue(true);
@@ -419,7 +419,7 @@ public class IndexTest extends BaseDBTest {
         .getSlowMutableSchema()
         .getClass("Profile")
         .getProperty("nick")
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
   }
 
   @Test(dependsOnMethods = {"createNotUniqueIndexOnNick", "populateIndexDocuments"})
@@ -428,7 +428,7 @@ public class IndexTest extends BaseDBTest {
         session.getMetadata().getFastImmutableSchema().getClass("Profile").
             getInvolvedIndexes("nick").iterator()
             .next().getType(),
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString());
+        IndexType.NOT_UNIQUE.toString());
 
     session.begin();
 
@@ -458,7 +458,7 @@ public class IndexTest extends BaseDBTest {
         .getSlowMutableSchema()
         .getClass("Whiz")
         .getProperty("account")
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
 
     session.begin();
     var resultSet = executeQuery("select * from Account limit 1");
@@ -512,9 +512,9 @@ public class IndexTest extends BaseDBTest {
             db.getMetadata().getSlowMutableSchema().createClass("TestLinkClass", 1);
         testClass
             .createProperty("testLink", PropertyType.LINK, testLinkClass)
-            .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+            .createIndex(IndexType.NOT_UNIQUE);
         testClass.createProperty("name", PropertyType.STRING)
-            .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+            .createIndex(IndexType.UNIQUE);
         testLinkClass.createProperty("testBoolean", PropertyType.BOOLEAN);
         testLinkClass.createProperty("testString", PropertyType.STRING);
       }
@@ -586,13 +586,13 @@ public class IndexTest extends BaseDBTest {
             .getSlowMutableSchema()
             .getClass("MyFruit")
             .getProperty("name")
-            .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+            .createIndex(IndexType.UNIQUE);
 
         db.getMetadata()
             .getSlowMutableSchema()
             .getClass("MyFruit")
             .getProperty("color")
-            .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+            .createIndex(IndexType.NOT_UNIQUE);
       }
 
       long expectedIndexSize = 0;
@@ -657,7 +657,7 @@ public class IndexTest extends BaseDBTest {
         termClass.createProperty("label", PropertyType.STRING);
         termClass.createIndex(
             "idxTerm",
-            SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+            IndexType.UNIQUE.toString(),
             null,
             Map.of("ignoreNullValues", true), new String[]{"label"});
       }
@@ -692,7 +692,7 @@ public class IndexTest extends BaseDBTest {
       termClass.createProperty("label", PropertyType.STRING);
       termClass.createIndex(
           "idxTransactionUniqueIndexTest",
-          SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+          IndexType.UNIQUE.toString(),
           null,
           Map.of("ignoreNullValues", true), new String[]{"label"});
     }
@@ -733,7 +733,7 @@ public class IndexTest extends BaseDBTest {
       termClass.createProperty("label", PropertyType.STRING);
       termClass.createIndex(
           "idxTransactionUniqueIndexTest",
-          SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+          IndexType.UNIQUE.toString(),
           null,
           Map.of("ignoreNullValues", true), new String[]{"label"});
     }
@@ -768,7 +768,7 @@ public class IndexTest extends BaseDBTest {
               .getSlowMutableSchema()
               .createClass("TransactionUniqueIndexWithDotTest");
       termClass.createProperty("label", PropertyType.STRING)
-          .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+          .createIndex(IndexType.UNIQUE);
     }
 
     db.begin();
@@ -812,7 +812,7 @@ public class IndexTest extends BaseDBTest {
               .getSlowMutableSchema()
               .createClass("TransactionUniqueIndexWithDotTest");
       termClass.createProperty("label", PropertyType.STRING)
-          .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+          .createIndex(IndexType.UNIQUE);
     }
 
     final var index =
@@ -882,7 +882,7 @@ public class IndexTest extends BaseDBTest {
 
         baseClass
             .createProperty("testParentProperty", PropertyType.LONG)
-            .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+            .createIndex(IndexType.NOT_UNIQUE);
       }
 
       db.begin();
@@ -925,7 +925,7 @@ public class IndexTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
     var cls = schema.createClass("IndexNotUniqueIndexKeySize");
     cls.createProperty("value", PropertyType.INTEGER);
-    cls.createIndex("IndexNotUniqueIndexKeySizeIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "value");
+    cls.createIndex("IndexNotUniqueIndexKeySizeIndex", IndexType.NOT_UNIQUE, "value");
 
     var idxManager = session.getSharedContext().getIndexManager();
 
@@ -954,7 +954,7 @@ public class IndexTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
     var cls = schema.createClass("IndexNotUniqueIndexSize");
     cls.createProperty("value", PropertyType.INTEGER);
-    cls.createIndex("IndexNotUniqueIndexSizeIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "value");
+    cls.createIndex("IndexNotUniqueIndexSizeIndex", IndexType.NOT_UNIQUE, "value");
 
     var idxManager = session.getSharedContext().getIndexManager();
     final var idx = idxManager.getIndex("IndexNotUniqueIndexSizeIndex");
@@ -1056,7 +1056,7 @@ public class IndexTest extends BaseDBTest {
 
     classTwo.createProperty("address", PropertyType.LINK, classOne);
 
-    classTwo.createIndex("CompoundSQLIndexTestIndex", SchemaManager.INDEX_TYPE.UNIQUE, "address");
+    classTwo.createIndex("CompoundSQLIndexTestIndex", IndexType.UNIQUE, "address");
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("CompoundSQLIndexTest1"));
@@ -1118,7 +1118,7 @@ public class IndexTest extends BaseDBTest {
 
     clazz.createIndex(
         "NullIndexKeysSupportIndex",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+        IndexType.NOT_UNIQUE.toString(),
         null,
         metadata, new String[]{"nullField"});
     for (var i = 0; i < 20; i++) {
@@ -1161,7 +1161,7 @@ public class IndexTest extends BaseDBTest {
 
     clazz.createIndex(
         "NullHashIndexKeysSupportIndex",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+        IndexType.NOT_UNIQUE.toString(),
         null,
         metadata, new String[]{"nullField"});
     for (var i = 0; i < 20; i++) {
@@ -1208,7 +1208,7 @@ public class IndexTest extends BaseDBTest {
 
     clazz.createIndex(
         "NullIndexKeysSupportInTxIndex",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+        IndexType.NOT_UNIQUE.toString(),
         null,
         metadata, new String[]{"nullField"});
 
@@ -1257,7 +1257,7 @@ public class IndexTest extends BaseDBTest {
 
     clazz.createIndex(
         "NullIndexKeysSupportInMiddleTxIndex",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.toString(),
+        IndexType.NOT_UNIQUE.toString(),
         null,
         metadata, new String[]{"nullField"});
 
@@ -1304,7 +1304,7 @@ public class IndexTest extends BaseDBTest {
     abstractClass
         .createProperty("value", PropertyType.STRING)
         .setMandatory(true)
-        .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+        .createIndex(IndexType.UNIQUE);
 
     schema.createClass("TestCreateIndexAbstractClassChildOne", abstractClass);
     schema.createClass("TestCreateIndexAbstractClassChildTwo", abstractClass);
@@ -1388,7 +1388,7 @@ public class IndexTest extends BaseDBTest {
           "PreservingIdentityInIndexTxChild");
       fieldClass.createProperty("name", PropertyType.STRING);
       fieldClass.createProperty("in_field", PropertyType.LINK);
-      fieldClass.createIndex("nameParentIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "in_field",
+      fieldClass.createIndex("nameParentIndex", IndexType.NOT_UNIQUE, "in_field",
           "name");
     }
 
@@ -1455,7 +1455,7 @@ public class IndexTest extends BaseDBTest {
     emptyNotUniqueIndexClazz.createProperty("prop", PropertyType.STRING);
 
     emptyNotUniqueIndexClazz.createIndex(
-        "EmptyNotUniqueIndexTestIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "prop");
+        "EmptyNotUniqueIndexTestIndex", IndexType.NOT_UNIQUE, "prop");
     final var notUniqueIndex = session.getIndex("EmptyNotUniqueIndexTestIndex");
 
     session.begin();
@@ -1503,7 +1503,7 @@ public class IndexTest extends BaseDBTest {
 
     testNullIteration.createIndex(
         "NullIterationTestIndex",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE.name(),
+        IndexType.NOT_UNIQUE.name(),
         null,
         metadata, new String[]{"birth"});
 
@@ -1547,7 +1547,7 @@ public class IndexTest extends BaseDBTest {
     var mt = Map.<String, Object>of("ignoreNullValues", false);
     clazz.createIndex(
         "MultikeyWithoutFieldIndex",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         mt, new String[]{"state", "users", "time", "reg", "no"});
 
@@ -1756,7 +1756,7 @@ public class IndexTest extends BaseDBTest {
 
     clazz.createIndex(
         "MultikeyWithoutFieldIndexNoNullSupport",
-        SchemaManager.INDEX_TYPE.UNIQUE.toString(),
+        IndexType.UNIQUE.toString(),
         null,
         Map.of("ignoreNullValues", true),
         new String[]{"state", "users", "time", "reg", "no"});
@@ -1927,7 +1927,7 @@ public class IndexTest extends BaseDBTest {
 
     var nullSBTreeClass = session.getSchema().createClass("NullValuesCountSBTreeUnique");
     nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
-    nullSBTreeClass.createIndex("NullValuesCountSBTreeUniqueIndex", SchemaManager.INDEX_TYPE.UNIQUE,
+    nullSBTreeClass.createIndex("NullValuesCountSBTreeUniqueIndex", IndexType.UNIQUE,
         "field");
 
     session.begin();
@@ -1960,7 +1960,7 @@ public class IndexTest extends BaseDBTest {
             .createClass("NullValuesCountSBTreeNotUniqueOne");
     nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
     nullSBTreeClass.createIndex(
-        "NullValuesCountSBTreeNotUniqueOneIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "field");
+        "NullValuesCountSBTreeNotUniqueOneIndex", IndexType.NOT_UNIQUE, "field");
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueOne"));
@@ -1992,7 +1992,7 @@ public class IndexTest extends BaseDBTest {
             .createClass("NullValuesCountSBTreeNotUniqueTwo");
     nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
     nullSBTreeClass.createIndex(
-        "NullValuesCountSBTreeNotUniqueTwoIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "field");
+        "NullValuesCountSBTreeNotUniqueTwoIndex", IndexType.NOT_UNIQUE, "field");
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountSBTreeNotUniqueTwo"));
@@ -2023,7 +2023,7 @@ public class IndexTest extends BaseDBTest {
     var nullSBTreeClass = session.getSchema().createClass("NullValuesCountHashUnique");
     nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
     nullSBTreeClass.createIndex(
-        "NullValuesCountHashUniqueIndex", SchemaManager.INDEX_TYPE.UNIQUE, "field");
+        "NullValuesCountHashUniqueIndex", IndexType.UNIQUE, "field");
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashUnique"));
@@ -2054,7 +2054,7 @@ public class IndexTest extends BaseDBTest {
         .createClass("NullValuesCountHashNotUniqueOne");
     nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
     nullSBTreeClass.createIndex(
-        "NullValuesCountHashNotUniqueOneIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "field");
+        "NullValuesCountHashNotUniqueOneIndex", IndexType.NOT_UNIQUE, "field");
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueOne"));
@@ -2085,7 +2085,7 @@ public class IndexTest extends BaseDBTest {
         session.getMetadata().getSlowMutableSchema().createClass("NullValuesCountHashNotUniqueTwo");
     nullSBTreeClass.createProperty("field", PropertyType.INTEGER);
     nullSBTreeClass.createIndex(
-        "NullValuesCountHashNotUniqueTwoIndex", SchemaManager.INDEX_TYPE.NOTUNIQUE, "field");
+        "NullValuesCountHashNotUniqueTwoIndex", IndexType.NOT_UNIQUE, "field");
 
     session.begin();
     var docOne = ((EntityImpl) session.newEntity("NullValuesCountHashNotUniqueTwo"));

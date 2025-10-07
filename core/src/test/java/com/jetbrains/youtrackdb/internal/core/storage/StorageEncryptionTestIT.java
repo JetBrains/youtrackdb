@@ -14,7 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.io.File;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
@@ -49,8 +49,8 @@ public class StorageEncryptionTestIT {
         cls.createProperty("id", PropertyType.INTEGER);
         cls.createProperty("value", PropertyType.STRING);
 
-        cls.createIndex("EncryptedTree", SchemaManager.INDEX_TYPE.UNIQUE, "id");
-        cls.createIndex("EncryptedHash", SchemaManager.INDEX_TYPE.UNIQUE, "id");
+        cls.createIndex("EncryptedTree", IndexType.UNIQUE, "id");
+        cls.createIndex("EncryptedHash", IndexType.UNIQUE, "id");
 
         var tx = session.begin();
         for (var i = 0; i < 10_000; i++) {

@@ -35,10 +35,10 @@ import com.jetbrains.youtrackdb.internal.core.db.SystemDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.SessionMetadata;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.AuthenticationInfo;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
@@ -913,13 +913,13 @@ public class SecurityShared implements SecurityInternal {
       property.setCollate("ci");
       property.setMin("1");
       property.setRegexp("\\S+(.*\\S+)*");
-      userClass.createIndex("OUser.name", SchemaManager.INDEX_TYPE.UNIQUE,
+      userClass.createIndex("OUser.name", IndexType.UNIQUE,
           "name");
     } else {
       var name = userClass.getProperty("name");
       if (name.getIndexNames().isEmpty()) {
         userClass.createIndex(
-            "OUser.name", SchemaManager.INDEX_TYPE.UNIQUE, "name");
+            "OUser.name", IndexType.UNIQUE, "name");
       }
     }
     if (!userClass.existsProperty(SecurityUserImpl.PASSWORD_PROPERTY)) {
@@ -953,12 +953,12 @@ public class SecurityShared implements SecurityInternal {
       property.setNotNull(true);
       property.setCollate("ci");
       policyClass.createIndex(
-          "OSecurityPolicy.name", SchemaManager.INDEX_TYPE.UNIQUE, "name");
+          "OSecurityPolicy.name", IndexType.UNIQUE, "name");
     } else {
       var name = policyClass.getProperty("name");
       if (name.getIndexNames().isEmpty()) {
         policyClass.createIndex(
-            "OSecurityPolicy.name", SchemaManager.INDEX_TYPE.UNIQUE, "name");
+            "OSecurityPolicy.name", IndexType.UNIQUE, "name");
       }
     }
 
@@ -1012,13 +1012,13 @@ public class SecurityShared implements SecurityInternal {
       property.setMandatory(true);
       property.setNotNull(true);
       property.setCollate("ci");
-      roleClass.createIndex(Role.CLASS_NAME + "." + Role.NAME, SchemaManager.INDEX_TYPE.UNIQUE,
+      roleClass.createIndex(Role.CLASS_NAME + "." + Role.NAME, IndexType.UNIQUE,
           "name");
     } else {
       var name = roleClass.getProperty("name");
       if (name.getIndexNames().isEmpty()) {
         roleClass.createIndex(
-            "ORole.name", SchemaManager.INDEX_TYPE.UNIQUE, "name");
+            "ORole.name", IndexType.UNIQUE, "name");
       }
     }
 
@@ -1066,7 +1066,7 @@ public class SecurityShared implements SecurityInternal {
       }
 
       if (userClass.getInvolvedIndexesNames("name") == null) {
-        p.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+        p.createIndex(IndexType.UNIQUE);
       }
 
       // ROLE

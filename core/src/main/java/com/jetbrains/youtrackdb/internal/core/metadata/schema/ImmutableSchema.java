@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import java.util.Collection;
 import javax.annotation.Nonnull;
@@ -38,4 +39,41 @@ public interface ImmutableSchema {
 
   @Nullable
   Index getIndex(String indexName);
+
+  enum IndexType {
+    UNIQUE {
+      @Override
+      public YTDBSchemaIndex.IndexType toPublicIndexType() {
+        return YTDBSchemaIndex.IndexType.UNIQUE;
+      }
+    },
+    NOT_UNIQUE {
+      @Override
+      public YTDBSchemaIndex.IndexType toPublicIndexType() {
+        return YTDBSchemaIndex.IndexType.NOT_UNIQUE;
+      }
+    },
+    FULL_TEXT {
+      @Override
+      public YTDBSchemaIndex.IndexType toPublicIndexType() {
+        throw new UnsupportedOperationException();
+      }
+    },
+    SPATIAL {
+      @Override
+      public YTDBSchemaIndex.IndexType toPublicIndexType() {
+        throw new UnsupportedOperationException();
+      }
+    };
+
+    public abstract YTDBSchemaIndex.IndexType toPublicIndexType();
+
+    public static IndexType fromPublicIndexType(
+        YTDBSchemaIndex.IndexType publicIndexType) {
+      return switch (publicIndexType) {
+        case UNIQUE -> IndexType.UNIQUE;
+        case NOT_UNIQUE -> IndexType.NOT_UNIQUE;
+      };
+    }
+  }
 }

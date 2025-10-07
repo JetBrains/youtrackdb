@@ -10,7 +10,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Test;
@@ -31,7 +31,7 @@ public class TestImmutableIndexLoad {
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var one = db.getSchema().createClass("One");
     var property = one.createProperty("one", PropertyType.STRING);
-    property.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+    property.createIndex(IndexType.UNIQUE);
     db.close();
     youTrackDB.close();
 

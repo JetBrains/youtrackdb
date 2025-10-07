@@ -3,8 +3,8 @@ package com.jetbrains.youtrackdb.auto;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -57,46 +57,46 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
     oClass.createProperty("fEmbeddedSetTwo", PropertyType.EMBEDDEDSET,
         PropertyType.INTEGER);
 
-    oClass.createIndex("indexone", SchemaManager.INDEX_TYPE.UNIQUE, "prop1", "prop2");
-    oClass.createIndex("indextwo", SchemaManager.INDEX_TYPE.UNIQUE, "prop3");
-    oClass.createIndex("indexthree", SchemaManager.INDEX_TYPE.NOTUNIQUE, "prop1", "prop2",
+    oClass.createIndex("indexone", IndexType.UNIQUE, "prop1", "prop2");
+    oClass.createIndex("indextwo", IndexType.UNIQUE, "prop3");
+    oClass.createIndex("indexthree", IndexType.NOT_UNIQUE, "prop1", "prop2",
         "prop4");
-    oClass.createIndex("indexfour", SchemaManager.INDEX_TYPE.NOTUNIQUE, "prop4", "prop1",
+    oClass.createIndex("indexfour", IndexType.NOT_UNIQUE, "prop4", "prop1",
         "prop3");
-    oClass.createIndex("indexfive", SchemaManager.INDEX_TYPE.NOTUNIQUE, "prop6", "prop1",
+    oClass.createIndex("indexfive", IndexType.NOT_UNIQUE, "prop6", "prop1",
         "prop3");
 
     oClass.createIndex(
-        "sqlSelectIndexReuseTestEmbeddedMapByKey", SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        "sqlSelectIndexReuseTestEmbeddedMapByKey", IndexType.NOT_UNIQUE,
         "fEmbeddedMap");
     oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedMapByValue",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE, "fEmbeddedMap by value");
+        IndexType.NOT_UNIQUE, "fEmbeddedMap by value");
     oClass.createIndex(
-        "sqlSelectIndexReuseTestEmbeddedList", SchemaManager.INDEX_TYPE.NOTUNIQUE, "fEmbeddedList");
+        "sqlSelectIndexReuseTestEmbeddedList", IndexType.NOT_UNIQUE, "fEmbeddedList");
 
     oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedMapByKeyProp8",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        IndexType.NOT_UNIQUE,
         "fEmbeddedMapTwo", "prop8");
     oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedMapByValueProp8",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        IndexType.NOT_UNIQUE,
         "fEmbeddedMapTwo by value", "prop8");
 
     oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedSetProp8",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        IndexType.NOT_UNIQUE,
         "fEmbeddedSetTwo", "prop8");
     oClass.createIndex(
         "sqlSelectIndexReuseTestProp9EmbeddedSetProp8",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        IndexType.NOT_UNIQUE,
         "prop9",
         "fEmbeddedSetTwo", "prop8");
 
     oClass.createIndex(
         "sqlSelectIndexReuseTestEmbeddedListTwoProp8",
-        SchemaManager.INDEX_TYPE.NOTUNIQUE,
+        IndexType.NOT_UNIQUE,
         "fEmbeddedListTwo", "prop8");
 
     final var fullTextIndexStrings = new String[]{
@@ -2742,7 +2742,7 @@ public class SQLSelectIndexReuseTest extends AbstractIndexReuseTest {
 
     oClass.createIndex(
         "sqlSelectIndexReuseTestOnPropertiesFromClassAndSuperclass",
-        SchemaManager.INDEX_TYPE.UNIQUE,
+        IndexType.UNIQUE,
         "prop0", "prop1");
 
     var oldIndexUsage = profiler.getCounter("db.demo.query.indexUsed");

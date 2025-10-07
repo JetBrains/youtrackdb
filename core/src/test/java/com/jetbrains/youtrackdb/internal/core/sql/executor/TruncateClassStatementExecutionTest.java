@@ -5,9 +5,9 @@ import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -189,7 +189,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
         .getIndex("test_class_by_data");
     if (index == null) {
       testClass.createProperty("data", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
-      testClass.createIndex("test_class_by_data", SchemaManager.INDEX_TYPE.UNIQUE,
+      testClass.createIndex("test_class_by_data", IndexType.UNIQUE,
           "data");
     }
     return session.getSharedContext().getIndexManager().getIndex("test_class_by_data");

@@ -6,7 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ProxedResource;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.RoundRobinCollectionSelectionStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
@@ -442,14 +442,14 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
 
 
   @Override
-  public void createIndex(String iName, INDEX_TYPE indexType, String... fields) {
+  public void createIndex(String iName, IndexType indexType, String... fields) {
     assert session.assertIfNotActive();
     SchemaManager.createIndex(session, delegate, iName, indexType, fields);
   }
 
 
   @Override
-  public void createIndex(String iName, INDEX_TYPE indexType,
+  public void createIndex(String iName, IndexType indexType,
       Map<String, Object> metadata,
       String... properties) {
     assert session.assertIfNotActive();

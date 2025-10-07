@@ -17,7 +17,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.Iterator;
 import java.util.List;
 import org.testng.Assert;
@@ -37,7 +37,7 @@ public class CollectionIndexTest extends BaseDBTest {
     collector
         .createProperty("stringCollection", PropertyType.EMBEDDEDLIST,
             PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
   }
 
   @Override

@@ -104,4 +104,6 @@ public interface YTDBSchemaProperty extends YTDBDomainVertex {
   String description();
 
   void description(@Nullable String description);
+
+  YTDBSchemaIndex createIndex(YTDBSchemaIndex.IndexType indexType);
 }

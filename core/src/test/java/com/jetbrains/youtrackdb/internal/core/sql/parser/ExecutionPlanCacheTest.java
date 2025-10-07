@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -56,7 +56,7 @@ public class ExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
     cache = ExecutionPlanCache.instance(session);
     Assert.assertTrue(cache.contains(stm));
 
-    prop.createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+    prop.createIndex(IndexType.NOT_UNIQUE);
     Assert.assertFalse(cache.contains(stm));
   }
 }

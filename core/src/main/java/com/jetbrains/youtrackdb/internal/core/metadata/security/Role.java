@@ -24,8 +24,8 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -244,7 +244,7 @@ public class Role extends IdentityWrapper implements SecurityRole {
     }
 
     if (roleClass.getInvolvedIndexesNames(NAME) == null) {
-      p.createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+      p.createIndex(IndexType.UNIQUE);
     }
 
     if (!roleClass.existsProperty(POLICIES)) {

@@ -22,8 +22,8 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -357,7 +357,7 @@ public class TransactionConsistencyTest extends BaseDBTest {
         .createProperty("name", PropertyType.STRING)
         .setMin("3")
         .setMax("30")
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
     profile.createProperty("surname", PropertyType.STRING).setMin("3")
         .setMax("30");
     profile.createProperty("in", PropertyType.LINKSET, edge);
@@ -448,19 +448,19 @@ public class TransactionConsistencyTest extends BaseDBTest {
           .getSlowMutableSchema()
           .getClass("MyFruit")
           .getProperty("name")
-          .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+          .createIndex(IndexType.NOT_UNIQUE);
       session
           .getMetadata()
           .getSlowMutableSchema()
           .getClass("MyFruit")
           .getProperty("color")
-          .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+          .createIndex(IndexType.NOT_UNIQUE);
       session
           .getMetadata()
           .getSlowMutableSchema()
           .getClass("MyFruit")
           .getProperty("flavor")
-          .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+          .createIndex(IndexType.NOT_UNIQUE);
     }
 
     var chunkSize = 10;
@@ -627,9 +627,9 @@ public class TransactionConsistencyTest extends BaseDBTest {
     var personClass = session.getMetadata().getSlowMutableSchema()
         .createClass("TRPerson", vertexClass);
     personClass.createProperty("name", PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.UNIQUE);
+        .createIndex(IndexType.UNIQUE);
     personClass.createProperty("surname", PropertyType.STRING)
-        .createIndex(SchemaManager.INDEX_TYPE.NOTUNIQUE);
+        .createIndex(IndexType.NOT_UNIQUE);
     personClass.createProperty("version", PropertyType.INTEGER);
 
     session.close();

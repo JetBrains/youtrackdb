@@ -25,7 +25,7 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquality;
@@ -68,7 +68,7 @@ public interface Index extends Comparable<Index> {
   String getName();
 
   /// Returns the type of the index as string.
-  INDEX_TYPE getType();
+  IndexType getType();
 
   /// Rebuilds an automatic index.
   void rebuild(DatabaseSessionEmbedded session);

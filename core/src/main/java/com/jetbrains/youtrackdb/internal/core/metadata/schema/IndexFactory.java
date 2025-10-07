@@ -24,7 +24,7 @@ public final class IndexFactory {
 
     return switch (indexType) {
       case UNIQUE -> new IndexUnique(schemaIndex, storage);
-      case NOTUNIQUE -> new IndexNotUnique(schemaIndex, storage);
+      case NOT_UNIQUE -> new IndexNotUnique(schemaIndex, storage);
 
       case null ->
           throw new DatabaseException(schemaIndexEntity.getSession(), "Index type is not defined");

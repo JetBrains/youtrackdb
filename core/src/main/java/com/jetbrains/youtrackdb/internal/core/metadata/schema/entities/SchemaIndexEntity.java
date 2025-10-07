@@ -1,13 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
 import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -20,6 +21,7 @@ import org.jspecify.annotations.NonNull;
 
 
 public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
+
   public static final String NAME = "name";
   public static final String PROPERTIES_TO_INDEX = "classPropertiesToIndex";
   public static final String CLASS_TO_INDEX = "classToIndex";
@@ -32,9 +34,20 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
   public static final String INDEX_ID = "indexId";
 
   public enum ValueModifier {
-    BY_VALUE,
-    BY_KEY,
-    NONE
+    BY_VALUE {
+      @Override
+      public IndexBy toIndexBy() {
+        return IndexBy.BY_VALUE;
+      }
+    },
+    BY_KEY {
+      @Override
+      public IndexBy toIndexBy() {
+        return IndexBy.BY_KEY;
+      }
+    };
+
+    public abstract IndexBy toIndexBy();
   }
 
   public SchemaIndexEntity(@Nonnull RecordIdInternal recordId,
@@ -99,10 +112,10 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
             if (valueModifier != null) {
               return new RawPair<>(property, ValueModifier.valueOf(valueModifier.toUpperCase()));
             } else {
-              return new RawPair<>(property, ValueModifier.NONE);
+              return new RawPair<>(property, ValueModifier.BY_VALUE);
             }
           } else {
-            return new RawPair<>(property, ValueModifier.NONE);
+            return new RawPair<>(property, ValueModifier.BY_VALUE);
           }
         }));
   }
@@ -131,7 +144,7 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
             }
           }
         } else if (propertyType == PropertyTypeInternal.LINKSET) {
-          if (modifier == ValueModifier.NONE) {
+          if (modifier == ValueModifier.BY_VALUE) {
             result.add(PropertyTypeInternal.LINK);
           } else {
             throw new DatabaseException(session,
@@ -139,7 +152,7 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
                     + modifier);
           }
         } else if (propertyType == PropertyTypeInternal.EMBEDDEDSET) {
-          if (modifier == ValueModifier.NONE) {
+          if (modifier == ValueModifier.BY_VALUE) {
             var linkedType = inferKeyTypeOfEmbeddedCollection(property);
             result.add(linkedType);
           } else {
@@ -151,21 +164,15 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
           result.add(switch (modifier) {
             case BY_KEY -> PropertyTypeInternal.LINK;
             case BY_VALUE -> inferKeyTypeOfEmbeddedCollection(property);
-            case NONE -> throw new DatabaseException(session,
-                "Can not index property as it is a LINKMAP property but it's value modifier is "
-                    + modifier);
           });
         } else if (propertyType == PropertyTypeInternal.EMBEDDEDMAP) {
           result.add(switch (modifier) {
             case BY_KEY -> PropertyTypeInternal.STRING;
             case BY_VALUE -> inferKeyTypeOfEmbeddedCollection(property);
-            case NONE -> throw new DatabaseException(session,
-                "Can not index property as it is a EMBEDDEDMAP property but it's value modifier is "
-                    + modifier);
           });
         }
       } else {
-        if (modifier == ValueModifier.NONE) {
+        if (modifier == ValueModifier.BY_VALUE) {
           result.add(propertyType);
         } else {
           throw new DatabaseException(session,
@@ -256,17 +263,17 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
     setBoolean(NULL_VALUES_IGNORED, value);
   }
 
-  public void setIndexType(INDEX_TYPE indexType) {
+  public void setIndexType(IndexType indexType) {
     setString(INDEX_TYPE, indexType.name());
   }
 
   @Nullable
-  public INDEX_TYPE getIndexType() {
+  public IndexType getIndexType() {
     var indexType = getString(INDEX_TYPE);
     if (indexType == null) {
       return null;
     }
 
-    return SchemaManager.INDEX_TYPE.valueOf(indexType);
+    return IndexType.valueOf(indexType);
   }
 }

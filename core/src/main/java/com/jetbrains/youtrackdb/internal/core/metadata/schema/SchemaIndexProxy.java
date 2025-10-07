@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.ValueModifier;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
@@ -40,7 +40,7 @@ public final class SchemaIndexProxy implements SchemaIndex {
       var propertyModifierPair = propertiesToIndex.next();
       var property = propertyModifierPair.first();
       var modifier = propertyModifierPair.second();
-      if (modifier == ValueModifier.NONE) {
+      if (modifier == ValueModifier.BY_VALUE) {
         propertyNames.add(property.getName());
       } else {
         propertyNames.add(property.getName() + " by  " + modifier.name());
@@ -78,7 +78,7 @@ public final class SchemaIndexProxy implements SchemaIndex {
   }
 
   @Override
-  public INDEX_TYPE getType() {
+  public IndexType getType() {
     return entity.getIndexType();
   }
 }
