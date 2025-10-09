@@ -19,10 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.server.plugin;
 
-import com.jetbrains.youtrackdb.internal.server.ClientConnection;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
 import com.jetbrains.youtrackdb.internal.tools.config.ServerParameterConfiguration;
-import javax.annotation.Nullable;
 
 /**
  * Abstract class to make ServerHandler implementation easier.
@@ -51,29 +49,4 @@ public abstract class ServerPluginAbstract implements ServerPlugin {
       throws Exception {
   }
 
-  @Override
-  public void onClientConnection(final ClientConnection iConnection) {
-  }
-
-  @Override
-  public void onClientDisconnection(final ClientConnection iConnection) {
-  }
-
-  @Override
-  public void onBeforeClientRequest(final ClientConnection iConnection, final byte iRequestType) {
-  }
-
-  @Override
-  public void onAfterClientRequest(final ClientConnection iConnection, final byte iRequestType) {
-  }
-
-  @Override
-  public void onClientError(final ClientConnection iConnection, final Throwable iThrowable) {
-  }
-
-  @Nullable
-  @Override
-  public Object getContent(final String iURL) {
-    return null;
-  }
 }

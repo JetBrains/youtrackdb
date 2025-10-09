@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.metadata;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import javax.annotation.Nullable;
 
 public class ClassIndexFinder implements IndexFinder {
@@ -124,17 +125,19 @@ public class ClassIndexFinder implements IndexFinder {
         for (var index : indexes) {
           if (index.canBeUsedInEqualityOperators()) {
             var def = index.getDefinition();
-            for (var o : def.getFieldsToIndex()) {
-              if (o.equalsIgnoreCase(last + " by key")) {
-                if (cand != null) {
-                  ((IndexCandidateChain) cand).add(index.getName());
-                  ((IndexCandidateChain) cand).setOperation(Operation.Eq);
-                  return cand;
-                } else {
-                  return new IndexCandidateImpl(index.getName(), Operation.Eq, prop);
-                }
+            var indexBy = def.getIndexBy();
+            var propIndex = def.getProperties().indexOf(last);
+
+            if (indexBy.get(propIndex) == IndexBy.BY_KEY) {
+              if (cand != null) {
+                ((IndexCandidateChain) cand).add(index.getName());
+                ((IndexCandidateChain) cand).setOperation(Operation.Eq);
+                return cand;
+              } else {
+                return new IndexCandidateImpl(index.getName(), Operation.Eq, prop);
               }
             }
+
           }
         }
       }
@@ -193,18 +196,20 @@ public class ClassIndexFinder implements IndexFinder {
         var indexes = prop.getIndexes();
         for (var index : indexes) {
           var def = index.getDefinition();
+
           if (index.canBeUsedInEqualityOperators()) {
-            for (var o : def.getFieldsToIndex()) {
-              if (o.equalsIgnoreCase(last + " by value")) {
-                if (cand != null) {
-                  ((IndexCandidateChain) cand).add(index.getName());
-                  ((IndexCandidateChain) cand).setOperation(Operation.Eq);
-                  return cand;
-                } else {
-                  return new IndexCandidateImpl(index.getName(), Operation.Eq, prop);
-                }
+            var propIndex = def.getProperties().indexOf(last);
+            var indexBy = def.getIndexBy();
+            if (indexBy.get(propIndex) == IndexBy.BY_VALUE) {
+              if (cand != null) {
+                ((IndexCandidateChain) cand).add(index.getName());
+                ((IndexCandidateChain) cand).setOperation(Operation.Eq);
+                return cand;
+              } else {
+                return new IndexCandidateImpl(index.getName(), Operation.Eq, prop);
               }
             }
+
           }
         }
       }

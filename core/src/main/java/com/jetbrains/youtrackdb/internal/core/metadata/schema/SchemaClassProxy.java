@@ -453,7 +453,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
       Map<String, Object> metadata,
       String... properties) {
     assert session.assertIfNotActive();
-    SchemaManager.createIndex(session, delegate, iName, indexType, metadata, properties);
+    SchemaManager.createIndex(session, delegate, iName, indexType, metadata, properties, null);
   }
 
   @Override

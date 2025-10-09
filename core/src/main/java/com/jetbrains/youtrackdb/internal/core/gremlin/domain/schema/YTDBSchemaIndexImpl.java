@@ -19,7 +19,6 @@ import javax.annotation.Nullable;
 
 public class YTDBSchemaIndexImpl extends
     YTDBDomainVertexSchemaAbstract<SchemaIndexEntity> implements YTDBSchemaIndex {
-
   public YTDBSchemaIndexImpl(YTDBGraphInternal graph, Identifiable identifiable) {
     super(graph, identifiable);
   }
@@ -27,33 +26,33 @@ public class YTDBSchemaIndexImpl extends
   @Nonnull
   @Override
   public String name() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getName();
   }
 
   @Override
   public void name(String name) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setName(name);
   }
 
   @Override
   public boolean nullValuesIgnored() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isNullValuesIgnored();
   }
 
   @Nullable
   @Override
   public Map<String, ?> metadata() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getMetadata();
   }
 
   @Nonnull
   @Override
   public PropertyType[] keyTypes() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var keyTypes = entity.getKeyTypes();
 
     var publicKeyTypes = new PropertyType[keyTypes.size()];
@@ -66,22 +65,25 @@ public class YTDBSchemaIndexImpl extends
 
   @Override
   public IndexBy[] indexBy() {
-    var entity = propertyReadPreprocessing();
-    var propertiesWithModifiers = entity.getClassPropertiesToIndexWithModifiers();
-    var indexBys = new ArrayList<IndexBy>();
-
-    while (propertiesWithModifiers.hasNext()) {
-      var propertyWithModifier = propertiesWithModifiers.next();
-      indexBys.add(propertyWithModifier.second().toIndexBy());
+    var entity = entityReadPreprocessing();
+    var entityIndexBys = entity.getIndexBys();
+    if (entityIndexBys == null) {
+      return new IndexBy[0];
     }
 
-    return indexBys.toArray(new IndexBy[0]);
+    var indexBys = new IndexBy[entityIndexBys.size()];
+    for (var i = 0; i < entityIndexBys.size(); i++) {
+      var entityIndexBy = entityIndexBys.get(i);
+      indexBys[i] = entityIndexBy.toPublicIndexBy();
+    }
+
+    return indexBys;
   }
 
   @Nonnull
   @Override
   public IndexType indexType() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
 
     return entity.getIndexType().toPublicIndexType();
   }
@@ -89,7 +91,7 @@ public class YTDBSchemaIndexImpl extends
   @Nullable
   @Override
   public YTDBSchemaClass classToIndex() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
 
     var classToIndex = entity.getClassToIndex();
     if (classToIndex == null) {
@@ -102,7 +104,7 @@ public class YTDBSchemaIndexImpl extends
   @Nonnull
   @Override
   public Iterator<YTDBSchemaProperty> propertiesToIndex() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var propertiesIterator = entity.getPropertiesToIndex();
     var publicProperties = new ArrayList<YTDBSchemaProperty>();
 

@@ -19,12 +19,10 @@
  */
 package com.jetbrains.youtrackdb.internal.server.handler;
 
-import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginHelper;
-
 /**
  * Deprecated, use ServerPluginHelper instead.
  */
 @Deprecated
-public class ServerHandlerHelper extends ServerPluginHelper {
+public class ServerHandlerHelper {
 
 }

@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.binary.NetworkProtocolBinary;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.http.NetworkProtocolHttpDb;
 import com.jetbrains.youtrackdb.internal.tools.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.tools.config.ServerNetworkConfiguration;

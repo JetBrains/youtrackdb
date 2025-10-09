@@ -1,13 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
-import com.jetbrains.youtrackdb.api.schema.Collate;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.ValueModifier;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
-import java.util.ArrayList;
 
 public class SchemaIndexSnapshot implements SchemaIndex {
 
@@ -23,34 +22,25 @@ public class SchemaIndexSnapshot implements SchemaIndex {
 
     var classToIndex = entity.getClassToIndex();
     var schemaClass = new SchemaClassProxy(classToIndex, entity.getSession());
-    var propertyNames = new ArrayList<String>();
-    var collates = new ArrayList<Collate>();
     var indexType = entity.getIndexType();
-
-    var propertiesToIndex = entity.getClassPropertiesToIndexWithModifiers();
-    while (propertiesToIndex.hasNext()) {
-      var propertyModifierPair = propertiesToIndex.next();
-      var property = propertyModifierPair.first();
-      var modifier = propertyModifierPair.second();
-      if (modifier == ValueModifier.BY_VALUE) {
-        propertyNames.add(property.getName());
-      } else {
-        propertyNames.add(property.getName() + " by  " + modifier.name());
-      }
-
-      var collate = property.getCollate();
-      if (collate == null) {
-        collates.add(null);
-      } else {
-        var collateInstance = SQLEngine.getCollate(collate);
-        collates.add(collateInstance);
-      }
-    }
-
+    var indexBys = entity.getIndexBys();
     var keyTypes = entity.getKeyTypes();
+
+    var propertyNames = YTDBIteratorUtils.list(
+        YTDBIteratorUtils.map(entity.getPropertiesToIndex(), SchemaPropertyEntity::getName)
+    );
+    var collates = YTDBIteratorUtils.list(
+        YTDBIteratorUtils.map(
+            YTDBIteratorUtils.map(entity.getPropertiesToIndex(), SchemaPropertyEntity::getCollate),
+            SQLEngine::getCollate
+        )
+    );
+
     indexDefinition = IndexDefinitionFactory.createIndexDefinition(schemaClass, propertyNames,
+        indexBys,
         keyTypes,
-        collates, indexType.name());
+        collates,
+        indexType.name());
   }
 
   @Override

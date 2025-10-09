@@ -586,7 +586,8 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
   }
 
   public Iterator<SchemaIndexEntity> getIndexes() {
-    var indexesPropertyName = getOppositeLinkBagPropertyName(SchemaIndexEntity.PROPERTIES_TO_INDEX);
+    var indexesPropertyName = getOppositeLinkBagPropertyName(
+        SchemaIndexEntity.PropertyNames.PROPERTIES_TO_INDEX);
 
     LinkBag indexes = getPropertyInternal(indexesPropertyName);
     if (indexes == null) {

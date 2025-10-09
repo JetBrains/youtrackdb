@@ -22,7 +22,7 @@ public abstract class YTDBDomainVertexSchemaAbstract<T extends EntityImpl> exten
     super(graph, identifiable);
   }
 
-  protected T propertyReadPreprocessing() {
+  protected T entityReadPreprocessing() {
     var tx = graph.tx();
     tx.readWrite();
 
@@ -31,7 +31,7 @@ public abstract class YTDBDomainVertexSchemaAbstract<T extends EntityImpl> exten
     return getRawEntity();
   }
 
-  protected T propertyWritePreprocessing() {
+  protected T entityWritePreprocessing() {
     var tx = graph.tx();
     tx.readWrite();
 

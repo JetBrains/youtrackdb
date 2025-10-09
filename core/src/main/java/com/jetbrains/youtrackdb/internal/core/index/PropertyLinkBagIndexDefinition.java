@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
@@ -77,7 +78,12 @@ public class PropertyLinkBagIndexDefinition extends PropertyIndexDefinition
   @Override
   public Object convertEntityPropertiesToIndexKey(FrontendTransaction transaction,
       EntityImpl entity) {
-    return createValue(transaction, entity.<Object>getPropertyInternal(field));
+    return createValue(transaction, entity.<Object>getPropertyInternal(property));
+  }
+
+  @Override
+  public List<IndexBy> getIndexBy() {
+    return List.of(IndexBy.BY_VALUE);
   }
 
   @Nullable

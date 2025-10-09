@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
@@ -311,32 +312,43 @@ public final class SchemaManager {
           "Index" + indexName + " must have at least one property.");
     }
 
-    return createIndexEntityInternal(session, schemaClassEntity, indexName, indexType, properties);
+    return createIndexEntityInternal(session, schemaClassEntity, indexName, indexType, properties,
+        null);
   }
 
 
-  public static void createIndex(
+  public static SchemaIndexEntity createIndex(
       @Nonnull DatabaseSessionEmbedded session,
       @Nonnull final SchemaClassEntity schemaClassEntity,
       @Nonnull String indexName,
       @Nonnull IndexType indexType,
-      @Nonnull Map<String, Object> metadata,
-      String... properties) {
+      @Nullable Map<String, Object> metadata,
+      String[] properties, IndexBy[] indexBy) {
     if (properties.length == 0) {
       throw new DatabaseException(session,
           "Index" + indexName + " must have at least one property");
     }
 
     var entity = createIndexEntityInternal(session, schemaClassEntity, indexName, indexType,
-        properties);
+        properties, indexBy);
     entity.setMetadata(metadata);
+
+    return entity;
   }
 
   private static SchemaIndexEntity createIndexEntityInternal(
       @Nonnull DatabaseSessionEmbedded session,
       @Nonnull SchemaClassEntity schemaClassEntity,
       @Nonnull String indexName, @Nonnull IndexType indexType,
-      String[] properties) {
+      @Nonnull String[] properties, @Nullable IndexBy[] indexBy) {
+
+    if (indexBy != null && indexBy.length != properties.length) {
+      throw new IllegalArgumentException(
+          "Count of " + IndexBy.class.getSimpleName() + " modifiers for index " + indexName
+              + " should be the same as amount of properties : " +
+              properties.length);
+    }
+
     var entity = session.newSchemaIndexEntity();
     entity.setName(indexName);
     entity.setClassToIndex(schemaClassEntity);
@@ -349,8 +361,23 @@ public final class SchemaManager {
               + " must have all properties specified directly or through superclasses.");
     }
 
-    for (var propertyEntity : propertyEntities) {
-      entity.addClassPropertyToIndex(propertyEntity);
+    if (indexBy == null) {
+      for (var propertyEntity : propertyEntities) {
+        entity.addClassPropertyToIndex(propertyEntity);
+      }
+    } else {
+      var propertyMap = new HashMap<String, SchemaPropertyEntity>();
+      for (var propertyEntity : propertyEntities) {
+        propertyMap.put(propertyEntity.getName(), propertyEntity);
+      }
+
+      for (var i = 0; i < properties.length; i++) {
+        var propertyName = properties[i];
+        var property = propertyMap.get(propertyName);
+        var indexByProperty = indexBy[i];
+        entity.addClassPropertyToIndex(property,
+            SchemaIndexEntity.IndexBy.fromPublicIndexBy(indexByProperty));
+      }
     }
 
     return entity;

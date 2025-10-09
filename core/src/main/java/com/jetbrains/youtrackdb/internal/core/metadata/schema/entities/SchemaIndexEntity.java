@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema.entities;
 
+import com.jetbrains.youtrackdb.api.common.query.collection.embedded.EmbeddedList;
+import com.jetbrains.youtrackdb.api.common.query.collection.links.LinkList;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
-import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
@@ -11,43 +13,51 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import org.apache.commons.collections4.IteratorUtils;
 import org.jspecify.annotations.NonNull;
 
 
 public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
 
-  public static final String NAME = "name";
-  public static final String PROPERTIES_TO_INDEX = "classPropertiesToIndex";
-  public static final String CLASS_TO_INDEX = "classToIndex";
-  public static final String METADATA = "metadata";
-  public static final String NULL_VALUES_IGNORED = "nullValuesIgnored";
-  public static final String INDEX_TYPE = "indexType";
+  interface PropertyNames {
 
-  public static final String PROPERTY_MODIFIERS_METADATA = "propertyModifiersMetadata";
+    String NAME = "name";
+    String PROPERTIES_TO_INDEX = "classPropertiesToIndex";
+    String INDEX_BY = "indexBy";
+    String CLASS_TO_INDEX = "classToIndex";
+    String NULL_VALUES_IGNORED = "nullValuesIgnored";
+    String INDEX_TYPE = "indexType";
+    String INDEX_ID = "indexId";
+    String METADATA = "metadata";
+  }
 
-  public static final String INDEX_ID = "indexId";
-
-  public enum ValueModifier {
+  public enum IndexBy {
     BY_VALUE {
       @Override
-      public IndexBy toIndexBy() {
-        return IndexBy.BY_VALUE;
+      public YTDBSchemaIndex.IndexBy toPublicIndexBy() {
+        return YTDBSchemaIndex.IndexBy.BY_VALUE;
       }
     },
     BY_KEY {
       @Override
-      public IndexBy toIndexBy() {
-        return IndexBy.BY_KEY;
+      public YTDBSchemaIndex.IndexBy toPublicIndexBy() {
+        return YTDBSchemaIndex.IndexBy.BY_KEY;
       }
     };
 
-    public abstract IndexBy toIndexBy();
+    public abstract YTDBSchemaIndex.IndexBy toPublicIndexBy();
+
+    public static IndexBy fromPublicIndexBy(@Nonnull YTDBSchemaIndex.IndexBy indexBy) {
+      return switch (indexBy) {
+        case BY_VALUE -> BY_VALUE;
+        case BY_KEY -> BY_KEY;
+      };
+    }
   }
 
   public SchemaIndexEntity(@Nonnull RecordIdInternal recordId,
@@ -56,7 +66,7 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
   }
 
   public String getName() {
-    return getString(NAME);
+    return getString(PropertyNames.NAME);
   }
 
   public void setName(@Nonnull String name) {
@@ -66,76 +76,50 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
           "Invalid index name '" + name + "'. Character '" + c + "' is invalid");
     }
 
-    setString(NAME, name);
+    setString(PropertyNames.NAME, name);
   }
 
   public void setIndexId(int indexId) {
-    setProperty(INDEX_ID, indexId);
+    setPropertyInternal(PropertyNames.INDEX_ID, indexId, PropertyTypeInternal.INTEGER);
   }
 
   @Nullable
   public Integer getIndexId() {
-    return getInt(INDEX_ID);
+    return getPropertyInternal(PropertyNames.INDEX_ID);
   }
 
   public void setClassToIndex(@Nonnull SchemaClassEntity classToIndex) {
-    setLink(CLASS_TO_INDEX, classToIndex);
+    setPropertyInternal(PropertyNames.CLASS_TO_INDEX, classToIndex, PropertyTypeInternal.LINK);
   }
 
   @Nullable
   public SchemaClassEntity getClassToIndex() {
-    return session.load(getLink(CLASS_TO_INDEX));
+    return session.load(getPropertyInternal(PropertyNames.CLASS_TO_INDEX));
   }
 
-  public Iterator<RawPair<SchemaPropertyEntity, ValueModifier>> getClassPropertiesToIndexWithModifiers() {
-    var linkList = getLinkList(PROPERTIES_TO_INDEX);
-    if (linkList == null) {
-      return IteratorUtils.emptyIterator();
-    }
-
-    return YTDBIteratorUtils.unmodifiableIterator(
-        YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
-          SchemaPropertyEntity property;
-
-          if (identifiable instanceof SchemaPropertyEntity schemaPropertyEntity) {
-            property = schemaPropertyEntity;
-          } else {
-            property = session.load(identifiable.getIdentity());
-          }
-
-          var metadataMap = this.getEmbeddedMap(METADATA);
-          if (metadataMap != null && metadataMap.containsKey(PROPERTY_MODIFIERS_METADATA)) {
-            @SuppressWarnings("unchecked")
-            var valueModifierMap = (Map<String, String>) metadataMap.get(
-                PROPERTY_MODIFIERS_METADATA);
-            var valueModifier = valueModifierMap.get(property.getName());
-            if (valueModifier != null) {
-              return new RawPair<>(property, ValueModifier.valueOf(valueModifier.toUpperCase()));
-            } else {
-              return new RawPair<>(property, ValueModifier.BY_VALUE);
-            }
-          } else {
-            return new RawPair<>(property, ValueModifier.BY_VALUE);
-          }
-        }));
-  }
 
   public List<PropertyTypeInternal> getKeyTypes() {
-    var result = new ArrayList<PropertyTypeInternal>();
-    var propertiesWithModifiers = getClassPropertiesToIndexWithModifiers();
+    EmbeddedList<String> indexByList = getPropertyInternal(PropertyNames.INDEX_BY);
+    LinkList propertiesToIndex = getPropertyInternal(PropertyNames.PROPERTIES_TO_INDEX);
+    if (propertiesToIndex == null || propertiesToIndex.isEmpty()) {
+      return Collections.emptyList();
+    }
 
-    while (propertiesWithModifiers.hasNext()) {
-      var pair = propertiesWithModifiers.next();
-      var property = pair.first();
-      var modifier = pair.second();
+    assert indexByList.size() == propertiesToIndex.size();
+
+    var result = new ArrayList<PropertyTypeInternal>(propertiesToIndex.size());
+
+    for (var i = 0; i < propertiesToIndex.size(); i++) {
+      SchemaPropertyEntity property = session.load(propertiesToIndex.get(i).getIdentity());
+      var indexBy = IndexBy.valueOf(indexByList.get(i));
 
       var propertyType = property.getPropertyType();
       if (propertyType.isMultiValue()) {
         if (propertyType == PropertyTypeInternal.LINKLIST
             || propertyType == PropertyTypeInternal.EMBEDDEDLIST) {
-          if (modifier == ValueModifier.BY_KEY) {
+          if (indexBy == IndexBy.BY_KEY) {
             result.add(PropertyTypeInternal.INTEGER);
-          } else if (modifier == ValueModifier.BY_VALUE) {
+          } else if (indexBy == IndexBy.BY_VALUE) {
             if (propertyType == PropertyTypeInternal.EMBEDDEDLIST) {
               var linkedType = inferKeyTypeOfEmbeddedCollection(property);
               result.add(linkedType);
@@ -144,40 +128,40 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
             }
           }
         } else if (propertyType == PropertyTypeInternal.LINKSET) {
-          if (modifier == ValueModifier.BY_VALUE) {
+          if (indexBy == IndexBy.BY_VALUE) {
             result.add(PropertyTypeInternal.LINK);
           } else {
             throw new DatabaseException(session,
                 "Can not index property as it is a LINKSET property but value modifier is "
-                    + modifier);
+                    + indexBy);
           }
         } else if (propertyType == PropertyTypeInternal.EMBEDDEDSET) {
-          if (modifier == ValueModifier.BY_VALUE) {
+          if (indexBy == IndexBy.BY_VALUE) {
             var linkedType = inferKeyTypeOfEmbeddedCollection(property);
             result.add(linkedType);
           } else {
             throw new DatabaseException(session,
                 "Can not index property as it is a EMBEDDEDSET property but value modifier is "
-                    + modifier);
+                    + indexBy);
           }
         } else if (propertyType == PropertyTypeInternal.LINKMAP) {
-          result.add(switch (modifier) {
+          result.add(switch (indexBy) {
             case BY_KEY -> PropertyTypeInternal.LINK;
             case BY_VALUE -> inferKeyTypeOfEmbeddedCollection(property);
           });
         } else if (propertyType == PropertyTypeInternal.EMBEDDEDMAP) {
-          result.add(switch (modifier) {
+          result.add(switch (indexBy) {
             case BY_KEY -> PropertyTypeInternal.STRING;
             case BY_VALUE -> inferKeyTypeOfEmbeddedCollection(property);
           });
         }
       } else {
-        if (modifier == ValueModifier.BY_VALUE) {
+        if (indexBy == IndexBy.BY_VALUE) {
           result.add(propertyType);
         } else {
           throw new DatabaseException(session,
               "Can not defer index key type for property : " + property
-                  + " as it is not multivalue property but has modifier : " + modifier);
+                  + " as it is not multivalue property but has modifier : " + indexBy);
         }
       }
     }
@@ -199,7 +183,7 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
   }
 
   public Iterator<SchemaPropertyEntity> getPropertiesToIndex() {
-    var linkList = getLinkList(PROPERTIES_TO_INDEX);
+    var linkList = getLinkList(PropertyNames.PROPERTIES_TO_INDEX);
     return YTDBIteratorUtils.unmodifiableIterator(
         YTDBIteratorUtils.map(linkList.iterator(), identifiable -> {
           SchemaPropertyEntity property;
@@ -214,66 +198,82 @@ public class SchemaIndexEntity extends EntityImpl implements SchemaEntity {
         }));
   }
 
+  public List<IndexBy> getIndexBys() {
+    EmbeddedList<String> indexByList = getPropertyInternal(PropertyNames.INDEX_BY);
+    if (indexByList == null) {
+      return Collections.emptyList();
+    }
+
+    final List<IndexBy> result = new ArrayList<>(indexByList.size());
+    for (var indexBy : indexByList) {
+      result.add(IndexBy.valueOf(indexBy));
+    }
+
+    return result;
+  }
+
   public void addClassPropertyToIndex(@Nonnull SchemaPropertyEntity property) {
-    var linkList = getOrCreateLinkList(PROPERTIES_TO_INDEX);
+    var linkList = getOrCreateLinkList(PropertyNames.PROPERTIES_TO_INDEX);
     if (linkList.contains(property)) {
       return;
     }
 
     linkList.add(property);
-  }
-
-
-  public void setMetadata(Map<String, Object> metadata) {
-    var propertyModifiersMetadata = metadata.get(PROPERTY_MODIFIERS_METADATA);
-
-    if (propertyModifiersMetadata instanceof Map<?, ?> propertyModifiers) {
-      for (var entry : propertyModifiers.entrySet()) {
-
-        var propertyName = entry.getKey();
-        if (!(propertyName instanceof String)) {
-          var propertyValueModifier = entry.getValue();
-          if (propertyValueModifier instanceof String valueModifier) {
-            var lowerValueModifier = valueModifier.toUpperCase();
-
-            if (!ValueModifier.BY_KEY.name().equals(lowerValueModifier) &&
-                !ValueModifier.BY_VALUE.name().equals(lowerValueModifier)) {
-              throw new DatabaseException(session,
-                  "Unknown property modifier : " + propertyValueModifier);
-            }
-          }
-        } else {
-          throw new DatabaseException(session, "Property name is not a string : " + propertyName);
-        }
-      }
+    EmbeddedList<String> indexByList = getPropertyInternal(PropertyNames.INDEX_BY);
+    if (indexByList == null) {
+      indexByList = session.newEmbeddedList();
+      setPropertyInternal(PropertyNames.INDEX_BY, indexByList);
     }
 
-    newEmbeddedMap(METADATA, metadata);
+    indexByList.add(IndexBy.BY_VALUE.name());
+
+    assert indexByList.size() == linkList.size();
   }
 
-  public Map<String, Object> getMetadata() {
-    return getEmbeddedMap(METADATA);
+  public void addClassPropertyToIndex(@Nonnull SchemaPropertyEntity property,
+      @Nonnull IndexBy indexBy) {
+    var linkList = getOrCreateLinkList(PropertyNames.PROPERTIES_TO_INDEX);
+    if (linkList.contains(property)) {
+      return;
+    }
+
+    EmbeddedList<String> indexByList = getPropertyInternal(PropertyNames.INDEX_BY);
+    if (indexByList == null) {
+      indexByList = session.newEmbeddedList();
+      setPropertyInternal(PropertyNames.INDEX_BY, indexByList);
+    }
+
+    linkList.add(property);
+    indexByList.add(indexBy.name());
   }
 
   public boolean isNullValuesIgnored() {
-    return Boolean.TRUE.equals(getBoolean(NULL_VALUES_IGNORED));
+    return Boolean.TRUE.equals(getBoolean(PropertyNames.NULL_VALUES_IGNORED));
   }
 
   public void setNullValuesIgnored(boolean value) {
-    setBoolean(NULL_VALUES_IGNORED, value);
+    setPropertyInternal(PropertyNames.NULL_VALUES_IGNORED, value, PropertyTypeInternal.BOOLEAN);
   }
 
   public void setIndexType(IndexType indexType) {
-    setString(INDEX_TYPE, indexType.name());
+    setPropertyInternal(PropertyNames.INDEX_TYPE, indexType.name(), PropertyTypeInternal.STRING);
   }
 
   @Nullable
   public IndexType getIndexType() {
-    var indexType = getString(INDEX_TYPE);
+    String indexType = getPropertyInternal(PropertyNames.INDEX_TYPE);
     if (indexType == null) {
       return null;
     }
 
     return IndexType.valueOf(indexType);
+  }
+
+  public Map<String, ?> getMetadata() {
+    return getPropertyInternal(PropertyNames.METADATA);
+  }
+
+  public void setMetadata(Map<String, ?> metadata) {
+    setProperty(PropertyNames.METADATA, metadata, PropertyType.EMBEDDEDMAP);
   }
 }

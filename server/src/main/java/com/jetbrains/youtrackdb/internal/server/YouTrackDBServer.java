@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
-import com.jetbrains.youtrackdb.api.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.common.console.ConsoleReader;
 import com.jetbrains.youtrackdb.internal.common.console.DefaultConsoleReader;
 import com.jetbrains.youtrackdb.internal.common.exception.SystemException;
@@ -59,14 +58,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.server.handler.ConfigurableHooksManager;
-import com.jetbrains.youtrackdb.internal.server.network.ServerNetworkListener;
-import com.jetbrains.youtrackdb.internal.server.network.ServerSocketFactory;
-import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocol;
 import com.jetbrains.youtrackdb.internal.server.network.protocol.NetworkProtocolData;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPlugin;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginInfo;
 import com.jetbrains.youtrackdb.internal.server.plugin.ServerPluginManager;
-import com.jetbrains.youtrackdb.internal.server.token.TokenHandlerImpl;
 import com.jetbrains.youtrackdb.internal.tools.config.ServerConfiguration;
 import com.jetbrains.youtrackdb.internal.tools.config.ServerConfigurationManager;
 import java.io.ByteArrayInputStream;
@@ -103,16 +98,11 @@ public class YouTrackDBServer {
   protected ServerConfigurationManager serverCfg;
   protected ContextConfiguration contextConfiguration;
   protected ServerShutdownHook shutdownHook;
-  protected Map<String, Class<? extends NetworkProtocol>> networkProtocols = new HashMap<>();
-  protected Map<String, ServerSocketFactory> networkSocketFactories = new HashMap<>();
-  protected List<ServerNetworkListener> networkListeners = new ArrayList<>();
   protected List<ServerLifecycleListener> lifecycleListeners = new ArrayList<>();
   protected ServerPluginManager pluginManager;
   protected ConfigurableHooksManager hookManager;
   private String serverRootDirectory;
   private String databaseDirectory;
-  private ClientConnectionManager clientConnectionManager;
-  private TokenHandler tokenHandler;
 
   private YouTrackDBImpl context;
   private YTDBInternalProxy databases;
@@ -185,10 +175,6 @@ public class YouTrackDBServer {
 
   public boolean isActive() {
     return running;
-  }
-
-  public ClientConnectionManager getClientConnectionManager() {
-    return clientConnectionManager;
   }
 
   /**
@@ -287,7 +273,6 @@ public class YouTrackDBServer {
 
     initFromConfiguration();
 
-    clientConnectionManager = new ClientConnectionManager(this);
     rejectRequests = false;
 
     if (contextConfiguration.getValueAsBoolean(
@@ -322,18 +307,15 @@ public class YouTrackDBServer {
             .setSecurityConfig(new ServerSecurityConfig(this, this.serverCfg))
             .build();
 
-    databases = new YTDBInternalProxy(
-        (YouTrackDBInternalEmbedded) YouTrackDBInternal.embedded(this.databaseDirectory,
-            config, true));
+    databases = new YTDBInternalProxy(YouTrackDBInternal.embedded(this.databaseDirectory,
+        config, true));
     context = databases.newYouTrackDb();
 
     LogManager.instance()
         .info(this, "Databases directory: " + new File(databaseDirectory).getAbsolutePath());
-
     return this;
   }
 
-  @SuppressWarnings("unchecked")
   public YouTrackDBServer activate()
       throws ClassNotFoundException, InstantiationException, IllegalAccessException {
     lock.lock();
@@ -346,52 +328,6 @@ public class YouTrackDBServer {
 
       for (var l : lifecycleListeners) {
         l.onBeforeActivate();
-      }
-
-      final var configuration = serverCfg.getConfiguration();
-
-      tokenHandler =
-          new TokenHandlerImpl(
-              this.databases.getSecuritySystem().getTokenSign(), this.contextConfiguration);
-
-      if (configuration.network != null) {
-        // REGISTER/CREATE SOCKET FACTORIES
-        if (configuration.network.sockets != null) {
-          for (var f : configuration.network.sockets) {
-            var fClass =
-                (Class<? extends ServerSocketFactory>) loadClass(f.implementation);
-            var factory = fClass.newInstance();
-            try {
-              factory.config(f.name, f.parameters);
-              networkSocketFactories.put(f.name, factory);
-            } catch (ConfigurationException e) {
-              LogManager.instance().error(this, "Error creating socket factory", e);
-            }
-          }
-        }
-
-        // REGISTER PROTOCOLS
-        for (var p : configuration.network.protocols) {
-          networkProtocols.put(
-              p.name, (Class<? extends NetworkProtocol>) loadClass(p.implementation));
-        }
-
-        // STARTUP LISTENERS
-        for (var l : configuration.network.listeners) {
-          networkListeners.add(
-              new ServerNetworkListener(
-                  this,
-                  networkSocketFactories.get(l.socket),
-                  l.ipAddress,
-                  l.portRange,
-                  l.protocol,
-                  networkProtocols.get(l.protocol),
-                  l.parameters,
-                  l.commands));
-        }
-
-      } else {
-        LogManager.instance().warn(this, "Network configuration was not found");
       }
 
       try {
@@ -412,22 +348,6 @@ public class YouTrackDBServer {
       }
 
       running = true;
-
-      var httpAddress = "localhost:2480";
-      var ssl = false;
-      String proto;
-      if (ssl) {
-        proto = "https";
-      } else {
-        proto = "http";
-      }
-
-      LogManager.instance()
-          .info(
-              this,
-              "YouTrackDB Studio available at $ANSI{blue %s://%s/studio/index.html}",
-              proto,
-              httpAddress);
       LogManager.instance()
           .info(
               this,
@@ -483,25 +403,6 @@ public class YouTrackDBServer {
 
       lock.lock();
       try {
-        if (!networkListeners.isEmpty()) {
-          // SHUTDOWN LISTENERS
-          LogManager.instance().info(this, "Shutting down listeners:");
-          // SHUTDOWN LISTENERS
-          for (var l : networkListeners) {
-            LogManager.instance().info(this, "- %s", l);
-            try {
-              l.shutdown();
-            } catch (Exception e) {
-              LogManager.instance().error(this, "Error during shutdown of listener %s.", e, l);
-            }
-          }
-        }
-
-        if (!networkProtocols.isEmpty()) {
-          // PROTOCOL SHUTDOWN
-          LogManager.instance().info(this, "Shutting down protocols");
-          networkProtocols.clear();
-        }
 
         for (var l : lifecycleListeners) {
           try {
@@ -513,13 +414,9 @@ public class YouTrackDBServer {
         }
 
         rejectRequests = true;
-        clientConnectionManager.shutdown();
-
         if (pluginManager != null) {
           pluginManager.shutdown();
         }
-
-        networkListeners.clear();
       } finally {
         lock.unlock();
       }
@@ -624,19 +521,6 @@ public class YouTrackDBServer {
     return serverCfg.getConfiguration();
   }
 
-  @SuppressWarnings("unchecked")
-  @Nullable
-  public <RET extends ServerNetworkListener> RET getListenerByProtocol(
-      final Class<? extends NetworkProtocol> iProtocolClass) {
-    for (var l : networkListeners) {
-      if (iProtocolClass.isAssignableFrom(l.getProtocolType())) {
-        return (RET) l;
-      }
-    }
-
-    return null;
-  }
-
   @Nullable
   public Collection<ServerPluginInfo> getPlugins() {
     return pluginManager != null ? pluginManager.getPlugins() : null;
@@ -644,29 +528,6 @@ public class YouTrackDBServer {
 
   public ContextConfiguration getContextConfiguration() {
     return contextConfiguration;
-  }
-
-  @SuppressWarnings("unchecked")
-  @Nullable
-  public <RET extends ServerPlugin> RET getPlugin(final String iName) {
-    if (startupLatch == null) {
-      throw new DatabaseException("Error on plugin lookup: the server did not start correctly");
-    }
-
-    try {
-      startupLatch.await();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-    if (!running) {
-      throw new DatabaseException("Error on plugin lookup: the server did not start correctly");
-    }
-
-    final var p = pluginManager.getPluginByName(iName);
-    if (p != null) {
-      return (RET) p.getInstance();
-    }
-    return null;
   }
 
   @SuppressWarnings("unused")
@@ -1011,10 +872,6 @@ public class YouTrackDBServer {
   }
 
   protected void defaultSettings() {
-  }
-
-  public TokenHandler getTokenHandler() {
-    return tokenHandler;
   }
 
   public static ThreadGroup getThreadGroup() {

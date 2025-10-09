@@ -2,9 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbstract;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
@@ -12,11 +14,12 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutToken
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaPropertyEntity;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.lang3.ArrayUtils;
 
 public class YTDBSchemaPropertyImpl extends
     YTDBDomainVertexSchemaAbstract<SchemaPropertyEntity> implements YTDBSchemaProperty {
@@ -27,56 +30,56 @@ public class YTDBSchemaPropertyImpl extends
 
   @Override
   public @Nonnull String name() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getName();
   }
 
   @Override
   public void name(@Nonnull String propertyName) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setName(propertyName);
   }
 
   @Override
   public @Nonnull String fullName() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getFullName();
   }
 
   @Override
   public @Nonnull PropertyType propertyType() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getPropertyType().getPublicPropertyType();
   }
 
   @Override
   public void propertyType(@Nonnull PropertyType propertyType) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setPropertyType(PropertyTypeInternal.convertFromPublicType(propertyType));
   }
 
   @Override
   public @Nonnull String type() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getType();
   }
 
   @Override
   public void type(@Nonnull String propertyType) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setType(propertyType);
   }
 
   @Override
   public YTDBSchemaClass linkedClass() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var linkedClass = entity.getLinkedClass();
     return new YTDBSchemaClassImpl(graph, linkedClass);
   }
 
   @Override
   public void linkedClass(YTDBSchemaClass linkedClass) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     if (linkedClass == null) {
       entity.setLinkedClass(null);
       return;
@@ -89,187 +92,226 @@ public class YTDBSchemaPropertyImpl extends
 
   @Override
   public PropertyType linkedPropertyType() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getLinkedPropertyType().getPublicPropertyType();
   }
 
   @Override
   public void linkedPropertyType(@Nullable PropertyType linkedPropertyType) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setLinkedPropertyType(PropertyTypeInternal.convertFromPublicType(linkedPropertyType));
   }
 
   @Override
   public String linkedType() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getLinkedType();
   }
 
   @Override
   public void linkedType(@Nullable String type) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setLinkedType(type);
   }
 
   @Override
   public boolean notNull() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isNotNull();
   }
 
   @Override
   public void notNull(boolean notNull) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setNotNull(notNull);
   }
 
   @Override
   public String collateName() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getCollate();
   }
 
   @Override
   public void collateName(String collateName) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setCollateName(collateName);
   }
 
   @Override
   public boolean mandatory() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isMandatory();
   }
 
   @Override
   public void mandatory(boolean mandatory) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setMandatory(mandatory);
   }
 
   @Override
   public boolean readonly() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isReadonly();
   }
 
   @Override
   public void readonly(boolean readonly) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setReadonly(readonly);
   }
 
   @Override
   public String min() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getMin();
   }
 
   @Override
   public void min(String min) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setMin(min);
   }
 
   @Override
   public String max() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getMax();
   }
 
   @Override
   public void max(String max) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setMax(max);
   }
 
   @Override
   public String defaultValue() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getDefaultValue();
   }
 
   @Override
   public void defaultValue(String defaultValue) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setDefaultValue(defaultValue);
   }
 
   @Override
   public String regexp() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getRegexp();
   }
 
 
   @Override
   public void regexp(String regexp) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setRegexp(regexp);
   }
 
   @Override
   public String customProperty(@Nonnull String propertyName) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getCustomProperty(propertyName);
   }
 
 
   @Override
   public void customProperty(@Nonnull String propertyName, @Nullable String propertyValue) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setCustomProperty(propertyName, propertyValue);
   }
 
   @Override
   public void removeCustomProperty(@Nonnull String propertyName) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.removeCustomProperty(propertyName);
   }
 
   @Override
   public void clearCustomProperties() {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.clearCustomProperties();
   }
 
   @Override
   public Iterator<String> customPropertyNames() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getCustomPropertyNames().iterator();
   }
 
   @Nonnull
   @Override
   public YTDBSchemaClass declaringClass() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return new YTDBSchemaClassImpl(graph, entity.getDeclaringClass());
   }
 
   @Override
   public @Nonnull String description() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getDescription();
   }
 
   @Override
   public void description(String description) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setDescription(description);
   }
 
   @Override
   public YTDBSchemaIndex createIndex(
       String indexName, YTDBSchemaIndex.IndexType indexType) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
 
     var session = graph.tx().getDatabaseSession();
-
     var declaringClass = entity.getDeclaringClass();
-    var indexEntity = SchemaManager.createIndex(session, declaringClass, indexName,
-        IndexType.fromPublicIndexType(indexType), entity.getName());
+
+    var indexEntity = session.newSchemaIndexEntity();
+    indexEntity.setName(indexName);
+    indexEntity.setIndexType(IndexType.fromPublicIndexType(indexType));
+    indexEntity.setClassToIndex(declaringClass);
+    indexEntity.addClassPropertyToIndex(entity);
 
     return new YTDBSchemaIndexImpl(graph, indexEntity);
+  }
+
+  @Override
+  public YTDBSchemaIndex createIndex(String indexName, YTDBSchemaIndex.IndexType indexType,
+      IndexBy indexBy) {
+    var entity = entityWritePreprocessing();
+
+    var session = graph.tx().getDatabaseSession();
+    var declaringClass = entity.getDeclaringClass();
+
+    var indexEntity = session.newSchemaIndexEntity();
+    indexEntity.setName(indexName);
+    indexEntity.setIndexType(IndexType.fromPublicIndexType(indexType));
+    indexEntity.setClassToIndex(declaringClass);
+    indexEntity.addClassPropertyToIndex(entity,
+        SchemaIndexEntity.IndexBy.fromPublicIndexBy(indexBy));
+
+    return new YTDBSchemaIndexImpl(graph, indexEntity);
+  }
+
+  @Override
+  public Iterator<YTDBSchemaIndex> indexes(String... indexName) {
+    var entity = entityReadPreprocessing();
+    var indexes = entity.getIndexes();
+
+    if (indexes != null && indexName.length > 0) {
+      return YTDBIteratorUtils.map(
+          YTDBIteratorUtils.filter(indexes,
+              indexEntity -> ArrayUtils.contains(indexName, indexEntity.getName())),
+          indexEntity -> new YTDBSchemaIndexImpl(graph, indexEntity)
+      );
+    } else {
+      return YTDBIteratorUtils.map(
+          indexes, indexEntity -> new YTDBSchemaIndexImpl(graph, indexEntity)
+      );
+    }
   }
 
   @SuppressWarnings("rawtypes")

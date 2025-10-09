@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.api.gremlin.embedded.domain;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -23,6 +25,7 @@ import javax.annotation.Nullable;
 /// that can be accessed only using special traversal step and can not be manipulated by standard
 /// TinkerPop steps.
 public interface YTDBSchemaClass extends YTDBDomainVertex {
+
   String EDGE_CLASS_NAME = "E";
   String VERTEX_CLASS_NAME = "V";
 
@@ -130,4 +133,12 @@ public interface YTDBSchemaClass extends YTDBDomainVertex {
   void dropSchemaProperty(@Nonnull String propertyName);
 
   boolean existsSchemaProperty(@Nonnull String propertyName);
+
+  YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType,
+      String... propertyNames);
+
+  YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType,
+      String[] propertyNames, IndexBy[] indexBy);
+
+  Iterator<YTDBSchemaIndex> indexes(String... indexName);
 }

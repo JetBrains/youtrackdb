@@ -20,8 +20,8 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
-import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
@@ -35,14 +35,14 @@ import javax.annotation.Nullable;
 public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   protected String className;
-  protected String field;
+  protected String property;
   protected PropertyTypeInternal keyType;
 
-  public PropertyIndexDefinition(final String iClassName, final String iField,
+  public PropertyIndexDefinition(final String iClassName, final String property,
       final PropertyTypeInternal iType) {
     super();
     className = iClassName;
-    field = iField;
+    this.property = property;
     keyType = iType;
   }
 
@@ -59,16 +59,12 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   @Override
   public List<String> getProperties() {
-    return Collections.singletonList(field);
+    return Collections.singletonList(property);
   }
 
   @Override
-  public List<String> getFieldsToIndex() {
-    if (collate == null || collate.getName().equals(DefaultCollate.NAME)) {
-      return Collections.singletonList(field);
-    }
-
-    return Collections.singletonList(field + " collate " + collate.getName());
+  public List<IndexBy> getIndexBy() {
+    return List.of(IndexBy.BY_VALUE);
   }
 
   @Override
@@ -76,14 +72,14 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   public Object convertEntityPropertiesToIndexKey(
       FrontendTransaction transaction, final EntityImpl entity) {
     if (PropertyTypeInternal.LINK.equals(keyType)) {
-      final Identifiable identifiable = entity.getPropertyInternal(field);
+      final Identifiable identifiable = entity.getPropertyInternal(property);
       if (identifiable != null) {
         return createValue(transaction, identifiable.getIdentity());
       } else {
         return null;
       }
     }
-    return createValue(transaction, entity.<Object>getPropertyInternal(field));
+    return createValue(transaction, entity.<Object>getPropertyInternal(property));
   }
 
   @Override
@@ -104,7 +100,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
     if (!className.equals(that.className)) {
       return false;
     }
-    if (!field.equals(that.field)) {
+    if (!property.equals(that.property)) {
       return false;
     }
     return keyType == that.keyType;
@@ -114,7 +110,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   public int hashCode() {
     var result = super.hashCode();
     result = 31 * result + className.hashCode();
-    result = 31 * result + field.hashCode();
+    result = 31 * result + property.hashCode();
     result = 31 * result + keyType.hashCode();
     return result;
   }
@@ -126,7 +122,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
         + className
         + '\''
         + ", field='"
-        + field
+        + property
         + '\''
         + ", keyType="
         + keyType

@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -39,12 +40,12 @@ public interface IndexDefinition extends IndexCallback {
    */
   List<String> getProperties();
 
-  /**
-   * @return Names of fields and their index modifiers (like "by value" for fields that hold <code>
-   * Map</code> values) which given index is used to calculate key value. Order of fields is
-   * important.
-   */
-  List<String> getFieldsToIndex();
+  /// Indicates if property value should be indexed by value or by key. The last one depends on
+  /// property type. For [PropertyTypeInternal#EMBEDDEDLIST] and [PropertyTypeInternal#LINKLIST] it
+  /// means by index, but for [PropertyTypeInternal#EMBEDDEDMAP] or [PropertyTypeInternal#LINKMAP]
+  /// it literally means by key, for all other types this value does not have meaning and defaults
+  /// to [IndexBy#BY_VALUE].
+  List<IndexBy> getIndexBy();
 
   /**
    * @return Name of the class which this index belongs to.

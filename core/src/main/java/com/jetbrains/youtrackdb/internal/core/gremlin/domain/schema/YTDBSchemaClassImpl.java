@@ -1,86 +1,91 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbstract;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.commons.lang3.ArrayUtils;
 
 public class YTDBSchemaClassImpl extends
     YTDBDomainVertexSchemaAbstract<SchemaClassEntity> implements
     YTDBSchemaClass {
-
   public YTDBSchemaClassImpl(YTDBGraphInternal graph, Identifiable identifiable) {
     super(graph, identifiable);
   }
 
   @Override
   public boolean abstractClass() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isAbstractClass();
   }
 
   @Override
   public void abstractClass(boolean value) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setAbstractClass(value);
   }
 
   @Override
   public boolean strictMode() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isStrictMode();
   }
 
   @Override
   public void strictMode(boolean mode) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setStrictMode(mode);
   }
 
   @Override
   public boolean hasParentClasses() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.hasParentClasses();
   }
 
   @Nonnull
   @Override
   public String name() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getName();
   }
 
   @Override
   public void name(@Nonnull String name) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setName(name);
   }
 
   @Override
   public @Nonnull String description() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getDescription();
   }
 
   @Override
   public void description(@Nonnull String description) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setDescription(description);
   }
 
   @Override
   public @Nonnull int[] collectionIds() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var rids = entity.getCollectionIds();
     var ids = new int[rids.size()];
     for (var i = 0; i < ids.length; i++) {
@@ -92,7 +97,7 @@ public class YTDBSchemaClassImpl extends
 
   @Override
   public @Nonnull int[] polymorphicCollectionIds() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var rids = entity.getPolymorphicCollectionIds();
     var ids = new int[rids.size()];
 
@@ -106,26 +111,26 @@ public class YTDBSchemaClassImpl extends
 
   @Override
   public boolean isEdgeType() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isEdgeType();
   }
 
   @Override
   public boolean isVertexType() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isVertexType();
   }
 
   @Override
   public @Nonnull Iterator<YTDBSchemaClass> parentClasses() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var superClasses = entity.getParentClasses();
     return mapToDomainClassIterator(superClasses);
   }
 
   @Override
   public @Nonnull Iterator<YTDBSchemaClass> childClasses() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var subClasses = entity.getChildClasses();
 
     return mapToDomainClassIterator(subClasses);
@@ -133,7 +138,7 @@ public class YTDBSchemaClassImpl extends
 
   @Override
   public @Nonnull Iterator<YTDBSchemaClass> descendants() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var descendants = entity.getDescendants();
 
     return mapToDomainClassIterator(descendants.iterator());
@@ -141,7 +146,7 @@ public class YTDBSchemaClassImpl extends
 
   @Override
   public @Nonnull Iterator<YTDBSchemaClass> ascendants() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var ascendants = entity.getAscendants();
 
     return mapToDomainClassIterator(ascendants.iterator());
@@ -149,104 +154,104 @@ public class YTDBSchemaClassImpl extends
 
   @Override
   public void addParentClass(@Nonnull YTDBSchemaClass parentClass) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var classImpl = (YTDBSchemaClassImpl) parentClass;
     entity.addParentClass(classImpl.getRawEntity());
   }
 
   @Override
   public void removeParentClass(@Nonnull YTDBSchemaClass parentClass) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var classImpl = (YTDBSchemaClassImpl) parentClass;
     entity.removeParentClass(classImpl.getRawEntity());
   }
 
   @Override
   public void addChildClass(@Nonnull YTDBSchemaClass childClass) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var classImpl = (YTDBSchemaClassImpl) childClass;
     entity.addChildClass(classImpl.getRawEntity());
   }
 
   @Override
   public void removeChildClass(@Nonnull YTDBSchemaClass childClass) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var classImpl = (YTDBSchemaClassImpl) childClass;
     entity.removeChildClass(classImpl.getRawEntity());
   }
 
   @Override
   public boolean isChildOf(@Nonnull String className) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isChildOf(className);
   }
 
   @Override
   public boolean isChildOf(@Nonnull YTDBSchemaClass classInstance) {
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isChildOf(schemaClassImpl.getRawEntity());
   }
 
   @Override
   public boolean isParentOf(@Nonnull String className) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.isChildOf(className);
   }
 
   @Override
   public boolean isParentOf(@Nonnull YTDBSchemaClass classInstance) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
     return entity.isParentOf(schemaClassImpl.getRawEntity());
   }
 
   @Override
   public String customProperty(@Nonnull String propertyName) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getCustomProperty(propertyName);
   }
 
   @Override
   public void customProperty(@Nonnull String propertyName, @Nullable String propertyValue) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.setCustomProperty(propertyName, propertyValue);
   }
 
   @Override
   public void removeCustomProperty(@Nonnull String propertyName) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.removeCustomProperty(propertyName);
   }
 
   @Override
   public void clearCustomProperties() {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.clearCustomProperties();
   }
 
   @Nonnull
   @Override
   public Iterator<String> customPropertyNames() {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.getCustomPropertiesNames().iterator();
   }
 
   @Override
   public boolean hasCollectionId(int collectionId) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.hasCollectionId(collectionId);
   }
 
   @Override
   public boolean hasPolymorphicCollectionId(int collectionId) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.hasPolymorphicCollectionId(collectionId);
   }
 
   @Override
   public @Nonnull Iterator<YTDBSchemaProperty> declaredProperty(String... name) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var declaredProperties = entity.getDeclaredProperties(name);
 
     return mapToDomainPropertyIterator(declaredProperties);
@@ -254,7 +259,7 @@ public class YTDBSchemaClassImpl extends
 
   @Override
   public @Nonnull Iterator<YTDBSchemaProperty> schemaProperty(@Nonnull String... name) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     var schemaProperties = entity.getSchemaProperties(name);
     return mapToDomainPropertyIterator(schemaProperties.iterator());
   }
@@ -262,7 +267,7 @@ public class YTDBSchemaClassImpl extends
   @Override
   public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var tx = graph.tx();
     var session = tx.getDatabaseSession();
 
@@ -274,14 +279,14 @@ public class YTDBSchemaClassImpl extends
   }
 
   public void addSchemaProperty(@Nonnull YTDBSchemaProperty property) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var schemaImpl = (YTDBSchemaPropertyImpl) property;
 
     entity.addSchemaProperty(schemaImpl.getRawEntity());
   }
 
   public void removeSchemaProperty(@Nonnull YTDBSchemaProperty property) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var schemaImpl = (YTDBSchemaPropertyImpl) property;
     entity.removeSchemaProperty(schemaImpl.getRawEntity());
   }
@@ -290,7 +295,7 @@ public class YTDBSchemaClassImpl extends
   public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull YTDBSchemaClass linkedClass) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var tx = graph.tx();
     var session = tx.getDatabaseSession();
 
@@ -307,7 +312,7 @@ public class YTDBSchemaClassImpl extends
   public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull PropertyType linkedType) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     var tx = graph.tx();
     var session = tx.getDatabaseSession();
 
@@ -321,14 +326,64 @@ public class YTDBSchemaClassImpl extends
 
   @Override
   public void dropSchemaProperty(@Nonnull String propertyName) {
-    var entity = propertyWritePreprocessing();
+    var entity = entityWritePreprocessing();
     entity.removeSchemaProperty(propertyName);
   }
 
   @Override
   public boolean existsSchemaProperty(@Nonnull String propertyName) {
-    var entity = propertyReadPreprocessing();
+    var entity = entityReadPreprocessing();
     return entity.existsSchemaProperty(propertyName);
+  }
+
+  @Override
+  public YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType,
+      String... propertyNames) {
+    if (propertyNames == null || propertyNames.length == 0) {
+      throw new IllegalArgumentException("Property names cannot be null or empty");
+    }
+
+    var entity = entityWritePreprocessing();
+    var tx = graph.tx();
+    var session = tx.getDatabaseSession();
+    var indexEntity = SchemaManager.createIndex(session, entity, indexName, indexType,
+        propertyNames);
+
+    return new YTDBSchemaIndexImpl(graph, indexEntity);
+  }
+
+  @Override
+  public YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType,
+      String[] propertyNames, IndexBy[] indexBy) {
+    if (propertyNames == null || propertyNames.length == 0) {
+      throw new IllegalArgumentException("Property names cannot be null or empty");
+    }
+
+    var entity = entityWritePreprocessing();
+    var tx = graph.tx();
+    var session = tx.getDatabaseSession();
+
+    var indexEntity = SchemaManager.createIndex(session, entity, indexName,
+        indexType, null,
+        propertyNames, indexBy);
+
+    return new YTDBSchemaIndexImpl(graph, indexEntity);
+  }
+
+  @Override
+  public Iterator<YTDBSchemaIndex> indexes(String... indexName) {
+    var entity = entityReadPreprocessing();
+
+    if (indexName == null || indexName.length == 0) {
+      return YTDBIteratorUtils.map(entity.getIndexes(),
+          indexEntity -> new YTDBSchemaIndexImpl(graph, indexEntity));
+    }
+
+    return YTDBIteratorUtils.map(
+        YTDBIteratorUtils.filter(entity.getIndexes(),
+            indexEntity -> ArrayUtils.contains(indexName, indexEntity.getName())),
+        indexEntity -> new YTDBSchemaIndexImpl(graph, indexEntity)
+    );
   }
 
   @SuppressWarnings("rawtypes")

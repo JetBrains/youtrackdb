@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
@@ -31,31 +32,19 @@ import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 
-/**
- * Index implementation bound to one schema class property that presents
- * {@link PropertyTypeInternal#EMBEDDEDMAP or
- *
- * @link PropertyTypeInternal#LINKMAP} property.
- */
+/// Index implementation bound to one schema class property that presents
+/// [PropertyTypeInternal#EMBEDDEDMAP] or [PropertyTypeInternal#LINKMAP] property.
 public class PropertyMapIndexDefinition extends PropertyIndexDefinition
     implements IndexDefinitionMultiValue {
 
-  /**
-   * Indicates whether Map will be indexed using its keys or values.
-   */
-  public enum INDEX_BY {
-    KEY,
-    VALUE
-  }
-
-  private INDEX_BY indexBy = INDEX_BY.KEY;
+  private IndexBy indexBy = IndexBy.BY_KEY;
 
   public PropertyMapIndexDefinition() {
   }
 
   public PropertyMapIndexDefinition(
       final String iClassName, final String iField, final PropertyTypeInternal iType,
-      final INDEX_BY indexBy) {
+      final IndexBy indexBy) {
     super(iClassName, iField, iType);
 
     if (indexBy == null) {
@@ -69,17 +58,17 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
   @Override
   public Object convertEntityPropertiesToIndexKey(FrontendTransaction transaction,
       EntityImpl entity) {
-    return createValue(transaction, entity.<Object>getProperty(field));
+    return createValue(transaction, entity.<Object>getProperty(property));
   }
 
   @Nullable
   @Override
   public Object createValue(FrontendTransaction transaction, List<?> params) {
-    if (!(params.get(0) instanceof Map)) {
+    if (!(params.getFirst() instanceof Map)) {
       return null;
     }
 
-    final var mapParams = extractMapParams((Map<?, ?>) params.get(0));
+    final var mapParams = extractMapParams((Map<?, ?>) params.getFirst());
     final List<Object> result = new ArrayList<>(mapParams.size());
     for (final var mapParam : mapParams) {
       result.add(createSingleValue(transaction, mapParam));
@@ -102,19 +91,20 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
       var val = createSingleValue(transaction, mapParam);
       result.add(val);
     }
-    if (getFieldsToIndex().size() == 1 && result.size() == 1) {
-      return result.get(0);
+    if (getProperties().size() == 1 && result.size() == 1) {
+      return result.getFirst();
     }
     return result;
   }
 
-  public INDEX_BY getIndexBy() {
-    return indexBy;
+  @Override
+  public List<IndexBy> getIndexBy() {
+    return Collections.singletonList(indexBy);
   }
 
 
   private Collection<?> extractMapParams(Map<?, ?> map) {
-    if (indexBy == INDEX_BY.KEY) {
+    if (indexBy == IndexBy.BY_KEY) {
       return map.keySet();
     }
     return map.values();
@@ -150,7 +140,7 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
       final Object2IntMap<Object> keysToAdd,
       final Object2IntMap<Object> keysToRemove) {
     final boolean result;
-    if (indexBy.equals(INDEX_BY.KEY)) {
+    if (indexBy == IndexBy.BY_KEY) {
       result = processKeyChangeEvent(transaction, changeEvent, keysToAdd, keysToRemove);
     } else {
       result = processValueChangeEvent(transaction, changeEvent, keysToAdd, keysToRemove);
@@ -172,7 +162,8 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
         yield true;
       }
       case REMOVE -> {
-        processRemoval(createSingleValue(transaction, changeEvent.getKey()), keysToAdd, keysToRemove);
+        processRemoval(createSingleValue(transaction, changeEvent.getKey()), keysToAdd,
+            keysToRemove);
         yield true;
       }
       case UPDATE -> true;
@@ -200,14 +191,6 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
         return true;
     }
     return false;
-  }
-
-  @Override
-  public List<String> getFieldsToIndex() {
-    if (indexBy == INDEX_BY.KEY) {
-      return Collections.singletonList(field + " by key");
-    }
-    return Collections.singletonList(field + " by value");
   }
 
   @Override

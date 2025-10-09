@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import com.jetbrains.youtrackdb.api.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import it.unimi.dsi.fastutil.ints.IntCollection;
@@ -130,16 +131,14 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return Collections.unmodifiableList(fields);
   }
 
-  /**
-   * {@inheritDoc}
-   */
   @Override
-  public List<String> getFieldsToIndex() {
-    final List<String> fields = new LinkedList<>();
+  public List<IndexBy> getIndexBy() {
+    var result = new ArrayList<IndexBy>();
     for (final var indexDefinition : indexDefinitions) {
-      fields.addAll(indexDefinition.getFieldsToIndex());
+      result.addAll(indexDefinition.getIndexBy());
     }
-    return Collections.unmodifiableList(fields);
+
+    return result;
   }
 
   /**

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.api.gremlin.embedded.domain;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import java.util.Iterator;
@@ -7,9 +8,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public interface YTDBSchemaProperty extends YTDBDomainVertex {
-  String LABEL = "$schemaProperty";
 
-  @SuppressWarnings("rawtypes")
+  String LABEL = "$schemaProperty";
 
   @Override
   default String label() {
@@ -107,4 +107,8 @@ public interface YTDBSchemaProperty extends YTDBDomainVertex {
   void description(@Nullable String description);
 
   YTDBSchemaIndex createIndex(String indexName, IndexType indexType);
+
+  YTDBSchemaIndex createIndex(String indexName, IndexType indexType, IndexBy indexBy);
+
+  Iterator<YTDBSchemaIndex> indexes(String... indexName);
 }

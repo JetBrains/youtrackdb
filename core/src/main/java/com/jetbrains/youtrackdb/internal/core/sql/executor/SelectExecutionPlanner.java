@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.In
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -2279,22 +2280,24 @@ public class SelectExecutionPlanner {
 
   private static boolean isIndexByKey(Index index, String field) {
     var def = index.getDefinition();
-    for (var o : def.getFieldsToIndex()) {
-      if (o.equalsIgnoreCase(field + " by key")) {
-        return true;
-      }
+    var indexBy = def.getIndexBy();
+    var propertyIndex = def.getProperties().indexOf(field);
+    if (propertyIndex < 0) {
+      return false;
     }
-    return false;
+
+    return indexBy.get(propertyIndex) == IndexBy.BY_KEY;
   }
 
   private static boolean isIndexByValue(Index index, String field) {
     var def = index.getDefinition();
-    for (var o : def.getFieldsToIndex()) {
-      if (o.equalsIgnoreCase(field + " by value")) {
-        return true;
-      }
+    var indexBy = def.getIndexBy();
+    var propertyIndex = def.getProperties().indexOf(field);
+    if (propertyIndex < 0) {
+      return false;
     }
-    return false;
+
+    return indexBy.get(propertyIndex) == IndexBy.BY_VALUE;
   }
 
   private static boolean isMap(ImmutableSchemaClass clazz,

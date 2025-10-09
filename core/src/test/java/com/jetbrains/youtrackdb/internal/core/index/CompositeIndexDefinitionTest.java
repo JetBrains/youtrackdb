@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
@@ -72,7 +73,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyMapIndexDefinition(
             "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
-            PropertyMapIndexDefinition.INDEX_BY.KEY));
+            IndexBy.BY_KEY));
 
     final Map<String, String> stringMap = new HashMap<>();
     stringMap.put("key1", "val1");
@@ -741,7 +742,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyMapIndexDefinition(
             "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
-            PropertyMapIndexDefinition.INDEX_BY.KEY));
+            IndexBy.BY_KEY));
 
     final var result = compositeIndexDefinition.convertEntityPropertiesToIndexKey(
         session.getActiveTransaction(), document);
@@ -1377,61 +1378,6 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testEmptyIndexReload() {
-    final var emptyCompositeIndex =
-        new CompositeIndexDefinition("testClass");
-
-    emptyCompositeIndex.addIndex(
-        new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER));
-    emptyCompositeIndex.addIndex(
-        new PropertyIndexDefinition("testClass", "fTwo", PropertyTypeInternal.STRING));
-
-    final var map = emptyCompositeIndex.toMap(session);
-    final var result = new CompositeIndexDefinition();
-
-    result.fromMap(map);
-
-    Assert.assertEquals(result, emptyCompositeIndex);
-  }
-
-  @Test
-  public void testIndexReload() {
-    final var map = compositeIndex.toMap(session);
-
-    final var result = new CompositeIndexDefinition();
-    result.fromMap(map);
-
-    Assert.assertEquals(result, compositeIndex);
-  }
-
-  @Test
-  public void testClassOnlyConstructor() {
-
-    final var emptyCompositeIndex =
-        new CompositeIndexDefinition(
-            "testClass",
-            Arrays.asList(
-                new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER),
-                new PropertyIndexDefinition("testClass", "fTwo", PropertyTypeInternal.STRING)));
-
-    final var emptyCompositeIndexTwo =
-        new CompositeIndexDefinition("testClass");
-
-    emptyCompositeIndexTwo.addIndex(
-        new PropertyIndexDefinition("testClass", "fOne", PropertyTypeInternal.INTEGER));
-    emptyCompositeIndexTwo.addIndex(
-        new PropertyIndexDefinition("testClass", "fTwo", PropertyTypeInternal.STRING));
-
-    Assert.assertEquals(emptyCompositeIndex, emptyCompositeIndexTwo);
-
-    final var map = emptyCompositeIndex.toMap(session);
-    final var result = new CompositeIndexDefinition();
-    result.fromMap(map);
-
-    Assert.assertEquals(result, emptyCompositeIndexTwo);
-  }
-
-  @Test
   public void testProcessChangeListEventsOne() {
     session.begin();
     final var compositeIndexDefinition = new CompositeIndexDefinition();
@@ -1721,7 +1667,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyMapIndexDefinition(
             "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
-            PropertyMapIndexDefinition.INDEX_BY.KEY));
+            IndexBy.BY_KEY));
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 
@@ -1768,7 +1714,7 @@ public class CompositeIndexDefinitionTest extends DbTestBase {
     compositeIndexDefinition.addIndex(
         new PropertyMapIndexDefinition(
             "testCollectionClass", "fTwo", PropertyTypeInternal.STRING,
-            PropertyMapIndexDefinition.INDEX_BY.KEY));
+            IndexBy.BY_KEY));
     compositeIndexDefinition.addIndex(
         new PropertyIndexDefinition("testCollectionClass", "fThree", PropertyTypeInternal.INTEGER));
 

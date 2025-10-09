@@ -5,8 +5,10 @@ import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSche
 import static com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema.YTDBSchemaClassPToken.name;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import javax.annotation.Nonnull;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
@@ -15,6 +17,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.AddVertexStartStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -61,7 +64,7 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
     traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
 
-    return traversal.addV(YTDBSchemaClass.LABEL).as("result")
+    return traversal.addV(YTDBSchemaClass.LABEL).property(name, className).as("result")
         .addE(parentClass).to(__.V().hasLabel(YTDBSchemaClass.LABEL).
             has(name, P.within(parentClasses)))
         .select("result");
@@ -104,6 +107,36 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
             __.V().hasLabel(YTDBSchemaClass.LABEL)
                 .has(name, P.eq(YTDBSchemaClass.EDGE_CLASS_NAME))
         ).select("schemaClass");
+  }
+
+  public YTDBGraphTraversal<Vertex, Vertex> schemaClass(String... className) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+
+    clone.bytecode.addStep(GraphTraversal.Symbols.V, ArrayUtils.EMPTY_OBJECT_ARRAY);
+    var ytdbGraphTraversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
+    ytdbGraphTraversal.addStep(
+        new GraphStep<>(ytdbGraphTraversal, Vertex.class, true, ArrayUtils.EMPTY_OBJECT_ARRAY));
+
+    if (className == null || className.length == 0) {
+      return ytdbGraphTraversal.hasLabel(YTDBSchemaClass.LABEL);
+    }
+
+    return ytdbGraphTraversal.hasLabel(YTDBSchemaClass.LABEL).has(name, P.within(className));
+  }
+
+  public YTDBGraphTraversal<Vertex, Vertex> schemaIndex(String... indexName) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+
+    clone.bytecode.addStep(GraphTraversal.Symbols.V, ArrayUtils.EMPTY_OBJECT_ARRAY);
+    var ytdbGraphTraversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
+    ytdbGraphTraversal.addStep(
+        new GraphStep<>(ytdbGraphTraversal, Vertex.class, true, ArrayUtils.EMPTY_OBJECT_ARRAY));
+
+    if (indexName == null || indexName.length == 0) {
+      return ytdbGraphTraversal.hasLabel(YTDBSchemaIndex.LABEL);
+    }
+
+    return ytdbGraphTraversal.hasLabel(YTDBSchemaIndex.LABEL).has(name, P.within(indexName));
   }
 
 

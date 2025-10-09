@@ -13,7 +13,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
-import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEntity> implements
@@ -58,7 +57,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEnti
     var declaringClass = delegate.getDeclaringClass();
     var indexName = delegate.getFullName();
     SchemaManager.createIndex(delegate.getSession(), declaringClass, delegate.getFullName(), iType,
-        metadata, delegate.getName());
+        metadata, new String[]{delegate.getName()}, null);
     return indexName;
   }
 
@@ -108,7 +107,7 @@ public final class SchemaPropertyProxy extends ProxedResource<SchemaPropertyEnti
   }
 
   @Override
-  public void setLinkedType(@Nonnull PropertyTypeInternal type) {
+  public void setLinkedType(@Nullable PropertyTypeInternal type) {
     assert session.assertIfNotActive();
     delegate.setLinkedPropertyType(type);
   }
