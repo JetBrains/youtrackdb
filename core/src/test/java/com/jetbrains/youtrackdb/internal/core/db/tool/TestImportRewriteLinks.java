@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
-import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_INDEX_NAME;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
@@ -11,7 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -30,17 +29,20 @@ public class TestImportRewriteLinks {
   public void testLinkRewrite() {
     try (final YouTrackDBAbstract<?, ?> youTrackDb =
         CreateDatabaseUtil.createDatabase(
+
             "testDB", DbTestBase.embeddedDBUrl(getClass()), CreateDatabaseUtil.TYPE_MEMORY)) {
+      try (var graph = youTrackDb.openGraph("testDB", "admin",
+          CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+        graph.autoExecuteInTx(g ->
+            g.addSchemaClass(EXPORT_IMPORT_CLASS_NAME).as("c").
+                addSchemaProperty("value", PropertyType.STRING).select("c").
+                addSchemaProperty("key", PropertyType.STRING).addPropertyIndex(IndexType.UNIQUE)
+        );
+      }
+
       try (var session =
           (DatabaseSessionInternal) youTrackDb.open("testDB", "admin",
               CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-        final Schema schema = session.getMetadata().getSlowMutableSchema();
-
-        final var cls = schema.createClass(EXPORT_IMPORT_CLASS_NAME);
-        cls.createProperty("key", PropertyType.STRING);
-        cls.createProperty("value", PropertyType.STRING);
-        cls.createIndex(EXPORT_IMPORT_INDEX_NAME, INDEX_TYPE.UNIQUE, "key");
-
         session.begin();
         var e1 = ((EntityImpl) session.newEntity(EXPORT_IMPORT_CLASS_NAME));
         e1.setProperty("key", new RecordId(10, 4).toString());
