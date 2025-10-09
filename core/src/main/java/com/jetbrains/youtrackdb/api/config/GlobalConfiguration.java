@@ -824,9 +824,9 @@ public enum GlobalConfiguration {
   QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT(
       "youtrackdb.query.gremlin.polymorphicByDefault",
       "Controls the default behavior of hasLabel step in Gremlin queries. True means that"
-          + " queries are polymorphic, unless configured otherwise using GraphTraversalSource#with. False by default.",
+          + " queries are polymorphic, unless configured otherwise using GraphTraversalSource#with. True by default.",
       Boolean.class,
-      false
+      true
   ),
 
   STATEMENT_CACHE_SIZE(
