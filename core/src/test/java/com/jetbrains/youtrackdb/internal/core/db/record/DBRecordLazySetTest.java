@@ -71,16 +71,19 @@ public class DBRecordLazySetTest extends DbTestBase {
 
   @Test(expected = ValidationException.class)
   public void testSetWithNotExistentRecordWithValidation() {
-    var test = session.getMetadata().getSlowMutableSchema().createClass("test");
-    var test1 = session.getMetadata().getSlowMutableSchema().createClass("test1");
-    test.createProperty("fi", PropertyType.LINKSET).setLinkedClass(test1);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("test").addSchemaClass("test1").
+            schemaClass("test").
+            addSchemaProperty("fi", PropertyType.LINKSET).
+            propertyLinkedClass("test1")
+    );
 
     session.begin();
     var stubEntity = session.newEntity();
     session.commit();
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(test);
+    var doc = (EntityImpl) session.newEntity("test");
     var set = new EntityLinkSetImpl(doc);
     set.add(stubEntity.getIdentity());
     doc.setProperty("fi", set);

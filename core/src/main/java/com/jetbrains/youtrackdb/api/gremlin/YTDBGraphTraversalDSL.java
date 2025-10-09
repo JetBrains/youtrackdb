@@ -327,6 +327,19 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .has(YTDBSchemaPropertyPToken.name, traversal);
   }
 
+  default GraphTraversal<S, Vertex> propertyLinkedClass(String linkedClass) {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    return ytdbGraphTraversal.sideEffect(
+            __.outE(YTDBSchemaPropertyOutToken.linkedClass).drop()
+        ).addE(YTDBSchemaPropertyOutToken.linkedClass)
+        .to(__.schemaClass(linkedClass)).outV();
+  }
+
+  default GraphTraversal<S, Vertex> propertyLinkedClass() {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    return ytdbGraphTraversal.out(YTDBSchemaPropertyOutToken.linkedClass);
+  }
+
   @SkipAsAnonymousMethod
   default GraphTraversal<S, String> schemaClassName() {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
