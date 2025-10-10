@@ -7,20 +7,20 @@ import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.EntityHookAbstract;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class HookChangeValidationTest extends DbTestBase {
-
   @Test
   public void testBeforeHookCreateChangeTx() {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classA = schema.createClass("TestClass");
-    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
-    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
-    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("TestClass").as("c").
+            addSchemaProperty("property1", PropertyType.STRING).propertyNotNull(true).select("c").
+            addSchemaProperty("property2", PropertyType.STRING).propertyReadOnly(true).select("c").
+            addSchemaProperty("property3", PropertyType.STRING).propertyMandatory(true)
+    );
+
     session.registerHook(
         new EntityHookAbstract() {
           @Override
@@ -31,24 +31,25 @@ public class HookChangeValidationTest extends DbTestBase {
           }
         });
     session.begin();
-    var doc = (EntityImpl) session.newEntity(classA);
+    var doc = (EntityImpl) session.newEntity("TestClass");
     doc.setProperty("property1", "value1-create");
     doc.setProperty("property2", "value2-create");
     doc.setProperty("property3", "value3-create");
     try {
       session.commit();
       Assert.fail("The document save should fail with illegal state exception");
-    } catch (IllegalStateException ex) {
+    } catch (IllegalStateException ignored) {
     }
   }
 
   @Test
   public void testAfterHookCreateChangeTx() {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classA = schema.createClass("TestClass");
-    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
-    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
-    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("TestClass").as("cl").
+            addSchemaProperty("property1", PropertyType.STRING).propertyNotNull(true).select("cl").
+            addSchemaProperty("property2", PropertyType.STRING).propertyReadOnly(true).select("cl").
+            addSchemaProperty("property3", PropertyType.STRING).propertyMandatory(true)
+    );
     session.registerHook(
         new EntityHookAbstract() {
           @Override
@@ -59,7 +60,7 @@ public class HookChangeValidationTest extends DbTestBase {
           }
         });
     session.begin();
-    var doc = (EntityImpl) session.newEntity(classA);
+    var doc = (EntityImpl) session.newEntity("TestClass");
     doc.setProperty("property1", "value1-create");
     doc.setProperty("property2", "value2-create");
     doc.setProperty("property3", "value3-create");
@@ -67,17 +68,19 @@ public class HookChangeValidationTest extends DbTestBase {
 
       session.commit();
       Assert.fail("The document save should fail for validation exception");
-    } catch (ValidationException ex) {
+    } catch (ValidationException ignored) {
     }
   }
 
   @Test
   public void testBeforeHookUpdateChangeTx() {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classA = schema.createClass("TestClass");
-    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
-    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
-    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("TestClass").as("cl").
+            addSchemaProperty("property1", PropertyType.STRING).propertyNotNull(true).select("cl").
+            addSchemaProperty("property2", PropertyType.STRING).propertyReadOnly(true).select("cl").
+            addSchemaProperty("property3", PropertyType.STRING).propertyMandatory(true)
+    );
     session.registerHook(
         new EntityHookAbstract() {
           @Override
@@ -89,7 +92,7 @@ public class HookChangeValidationTest extends DbTestBase {
         });
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(classA);
+    var doc = (EntityImpl) session.newEntity("TestClass");
     doc.setProperty("property1", "value1-create");
     doc.setProperty("property2", "value2-create");
     doc.setProperty("property3", "value3-create");
@@ -109,17 +112,18 @@ public class HookChangeValidationTest extends DbTestBase {
 
       session.commit();
       Assert.fail("The document save should fail with illegal exception");
-    } catch (IllegalStateException ex) {
+    } catch (IllegalStateException ignored) {
     }
   }
 
   @Test
   public void testAfterHookUpdateChangeTx() {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classA = schema.createClass("TestClass");
-    classA.createProperty("property1", PropertyType.STRING).setNotNull(true);
-    classA.createProperty("property2", PropertyType.STRING).setReadonly(true);
-    classA.createProperty("property3", PropertyType.STRING).setMandatory(true);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("TestClass").as("cl").
+            addSchemaProperty("property1", PropertyType.STRING).propertyNotNull(true).select("cl").
+            addSchemaProperty("property2", PropertyType.STRING).propertyReadOnly(true).select("cl").
+            addSchemaProperty("property3", PropertyType.STRING).propertyMandatory(true)
+    );
     session.registerHook(
         new EntityHookAbstract() {
           @Override
@@ -131,7 +135,7 @@ public class HookChangeValidationTest extends DbTestBase {
         });
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(classA);
+    var doc = (EntityImpl) session.newEntity("TestClass");
     doc.setProperty("property1", "value1-create");
     doc.setProperty("property2", "value2-create");
     doc.setProperty("property3", "value3-create");
@@ -151,7 +155,7 @@ public class HookChangeValidationTest extends DbTestBase {
 
       session.commit();
       Assert.fail("The document save should fail for validation exception");
-    } catch (ValidationException ex) {
+    } catch (ValidationException ignored) {
     }
   }
 }
