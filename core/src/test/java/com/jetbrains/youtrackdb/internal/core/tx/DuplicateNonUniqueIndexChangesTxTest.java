@@ -23,13 +23,12 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -38,16 +37,15 @@ import org.junit.Test;
  */
 public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
-  private Index index;
+  private static final String INDEX_NAME = "PersonIndex";
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    final var class_ = session.getMetadata().getSlowMutableSchema().createClass("Person");
-    var indexName =
-        class_
-            .createProperty("name", PropertyType.STRING)
-            .createIndex(IndexType.NOT_UNIQUE);
-    index = session.getIndex(indexName);
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING)
+            .addPropertyIndex(INDEX_NAME, IndexType.NOT_UNIQUE)
+    );
   }
 
   @Test
@@ -192,7 +190,6 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     person2 = activeTx4.load(person2);
     var activeTx3 = session.getActiveTransaction();
     person3 = activeTx3.load(person3);
-
 
     // verify index state
     assertRids(null);
@@ -351,8 +348,9 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.begin();
     // verify index state
+    var index = session.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME);
     try (var stream = index.getRids(session, "Name")) {
-      stream.forEach(
+      stream.forEachRemaining(
           (rid) -> {
             final EntityImpl document = session.load(rid);
             unseen.remove(document.<Integer>getProperty("serial"));
@@ -364,9 +362,11 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
   private void assertRids(String indexKey, Identifiable... rids) {
     final Set<RID> actualRids;
-    try (var stream = index.getRids(session, indexKey)) {
-      actualRids = stream.collect(Collectors.toSet());
+    var index = session.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME);
+    try (var iterator = index.getRids(session, indexKey)) {
+      actualRids = YTDBIteratorUtils.set(iterator);
     }
+
     Assert.assertEquals(actualRids, new HashSet<Object>(Arrays.asList(rids)));
   }
 }
