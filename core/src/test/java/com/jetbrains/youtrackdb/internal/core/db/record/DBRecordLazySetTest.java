@@ -75,7 +75,7 @@ public class DBRecordLazySetTest extends DbTestBase {
         g.addSchemaClass("test").addSchemaClass("test1").
             schemaClass("test").
             addSchemaProperty("fi", PropertyType.LINKSET).
-            propertyLinkedClass("test1")
+            linkedClassAttr("test1")
     );
 
     session.begin();

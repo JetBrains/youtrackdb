@@ -345,7 +345,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .has(YTDBSchemaPropertyPToken.name, traversal);
   }
 
-  default GraphTraversal<S, Vertex> propertyLinkedClass(String linkedClass) {
+  default GraphTraversal<S, Vertex> linkedClassAttr(String linkedClass) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.sideEffect(
             __.outE(YTDBSchemaPropertyOutToken.linkedClass).drop()
@@ -353,17 +353,17 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .to(__.schemaClass(linkedClass)).outV();
   }
 
-  default GraphTraversal<S, Vertex> propertyLinkedClass() {
+  default GraphTraversal<S, Vertex> linkedClassAttr() {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.out(YTDBSchemaPropertyOutToken.linkedClass);
   }
 
-  default GraphTraversal<S, Boolean> propertyNotNull() {
+  default GraphTraversal<S, Boolean> notNullAttr() {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.values(YTDBSchemaPropertyPToken.notNull);
   }
 
-  default GraphTraversal<S, Vertex> propertyNotNull(boolean notNull) {
+  default GraphTraversal<S, Vertex> notNullAttr(boolean notNull) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
 
     var currentProperty = "currentProperty";
@@ -372,28 +372,40 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         select(currentProperty);
   }
 
-  default GraphTraversal<S, Boolean> propertyReadOnly() {
+  default GraphTraversal<S, Boolean> readOnlyAttr() {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.values(YTDBSchemaPropertyPToken.readonly);
   }
 
-  default GraphTraversal<S, Vertex> propertyReadOnly(boolean readonly) {
+  default GraphTraversal<S, Vertex> readOnlyAttr(boolean readonly) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     var currentProperty = "currentProperty";
     return ytdbGraphTraversal.as(currentProperty)
         .property(YTDBSchemaPropertyPToken.readonly, readonly).select(currentProperty);
   }
 
-  default GraphTraversal<S, Boolean> propertyMandatory() {
+  default GraphTraversal<S, Boolean> mandatoryAttr() {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.values(YTDBSchemaPropertyPToken.mandatory);
   }
 
-  default GraphTraversal<S, Vertex> propertyMandatory(boolean mandatory) {
+  default GraphTraversal<S, Vertex> mandatoryAttr(boolean mandatory) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     var currentProperty = "currentProperty";
     return ytdbGraphTraversal.property(YTDBSchemaPropertyPToken.mandatory, mandatory)
         .select(currentProperty);
+  }
+
+  default GraphTraversal<S, String> defaultValueAttr() {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    return ytdbGraphTraversal.values(YTDBSchemaPropertyPToken.defaultValue);
+  }
+
+  default GraphTraversal<S, Vertex> defaultValueAttr(String defaultValue) {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    var currentProperty = "currentProperty";
+    return ytdbGraphTraversal.as(currentProperty)
+        .property(YTDBSchemaPropertyPToken.defaultValue, defaultValue).select(currentProperty);
   }
 
   @SkipAsAnonymousMethod

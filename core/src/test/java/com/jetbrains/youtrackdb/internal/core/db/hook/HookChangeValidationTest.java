@@ -16,9 +16,9 @@ public class HookChangeValidationTest extends DbTestBase {
   public void testBeforeHookCreateChangeTx() {
     graph.autoExecuteInTx(g ->
         g.addSchemaClass("TestClass").as("c").
-            addSchemaProperty("property1", PropertyType.STRING).propertyNotNull(true).select("c").
-            addSchemaProperty("property2", PropertyType.STRING).propertyReadOnly(true).select("c").
-            addSchemaProperty("property3", PropertyType.STRING).propertyMandatory(true)
+            addSchemaProperty("property1", PropertyType.STRING).notNullAttr(true).select("c").
+            addSchemaProperty("property2", PropertyType.STRING).readOnlyAttr(true).select("c").
+            addSchemaProperty("property3", PropertyType.STRING).mandatoryAttr(true)
     );
 
     session.registerHook(
@@ -46,9 +46,9 @@ public class HookChangeValidationTest extends DbTestBase {
   public void testAfterHookCreateChangeTx() {
     graph.autoExecuteInTx(g ->
         g.addSchemaClass("TestClass").as("cl").
-            addSchemaProperty("property1", PropertyType.STRING).propertyNotNull(true).select("cl").
-            addSchemaProperty("property2", PropertyType.STRING).propertyReadOnly(true).select("cl").
-            addSchemaProperty("property3", PropertyType.STRING).propertyMandatory(true)
+            addSchemaProperty("property1", PropertyType.STRING).notNullAttr(true).select("cl").
+            addSchemaProperty("property2", PropertyType.STRING).readOnlyAttr(true).select("cl").
+            addSchemaProperty("property3", PropertyType.STRING).mandatoryAttr(true)
     );
     session.registerHook(
         new EntityHookAbstract() {
@@ -77,9 +77,9 @@ public class HookChangeValidationTest extends DbTestBase {
 
     graph.autoExecuteInTx(g ->
         g.addSchemaClass("TestClass").as("cl").
-            addSchemaProperty("property1", PropertyType.STRING).propertyNotNull(true).select("cl").
-            addSchemaProperty("property2", PropertyType.STRING).propertyReadOnly(true).select("cl").
-            addSchemaProperty("property3", PropertyType.STRING).propertyMandatory(true)
+            addSchemaProperty("property1", PropertyType.STRING).notNullAttr(true).select("cl").
+            addSchemaProperty("property2", PropertyType.STRING).readOnlyAttr(true).select("cl").
+            addSchemaProperty("property3", PropertyType.STRING).mandatoryAttr(true)
     );
     session.registerHook(
         new EntityHookAbstract() {
@@ -120,9 +120,9 @@ public class HookChangeValidationTest extends DbTestBase {
   public void testAfterHookUpdateChangeTx() {
     graph.autoExecuteInTx(g ->
         g.addSchemaClass("TestClass").as("cl").
-            addSchemaProperty("property1", PropertyType.STRING).propertyNotNull(true).select("cl").
-            addSchemaProperty("property2", PropertyType.STRING).propertyReadOnly(true).select("cl").
-            addSchemaProperty("property3", PropertyType.STRING).propertyMandatory(true)
+            addSchemaProperty("property1", PropertyType.STRING).notNullAttr(true).select("cl").
+            addSchemaProperty("property2", PropertyType.STRING).readOnlyAttr(true).select("cl").
+            addSchemaProperty("property3", PropertyType.STRING).mandatoryAttr(true)
     );
     session.registerHook(
         new EntityHookAbstract() {

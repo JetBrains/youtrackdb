@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
@@ -26,9 +27,17 @@ public class TestSchemaImportExport extends DbTestBase {
     try (var db =
         (DatabaseSessionEmbedded)
             youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
-      var clazz = db.getMetadata().getSlowMutableSchema().createClass("Test");
-      clazz.createProperty("some", PropertyType.STRING);
-      clazz.setCustom("testcustom", "test");
+      try (var graph = youTrackDB.openGraph(TestSchemaImportExport.class.getSimpleName(), "admin",
+          "admin")) {
+        graph.executeInTx(g -> {
+              var cls = (YTDBSchemaClass) g.addSchemaClass("Test").
+                  as("cl").
+                  addSchemaProperty("some", PropertyType.STRING).
+                  select("cl").next();
+              cls.customProperty("testcustom", "test");
+            }
+        );
+      }
       var exp = new DatabaseExport(db, output, new MockOutputListener());
       exp.exportDatabase();
     } finally {
@@ -43,7 +52,8 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin");
     try (var sessionOne =
         (DatabaseSessionInternal)
-            youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
+            youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin",
+                "admin")) {
       var imp =
           new DatabaseImport(
               (DatabaseSessionEmbedded) sessionOne, new ByteArrayInputStream(output.toByteArray()),
@@ -70,8 +80,14 @@ public class TestSchemaImportExport extends DbTestBase {
     try (var db =
         (DatabaseSessionEmbedded)
             youTrackDB.open(TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
-      var clazz = db.getMetadata().getSlowMutableSchema().createClass("Test");
-      clazz.createProperty("bla", PropertyType.STRING).setDefaultValue("something");
+      try (var graph = youTrackDB.openGraph(TestSchemaImportExport.class.getSimpleName(), "admin",
+          "admin")) {
+        graph.autoExecuteInTx(g ->
+            g.addSchemaClass("Test").addSchemaProperty("bla", PropertyType.STRING)
+                .defaultValueAttr("something")
+        );
+      }
+
       var exp = new DatabaseExport(db, output, new MockOutputListener());
       exp.exportDatabase();
     } finally {
@@ -86,7 +102,8 @@ public class TestSchemaImportExport extends DbTestBase {
         "admin");
     try (var sessionOne =
         (DatabaseSessionEmbedded)
-            youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin", "admin")) {
+            youTrackDB.open("imp_" + TestSchemaImportExport.class.getSimpleName(), "admin",
+                "admin")) {
       var imp =
           new DatabaseImport(
               sessionOne, new ByteArrayInputStream(output.toByteArray()), new MockOutputListener());

@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.graph;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
@@ -17,6 +18,7 @@ import org.junit.Test;
 public class SQLFunctionDijkstraTest {
 
   private YouTrackDBImpl youTrackDB;
+  private YTDBGraph graph;
   private DatabaseSession session;
 
   private Vertex v1;
@@ -35,6 +37,7 @@ public class SQLFunctionDijkstraTest {
   @After
   public void tearDown() throws Exception {
     session.close();
+    graph.close();
     youTrackDB.close();
   }
 
@@ -46,8 +49,10 @@ public class SQLFunctionDijkstraTest {
     session =
         youTrackDB.open("SQLFunctionDijkstraTest", "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    graph = youTrackDB.openGraph("SQLFunctionDijkstraTest", "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    session.getSchema().createEdgeClass("weight");
+    graph.autoExecuteInTx(g -> g.addStateFullEdgeClass("weight"));
 
     var tx = session.begin();
     v1 = tx.newVertex();

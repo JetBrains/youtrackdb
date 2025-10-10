@@ -36,7 +36,7 @@ public class GrantStatementExecutionTest extends DbTestBase {
   public void testGrantPolicy() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");

@@ -52,7 +52,7 @@ public class SecuritySharedTest extends DbTestBase {
   public void testBindPolicyToRole() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -77,7 +77,7 @@ public class SecuritySharedTest extends DbTestBase {
   public void testUnbindPolicyFromRole() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");

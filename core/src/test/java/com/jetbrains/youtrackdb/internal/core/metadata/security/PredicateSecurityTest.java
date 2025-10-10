@@ -3,12 +3,15 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -22,6 +25,7 @@ public class PredicateSecurityTest {
   private static final String DB_NAME = PredicateSecurityTest.class.getSimpleName();
   private static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
+  private YTDBGraph graph;
 
   @BeforeClass
   public static void beforeClass() {
@@ -51,6 +55,8 @@ public class PredicateSecurityTest {
             + "' role reader, writer identified by '"
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role writer)");
+
+    graph = youTrackDB.openGraph(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     this.session =
         (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
@@ -59,6 +65,7 @@ public class PredicateSecurityTest {
   @After
   public void after() {
     this.session.close();
+    graph.close();
     youTrackDB.drop(DB_NAME);
     this.session = null;
   }
@@ -67,7 +74,7 @@ public class PredicateSecurityTest {
   public void testCreate() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -104,7 +111,7 @@ public class PredicateSecurityTest {
   public void testSqlCreate() throws InterruptedException {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -138,7 +145,7 @@ public class PredicateSecurityTest {
   public void testSqlRead() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -178,9 +185,10 @@ public class PredicateSecurityTest {
   public void testSqlReadWithIndex() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
-    session.execute("create index Person.name on Person (name) NOTUNIQUE");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING).
+            addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -218,9 +226,10 @@ public class PredicateSecurityTest {
   public void testSqlReadWithIndex2() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
-    session.execute("create index Person.name on Person (name) NOTUNIQUE");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING).
+            addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -262,7 +271,7 @@ public class PredicateSecurityTest {
   @Test
   public void testBeforeUpdateCreate() throws InterruptedException {
     var security = session.getSharedContext().getSecurity();
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -309,7 +318,7 @@ public class PredicateSecurityTest {
   public void testBeforeUpdateCreateSQL() throws InterruptedException {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -363,7 +372,7 @@ public class PredicateSecurityTest {
   public void testAfterUpdate() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -407,7 +416,7 @@ public class PredicateSecurityTest {
   public void testAfterUpdateSQL() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -449,7 +458,7 @@ public class PredicateSecurityTest {
   public void testDelete() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -502,7 +511,7 @@ public class PredicateSecurityTest {
   public void testDeleteSQL() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -554,8 +563,8 @@ public class PredicateSecurityTest {
   public void testSqlCount() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -593,9 +602,11 @@ public class PredicateSecurityTest {
   public void testSqlCountWithIndex() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
-    session.execute("create index Person.name on Person (name) NOTUNIQUE");
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Person").
+            addSchemaProperty("name", PropertyType.STRING).
+            addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -637,9 +648,11 @@ public class PredicateSecurityTest {
   public void testIndexGet() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
-    session.execute("create index Person.name on Person (name) NOTUNIQUE");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING).
+            addPropertyIndex(IndexType.NOT_UNIQUE)
+
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -667,15 +680,15 @@ public class PredicateSecurityTest {
         (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
 
-    var index = session.getSharedContext().getIndexManager().getIndex("Person.name");
+    var index = session.getMetadata().getFastImmutableSchema().getIndex("Person.name");
 
     session.begin();
     try (var rids = index.getRids(session, "bar")) {
-      Assert.assertEquals(0, rids.count());
+      Assert.assertEquals(0, YTDBIteratorUtils.count(rids));
     }
 
     try (var rids = index.getRids(session, "foo")) {
-      Assert.assertEquals(1, rids.count());
+      Assert.assertEquals(1, YTDBIteratorUtils.count(rids));
     }
     session.commit();
   }
