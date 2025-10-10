@@ -49,8 +49,9 @@ public class YTDBGraphQueryBuilder {
     final var predicate = condition.getBiPredicate();
     if (isLabelKey(condition.getKey())) {
       if (predicate != Compare.eq && predicate != Contains.within) {
-        // do we want to support conditions like "has(label, TextP.startingWith())" ?
-        throw new IllegalArgumentException("Label condition not supported: " + predicate);
+        // Here we handle only eq and within cases, they will get translated into SQL
+        // FROM clauses. Other cases will be handled later by in-memory filtering.
+        return ConditionType.NOT_CONVERTED;
       }
       final var value = condition.getValue();
       if (value instanceof List<?> list) {
@@ -67,15 +68,33 @@ public class YTDBGraphQueryBuilder {
       }
       return ConditionType.LABEL;
     } else {
-      final var predicateStr = formatPredicate(predicate);
-      if (predicateStr == null) {
-        return ConditionType.NOT_CONVERTED;
-      } else {
+      final var value = condition.getValue();
+      if ((predicate == Compare.eq || predicate == Compare.neq) && value == null) {
+        // Gremlin's eq(null) and neq(null) should be translated into DB "IS NULL" and "IS NOT NULL"
+        final var predicateStr = predicate == Compare.eq ? "IS NULL" : "IS NOT NULL";
+
         params.add(new Param(
-            condition.getKey(), predicateStr,
-            requiresAdditionalNotNull(predicate), condition.getValue()
+            condition.getKey(),
+            predicateStr,
+            false,
+            false,
+            null
         ));
         return ConditionType.PREDICATE;
+      } else {
+        final var predicateStr = formatPredicate(predicate);
+        if (predicateStr == null) {
+          return ConditionType.NOT_CONVERTED;
+        } else {
+          params.add(new Param(
+              condition.getKey(),
+              predicateStr,
+              requiresAdditionalNotNull(predicate),
+              true,
+              value
+          ));
+          return ConditionType.PREDICATE;
+        }
       }
     }
   }
@@ -175,9 +194,14 @@ public class YTDBGraphQueryBuilder {
         where.append(" AND ");
       }
 
-      final var sqlName = "param" + i;
-      where.append(formatCondition(param.name, sqlName, param.predicateStr, param.requiresNotNull));
-      parameters.put(sqlName, param.value);
+      final var sqlName = param.withValue ? "param" + i : null;
+      appendCondition(
+          where,
+          param.name, sqlName, param.predicateStr, param.requiresNotNull
+      );
+      if (param.withValue) {
+        parameters.put(sqlName, param.value);
+      }
     }
     return where.toString();
   }
@@ -206,16 +230,25 @@ public class YTDBGraphQueryBuilder {
     return String.format("SELECT FROM `%s` %s", clazz, whereCondition);
   }
 
-  private static String formatCondition(
-      String name, String sqlParamName,
-      String predicateStr, boolean addNotNullCondition
+  private static void appendCondition(
+      StringBuilder builder,
+      String name,
+      @Nullable String sqlParamName,
+      String predicateStr,
+      boolean addNotNullCondition
   ) {
-    return T.id.getAccessor().equalsIgnoreCase(name) ?
-        String.format(" %s %s :%s", "@rid", predicateStr, sqlParamName) :
-        addNotNullCondition ?
-            String.format("`%s` IS NOT NULL AND `%s` %s :%s", name, name, predicateStr,
-                sqlParamName) :
-            String.format(" `%s` %s :%s", name, predicateStr, sqlParamName);
+    if (T.id.getAccessor().equalsIgnoreCase(name)) {
+      builder.append(" @rid ").append(predicateStr);
+    } else if (addNotNullCondition) {
+      builder.append("`").append(name).append("`").append(" IS NOT NULL ")
+          .append("AND `").append(name).append("` ").append(predicateStr);
+    } else {
+      builder.append("`").append(name).append("` ").append(predicateStr);
+    }
+
+    if (sqlParamName != null) {
+      builder.append(" :").append(sqlParamName);
+    }
   }
 
   @Nullable
@@ -253,6 +286,7 @@ public class YTDBGraphQueryBuilder {
       String name,
       String predicateStr,
       boolean requiresNotNull,
+      boolean withValue,
       Object value
   ) {
 

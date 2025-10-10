@@ -160,7 +160,9 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       return IteratorUtils.map(itty, toA::apply);
     } else {
       var tx = session.getActiveTransaction();
-      var ids = Stream.of(elementIds).map(YTDBGraphImplAbstract::createRecordId);
+      var ids = Stream.of(elementIds)
+          .filter(Objects::nonNull) // looks like Gremlin allows nulls in here.
+          .map(YTDBGraphImplAbstract::createRecordId);
       var entities =
           ids.filter(id -> ((RecordIdInternal) id).isValidPosition()).map(rid -> {
             try {
