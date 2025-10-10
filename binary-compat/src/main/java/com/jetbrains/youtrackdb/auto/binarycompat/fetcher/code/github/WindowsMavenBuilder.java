@@ -8,7 +8,7 @@ public class WindowsMavenBuilder implements MavenBuilder {
 
   @Override
   public String build(String repositoryPath) throws IOException, InterruptedException {
-    var builder = new ProcessBuilder(".\\mvnw.cmd", "clean", "package", "-DskipTests",
+    var builder = new ProcessBuilder("cmd.exe", "/c", "mvnw.cmd", "clean", "package", "-DskipTests",
         "-pl", "!distribution");
     builder.directory(new File(repositoryPath));
     builder.inheritIO();
