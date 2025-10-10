@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
-import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -594,9 +593,7 @@ public class BTreeTestIT {
     Assert.assertEquals(singleValueTree.firstKey(), keyValues.firstKey());
     Assert.assertEquals(singleValueTree.lastKey(), keyValues.lastKey());
 
-    final Iterator<String> indexIterator;
-    try (var stream = singleValueTree.keys()) {
-      indexIterator = stream.iterator();
+    try (var indexIterator = singleValueTree.keys()) {
       for (var entryKey : keyValues.keySet()) {
         final var indexKey = indexIterator.next();
         Assert.assertEquals(entryKey, indexKey);
@@ -815,11 +812,8 @@ public class BTreeTestIT {
             fromKey.substring(0, fromKey.length() - 2) + (fromKey.charAt(fromKey.length() - 1) - 1);
       }
 
-      final Iterator<RawPair<String, RID>> indexIterator;
-      try (var stream =
+      try (var indexIterator =
           singleValueTree.iterateEntriesMajor(fromKey, keyInclusive, ascSortOrder)) {
-        indexIterator = stream.iterator();
-
         Iterator<Map.Entry<String, RID>> iterator;
         if (ascSortOrder) {
           iterator = keyValues.tailMap(fromKey, keyInclusive).entrySet().iterator();
@@ -867,11 +861,8 @@ public class BTreeTestIT {
         toKey = toKey.substring(0, toKey.length() - 2) + (toKey.charAt(toKey.length() - 1) + 1);
       }
 
-      final Iterator<RawPair<String, RID>> indexIterator;
-      try (var stream =
+      try (var indexIterator =
           singleValueTree.iterateEntriesMinor(toKey, keyInclusive, ascSortOrder)) {
-        indexIterator = stream.iterator();
-
         Iterator<Map.Entry<String, RID>> iterator;
         if (ascSortOrder) {
           iterator = keyValues.headMap(toKey, keyInclusive).entrySet().iterator();
@@ -932,12 +923,9 @@ public class BTreeTestIT {
         fromKey = toKey;
       }
 
-      final Iterator<RawPair<String, RID>> indexIterator;
-      try (var stream =
+      try (var indexIterator =
           singleValueTree.iterateEntriesBetween(
               fromKey, fromInclusive, toKey, toInclusive, ascSortOrder)) {
-        indexIterator = stream.iterator();
-
         Iterator<Map.Entry<String, RID>> iterator;
         if (ascSortOrder) {
           iterator =
@@ -983,11 +971,10 @@ public class BTreeTestIT {
 
     for (var i = startFrom; i < keyValues.size(); i++) {
       final var toKey = keys[i];
-      final Iterator<RawPair<String, RID>> indexIterator;
-      try (final var stream =
+
+      try (final var indexIterator =
           singleValueTree.iterateEntriesBetween(
               fromKey, fromInclusive, toKey, toInclusive, ascSortOrder)) {
-        indexIterator = stream.iterator();
         Assert.assertTrue(indexIterator.hasNext());
       }
     }
