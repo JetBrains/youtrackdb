@@ -132,6 +132,11 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   default GraphTraversal<S, Vertex> addPropertyIndex(IndexType indexType, IndexBy indexBy) {
+    return addPropertyIndex(indexType, indexBy, false);
+  }
+
+  default GraphTraversal<S, Vertex> addPropertyIndex(IndexType indexType, IndexBy indexBy,
+      boolean ignoreNulls) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
 
     var currentProperty = "currentProperty";
@@ -144,6 +149,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         ).
         property(YTDBSchemaIndexPToken.indexType, indexType.name()).
         property(YTDBSchemaIndexPToken.indexBy, indexBy.name()).
+        property(YTDBSchemaIndexPToken.nullValuesIgnored, ignoreNulls).
         addE(YTDBSchemaIndexOutToken.propertyToIndex).to(
             __.select(currentProperty)
         ).outV().
@@ -154,6 +160,11 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
   default GraphTraversal<S, Vertex> addPropertyIndex(String indexName, IndexType indexType,
       IndexBy indexBy) {
+    return addPropertyIndex(indexName, indexType, indexBy, false);
+  }
+
+  default GraphTraversal<S, Vertex> addPropertyIndex(String indexName, IndexType indexType,
+      IndexBy indexBy, boolean ignoreNulls) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
 
     var currentProperty = "currentProperty";
@@ -162,7 +173,8 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         property(
             YTDBSchemaIndexPToken.name, indexName,
             YTDBSchemaIndexPToken.indexType, indexType.name(),
-            YTDBSchemaIndexPToken.indexBy, indexBy.name()).
+            YTDBSchemaIndexPToken.indexBy, indexBy.name(),
+            YTDBSchemaIndexPToken.nullValuesIgnored, ignoreNulls).
         addE(YTDBSchemaIndexOutToken.propertyToIndex).to(
             __.select(currentProperty)
         ).outV().addE(YTDBSchemaIndexOutToken.classToIndex).to(
@@ -196,6 +208,11 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
   default GraphTraversal<S, Vertex> addClassIndex(String indexName, IndexType indexType,
       String[] propertyNames, IndexBy[] indexBy) {
+    return addClassIndex(indexName, indexType, propertyNames, indexBy, false);
+  }
+
+  default GraphTraversal<S, Vertex> addClassIndex(String indexName, IndexType indexType,
+      String[] propertyNames, IndexBy[] indexBy, boolean ignoreNulls) {
     if (propertyNames.length != indexBy.length) {
       throw new IllegalArgumentException(
           "Count of elements in propertyNames and indexBy parameters must be equal");
@@ -239,7 +256,8 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
                 ).
                 property(
                     YTDBSchemaIndexPToken.name, indexName,
-                    YTDBSchemaIndexPToken.indexType, indexType.name()
+                    YTDBSchemaIndexPToken.indexType, indexType.name(),
+                    YTDBSchemaIndexPToken.nullValuesIgnored, ignoreNulls
                 ).
                 addE(YTDBSchemaIndexOutToken.classToIndex).to(
                     __.select(currentClass)

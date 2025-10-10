@@ -4,12 +4,14 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
@@ -26,6 +28,7 @@ public class ColumnSecurityTest {
   static String DB_NAME = "test";
   static YouTrackDBImpl context;
   private DatabaseSessionInternal session;
+  private YTDBGraph graph;
 
   @BeforeClass
   public static void beforeClass() {
@@ -48,6 +51,8 @@ public class ColumnSecurityTest {
         "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD, "admin",
         "writer", "writer", "writer",
         "reader", "reader", "reader");
+    graph = context.openGraph(DB_NAME, "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     this.session = (DatabaseSessionInternal) context.open(DB_NAME, "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
@@ -55,6 +60,7 @@ public class ColumnSecurityTest {
   @After
   public void after() {
     this.session.close();
+    graph.close();
     context.drop("test");
     this.session = null;
   }
@@ -63,8 +69,9 @@ public class ColumnSecurityTest {
   public void testIndexWithPolicy() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING)
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -82,9 +89,11 @@ public class ColumnSecurityTest {
   public void testIndexWithPolicy1() throws InterruptedException {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
-    person.createProperty("surname", PropertyType.STRING);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").as("cl").
+            addSchemaProperty("name", PropertyType.STRING).select("cl").
+            addSchemaProperty("surname", PropertyType.STRING)
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -99,8 +108,7 @@ public class ColumnSecurityTest {
     try {
       session.execute("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
       Assert.fail();
-    } catch (IndexException e) {
-
+    } catch (IndexException ignored) {
     }
   }
 
@@ -108,8 +116,11 @@ public class ColumnSecurityTest {
   public void testIndexWithPolicy2() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
+    graph.autoExecuteInTx(
+        g ->
+            g.addSchemaClass("Person").
+                addSchemaProperty("name", PropertyType.STRING)
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -131,8 +142,10 @@ public class ColumnSecurityTest {
   public void testIndexWithPolicy3() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").
+            addSchemaProperty("name", PropertyType.STRING)
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -150,9 +163,12 @@ public class ColumnSecurityTest {
   public void testIndexWithPolicy4() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
-    person.createProperty("address", PropertyType.STRING);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Person").as("cl").
+            addSchemaProperty("name", PropertyType.STRING).select("cl").
+            addSchemaProperty("address", PropertyType.STRING)
+
+    );
 
     session.execute("create index Person.name_address on Person (name, address) NOTUNIQUE");
 
@@ -170,9 +186,11 @@ public class ColumnSecurityTest {
   public void testIndexWithPolicy5() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
-    person.createProperty("surname", PropertyType.STRING);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").as("cl").
+            addSchemaProperty("name", PropertyType.STRING).select("cl").
+            addSchemaProperty("surname", PropertyType.STRING)
+    );
 
     session.execute("create index Person.name_surname on Person (name, surname) NOTUNIQUE");
 
@@ -186,7 +204,7 @@ public class ColumnSecurityTest {
       security.setSecurityPolicy(
           session, security.getRole(session, "reader"), "database.class.Person.name", policy);
       Assert.fail();
-    } catch (Exception e) {
+    } catch (Exception ignored) {
     }
     session.commit();
   }
@@ -195,8 +213,10 @@ public class ColumnSecurityTest {
   public void testIndexWithPolicy6() {
     var security = session.getSharedContext().getSecurity();
 
-    var person = session.createClass("Person");
-    person.createProperty("name", PropertyType.STRING);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").
+            addSchemaProperty("name", PropertyType.STRING)
+    );
 
     session.execute("create index Person.name on Person (name) NOTUNIQUE");
 
@@ -214,7 +234,7 @@ public class ColumnSecurityTest {
   public void testReadFilterOneProperty() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -260,10 +280,10 @@ public class ColumnSecurityTest {
   public void testReadFilterOnePropertyWithIndex() {
     var security = session.getSharedContext().getSecurity();
 
-    var clazz = session.createClass("Person");
-    clazz.createProperty("name", PropertyType.STRING);
-
-    session.execute("create index Person.name on Person (name) NOTUNIQUE");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").
+            addSchemaProperty("name", PropertyType.STRING).addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -304,7 +324,7 @@ public class ColumnSecurityTest {
   public void testReadWithPredicateAndQuery() throws InterruptedException {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -374,7 +394,7 @@ public class ColumnSecurityTest {
   public void testReadFilterOnePropertyWithQuery() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -411,7 +431,7 @@ public class ColumnSecurityTest {
   public void testCreate() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -436,7 +456,7 @@ public class ColumnSecurityTest {
     try {
       session.commit();
       Assert.fail();
-    } catch (SecurityException e) {
+    } catch (SecurityException ignored) {
     }
   }
 
@@ -444,7 +464,7 @@ public class ColumnSecurityTest {
   public void testBeforeUpdate() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -483,7 +503,7 @@ public class ColumnSecurityTest {
       session.execute("UPDATE Person SET name = 'bar1' WHERE name = 'bar'");
       session.commit();
       Assert.fail();
-    } catch (SecurityException e) {
+    } catch (SecurityException ignored) {
 
     }
   }
@@ -492,7 +512,7 @@ public class ColumnSecurityTest {
   public void testAfterUpdate() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -525,7 +545,7 @@ public class ColumnSecurityTest {
       session.execute("UPDATE Person SET name = 'invalid'");
       session.commit();
       Assert.fail();
-    } catch (SecurityException e) {
+    } catch (SecurityException ignored) {
 
     }
   }
@@ -578,7 +598,7 @@ public class ColumnSecurityTest {
       try {
         session.commit();
         Assert.fail();
-      } catch (Exception e) {
+      } catch (Exception ignored) {
 
       }
     }

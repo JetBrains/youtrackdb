@@ -2,9 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import java.util.HashMap;
-import java.util.Map;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -12,34 +11,30 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
 
   public void beforeTest() throws Exception {
     super.beforeTest();
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var book = schema.createClass("Book");
-    book.createProperty("author", PropertyType.STRING);
-    book.createProperty("title", PropertyType.STRING);
-    book.createProperty("publicationYears", PropertyType.EMBEDDEDLIST,
-        PropertyType.INTEGER);
-    book.createIndex("books", "unique", "author", "title", "publicationYears");
-
-    book.createProperty("nullKey1", PropertyType.STRING);
-    Map<String, Object> indexOptions = new HashMap<>();
-    indexOptions.put("ignoreNullValues", true);
-    book.createIndex(
-        "indexignoresnulls", "NOTUNIQUE", null, indexOptions, new String[]{"nullKey1"});
+    graph.executeInTx(g ->
+        g.addSchemaClass("Book").as("cl").
+            addSchemaProperty("author", PropertyType.STRING).select("cl").
+            addSchemaProperty("title", PropertyType.STRING).select("cl").
+            addSchemaProperty("publicationYears", PropertyType.EMBEDDEDLIST,
+                PropertyType.INTEGER).select("cl").
+            addClassIndex("books", IndexType.UNIQUE, "author", "title", "publicationYears")
+            .select("cl").
+            addSchemaProperty("nullKey1", PropertyType.STRING)
+            .addPropertyIndex("indexignoresnulls", IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
+    );
   }
 
   @Test
   public void testCompositeIndexWithRangeAndContains() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("CompositeIndexWithRangeAndConditions");
-    clazz.createProperty("id", PropertyType.INTEGER);
-    clazz.createProperty("bar", PropertyType.INTEGER);
-    clazz.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
-    clazz.createProperty("name", PropertyType.STRING);
-
-    session.execute(
-            "create index CompositeIndexWithRangeAndConditions_id_tags_name on"
-                + " CompositeIndexWithRangeAndConditions (id, tags, name) NOTUNIQUE")
-        .close();
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("CompositeIndexWithRangeAndConditions").as("cl").
+            addSchemaProperty("id", PropertyType.INTEGER).select("cl").
+            addSchemaProperty("bar", PropertyType.INTEGER).select("cl").
+            addSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING).select("cl").
+            addSchemaProperty("name", PropertyType.STRING).
+            addClassIndex("CompositeIndexWithRangeAndConditions_id_tags_name", IndexType.NOT_UNIQUE,
+                "id", "tags", "name")
+    );
 
     session.begin();
     session.execute(
