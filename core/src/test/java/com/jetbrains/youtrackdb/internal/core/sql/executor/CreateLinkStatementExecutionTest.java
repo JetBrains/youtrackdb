@@ -13,11 +13,10 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testBasic() {
-    var basic1 = session.getMetadata().getSlowMutableSchema().createClass("Basic1");
-    basic1.createProperty("theLink", PropertyType.LINK);
-
-    var basic2 = session.getMetadata().getSlowMutableSchema().createClass("Basic2");
-    basic2.createProperty("theLink", PropertyType.LINK);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Basic1").addSchemaProperty("theLink", PropertyType.LINK).
+            addSchemaClass("Basic2").addSchemaProperty("theLink", PropertyType.LINK)
+    );
 
     session.begin();
     session.execute("insert into Basic1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
@@ -37,23 +36,22 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
     var otherKey = item.getProperty("other");
     Assert.assertNotNull(otherKey);
 
-    Assert.assertEquals(otherKey, "pkb2_1");
+    Assert.assertEquals("pkb2_1", otherKey);
 
     Assert.assertTrue(result.hasNext());
 
     item = result.next();
     otherKey = item.getProperty("other");
-    Assert.assertEquals(otherKey, "pkb2_2");
+    Assert.assertEquals("pkb2_2", otherKey);
     session.commit();
   }
 
   @Test
   public void testInverse() throws Exception {
-    var inverse1 = session.getMetadata().getSlowMutableSchema().createClass("Inverse1");
-    inverse1.createProperty("theLink", PropertyType.LINKSET);
-
-    var inverse2 = session.getMetadata().getSlowMutableSchema().createClass("Inverse2");
-    inverse2.createProperty("theLink", PropertyType.LINKSET);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Inverse1").addSchemaProperty("theLink", PropertyType.LINKSET).
+            addSchemaClass("Inverse2").addSchemaProperty("theLink", PropertyType.LINKSET)
+    );
 
     session.begin();
     session.execute("insert into Inverse1 set pk = 'pkb1_1', fk = 'pkb2_1'").close();
@@ -75,14 +73,14 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
     var otherKeys = item.getProperty("other");
     Assert.assertNotNull(otherKeys);
     Assert.assertTrue(otherKeys instanceof List);
-    Assert.assertEquals(((List) otherKeys).get(0), "pkb1_1");
+    Assert.assertEquals("pkb1_1", ((List) otherKeys).get(0));
 
     Assert.assertTrue(result.hasNext());
     item = result.next();
     otherKeys = item.getProperty("other");
     Assert.assertNotNull(otherKeys);
     Assert.assertTrue(otherKeys instanceof List);
-    Assert.assertEquals(((List) otherKeys).size(), 2);
+    Assert.assertEquals(2, ((List) otherKeys).size());
     Assert.assertTrue(((List) otherKeys).contains("pkb1_2"));
     Assert.assertTrue(((List) otherKeys).contains("pkb1_3"));
     session.commit();
