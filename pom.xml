@@ -607,6 +607,14 @@
         <additionalparam>-Xdoclint:none</additionalparam>
         <graalvm.version>22.0.0.2</graalvm.version>
       </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.graalvm.js</groupId>
+          <artifactId>js</artifactId>
+          <version>${graalvm.version}</version>
+          <scope>runtime</scope>
+        </dependency>
+      </dependencies>
     </profile>
 
     <profile>
@@ -633,6 +641,14 @@
         <additionalparam>-Xdoclint:none</additionalparam>
         <graalvm.version>25.0.0</graalvm.version>
       </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.graalvm.js</groupId>
+          <artifactId>js</artifactId>
+          <version>${graalvm.version}</version>
+          <type>pom</type>
+        </dependency>
+      </dependencies>
     </profile>
 
     <profile>
