@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.Test;
@@ -16,7 +17,7 @@ public class DeepLinkedDocumentSaveTest extends DbTestBase {
 
     session.getMetadata().getSchema().createClass("Test");
 
-    session.begin();
+    FrontendTransaction tx = session.begin();
     var doc = (EntityImpl) session.newEntity("Test");
     docs.add(doc);
     for (var i = 0; i < 3000; i++) {
@@ -29,7 +30,7 @@ public class DeepLinkedDocumentSaveTest extends DbTestBase {
     assertEquals(3001, session.countClass("Test"));
 
     for (var d : docs) {
-      assertEquals(1, d.getVersion());
+      assertEquals(tx.getId(), d.getVersion());
     }
   }
 }

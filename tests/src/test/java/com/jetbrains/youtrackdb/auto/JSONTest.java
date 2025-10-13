@@ -26,6 +26,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.math3.util.Pair;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -146,6 +147,7 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNullity() {
+    final var txId = new AtomicLong();
     final var rid = session.computeInTx(tx -> {
       final var entity = session.newEntity();
       entity.updateFromJSON(
@@ -157,6 +159,7 @@ public class JSONTest extends BaseDBTest {
               +
               " 03:17:04\"}"
       );
+      txId.set(session.getTransactionInternal().getId());
       return entity.getIdentity();
     });
 
@@ -179,7 +182,7 @@ public class JSONTest extends BaseDBTest {
         "dob", "2011-11-17 03:17:04",
         "@rid", rid,
         "@class", "O",
-        "@version", 1
+        "@version", txId.get()
     );
     checkJsonSerialization(rid, expectedMap);
   }
@@ -370,9 +373,11 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testSpecialChar() {
+    final var  txId = new AtomicLong();
     final var rid = session.computeInTx(tx -> {
       final var entity = session.createOrLoadEntityFromJson(
           "{\"name\":{\"%Field\":[\"value1\",\"value2\"],\"%Field2\":{},\"%Field3\":\"value3\"}}");
+      txId.set(session.getTransactionInternal().getId());
       return entity.getIdentity();
     });
 
@@ -386,13 +391,14 @@ public class JSONTest extends BaseDBTest {
         ),
         "@rid", rid,
         "@class", "O",
-        "@version", 1
+        "@version", txId.get()
     );
     checkJsonSerialization(rid, expectedMap);
   }
 
   @Test
   public void testArrayOfArray() {
+    final var  txId = new AtomicLong();
     final var rid = session.computeInTx(tx -> {
       final var entity = session.createOrLoadEntityFromJson(
           """
@@ -403,6 +409,7 @@ public class JSONTest extends BaseDBTest {
                 "coordinates": [ [ 100, 0 ],  [ 101, 1 ] ]
               }"""
       );
+      txId.set(session.getTransactionInternal().getId());
       return entity.getIdentity();
     });
 
@@ -415,13 +422,14 @@ public class JSONTest extends BaseDBTest {
             List.of(101, 1)
         ),
         "@rid", rid,
-        "@version", 1
+        "@version", txId.get()
     );
     checkJsonSerialization(rid, expectedMap);
   }
 
   @Test
   public void testLongTypes() {
+    final var  txId = new AtomicLong();
     final var rid = session.computeInTx(tx -> {
       final var entity = session.createOrLoadEntityFromJson(
           """
@@ -432,13 +440,14 @@ public class JSONTest extends BaseDBTest {
                 "coordinates": [ [32874387347347, 0],  [-23736753287327, 1] ]
               }"""
       );
+      txId.set(session.getTransactionInternal().getId());
       return entity.getIdentity();
     });
 
     checkJsonSerialization(rid);
     final var expectedMap = Map.of(
         "@class", "Track",
-        "@version", 1,
+        "@version", txId.get(),
         "type", "LineString",
         "coordinates", List.of(
             List.of(32874387347347L, 0),
@@ -451,12 +460,13 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testSpecialChars() {
+    final var  txId = new AtomicLong();
     final var rid = session.computeInTx(tx -> {
       final var entity =
           session.createOrLoadEntityFromJson(
               "{\"Field\":{\"Key1\":[\"Value1\",\"Value2\"],\"Key2\":{\"%%dummy%%\":null},\"Key3\":\"Value3\"}}");
+      txId.set(session.getTransactionInternal().getId());
       return entity.getIdentity();
-
     });
 
     checkJsonSerialization(rid);
@@ -471,7 +481,7 @@ public class JSONTest extends BaseDBTest {
         ),
         "@rid", rid,
         "@class", "O",
-        "@version", 1
+        "@version", txId.get()
     );
 
     checkJsonSerialization(rid, expectedMap);
@@ -578,13 +588,11 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNestedJsonCollection() {
-    session.executeInTx(tx -> {
-      session
-          .command(
-              "insert into device (resource_id, domainset) VALUES (0, [ { 'domain' : 'abc' }, {"
-                  + " 'domain' : 'pqr' } ])"
-          );
-    });
+    session.executeInTx(tx -> session
+        .command(
+            "insert into device (resource_id, domainset) VALUES (0, [ { 'domain' : 'abc' }, {"
+                + " 'domain' : 'pqr' } ])"
+        ));
 
     session.executeInTx(tx -> {
       var result = session.query("select from device where domainset.domain contains 'abc'");
@@ -600,10 +608,8 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNestedEmbeddedJson() {
-    session.executeInTx(tx -> {
-      session.command(
-          "insert into device (resource_id, domainset) VALUES (1, { 'domain' : 'eee' })");
-    });
+    session.executeInTx(tx -> session.command(
+        "insert into device (resource_id, domainset) VALUES (1, { 'domain' : 'eee' })"));
 
     session.executeInTx(tx -> {
       final var result = session.query("select from device where domainset.domain = 'eee'");
@@ -613,13 +619,11 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNestedMultiLevelEmbeddedJson() {
-    session.executeInTx(tx -> {
-      session
-          .command(
-              "insert into device (domainset) values ({'domain' : { 'lvlone' : { 'value' : 'five' } }"
-                  + " } )"
-          );
-    });
+    session.executeInTx(tx -> session
+        .command(
+            "insert into device (domainset) values ({'domain' : { 'lvlone' : { 'value' : 'five' } }"
+                + " } )"
+        ));
 
     session.executeInTx(tx -> {
       final var result =
@@ -732,7 +736,7 @@ public class JSONTest extends BaseDBTest {
               "foo"
           ).get("bar").get("P357");
       Assert.assertEquals(c.size(), 1);
-      final var map = c.iterator().next();
+      final var map = c.getFirst();
       Assert.assertEquals((map.get("datavalue")).get("value"), "\"");
     });
   }
@@ -761,7 +765,7 @@ public class JSONTest extends BaseDBTest {
               "foo"
           ).get("bar").get("P357");
       Assert.assertEquals(c.size(), 1);
-      final var map = c.iterator().next();
+      final var map = c.getFirst();
       Assert.assertEquals((map.get("datavalue")).get("value"), "\"");
     });
   }
@@ -867,40 +871,30 @@ public class JSONTest extends BaseDBTest {
   @Test
   public void testInvalidJson() {
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("{");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("{"));
       Assert.fail();
     } catch (SerializationException ignored) {
     }
 
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("{\"foo\":{}");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("{\"foo\":{}"));
       Assert.fail();
     } catch (SerializationException ignored) {
     }
 
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("{{}");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("{{}"));
     } catch (SerializationException ignored) {
     }
 
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("{}}");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("{}}"));
       Assert.fail();
     } catch (SerializationException ignored) {
     }
 
     try {
-      session.executeInTx(tx -> {
-        session.createOrLoadEntityFromJson("}");
-      });
+      session.executeInTx(tx -> session.createOrLoadEntityFromJson("}"));
       Assert.fail();
     } catch (SerializationException ignored) {
     }
@@ -971,6 +965,7 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testNestedLinkCreation() {
+    final var  txId = new AtomicLong();
     final var jaimeRid = session.computeInTx(tx -> {
       final var jaimeEntity = session.newEntity("NestedLinkCreation");
       jaimeEntity.setProperty("name", "jaime");
@@ -984,6 +979,7 @@ public class JSONTest extends BaseDBTest {
       cerseiEntity.updateFromJSON(
           "{\"name\":\"cersei\",\"valonqar\":" + jaimeEntity.toJSON() + "}"
       );
+      txId.set(session.getTransactionInternal().getId());
       return cerseiEntity.getIdentity();
     });
 
@@ -994,7 +990,7 @@ public class JSONTest extends BaseDBTest {
         "name", "jaime",
         "@rid", jaimeRid,
         "@class", "NestedLinkCreation",
-        "@version", 2
+        "@version", txId.get()
     );
     checkJsonSerialization(jaimeRid, jaimeMap);
 
@@ -1003,13 +999,14 @@ public class JSONTest extends BaseDBTest {
         "valonqar", jaimeRid,
         "@rid", cerseiRid,
         "@class", "NestedLinkCreation",
-        "@version", 1
+        "@version", txId.get()
     );
     checkJsonSerialization(cerseiRid, cerseiMap);
   }
 
   @Test
   public void testNestedLinkCreationFieldTypes() {
+    final var  txId = new AtomicLong();
     final var jaimeRid = session.computeInTx(tx -> {
       final var jaimeDoc = session.newEntity("NestedLinkCreationFieldTypes");
       jaimeDoc.setProperty("name", "jaime");
@@ -1025,6 +1022,7 @@ public class JSONTest extends BaseDBTest {
               + jaimeRid
               + "\"}"
       );
+      txId.set(session.getTransactionInternal().getId());
       return cerseiDoc.getIdentity();
     });
 
@@ -1035,7 +1033,7 @@ public class JSONTest extends BaseDBTest {
         "name", "jaime",
         "@rid", jaimeRid,
         "@class", "NestedLinkCreationFieldTypes",
-        "@version", 2
+        "@version", txId.get()
     );
     checkJsonSerialization(jaimeRid, jaimeMap);
 
@@ -1044,7 +1042,7 @@ public class JSONTest extends BaseDBTest {
         "valonqar", jaimeRid,
         "@rid", cerseiRid,
         "@class", "NestedLinkCreationFieldTypes",
-        "@version", 1
+        "@version", txId.get()
     );
     checkJsonSerialization(cerseiRid, cerseiMap);
   }
@@ -1078,6 +1076,7 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testInnerDocCreation() {
+    final var  txId = new AtomicLong();
     final var adamRid = session.computeInTx(tx -> {
       final var adamDoc = session.newEntity("InnerDocCreation");
       adamDoc.updateFromJSON("{\"name\":\"adam\"}");
@@ -1091,6 +1090,7 @@ public class JSONTest extends BaseDBTest {
       eveDoc.updateFromJSON(
           "{\"@type\":\"d\",\"name\":\"eve\",\"friends\":[" + adamDoc.toJSON() + "]}"
       );
+      txId.set(session.getTransactionInternal().getId());
       return eveDoc.getIdentity();
     });
 
@@ -1101,7 +1101,7 @@ public class JSONTest extends BaseDBTest {
         "name", "adam",
         "@rid", adamRid,
         "@class", "InnerDocCreation",
-        "@version", 2
+        "@version", txId.get()
     );
     checkJsonSerialization(adamRid, adamMap);
 
@@ -1110,12 +1110,13 @@ public class JSONTest extends BaseDBTest {
         "friends", List.of(adamRid),
         "@rid", eveRid,
         "@class", "InnerDocCreation",
-        "@version", 1
+        "@version", txId.get()
     );
     checkJsonSerialization(eveRid, eveMap);
   }
 
   public void testInnerDocCreationFieldTypes() {
+    final var  txId = new AtomicLong();
     final var p = session.computeInTx(tx -> {
       final var adamDoc = session.newEntity("InnerDocCreationFieldTypes");
       adamDoc.updateFromJSON("{\"name\":\"adam\"}");
@@ -1127,6 +1128,7 @@ public class JSONTest extends BaseDBTest {
               + "\"]}")
       );
 
+      txId.set(session.getTransactionInternal().getId());
       return new Pair<>(adamDoc.getIdentity(), eveDoc.getIdentity());
     });
     final var adamRid = p.getFirst();
@@ -1137,7 +1139,7 @@ public class JSONTest extends BaseDBTest {
 
     final var expectedAdamMap = Map.of(
         "name", "adam",
-        "@version", 1,
+        "@version", txId.get(),
         "@rid", adamRid,
         "@class", "InnerDocCreationFieldTypes"
     );
@@ -1146,7 +1148,7 @@ public class JSONTest extends BaseDBTest {
     final var expectedEveMap = Map.of(
         "name", "eve",
         "friends", List.of(adamRid),
-        "@version", 1,
+        "@version", txId.get(),
         "@rid", eveRid,
         "@class", "InnerDocCreationFieldTypes"
     );
@@ -1170,6 +1172,7 @@ public class JSONTest extends BaseDBTest {
 
   @Test
   public void testOtherJson() {
+    final var  txId = new AtomicLong();
     final var rid = session.computeInTx(tx -> {
       final var entity = session.newEntity();
       entity.updateFromJSON(
@@ -1180,6 +1183,7 @@ public class JSONTest extends BaseDBTest {
               + " Drive\",\"Country\":\"USA\",\"Id\":\"Address-11595040\",\"City\":\"Los"
               + " Angeles\",\"From\":\"2009-09-01\"}],\"Id\":\"Person-7464251\",\"Name\":\"Stan\"}")
       );
+      txId.set(session.getTransactionInternal().getId());
       return entity.getIdentity();
     });
     checkJsonSerialization(rid);
@@ -1211,16 +1215,18 @@ public class JSONTest extends BaseDBTest {
         "Name", "Stan",
         "@rid", rid,
         "@class", "O",
-        "@version", 1
+        "@version", txId.get()
     );
     checkJsonSerialization(rid, map);
   }
 
   @Test
   public void testScientificNotation() {
+    final var  txId = new AtomicLong();
     final var rid = session.computeInTx(tx -> {
       final var doc = session.newEntity();
       doc.updateFromJSON("{\"number1\": -9.2741500e-31, \"number2\": 741800E+290}");
+      txId.set(session.getTransactionInternal().getId());
       return doc.getIdentity();
     });
 
@@ -1230,7 +1236,7 @@ public class JSONTest extends BaseDBTest {
         "number2", 741800E+290,
         "@rid", rid,
         "@class", "O",
-        "@version", 1
+        "@version", txId.get()
     );
     checkJsonSerialization(rid, expectedMap);
   }
