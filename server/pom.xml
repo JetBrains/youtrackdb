@@ -85,7 +85,7 @@ nse, Version 2.0 (the "License");
     <dependency>
       <groupId>org.apache.httpcomponents.client5</groupId>
       <artifactId>httpclient5</artifactId>
-      <version>5.5</version>
+      <version>5.5.1</version>
       <scope>test</scope>
     </dependency>
 
