@@ -60,7 +60,9 @@ public class YTDBGraphQueryBuilder {
                 .filter(StringUtils::isNotBlank)
                 .collect(Collectors.toSet())
         );
-      } else if (StringUtils.isNotBlank((String) value)) {
+      } else if (StringUtils.isBlank((String) value)) {
+        requestedClasses.add(Set.of());
+      } else {
         requestedClasses.add(Set.of((String) value));
       }
       return ConditionType.LABEL;
