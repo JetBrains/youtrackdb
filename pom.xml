@@ -110,6 +110,7 @@
     <jackson.verson>2.20.0</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
     <gremlin.version>3.7.4-YTDB-SNAPSHOT</gremlin.version>
+    <additionalparam>-Xdoclint:none</additionalparam>
   </properties>
 
 
@@ -294,6 +295,12 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.14.1</version>
+          <configuration>
+            <source>${maven.compiler.source}</source>
+            <target>${maven.compiler.target}</target>
+            <showDeprecation>false</showDeprecation>
+            <showWarnings>true</showWarnings>
+          </configuration>
         </plugin>
 
         <plugin>
@@ -586,25 +593,9 @@
     <profile>
       <id>java17</id>
       <activation>
-        <jdk>[17,22]</jdk>
+        <jdk>[17,23)</jdk>
       </activation>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-compiler-plugin</artifactId>
-            <configuration>
-              <source>${maven.compiler.source}</source>
-              <target>${maven.compiler.target}</target>
-              <showDeprecation>false</showDeprecation>
-              <showWarnings>true</showWarnings>
-              <optimize>true</optimize>
-            </configuration>
-          </plugin>
-        </plugins>
-      </build>
       <properties>
-        <additionalparam>-Xdoclint:none</additionalparam>
         <graalvm.version>22.0.0.2</graalvm.version>
       </properties>
       <dependencies>
@@ -618,27 +609,11 @@
     </profile>
 
     <profile>
-      <id>java23</id>
+      <id>java23+</id>
       <activation>
         <jdk>[23,)</jdk>
       </activation>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-compiler-plugin</artifactId>
-            <configuration>
-              <source>${maven.compiler.source}</source>
-              <target>${maven.compiler.target}</target>
-              <showDeprecation>false</showDeprecation>
-              <showWarnings>true</showWarnings>
-              <optimize>true</optimize>
-            </configuration>
-          </plugin>
-        </plugins>
-      </build>
       <properties>
-        <additionalparam>-Xdoclint:none</additionalparam>
         <graalvm.version>25.0.0</graalvm.version>
       </properties>
       <dependencies>
