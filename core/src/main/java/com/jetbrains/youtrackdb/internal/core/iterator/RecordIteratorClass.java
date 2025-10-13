@@ -33,7 +33,7 @@ import javax.annotation.Nonnull;
  * insert and remove item in any collection the iterator is browsing. If the collection are hot removed by
  * from the database the iterator could be invalid and throw exception of collection not found.
  */
-public class RecordIteratorClass implements Iterator<EntityImpl> {
+public class RecordIteratorClass implements Iterator<EntityImpl>, AutoCloseable {
 
   @Nonnull
   private final RecordIteratorCollections<EntityImpl> iterator;
@@ -76,5 +76,10 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
     }
 
     return targetClass;
+  }
+
+  @Override
+  public void close() {
+    iterator.close();
   }
 }

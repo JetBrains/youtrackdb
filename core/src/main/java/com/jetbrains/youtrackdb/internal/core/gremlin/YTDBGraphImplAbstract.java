@@ -1,7 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-import static com.jetbrains.youtrackdb.internal.core.gremlin.StreamUtils.asStream;
-
 import com.jetbrains.youtrackdb.api.YouTrackDB.ConfigurationParameters;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
@@ -36,6 +34,7 @@ import org.apache.tinkerpop.gremlin.structure.Transaction.Status;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -158,7 +157,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
     if (elementIds.length == 0) {
       // return all vertices as stream
       var itty = session.browseClass(elementClass, polymorphic);
-      return asStream(itty).map(toA).iterator();
+      return IteratorUtils.map(itty, toA::apply);
     } else {
       var tx = session.getActiveTransaction();
       var ids = Stream.of(elementIds).map(YTDBGraphImplAbstract::createRecordId);

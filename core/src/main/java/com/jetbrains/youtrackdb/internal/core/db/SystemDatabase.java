@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.api.query.ResultSet;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.CallableFunction;
+import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.security.DefaultSecuritySystem;
 import java.util.UUID;
 import java.util.function.BiFunction;
@@ -126,7 +127,9 @@ public class SystemDatabase {
                 findFirst(r -> r.<Long>getProperty("count") == 0)) {
               info = session.newEntity(SERVER_INFO_CLASS);
             } else {
-              info = session.browseClass(clz.getName()).next();
+              try (var it = session.browseClass(clz.getName())) {
+                info = it.next();
+              }
             }
             this.serverId = info.getProperty(SERVER_ID_PROPERTY);
             if (this.serverId == null) {

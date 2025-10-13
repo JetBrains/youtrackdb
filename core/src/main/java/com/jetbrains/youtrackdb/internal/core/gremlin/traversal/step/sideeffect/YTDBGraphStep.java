@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBSchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBStatefulEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -24,7 +25,6 @@ import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
-import org.apache.tinkerpop.gremlin.structure.util.DefaultCloseableIterator;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
 import org.apache.tinkerpop.gremlin.util.iterator.MultiIterator;
@@ -131,7 +131,8 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
         // applying containers not converted to SQL conditions
         stream = stream.filter(element -> HasContainer.testAll(element, rejectedContainers));
       }
-      return new DefaultCloseableIterator<>(stream.iterator());
+      final var theStream = stream;
+      return new CloseableIteratorWithCallback<>(theStream.iterator(), theStream::close);
     }
   }
 

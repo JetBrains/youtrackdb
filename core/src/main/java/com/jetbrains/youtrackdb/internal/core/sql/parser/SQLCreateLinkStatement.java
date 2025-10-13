@@ -130,99 +130,100 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
       EntityImpl target;
 
       // BROWSE ALL THE RECORDS OF THE SOURCE CLASS
-      var iterator = session.browseClass(documentSourceClass.getName());
-      while (iterator.hasNext() && !breakExec) {
-        var entity = iterator.next();
-        var value = entity.getProperty(sourceField.getStringValue());
+      try (var iterator = session.browseClass(documentSourceClass.getName())) {
+        while (iterator.hasNext() && !breakExec) {
+          var entity = iterator.next();
+          var value = entity.getProperty(sourceField.getStringValue());
 
-        if (value != null) {
-          if (value instanceof EntityImpl || value instanceof RID) {
-            // ALREADY CONVERTED
-          } else if (value instanceof Collection<?>) {
-            // TODO
-          } else {
-            // SEARCH THE DESTINATION RECORD
-            target = null;
-
-            if (destField != null
-                && !EntityHelper.ATTRIBUTE_RID.equals(destField.value)
-                && value instanceof String) {
-              if (((String) value).length() == 0) {
-                value = null;
-              } else {
-                value = "'" + value + "'";
-              }
-            }
-
-            try (var rs = session.query(txCmd + value)) {
-              result = toList(rs);
-            }
-
-            if (result == null || result.size() == 0) {
-              value = null;
-            } else if (result.size() > 1) {
-              throw new CommandExecutionException(ctx.getDatabaseSession(),
-                  "Cannot create link because multiple records was found in class '"
-                      + txDestClass.getName()
-                      + "' with value "
-                      + value
-                      + " in field '"
-                      + destField
-                      + "'");
+          if (value != null) {
+            if (value instanceof EntityImpl || value instanceof RID) {
+              // ALREADY CONVERTED
+            } else if (value instanceof Collection<?>) {
+              // TODO
             } else {
-              target = result.get(0);
-              value = target;
-            }
+              // SEARCH THE DESTINATION RECORD
+              target = null;
 
-            if (target != null && inverse) {
-              // INVERSE RELATIONSHIP
-              oldValue = target.getProperty(linkName);
-
-              if (oldValue != null) {
-                if (!multipleRelationship[0]) {
-                  multipleRelationship[0] = true;
-                }
-
-                Collection<EntityImpl> coll;
-                if (oldValue instanceof Collection) {
-                  // ADD IT IN THE EXISTENT COLLECTION
-                  coll = (Collection<EntityImpl>) oldValue;
-                  target.setDirty();
+              if (destField != null
+                  && !EntityHelper.ATTRIBUTE_RID.equals(destField.value)
+                  && value instanceof String) {
+                if (((String) value).length() == 0) {
+                  value = null;
                 } else {
-                  // CREATE A NEW COLLECTION FOR BOTH
-                  coll = new ArrayList<EntityImpl>(2);
-                  target.setProperty(linkName, coll);
-                  coll.add((EntityImpl) oldValue);
+                  value = "'" + value + "'";
                 }
-                coll.add(entity);
+              }
+
+              try (var rs = session.query(txCmd + value)) {
+                result = toList(rs);
+              }
+
+              if (result == null || result.size() == 0) {
+                value = null;
+              } else if (result.size() > 1) {
+                throw new CommandExecutionException(ctx.getDatabaseSession(),
+                    "Cannot create link because multiple records was found in class '"
+                        + txDestClass.getName()
+                        + "' with value "
+                        + value
+                        + " in field '"
+                        + destField
+                        + "'");
               } else {
-                if (txLinkType != null) {
-                  if (txLinkType == PropertyTypeInternal.LINKSET) {
-                    value = new EntityLinkSetImpl(target);
-                    ((Set<Identifiable>) value).add(entity);
-                  } else if (txLinkType == PropertyTypeInternal.LINKLIST) {
-                    value = new EntityLinkListImpl(target);
-                    ((EntityLinkListImpl) value).add(entity);
-                  } else
-                  // IGNORE THE TYPE, SET IT AS LINK
-                  {
+                target = result.get(0);
+                value = target;
+              }
+
+              if (target != null && inverse) {
+                // INVERSE RELATIONSHIP
+                oldValue = target.getProperty(linkName);
+
+                if (oldValue != null) {
+                  if (!multipleRelationship[0]) {
+                    multipleRelationship[0] = true;
+                  }
+
+                  Collection<EntityImpl> coll;
+                  if (oldValue instanceof Collection) {
+                    // ADD IT IN THE EXISTENT COLLECTION
+                    coll = (Collection<EntityImpl>) oldValue;
+                    target.setDirty();
+                  } else {
+                    // CREATE A NEW COLLECTION FOR BOTH
+                    coll = new ArrayList<EntityImpl>(2);
+                    target.setProperty(linkName, coll);
+                    coll.add((EntityImpl) oldValue);
+                  }
+                  coll.add(entity);
+                } else {
+                  if (txLinkType != null) {
+                    if (txLinkType == PropertyTypeInternal.LINKSET) {
+                      value = new EntityLinkSetImpl(target);
+                      ((Set<Identifiable>) value).add(entity);
+                    } else if (txLinkType == PropertyTypeInternal.LINKLIST) {
+                      value = new EntityLinkListImpl(target);
+                      ((EntityLinkListImpl) value).add(entity);
+                    } else
+                    // IGNORE THE TYPE, SET IT AS LINK
+                    {
+                      value = entity;
+                    }
+                  } else {
                     value = entity;
                   }
-                } else {
-                  value = entity;
+
+                  target.setProperty(linkName, value);
                 }
 
-                target.setProperty(linkName, value);
+              } else {
+
+                // SET THE REFERENCE
+                entity.setProperty(linkName, value);
+
               }
 
-            } else {
-
-              // SET THE REFERENCE
-              entity.setProperty(linkName, value);
-
+              total[0]++;
             }
-
-            total[0]++;
           }
         }
       }
