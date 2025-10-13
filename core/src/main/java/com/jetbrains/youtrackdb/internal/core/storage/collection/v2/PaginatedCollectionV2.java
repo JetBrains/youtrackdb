@@ -336,7 +336,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   @Override
   public PhysicalPosition createRecord(
       final byte[] content,
-      final int recordVersion,
+      final long recordVersion,
       final byte recordType,
       final PhysicalPosition allocatedPosition,
       final AtomicOperation atomicOperation) {
@@ -423,7 +423,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final byte[] content,
       final int len,
       final byte recordType,
-      final int recordVersion,
+      final long recordVersion,
       final long nextRecordPointer,
       final AtomicOperation atomicOperation,
       final Int2ObjectFunction<CollectionPage> pageSupplier,
@@ -659,7 +659,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final AtomicOperation atomicOperation)
       throws IOException {
 
-    var recordVersion = 0;
+    var recordVersion = 0L;
 
     final List<byte[]> recordChunks = new ArrayList<>(2);
     var contentSize = 0;
@@ -814,7 +814,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public void updateRecord(
       final long collectionPosition,
       final byte[] content,
-      final int recordVersion,
+      final long recordVersion,
       final byte recordType,
       final AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
@@ -936,7 +936,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   @Override
-  public void updateRecordVersion(long collectionPosition, int recordVersion,
+  public void updateRecordVersion(long collectionPosition, long recordVersion,
       AtomicOperation atomicOperation) {
     executeInsideComponentOperation(
         atomicOperation,
@@ -1346,7 +1346,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   private static PhysicalPosition createPhysicalPosition(
-      final byte recordType, final long collectionPosition, final int version) {
+      final byte recordType, final long collectionPosition, final long version) {
     final var physicalPosition = new PhysicalPosition();
     physicalPosition.recordType = recordType;
     physicalPosition.recordSize = -1;

@@ -78,7 +78,7 @@ public class StorageCollectionRemote implements StorageCollection {
   @Override
   public PhysicalPosition createRecord(
       byte[] content,
-      int recordVersion,
+      long recordVersion,
       byte recordType,
       PhysicalPosition allocatedPosition,
       AtomicOperation atomicOperation) {
@@ -94,14 +94,14 @@ public class StorageCollectionRemote implements StorageCollection {
   public void updateRecord(
       long collectionPosition,
       byte[] content,
-      int recordVersion,
+      long recordVersion,
       byte recordType,
       AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("updateRecord");
   }
 
   @Override
-  public void updateRecordVersion(long collectionPosition, int recordVersion,
+  public void updateRecordVersion(long collectionPosition, long recordVersion,
       AtomicOperation atomicOperation) {
     throw new UnsupportedOperationException("updateRecordVersion");
   }

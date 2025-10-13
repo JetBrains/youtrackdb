@@ -69,7 +69,7 @@ public class ServerCommandGetDocument extends ServerCommandAuthenticatedDbAbstra
               HttpUtils.HEADER_ETAG + rec.getVersion());
         } else {
           final var ifNoneMatch = iRequest.getHeader("If-None-Match");
-          if (ifNoneMatch != null && Integer.toString(rec.getVersion()).equals(ifNoneMatch)) {
+          if (ifNoneMatch != null && Long.toString(rec.getVersion()).equals(ifNoneMatch)) {
             // SAME CONTENT, DON'T SEND BACK RECORD
             iResponse.send(
                 HttpUtils.STATUS_OK_NOMODIFIED_CODE,
