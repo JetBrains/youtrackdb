@@ -32,7 +32,8 @@ import javax.annotation.Nonnull;
  * Iterator class to browse forward and backward the records of a collection. Once browsed in a
  * direction, the iterator cannot change it.
  */
-public class RecordIteratorCollection<REC extends RecordAbstract> implements Iterator<REC> {
+public class RecordIteratorCollection<REC extends RecordAbstract>
+    implements Iterator<REC>, AutoCloseable {
 
   private RecordAbstract nextRecord;
   private RecordAbstract currentRecord;
@@ -158,5 +159,10 @@ public class RecordIteratorCollection<REC extends RecordAbstract> implements Ite
         }
       }
     }
+  }
+
+  @Override
+  public void close() {
+    // do nothing at the moment
   }
 }

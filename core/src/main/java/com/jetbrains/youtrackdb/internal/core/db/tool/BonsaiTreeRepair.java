@@ -36,75 +36,77 @@ public class BonsaiTreeRepair {
       message(outputListener, countEdges + " will be processed.");
       long counter = 0;
 
-      var iterator = db.browseClass(edgeClass.getName());
-      while (iterator.hasNext() && !Thread.currentThread().isInterrupted()) {
-        final var edge = iterator.next();
-        try {
-          final String label;
-          if (edge.getProperty("label") != null) {
-            label = edge.getProperty("label");
-          } else if (!edge.getSchemaClassName().equals(edgeClass.getName())) {
-            label = edge.getSchemaClassName();
-          } else {
+      try (var iterator = db.browseClass(edgeClass.getName())) {
+        while (iterator.hasNext() && !Thread.currentThread().isInterrupted()) {
+          final var edge = iterator.next();
+          try {
+            final String label;
+            if (edge.getProperty("label") != null) {
+              label = edge.getProperty("label");
+            } else if (!edge.getSchemaClassName().equals(edgeClass.getName())) {
+              label = edge.getSchemaClassName();
+            } else {
+              counter++;
+              continue;
+            }
+
+            Identifiable inId = edge.getProperty("in");
+            Identifiable outId = edge.getProperty("out");
+            if (inId == null || outId == null) {
+              db.delete(edge);
+              continue;
+            }
+            final var inVertexName =
+                VertexEntityImpl.getEdgeLinkFieldName(Direction.IN, label, true);
+            final var outVertexName =
+                VertexEntityImpl.getEdgeLinkFieldName(Direction.OUT, label, true);
+
+            var transaction1 = db.getActiveTransaction();
+            final EntityImpl inVertex = transaction1.load(inId);
+            var transaction = db.getActiveTransaction();
+            final EntityImpl outVertex = transaction.load(outId);
+
+            var inVertexes = processedVertexes.computeIfAbsent(inVertexName, k -> new HashSet<>());
+            var outVertexes = processedVertexes.computeIfAbsent(outVertexName,
+                k -> new HashSet<>());
+
+            if (inVertex.getProperty(inVertexName) instanceof LinkBag) {
+              if (inVertexes.add(inVertex.getIdentity())) {
+                inVertex.setProperty(inVertexName, new LinkBag(db));
+              }
+
+              final LinkBag inLinkBag = inVertex.getProperty(inVertexName);
+              inLinkBag.add(edge.getIdentity());
+
+            }
+
+            if (outVertex.getProperty(outVertexName) instanceof LinkBag) {
+              if (outVertexes.add(outVertex.getIdentity())) {
+                outVertex.setProperty(outVertexName, new LinkBag(db));
+              }
+
+              final LinkBag outLinkBag = outVertex.getProperty(outVertexName);
+              outLinkBag.add(edge.getIdentity());
+
+            }
+
             counter++;
-            continue;
-          }
 
-          Identifiable inId = edge.getProperty("in");
-          Identifiable outId = edge.getProperty("out");
-          if (inId == null || outId == null) {
-            db.delete(edge);
-            continue;
-          }
-          final var inVertexName =
-              VertexEntityImpl.getEdgeLinkFieldName(Direction.IN, label, true);
-          final var outVertexName =
-              VertexEntityImpl.getEdgeLinkFieldName(Direction.OUT, label, true);
-
-          var transaction1 = db.getActiveTransaction();
-          final EntityImpl inVertex = transaction1.load(inId);
-          var transaction = db.getActiveTransaction();
-          final EntityImpl outVertex = transaction.load(outId);
-
-          var inVertexes = processedVertexes.computeIfAbsent(inVertexName, k -> new HashSet<>());
-          var outVertexes = processedVertexes.computeIfAbsent(outVertexName, k -> new HashSet<>());
-
-          if (inVertex.getProperty(inVertexName) instanceof LinkBag) {
-            if (inVertexes.add(inVertex.getIdentity())) {
-              inVertex.setProperty(inVertexName, new LinkBag(db));
+            if (counter > 0 && counter % 1000 == 0) {
+              message(
+                  outputListener, counter + " edges were processed out of " + countEdges + " \n.");
             }
 
-            final LinkBag inLinkBag = inVertex.getProperty(inVertexName);
-            inLinkBag.add(edge.getIdentity());
+          } catch (Exception e) {
+            final var sw = new StringWriter();
 
+            sw.append("Error during processing of edge with id ")
+                .append(edge.getIdentity().toString())
+                .append("\n");
+            e.printStackTrace(new PrintWriter(sw));
+
+            message(outputListener, sw.toString());
           }
-
-          if (outVertex.getProperty(outVertexName) instanceof LinkBag) {
-            if (outVertexes.add(outVertex.getIdentity())) {
-              outVertex.setProperty(outVertexName, new LinkBag(db));
-            }
-
-            final LinkBag outLinkBag = outVertex.getProperty(outVertexName);
-            outLinkBag.add(edge.getIdentity());
-
-          }
-
-          counter++;
-
-          if (counter > 0 && counter % 1000 == 0) {
-            message(
-                outputListener, counter + " edges were processed out of " + countEdges + " \n.");
-          }
-
-        } catch (Exception e) {
-          final var sw = new StringWriter();
-
-          sw.append("Error during processing of edge with id ")
-              .append(edge.getIdentity().toString())
-              .append("\n");
-          e.printStackTrace(new PrintWriter(sw));
-
-          message(outputListener, sw.toString());
         }
       }
 

@@ -133,170 +133,172 @@ public class GraphRepair {
             var parsedEdges = 0L;
             final var beginTime = System.currentTimeMillis();
 
-            var edgeIterator = session.browseClass(edgeClass.getName());
-            while (edgeIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
-              final var edge = edgeIterator.next();
-              if (!edge.isStatefulEdge()) {
-                continue;
-              }
-              final RID edgeId = edge.getIdentity();
-
-              parsedEdges++;
-              if (skipEdges > 0 && parsedEdges <= skipEdges) {
-                continue;
-              }
-
-              stats.scannedEdges++;
-
-              if (eventListener != null) {
-                eventListener.onScannedEdge(edge);
-              }
-
-              if (outputListener != null && stats.scannedEdges % 100000 == 0) {
-                var speedPerSecond =
-                    (long) (parsedEdges / ((System.currentTimeMillis() - beginTime) / 1000.0));
-                if (speedPerSecond < 1) {
-                  speedPerSecond = 1;
+            try (var edgeIterator = session.browseClass(edgeClass.getName())) {
+              while (edgeIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
+                final var edge = edgeIterator.next();
+                if (!edge.isStatefulEdge()) {
+                  continue;
                 }
-                final var remaining = (countEdges - parsedEdges) / speedPerSecond;
+                final RID edgeId = edge.getIdentity();
 
-                message(
-                    outputListener,
-                    "+ edges: scanned "
-                        + stats.scannedEdges
-                        + ", removed "
-                        + stats.removedEdges
-                        + " (estimated remaining time "
-                        + remaining
-                        + " secs)\n");
-              }
-
-              var outVertexMissing = false;
-
-              var removalReason = "";
-
-              final Identifiable out = edge.asStatefulEdgeOrNull().getFrom();
-              if (out == null) {
-                outVertexMissing = true;
-              } else {
-                EntityImpl outVertex;
-                try {
-                  var transaction1 = session.getActiveTransaction();
-                  outVertex = transaction1.load(out);
-                } catch (RecordNotFoundException e) {
-                  outVertex = null;
+                parsedEdges++;
+                if (skipEdges > 0 && parsedEdges <= skipEdges) {
+                  continue;
                 }
 
-                if (outVertex == null) {
-                  outVertexMissing = true;
-                } else {
-                  final var outFieldName =
-                      VertexEntityImpl.getEdgeLinkFieldName(
-                          Direction.OUT, edge.getSchemaClassName(), useVertexFieldsForEdgeLabels);
+                stats.scannedEdges++;
 
-                  final var outEdges = outVertex.getPropertyInternal(outFieldName);
-                  switch (outEdges) {
-                    case null -> outVertexMissing = true;
-                    case LinkBag rids -> {
-                      if (!rids.contains(edgeId)) {
-                        outVertexMissing = true;
-                      }
-                    }
-                    case Collection collection -> {
-                      if (!collection.contains(edgeId)) {
-                        outVertexMissing = true;
-                      }
-                    }
-                    case Identifiable identifiable -> {
-                      if (identifiable.getIdentity().equals(edgeId)) {
-                        outVertexMissing = true;
-                      }
-                    }
-                    default -> {
-                    }
+                if (eventListener != null) {
+                  eventListener.onScannedEdge(edge);
+                }
+
+                if (outputListener != null && stats.scannedEdges % 100000 == 0) {
+                  var speedPerSecond =
+                      (long) (parsedEdges / ((System.currentTimeMillis() - beginTime) / 1000.0));
+                  if (speedPerSecond < 1) {
+                    speedPerSecond = 1;
                   }
-                }
-              }
+                  final var remaining = (countEdges - parsedEdges) / speedPerSecond;
 
-              if (outVertexMissing) {
-                removalReason = "outgoing vertex (" + out + ") does not contain the edge";
-              }
-
-              var inVertexMissing = false;
-
-              final Identifiable in = edge.asStatefulEdgeOrNull().getTo();
-              if (in == null) {
-                inVertexMissing = true;
-              } else {
-
-                EntityImpl inVertex;
-                try {
-                  var transaction1 = session.getActiveTransaction();
-                  inVertex = transaction1.load(in);
-                } catch (RecordNotFoundException e) {
-                  inVertex = null;
-                }
-
-                if (inVertex == null) {
-                  inVertexMissing = true;
-                } else {
-                  final var inFieldName =
-                      VertexEntityImpl.getEdgeLinkFieldName(
-                          Direction.IN, edge.getSchemaClassName(), useVertexFieldsForEdgeLabels);
-
-                  final var inEdges = inVertex.getPropertyInternal(inFieldName);
-                  switch (inEdges) {
-                    case null -> inVertexMissing = true;
-                    case LinkBag rids -> {
-                      if (!rids.contains(edgeId)) {
-                        inVertexMissing = true;
-                      }
-                    }
-                    case Collection collection -> {
-                      if (!collection.contains(edgeId)) {
-                        inVertexMissing = true;
-                      }
-                    }
-                    case Identifiable identifiable -> {
-                      if (identifiable.getIdentity().equals(edgeId)) {
-                        inVertexMissing = true;
-                      }
-                    }
-                    default -> {
-                    }
-                  }
-                }
-              }
-
-              if (inVertexMissing) {
-                if (!removalReason.isEmpty()) {
-                  removalReason += ", ";
-                }
-                removalReason += "incoming vertex (" + in + ") does not contain the edge";
-              }
-
-              if (outVertexMissing || inVertexMissing) {
-                try {
-                  if (!checkOnly) {
-                    message(
-                        outputListener,
-                        "+ deleting corrupted edge " + edge + " because " + removalReason + "\n");
-                    edge.delete();
-                  } else {
-                    message(
-                        outputListener,
-                        "+ found corrupted edge " + edge + " because " + removalReason + "\n");
-                  }
-
-                  stats.removedEdges++;
-                  if (eventListener != null) {
-                    eventListener.onRemovedEdge(edge);
-                  }
-
-                } catch (Exception e) {
                   message(
                       outputListener,
-                      "Error on deleting edge " + edge.getIdentity() + " (" + e.getMessage() + ")");
+                      "+ edges: scanned "
+                          + stats.scannedEdges
+                          + ", removed "
+                          + stats.removedEdges
+                          + " (estimated remaining time "
+                          + remaining
+                          + " secs)\n");
+                }
+
+                var outVertexMissing = false;
+
+                var removalReason = "";
+
+                final Identifiable out = edge.asStatefulEdgeOrNull().getFrom();
+                if (out == null) {
+                  outVertexMissing = true;
+                } else {
+                  EntityImpl outVertex;
+                  try {
+                    var transaction1 = session.getActiveTransaction();
+                    outVertex = transaction1.load(out);
+                  } catch (RecordNotFoundException e) {
+                    outVertex = null;
+                  }
+
+                  if (outVertex == null) {
+                    outVertexMissing = true;
+                  } else {
+                    final var outFieldName =
+                        VertexEntityImpl.getEdgeLinkFieldName(
+                            Direction.OUT, edge.getSchemaClassName(), useVertexFieldsForEdgeLabels);
+
+                    final var outEdges = outVertex.getPropertyInternal(outFieldName);
+                    switch (outEdges) {
+                      case null -> outVertexMissing = true;
+                      case LinkBag rids -> {
+                        if (!rids.contains(edgeId)) {
+                          outVertexMissing = true;
+                        }
+                      }
+                      case Collection collection -> {
+                        if (!collection.contains(edgeId)) {
+                          outVertexMissing = true;
+                        }
+                      }
+                      case Identifiable identifiable -> {
+                        if (identifiable.getIdentity().equals(edgeId)) {
+                          outVertexMissing = true;
+                        }
+                      }
+                      default -> {
+                      }
+                    }
+                  }
+                }
+
+                if (outVertexMissing) {
+                  removalReason = "outgoing vertex (" + out + ") does not contain the edge";
+                }
+
+                var inVertexMissing = false;
+
+                final Identifiable in = edge.asStatefulEdgeOrNull().getTo();
+                if (in == null) {
+                  inVertexMissing = true;
+                } else {
+
+                  EntityImpl inVertex;
+                  try {
+                    var transaction1 = session.getActiveTransaction();
+                    inVertex = transaction1.load(in);
+                  } catch (RecordNotFoundException e) {
+                    inVertex = null;
+                  }
+
+                  if (inVertex == null) {
+                    inVertexMissing = true;
+                  } else {
+                    final var inFieldName =
+                        VertexEntityImpl.getEdgeLinkFieldName(
+                            Direction.IN, edge.getSchemaClassName(), useVertexFieldsForEdgeLabels);
+
+                    final var inEdges = inVertex.getPropertyInternal(inFieldName);
+                    switch (inEdges) {
+                      case null -> inVertexMissing = true;
+                      case LinkBag rids -> {
+                        if (!rids.contains(edgeId)) {
+                          inVertexMissing = true;
+                        }
+                      }
+                      case Collection collection -> {
+                        if (!collection.contains(edgeId)) {
+                          inVertexMissing = true;
+                        }
+                      }
+                      case Identifiable identifiable -> {
+                        if (identifiable.getIdentity().equals(edgeId)) {
+                          inVertexMissing = true;
+                        }
+                      }
+                      default -> {
+                      }
+                    }
+                  }
+                }
+
+                if (inVertexMissing) {
+                  if (!removalReason.isEmpty()) {
+                    removalReason += ", ";
+                  }
+                  removalReason += "incoming vertex (" + in + ") does not contain the edge";
+                }
+
+                if (outVertexMissing || inVertexMissing) {
+                  try {
+                    if (!checkOnly) {
+                      message(
+                          outputListener,
+                          "+ deleting corrupted edge " + edge + " because " + removalReason + "\n");
+                      edge.delete();
+                    } else {
+                      message(
+                          outputListener,
+                          "+ found corrupted edge " + edge + " because " + removalReason + "\n");
+                    }
+
+                    stats.removedEdges++;
+                    if (eventListener != null) {
+                      eventListener.onRemovedEdge(edge);
+                    }
+
+                  } catch (Exception e) {
+                    message(
+                        outputListener,
+                        "Error on deleting edge " + edge.getIdentity() + " (" + e.getMessage()
+                            + ")");
+                  }
                 }
               }
             }
@@ -331,145 +333,146 @@ public class GraphRepair {
             var parsedVertices = new long[]{0L};
             final var beginTime = System.currentTimeMillis();
 
-            var vertexIterator = db.browseClass(vertexClass.getName());
-            while (vertexIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
-              var vertex = vertexIterator.next();
-              parsedVertices[0]++;
-              if (skipVertices > 0 && parsedVertices[0] <= skipVertices) {
-                continue;
-              }
-
-              var vertexCorrupted = false;
-              stats.scannedVertices++;
-              if (eventListener != null) {
-                eventListener.onScannedVertex(vertex);
-              }
-
-              if (outputListener != null && stats.scannedVertices % 100000 == 0) {
-                var speedPerSecond =
-                    (long)
-                        (parsedVertices[0] / ((System.currentTimeMillis() - beginTime) / 1000.0));
-                if (speedPerSecond < 1) {
-                  speedPerSecond = 1;
-                }
-                final var remaining = (countVertices - parsedVertices[0]) / speedPerSecond;
-
-                message(
-                    outputListener,
-                    "+ vertices: scanned "
-                        + stats.scannedVertices
-                        + ", repaired "
-                        + stats.repairedVertices
-                        + " (estimated remaining time "
-                        + remaining
-                        + " secs)\n");
-              }
-
-              if (!vertex.isVertex()) {
-                return;
-              }
-
-              for (var fieldName : vertex.getPropertyNamesInternal(false, false)) {
-                final var connection =
-                    VertexEntityImpl.getConnection(
-                        db.getMetadata().getSchema(), Direction.BOTH, fieldName);
-                if (connection == null) {
+            try (var vertexIterator = db.browseClass(vertexClass.getName())) {
+              while (vertexIterator.hasNext() && !Thread.currentThread().isInterrupted()) {
+                var vertex = vertexIterator.next();
+                parsedVertices[0]++;
+                if (skipVertices > 0 && parsedVertices[0] <= skipVertices) {
                   continue;
                 }
 
-                final var fieldValue = vertex.getPropertyInternal(fieldName);
-                if (fieldValue != null) {
-                  switch (fieldValue) {
-                    case Identifiable identifiable -> {
-                      if (isEdgeBroken(db,
-                          vertex,
-                          fieldName,
-                          connection.getKey(),
-                          identifiable,
-                          stats)) {
-                        vertexCorrupted = true;
-                        if (!checkOnly) {
-                          vertex.setProperty(fieldName, null);
-                        } else {
-                          message(
-                              outputListener,
-                              "+ found corrupted vertex "
-                                  + vertex
-                                  + " the property "
-                                  + fieldName
-                                  + " could be removed\n");
-                        }
-                      }
-                    }
-                    case Collection<?> coll -> {
+                var vertexCorrupted = false;
+                stats.scannedVertices++;
+                if (eventListener != null) {
+                  eventListener.onScannedVertex(vertex);
+                }
 
-                      for (var it = coll.iterator(); it.hasNext(); ) {
-                        final var o = it.next();
+                if (outputListener != null && stats.scannedVertices % 100000 == 0) {
+                  var speedPerSecond =
+                      (long)
+                          (parsedVertices[0] / ((System.currentTimeMillis() - beginTime) / 1000.0));
+                  if (speedPerSecond < 1) {
+                    speedPerSecond = 1;
+                  }
+                  final var remaining = (countVertices - parsedVertices[0]) / speedPerSecond;
 
+                  message(
+                      outputListener,
+                      "+ vertices: scanned "
+                          + stats.scannedVertices
+                          + ", repaired "
+                          + stats.repairedVertices
+                          + " (estimated remaining time "
+                          + remaining
+                          + " secs)\n");
+                }
+
+                if (!vertex.isVertex()) {
+                  return;
+                }
+
+                for (var fieldName : vertex.getPropertyNamesInternal(false, false)) {
+                  final var connection =
+                      VertexEntityImpl.getConnection(
+                          db.getMetadata().getSchema(), Direction.BOTH, fieldName);
+                  if (connection == null) {
+                    continue;
+                  }
+
+                  final var fieldValue = vertex.getPropertyInternal(fieldName);
+                  if (fieldValue != null) {
+                    switch (fieldValue) {
+                      case Identifiable identifiable -> {
                         if (isEdgeBroken(db,
-                            vertex, fieldName, connection.getKey(), (Identifiable) o,
+                            vertex,
+                            fieldName,
+                            connection.getKey(),
+                            identifiable,
                             stats)) {
                           vertexCorrupted = true;
                           if (!checkOnly) {
-                            it.remove();
+                            vertex.setProperty(fieldName, null);
                           } else {
                             message(
                                 outputListener,
                                 "+ found corrupted vertex "
                                     + vertex
-                                    + " the edge should be removed from property "
+                                    + " the property "
                                     + fieldName
-                                    + " (collection)\n");
+                                    + " could be removed\n");
                           }
                         }
                       }
-                    }
-                    case LinkBag ridbag -> {
-                      // In case of ridbags force save for trigger eventual conversions
-                      if (ridbag.isEmpty()) {
-                        vertex.removePropertyInternal(fieldName);
-                      } else if (!ridbag.isEmbedded()
-                          && ridbag.size()
-                          < GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD
-                          .getValueAsInteger()) {
-                        vertex.setDirty();
-                      }
-                      for (Iterator<?> it = ridbag.iterator(); it.hasNext(); ) {
-                        final var o = it.next();
-                        if (isEdgeBroken(db,
-                            vertex, fieldName, connection.getKey(), (Identifiable) o,
-                            stats)) {
-                          vertexCorrupted = true;
-                          if (!checkOnly) {
-                            it.remove();
-                          } else {
-                            message(
-                                outputListener,
-                                "+ found corrupted vertex "
-                                    + vertex
-                                    + " the edge should be removed from property "
-                                    + fieldName
-                                    + " (ridbag)\n");
+                      case Collection<?> coll -> {
+
+                        for (var it = coll.iterator(); it.hasNext(); ) {
+                          final var o = it.next();
+
+                          if (isEdgeBroken(db,
+                              vertex, fieldName, connection.getKey(), (Identifiable) o,
+                              stats)) {
+                            vertexCorrupted = true;
+                            if (!checkOnly) {
+                              it.remove();
+                            } else {
+                              message(
+                                  outputListener,
+                                  "+ found corrupted vertex "
+                                      + vertex
+                                      + " the edge should be removed from property "
+                                      + fieldName
+                                      + " (collection)\n");
+                            }
                           }
                         }
                       }
-                    }
-                    default -> {
+                      case LinkBag ridbag -> {
+                        // In case of ridbags force save for trigger eventual conversions
+                        if (ridbag.isEmpty()) {
+                          vertex.removePropertyInternal(fieldName);
+                        } else if (!ridbag.isEmbedded()
+                            && ridbag.size()
+                            < GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD
+                            .getValueAsInteger()) {
+                          vertex.setDirty();
+                        }
+                        for (Iterator<?> it = ridbag.iterator(); it.hasNext(); ) {
+                          final var o = it.next();
+                          if (isEdgeBroken(db,
+                              vertex, fieldName, connection.getKey(), (Identifiable) o,
+                              stats)) {
+                            vertexCorrupted = true;
+                            if (!checkOnly) {
+                              it.remove();
+                            } else {
+                              message(
+                                  outputListener,
+                                  "+ found corrupted vertex "
+                                      + vertex
+                                      + " the edge should be removed from property "
+                                      + fieldName
+                                      + " (ridbag)\n");
+                            }
+                          }
+                        }
+                      }
+                      default -> {
+                      }
                     }
                   }
                 }
-              }
 
-              if (vertexCorrupted) {
-                stats.repairedVertices++;
-                if (eventListener != null) {
-                  eventListener.onRepairedVertex(vertex);
+                if (vertexCorrupted) {
+                  stats.repairedVertices++;
+                  if (eventListener != null) {
+                    eventListener.onRepairedVertex(vertex);
+                  }
+
+                  message(outputListener, "+ repaired corrupted vertex " + vertex + "\n");
+                } else if (vertex.isDirty() && !checkOnly) {
+                  message(outputListener, "+ optimized vertex " + vertex + "\n");
+
                 }
-
-                message(outputListener, "+ repaired corrupted vertex " + vertex + "\n");
-              } else if (vertex.isDirty() && !checkOnly) {
-                message(outputListener, "+ optimized vertex " + vertex + "\n");
-
               }
             }
 

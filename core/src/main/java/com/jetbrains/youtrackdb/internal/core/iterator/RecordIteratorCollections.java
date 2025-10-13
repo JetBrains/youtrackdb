@@ -34,7 +34,8 @@ import org.apache.commons.lang.ArrayUtils;
  * item in any collection the iterator is browsing. If the collection are hot removed by from the database
  * the iterator could be invalid and throw exception of collection not found.
  */
-public class RecordIteratorCollections<REC extends RecordAbstract> implements Iterator<REC> {
+public class RecordIteratorCollections<REC extends RecordAbstract>
+    implements Iterator<REC>, AutoCloseable {
 
   private final RecordIteratorCollection<REC>[] collectionIterators;
 
@@ -106,5 +107,12 @@ public class RecordIteratorCollections<REC extends RecordAbstract> implements It
 
     session.delete(currentRecord);
     currentRecord = null;
+  }
+
+  @Override
+  public void close() {
+    for (var iterator : collectionIterators) {
+      iterator.close();
+    }
   }
 }
