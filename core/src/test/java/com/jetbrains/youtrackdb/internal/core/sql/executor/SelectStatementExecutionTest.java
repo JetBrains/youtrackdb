@@ -56,6 +56,7 @@ import org.junit.Test;
 
 
 public class SelectStatementExecutionTest extends DbTestBase {
+
   @Test
   public void testSelectNoTarget() {
     session.begin();
@@ -2474,10 +2475,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.executeInTx(g -> {
       g.addSchemaClass(parent).
           addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1, parent).
+      g.addSchemaClass(child1).addParentClass(parent).
           addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2, parent).
+      g.addSchemaClass(child2).addParentClass(parent).
           addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
     });
@@ -2521,9 +2522,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     graph.executeInTx(g -> {
       g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1, parent).addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.addSchemaClass(child1).addParentClass(parent)
+          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2, parent).addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.addSchemaClass(child2).addParentClass(parent)
+          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
     });
 
@@ -2569,9 +2572,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     graph.executeInTx(g -> {
       g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1, parent)
+      g.addSchemaClass(child1).addParentClass(parent)
           .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
-      g.addSchemaClass(child2, parent)
+      g.addSchemaClass(child2).addParentClass(parent)
           .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
     });
 
@@ -2618,9 +2621,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     graph.executeInTx(g -> {
       g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1, parent).addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.addSchemaClass(child1).addParentClass(parent)
+          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2, parent).addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.addSchemaClass(child2).addParentClass(parent)
+          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
     });
 
@@ -2677,13 +2682,15 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     graph.executeInTx(g -> {
       g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1, parent).addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.addSchemaClass(child1).addParentClass(parent)
+          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2, parent).addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.addSchemaClass(child2).addParentClass(parent)
+          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2_1, child2)
+      g.addSchemaClass(child2_1).addParentClass(child2)
           .addClassIndex(child2_1 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
-      g.addSchemaClass(child2_2, child2)
+      g.addSchemaClass(child2_2).addParentClass(child2)
           .addClassIndex(child2_2 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
     });
 
@@ -2739,11 +2746,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     graph.executeInTx(g -> {
       g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1, parent).addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.addSchemaClass(child1).addParentClass(parent)
+          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2, parent).addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.addSchemaClass(child2).addParentClass(parent)
+          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child12, child1).iterate();
+      g.addSchemaClass(child12).addParentClass(child1).iterate();
     });
 
     for (var i = 0; i < 10; i++) {

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Edge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
@@ -15,19 +16,28 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
 
   @Test(expected = ValidationException.class)
   public void simpleConstraintShouldBeCheckedOnCommitFalseTest() {
-    var clazz = session.createVertexClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Validation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+        )
+    );
+
     session.begin();
-    var vertex = session.newVertex(clazz.getName());
+    session.newVertex("Validation");
     session.commit();
   }
 
   @Test()
   public void simpleConstraintShouldBeCheckedOnCommitTrueTest() {
-    var clazz = session.createVertexClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Validation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+        )
+    );
+
     session.begin();
-    var vertex = session.newVertex(clazz.getName());
+    var vertex = session.newVertex("Validation");
     vertex.setProperty("int", 11);
     session.commit();
     session.begin();
@@ -39,10 +49,14 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
 
   @Test()
   public void simpleConstraintShouldBeCheckedOnCommitWithTypeConvert() {
-    var clazz = session.createVertexClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Validation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+        )
+    );
+
     session.begin();
-    var vertex = session.newVertex(clazz.getName());
+    var vertex = session.newVertex("Validation");
     vertex.setProperty("int", "11");
     session.commit();
     session.begin();
@@ -53,12 +67,14 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
 
   @Test
   public void stringRegexpPatternValidationCheck() {
-    var clazz = session.createVertexClass("Validation");
-    clazz.createProperty("str", PropertyType.STRING).setMandatory(true)
-        .setRegexp("aba.*");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Validation").addSchemaProperty("str", PropertyType.STRING)
+            .mandatoryAttr(true).regExpAttr("aba.*")
+    );
+
     Vertex vertex;
     session.begin();
-    vertex = session.newVertex(clazz.getName());
+    vertex = session.newVertex("Validation");
     vertex.setProperty("str", "first");
     vertex.setProperty("str", "second");
     vertex.setProperty("str", "abacorrect");
@@ -71,70 +87,92 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
 
   @Test(expected = ValidationException.class)
   public void stringRegexpPatternValidationCheckFails() {
-    var clazz = session.createVertexClass("Validation");
-    clazz.createProperty("str", PropertyType.STRING).setMandatory(true)
-        .setRegexp("aba.*");
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Validation").
+            addSchemaProperty("str", PropertyType.STRING).
+            mandatoryAttr(true).
+            regExpAttr("aba.*")
+    );
+
     Vertex vertex;
     session.begin();
-    vertex = session.newVertex(clazz.getName());
+    vertex = session.newVertex("Validation");
     vertex.setProperty("str", "first");
     session.commit();
   }
 
   @Test(expected = ValidationException.class)
   public void requiredLinkBagNegativeTest() {
-    var edgeClass = session.createEdgeClass("lst");
-    var clazz = session.createVertexClass("Validation");
-    var linkClass = session.createVertexClass("links");
-    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
-    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
-        .setMandatory(true);
+
+    graph.executeInTx(g -> {
+          var traversal = g.addStateFullEdgeClass("lst").
+              addSchemaClass("Validation").addSchemaClass("links");
+          var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "lst");
+          traversal.schemaClass("Validation").
+              addSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").
+              mandatoryAttr(true).iterate();
+        }
+    );
+
     session.begin();
-    session.newVertex(clazz.getName());
+    session.newVertex("Validation");
     session.commit();
   }
 
   @Test
   public void requiredLinkBagPositiveTest() {
-    var edgeClass = session.createLightweightEdgeClass("lst");
-    var clazz = session.createVertexClass("Validation");
-    var linkClass = session.createVertexClass("links");
-    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
-    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
-        .setMandatory(true);
+    graph.executeInTx(g -> {
+      var traversal = g.addAbstractSchemaClass("lst").addParentClass("E").
+          addSchemaClass("Validation").addSchemaClass("links");
+
+      var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "lst");
+      traversal.schemaClass("Validation")
+          .addSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").mandatoryAttr(true)
+          .iterate();
+    });
+
     session.begin();
-    var vrt = session.newVertex(clazz.getName());
-    var link = session.newVertex(linkClass.getName());
-    vrt.addLightWeightEdge(link, edgeClass);
+    var vrt = session.newVertex("Validation");
+    var link = session.newVertex("links");
+    vrt.addLightWeightEdge(link, "lst");
     session.commit();
   }
 
   @Test(expected = ValidationException.class)
   public void requiredLinkBagFailsIfBecomesEmpty() {
-    var edgeClass = session.createEdgeClass("lst");
-    var clazz = session.createVertexClass("Validation");
-    var linkClass = session.createVertexClass("links");
-    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
-    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
-        .setMandatory(true)
-        .setMin("1");
+    graph.executeInTx(g -> {
+      var traversal = g.schemaClass("Validation").
+          addStateFullEdgeClass("lst").
+          addSchemaClass("links");
+
+      var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "lst");
+      traversal.schemaClass("Validation")
+          .addSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").
+          mandatoryAttr(true).minAttr("1").iterate();
+    });
+
     session.begin();
-    var vrt = session.newVertex(clazz.getName());
-    var link = session.newVertex(linkClass.getName());
-    vrt.addEdge(link, edgeClass);
+    var vrt = session.newVertex("Validation");
+    var link = session.newVertex("links");
+    vrt.addEdge(link, "lst");
     session.commit();
     session.begin();
-    vrt.getEdges(Direction.OUT, edgeClass).forEach(Edge::delete);
+    vrt.getEdges(Direction.OUT, "lst").forEach(Edge::delete);
     session.commit();
   }
 
   @Test(expected = ValidationException.class)
   public void requiredArrayFailsIfBecomesEmpty() {
-    var clazz = session.createVertexClass("Validation");
-    clazz.createProperty("arr", PropertyType.EMBEDDEDLIST).setMandatory(true)
-        .setMin("1");
+    var className = "Validation";
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(className).
+            addSchemaProperty("arr", PropertyType.EMBEDDEDLIST).
+            mandatoryAttr(true).minAttr("1").iterate()
+    );
+
     session.begin();
-    var vrt = session.newVertex(clazz.getName());
+    var vrt = session.newVertex(className);
     vrt.getOrCreateEmbeddedList("arr").addAll(Arrays.asList(1, 2, 3));
     session.commit();
     session.begin();
@@ -147,39 +185,52 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
 
   @Test
   public void requiredLinkBagCanBeEmptyDuringTransaction() {
-    var edgeClass = session.createLightweightEdgeClass("lst");
-    var clazz = session.createVertexClass("Validation");
-    var linkClass = session.createVertexClass("links");
-    var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
-    clazz.createProperty(edgePropertyName, PropertyType.LINKBAG, linkClass)
-        .setMandatory(true);
+    var edgeClassName = "lst";
+    var className = "Validation";
+    var linkClassName = "links";
+
+    graph.executeInTx(g -> {
+      var traversal = g.addSchemaClass(className).addAbstractSchemaClass(edgeClassName)
+          .addParentClass("E")
+          .addSchemaClass(linkClassName);
+
+      var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName);
+      traversal.schemaClass("Validation")
+          .addSchemaProperty(edgePropertyName, PropertyType.LINKBAG, linkClassName)
+          .mandatoryAttr(true).iterate();
+    });
+
     session.begin();
-    var vrt = session.newVertex(clazz.getName());
-    var link = session.newVertex(linkClass.getName());
-    vrt.addLightWeightEdge(link, edgeClass);
+    var vrt = session.newVertex(className);
+    var link = session.newVertex(linkClassName);
+    vrt.addLightWeightEdge(link, edgeClassName);
     session.commit();
     session.begin();
     var activeTx = session.getActiveTransaction();
     vrt = activeTx.load(vrt);
-    vrt.getEdges(Direction.OUT, edgeClass).forEach(Edge::delete);
-    var link2 = session.newVertex(linkClass.getName());
-    vrt.addLightWeightEdge(link2, edgeClass);
+    vrt.getEdges(Direction.OUT, edgeClassName).forEach(Edge::delete);
+    var link2 = session.newVertex(linkClassName);
+    vrt.addLightWeightEdge(link2, edgeClassName);
     session.commit();
     session.begin();
     vrt = session.load(vrt.getIdentity());
     Assert.assertEquals(
         link2.getIdentity(),
-        vrt.getVertices(Direction.OUT, edgeClass).iterator().next().getIdentity());
+        vrt.getVertices(Direction.OUT, edgeClassName).iterator().next().getIdentity());
     session.commit();
   }
 
   @Test
   public void maxConstraintOnFloatPropertyDuringTransaction() {
-    var clazz = session.createVertexClass("Validation");
-    clazz.createProperty("dbl", PropertyType.FLOAT).setMandatory(true).setMin(
-        "-10");
+    var className = "Validation";
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(className).addSchemaProperty("dbl", PropertyType.FLOAT).
+            mandatoryAttr(true).minAttr("-10").iterate()
+    );
+
     session.begin();
-    var vertex = session.newVertex(clazz.getName());
+    var vertex = session.newVertex(className);
     vertex.setProperty("dbl", -100.0);
     vertex.setProperty("dbl", 2.39);
     session.commit();
@@ -193,11 +244,14 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
 
   @Test(expected = ValidationException.class)
   public void maxConstraintOnFloatPropertyOnTransaction() {
-    var clazz = session.createVertexClass("Validation");
-    clazz.createProperty("dbl", PropertyType.FLOAT).setMandatory(true).setMin(
-        "-10");
+    var className = "Validation";
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(className).addSchemaProperty("dbl", PropertyType.FLOAT).mandatoryAttr(true)
+            .minAttr("-10").iterate()
+    );
+
     session.begin();
-    var vertex = session.newVertex(clazz.getName());
+    var vertex = session.newVertex(className);
     vertex.setProperty("dbl", -100.0);
     session.commit();
   }

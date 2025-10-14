@@ -8,10 +8,10 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.Vertex;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -86,7 +86,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
   @Test
   public void testCreateClass() {
-    var clazz = session.createClass("TestCreateClass");
+    var clazz = session.getMetadata().getSlowMutableSchema().createClass("TestCreateClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateClass", clazz.getName());
     var superclasses = clazz.getParentClasses();
@@ -95,13 +95,15 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     }
     Assert.assertNotNull(session.getMetadata().getSlowMutableSchema().getClass("TestCreateClass"));
     try {
-      session.createClass("TestCreateClass");
+      session.getMetadata().getSlowMutableSchema().createClass("TestCreateClass");
       Assert.fail();
     } catch (SchemaException ex) {
       //ignore
     }
 
-    var subclazz = session.createClass("TestCreateClass_subclass", "TestCreateClass");
+    var schema = session.getMetadata().getSlowMutableSchema();
+    var subclazz = session.getMetadata().getSlowMutableSchema()
+        .createClass("TestCreateClass_subclass", schema.getClass("TestCreateClass"));
     Assert.assertNotNull(subclazz);
     Assert.assertEquals("TestCreateClass_subclass", subclazz.getName());
     var sub_superclasses = subclazz.getParentClasses();
@@ -111,17 +113,17 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
   @Test
   public void testGetClass() {
-    session.createClass("TestGetClass");
+    var clazz = session.getMetadata().getFastImmutableSchema().getClass("TestGetClass");
 
-    var clazz = session.getClass("TestGetClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestGetClass", clazz.getName());
-    var superclasses = clazz.getSuperClasses();
+    var superclasses = clazz.getParentClasses();
     if (superclasses != null) {
       assertTrue(superclasses.isEmpty());
     }
 
-    var clazz2 = session.getClass("TestGetClass_non_existing");
+    var clazz2 = session.getMetadata().getFastImmutableSchema()
+        .getClass("TestGetClass_non_existing");
     Assert.assertNull(clazz2);
   }
 
@@ -132,8 +134,8 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     var c0 = schema.createAbstractClass("testDocFromJsonEmbedded_Class0");
 
     var c1 = schema.createClass("testDocFromJsonEmbedded_Class1");
-    c1.createProperty("account", PropertyType.STRING);
-    c1.createProperty("meta", PropertyType.EMBEDDED, c0);
+    c1.createProperty("account", PropertyTypeInternal.STRING);
+    c1.createProperty("meta", PropertyTypeInternal.EMBEDDED, c0);
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("testDocFromJsonEmbedded_Class1");
@@ -170,32 +172,12 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   }
 
   @Test
-  public void testCreateClassIfNotExists() {
-    session.createClass("TestCreateClassIfNotExists");
-
-    var clazz = session.createClassIfNotExist("TestCreateClassIfNotExists");
-    Assert.assertNotNull(clazz);
-    Assert.assertEquals("TestCreateClassIfNotExists", clazz.getName());
-    var superclasses = clazz.getParentClasses();
-    if (superclasses != null) {
-      assertTrue(superclasses.isEmpty());
-    }
-
-    var clazz2 = session.createClassIfNotExist("TestCreateClassIfNotExists_non_existing");
-    Assert.assertNotNull(clazz2);
-    Assert.assertEquals("TestCreateClassIfNotExists_non_existing", clazz2.getName());
-    var superclasses2 = clazz2.getParentClasses();
-    if (superclasses2 != null) {
-      assertTrue(superclasses2.isEmpty());
-    }
-  }
-
-  @Test
   public void testCreateVertexClass() {
-    var clazz = session.createVertexClass("TestCreateVertexClass");
+    var schema = session.getMetadata().getSlowMutableSchema();
+    var clazz = schema.createVertexClass("TestCreateVertexClass");
     Assert.assertNotNull(clazz);
 
-    clazz = session.getClass("TestCreateVertexClass");
+    clazz = schema.getClass("TestCreateVertexClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateVertexClass", clazz.getName());
     var superclasses = clazz.getParentClasses();
@@ -205,10 +187,11 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
   @Test
   public void testCreateEdgeClass() {
-    var clazz = session.createEdgeClass("TestCreateEdgeClass");
+    var schema = session.getMetadata().getSlowMutableSchema();
+    var clazz = schema.createEdgeClass("TestCreateEdgeClass");
     Assert.assertNotNull(clazz);
 
-    clazz = session.getClass("TestCreateEdgeClass");
+    clazz = schema.getClass("TestCreateEdgeClass");
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestCreateEdgeClass", clazz.getName());
     var superclasses = clazz.getParentClasses();
@@ -218,8 +201,9 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
   @Test
   public void testVertexProperty() {
+    var schema = session.getMetadata().getSlowMutableSchema();
     var className = "testVertexProperty";
-    session.createClass(className, "V");
+    schema.createClass(className, schema.getClass("V"));
 
     session.begin();
     var doc1 = session.newVertex(className);
@@ -248,10 +232,13 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   public void testLinkEdges() {
     var vertexClass = "testVertex";
     var edgeClass = "testEdge";
-    var vc = session.createClass(vertexClass, "V");
-    session.createClass(edgeClass, "E");
-    vc.createProperty("out_testEdge", PropertyType.LINK);
-    vc.createProperty("in_testEdge", PropertyType.LINK);
+
+    var schema = session.getMetadata().getSlowMutableSchema();
+    var vc = schema.createClass(vertexClass, schema.getClass("V"));
+    schema.createClass(edgeClass, schema.getClass("E"));
+
+    vc.createProperty("out_testEdge", PropertyTypeInternal.LINK);
+    vc.createProperty("in_testEdge", PropertyTypeInternal.LINK);
 
     session.begin();
     var doc1 = session.newVertex(vertexClass);
@@ -281,11 +268,13 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   public void testLinkOneSide() {
     var vertexClass = "testVertexOneSide";
     var edgeClass = "testEdge";
-    var vc = session.createClass(vertexClass, "V");
-    session.createClass(edgeClass, "E");
 
-    vc.createProperty("out_testEdge", PropertyType.LINKBAG);
-    vc.createProperty("in_testEdge", PropertyType.LINK);
+    var schema = session.getMetadata().getSlowMutableSchema();
+    var vc = schema.createClass(vertexClass, schema.getClass("V"));
+    schema.createClass(edgeClass, schema.getClass("E"));
+
+    vc.createProperty("out_testEdge", PropertyTypeInternal.LINKBAG);
+    vc.createProperty("in_testEdge", PropertyTypeInternal.LINK);
 
     session.begin();
     var doc1 = session.newVertex(vertexClass);
@@ -317,10 +306,13 @@ public class DatabaseDocumentTxTest extends DbTestBase {
   public void testLinkDuplicate() {
     var vertexClass = "testVertex";
     var edgeClass = "testEdge";
-    var vc = session.createClass(vertexClass, "V");
-    session.createClass(edgeClass, "E");
-    vc.createProperty("out_testEdge", PropertyType.LINK);
-    vc.createProperty("in_testEdge", PropertyType.LINK);
+
+    var schema = session.getMetadata().getSlowMutableSchema();
+    var vc = schema.createClass(vertexClass, schema.getClass("V"));
+    schema.createClass(edgeClass, schema.getClass("E"));
+
+    vc.createProperty("out_testEdge", PropertyTypeInternal.LINK);
+    vc.createProperty("in_testEdge", PropertyTypeInternal.LINK);
 
     session.executeInTx(transaction -> {
       var doc1 = session.newVertex(vertexClass);

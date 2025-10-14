@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -14,6 +15,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -35,19 +37,21 @@ public class LiveIndexRebuildTest {
       if (youTrackDb.exists(LiveIndexRebuildTest.class.getSimpleName())) {
         youTrackDb.drop(LiveIndexRebuildTest.class.getSimpleName());
       }
+
       youTrackDb.create(LiveIndexRebuildTest.class.getSimpleName(), DatabaseType.DISK, "admin",
           "admin", "admin");
-      try (var db = youTrackDb.open(LiveIndexRebuildTest.class.getSimpleName(), "admin", "admin")) {
-        db.executeInTx(transaction -> {
-          final var clazz = db.getSchema().createClass(className);
-          clazz.createProperty(propertyName, PropertyType.INTEGER);
-          clazz.createIndex(indexName, IndexType.UNIQUE, propertyName);
 
-          for (var i = 0; i < 1000000; i++) {
-            var document = transaction.newEntity(className);
-            document.setProperty(propertyName, i);
-          }
-        });
+      try (var graph = youTrackDb.openGraph(LiveIndexRebuildTest.class.getSimpleName(), "admin",
+          "admin")) {
+        graph.autoExecuteInTx(g ->
+            g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.INTEGER)
+                .addPropertyIndex(indexName, IndexType.UNIQUE)
+        );
+
+        graph.autoExecuteInTx(g ->
+            g.inject((Vertex) null).repeat(__.addV(className)).
+                times(1_000_000).property(propertyName, __.loops())
+        );
       }
 
       try (var pool = youTrackDb.cachedPool(LiveIndexRebuildTest.class.getSimpleName(), "admin",

@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -19,6 +21,7 @@ public class SecurityEngineTest {
 
   static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
+  private YTDBGraph graph;
   private static final String DB_NAME = "test";
 
   @BeforeClass
@@ -46,6 +49,8 @@ public class SecurityEngineTest {
             + " users ( admin identified by '"
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role admin)");
+    graph = youTrackDB.openGraph(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+
     this.session =
         (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
@@ -54,6 +59,7 @@ public class SecurityEngineTest {
   @After
   public void after() {
     this.session.close();
+    graph.close();
     youTrackDB.drop(DB_NAME);
     this.session = null;
   }
@@ -61,7 +67,8 @@ public class SecurityEngineTest {
   @Test
   public void testAllClasses() {
     var security = session.getSharedContext().getSecurity();
-    session.createClass("Person");
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -83,7 +90,7 @@ public class SecurityEngineTest {
   public void testSingleClass() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -105,8 +112,11 @@ public class SecurityEngineTest {
   public void testSuperclass() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
-    session.createClass("Employee", "Person");
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Employee").addParentClass(
+            __.addSchemaClass("Person")
+        )
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -129,8 +139,11 @@ public class SecurityEngineTest {
   public void testSuperclass2() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
-    session.createClass("Employee", "Person");
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Employee").addParentClass(
+            __.addSchemaClass("Person")
+        )
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -160,8 +173,11 @@ public class SecurityEngineTest {
   public void testSuperclass3() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
-    session.createClass("Employee", "Person");
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Employee").addParentClass(
+            __.addSchemaClass("Person")
+        )
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -191,9 +207,12 @@ public class SecurityEngineTest {
   public void testTwoSuperclasses() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
-    session.createClass("Foo");
-    session.createClass("Employee", "Person", "Foo");
+    //noinspection unchecked
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Employee").addParentClass(
+            __.addSchemaClass("Person"), __.addSchemaClass("Foo")
+        )
+    );
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -236,7 +255,7 @@ public class SecurityEngineTest {
 
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -267,7 +286,8 @@ public class SecurityEngineTest {
   public void testRecordFiltering() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
+
     var rec1 =
         session.computeInTx(
             transaction -> {

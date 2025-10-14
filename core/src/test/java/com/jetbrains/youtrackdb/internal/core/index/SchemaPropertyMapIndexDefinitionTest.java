@@ -4,13 +4,13 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent.ChangeType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 import org.junit.After;
 import org.junit.Assert;
@@ -37,16 +37,15 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
 
     propertyIndexByKey =
         new PropertyMapIndexDefinition(
-            "testClass", "fOne", PropertyTypeInternal.STRING,
-            PropertyMapIndexDefinition.INDEX_BY.KEY);
+            "testClass", "fOne", PropertyTypeInternal.STRING, IndexBy.BY_KEY);
     propertyIndexByIntegerKey =
         new PropertyMapIndexDefinition(
             "testClass", "fTwo", PropertyTypeInternal.INTEGER,
-            PropertyMapIndexDefinition.INDEX_BY.KEY);
+            IndexBy.BY_KEY);
     propertyIndexByValue =
         new PropertyMapIndexDefinition(
             "testClass", "fOne", PropertyTypeInternal.INTEGER,
-            PropertyMapIndexDefinition.INDEX_BY.VALUE);
+            IndexBy.BY_VALUE);
   }
 
   @After
@@ -234,33 +233,6 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testEmptyIndexByKeyReload() {
-    propertyIndexByKey =
-        new PropertyMapIndexDefinition(
-            "tesClass", "fOne", PropertyTypeInternal.STRING,
-            PropertyMapIndexDefinition.INDEX_BY.KEY);
-
-    final var map = propertyIndexByKey.toMap(session);
-    final PropertyIndexDefinition result = new PropertyMapIndexDefinition();
-    result.fromMap(map);
-    Assert.assertEquals(result, propertyIndexByKey);
-  }
-
-  @Test
-  public void testEmptyIndexByValueReload() {
-    propertyIndexByValue =
-        new PropertyMapIndexDefinition(
-            "tesClass", "fOne", PropertyTypeInternal.INTEGER,
-            PropertyMapIndexDefinition.INDEX_BY.VALUE);
-
-    final var map = propertyIndexByValue.toMap(session);
-    final PropertyIndexDefinition result = new PropertyMapIndexDefinition();
-    result.fromMap(map);
-
-    Assert.assertEquals(result, propertyIndexByValue);
-  }
-
-  @Test
   public void testCreateSingleValueByKey() {
     final var result = propertyIndexByKey.createSingleValue(session.getActiveTransaction(), "tt");
     Assert.assertEquals("tt", result);
@@ -280,24 +252,6 @@ public class SchemaPropertyMapIndexDefinitionTest extends DbTestBase {
   @Test(expected = NullPointerException.class)
   public void testIndexByIsRequired() {
     new PropertyMapIndexDefinition("testClass", "testField", PropertyTypeInternal.STRING, null);
-  }
-
-  @Test
-  public void testCreateDDLByKey() {
-    final var ddl =
-        propertyIndexByKey
-            .toCreateIndexDDL("testIndex", "unique", null)
-            .toLowerCase(Locale.ENGLISH);
-    Assert.assertEquals("create index `testindex` on `testclass` ( `fone` by key ) unique", ddl);
-  }
-
-  @Test
-  public void testCreateDDLByValue() {
-    final var ddl =
-        propertyIndexByValue
-            .toCreateIndexDDL("testIndex", "unique", null)
-            .toLowerCase(Locale.ENGLISH);
-    Assert.assertEquals("create index `testindex` on `testclass` ( `fone` by value ) unique", ddl);
   }
 
   @Test

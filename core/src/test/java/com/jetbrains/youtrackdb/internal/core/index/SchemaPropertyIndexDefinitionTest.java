@@ -91,27 +91,6 @@ public class SchemaPropertyIndexDefinitionTest extends DbTestBase {
   }
 
   @Test
-  public void testEmptyIndexReload() {
-    propertyIndex = new PropertyIndexDefinition("tesClass", "fOne", PropertyTypeInternal.INTEGER);
-
-    final var map = propertyIndex.toMap(session);
-    final var result = new PropertyIndexDefinition();
-    result.fromMap(map);
-
-    Assert.assertEquals(result, propertyIndex);
-  }
-
-  @Test
-  public void testIndexReload() {
-    final var map = propertyIndex.toMap(session);
-
-    final var result = new PropertyIndexDefinition();
-    result.fromMap(map);
-
-    Assert.assertEquals(result, propertyIndex);
-  }
-
-  @Test
   public void testGetParamCount() {
     Assert.assertEquals(1, propertyIndex.getParamCount());
   }

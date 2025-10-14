@@ -13,7 +13,7 @@ public class AlterRoleStatementExecutionTest extends DbTestBase {
   public void testAddPolicy() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");
@@ -37,7 +37,7 @@ public class AlterRoleStatementExecutionTest extends DbTestBase {
   public void testRemovePolicy() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");

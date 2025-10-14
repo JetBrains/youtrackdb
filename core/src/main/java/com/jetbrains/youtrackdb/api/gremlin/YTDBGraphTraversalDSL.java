@@ -56,9 +56,21 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   }
 
   default GraphTraversal<S, Vertex> addParentClass(GraphTraversal<?, Vertex> parentClass) {
-    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    @SuppressWarnings("unchecked")
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+    return ytdbGraphTraversal.addE(YTDBSchemaClassOutToken.parentClass).to(parentClass)
+        .outV();
+  }
 
-    return ytdbGraphTraversal.addE(YTDBSchemaClassOutToken.parentClass).to(parentClass).outV();
+  default GraphTraversal<S, Vertex> addParentClass(GraphTraversal<?, Vertex>... parentClass) {
+    @SuppressWarnings("unchecked")
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+    for (var parent : parentClass) {
+      ytdbGraphTraversal = ytdbGraphTraversal.addE(YTDBSchemaClassOutToken.parentClass).to(parent)
+          .outV();
+    }
+
+    return ytdbGraphTraversal;
   }
 
   default GraphTraversal<S, Vertex> addParentClass(String parentClass) {
@@ -417,6 +429,17 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return ytdbGraphTraversal.as(currentSchemaProperty)
         .property(YTDBSchemaPropertyPToken.defaultValue, defaultValue)
         .select(currentSchemaProperty);
+  }
+
+  default GraphTraversal<S, String> collateAttr() {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    return ytdbGraphTraversal.values(YTDBSchemaPropertyPToken.collateName);
+  }
+
+  default GraphTraversal<S, Vertex> collateAttr(String collateName) {
+    @SuppressWarnings("unchecked")
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+    return ytdbGraphTraversal.property(YTDBSchemaPropertyPToken.collateName, collateName);
   }
 
   default GraphTraversal<S, Vertex> maxAttr(String max) {

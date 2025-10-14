@@ -28,19 +28,17 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.In
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Test;
 
-/**
- *
- */
 public class TxUniqueIndexWithCollationTest extends DbTestBase {
 
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
-    session.getMetadata()
-        .getSlowMutableSchema()
-        .createClass("user")
-        .createProperty("name", PropertyType.STRING)
-        .setCollate("ci")
-        .createIndex(IndexType.UNIQUE);
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("user").
+            addSchemaProperty("name", PropertyType.STRING).collateAttr("ci").
+            addPropertyIndex(IndexType.UNIQUE)
+    );
 
     session.begin();
     var one = session.newEntity("user");

@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
@@ -120,15 +121,16 @@ public class EntityImplTest extends DbTestBase {
       session = (DatabaseSessionEmbedded) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-      var clazz = session.getMetadata().getSlowMutableSchema().createClass("Test");
-      clazz.createProperty("integer", PropertyType.INTEGER);
-      clazz.createProperty("link", PropertyType.LINK);
-      clazz.createProperty("string", PropertyType.STRING);
-      clazz.createProperty("binary", PropertyType.BINARY);
+      graph.autoExecuteInTx(g -> g.addSchemaClass("Test",
+          __.addSchemaProperty("integer", PropertyType.INTEGER),
+          __.addSchemaProperty("link", PropertyType.LINK),
+          __.addSchemaProperty("string", PropertyType.STRING),
+          __.addSchemaProperty("binary", PropertyType.BINARY)
+      ));
 
       session.begin();
 
-      var entity = (EntityImpl) session.newEntity(clazz);
+      var entity = (EntityImpl) session.newEntity("Test");
       entity.setProperty("integer", 10);
       entity.setProperty("link", new RecordId(1, 2));
       entity.setProperty("string", "string");
@@ -186,13 +188,15 @@ public class EntityImplTest extends DbTestBase {
       db = (DatabaseSessionInternal) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-      Schema schema = db.getMetadata().getSlowMutableSchema();
-      var classA = schema.createClass("TestRemovingField2");
-      classA.createProperty("name", PropertyType.STRING);
-      var property = classA.createProperty("property", PropertyType.STRING);
-      property.setReadonly(true);
+      graph.autoExecuteInTx(g ->
+          g.addSchemaClass("TestRemovingField2",
+              __.addSchemaProperty("name", PropertyType.STRING),
+              __.addSchemaProperty("property", PropertyType.STRING).readOnlyAttr(true)
+          )
+      );
+
       db.begin();
-      var doc = (EntityImpl) db.newEntity(classA);
+      var doc = (EntityImpl) db.newEntity("TestRemovingField2");
       doc.setProperty("name", "My Name");
       doc.setProperty("property", "value1");
 
@@ -229,12 +233,16 @@ public class EntityImplTest extends DbTestBase {
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       Schema schema = session.getMetadata().getSlowMutableSchema();
-      var classA = schema.createClass("TestUndo");
-      classA.createProperty("name", PropertyType.STRING);
-      classA.createProperty("property", PropertyType.STRING);
+
+      graph.autoExecuteInTx(g ->
+          g.addSchemaClass("TestUndo",
+              __.addSchemaProperty("name", PropertyType.STRING),
+              __.addSchemaProperty("property", PropertyType.STRING)
+          )
+      );
 
       session.begin();
-      var doc = (EntityImpl) session.newEntity(classA);
+      var doc = (EntityImpl) session.newEntity("TestUndo");
       doc.setProperty("name", "My Name");
       doc.setProperty("property", "value1");
 

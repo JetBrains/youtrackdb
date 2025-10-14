@@ -4,12 +4,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.EntityHookAbstract;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.UUID;
 import org.junit.Test;
@@ -23,10 +23,14 @@ public class CheckHookCallCountTest extends DbTestBase {
 
   @Test
   public void testMultipleCallHook() {
-    var aClass = session.getMetadata().getSlowMutableSchema().createClass(CLASS_NAME);
-    aClass.createProperty(FIELD_ID, PropertyType.STRING);
-    aClass.createProperty(FIELD_STATUS, PropertyType.STRING);
-    aClass.createIndex("IDX", IndexType.NOT_UNIQUE, FIELD_ID);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(CLASS_NAME,
+            __.addSchemaProperty(FIELD_ID, PropertyType.STRING),
+            __.addSchemaProperty(FIELD_STATUS, PropertyType.STRING)
+                .addPropertyIndex("IDX", IndexType.NOT_UNIQUE)
+        )
+    );
+
     var hook = new TestHook(session);
     session.registerHook(hook);
 
@@ -50,14 +54,17 @@ public class CheckHookCallCountTest extends DbTestBase {
 
   @Test
   public void testInHook() throws Exception {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var oClass = schema.createClass("TestInHook");
-    oClass.createProperty("a", PropertyType.INTEGER);
-    oClass.createProperty("b", PropertyType.INTEGER);
-    oClass.createProperty("c", PropertyType.INTEGER);
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("TestInHook",
+            __.addSchemaProperty("a", PropertyType.INTEGER),
+            __.addSchemaProperty("b", PropertyType.INTEGER),
+            __.addSchemaProperty("c", PropertyType.INTEGER)
+        )
+    );
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(oClass);
+    var doc = (EntityImpl) session.newEntity("TestInHook");
     doc.setProperty("a", 2);
     doc.setProperty("b", 2);
 
@@ -103,7 +110,7 @@ public class CheckHookCallCountTest extends DbTestBase {
     session.rollback();
 
     session.begin();
-    doc = (EntityImpl) session.newEntity(oClass);
+    doc = (EntityImpl) session.newEntity("TestInHook");
     doc.setProperty("a", 3);
     doc.setProperty("b", 3);
 
