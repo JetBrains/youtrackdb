@@ -1,13 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBQueryConfigParam;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import java.util.List;
 import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
-import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.assertj.core.api.ListAssert;
@@ -191,7 +192,9 @@ public class GraphQueryTest extends GraphBaseTest {
 
   @Test
   public void shouldWorkWithTwoLabels() {
-    session.getSchema().createVertexClass("Person");
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Person")
+    );
 
     // Count on V
     var count = graph.traversal().V().count().toList().getFirst();
@@ -215,13 +218,11 @@ public class GraphQueryTest extends GraphBaseTest {
     Assert.assertEquals(1L, count.longValue());
   }
 
-  protected void initGraph(Graph graph) {
-    var schema = session.getSchema();
-
-    schema.createVertexClass("Person");
-    schema.createVertexClass("Animal");
-    schema.createEdgeClass("HasFriend");
-    session.createEdgeClass("HasAnimal");
+  protected static void initGraph(YTDBGraph graph) {
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Person").addSchemaClass("Animal").
+            addStateFullEdgeClass("HasFriend").addStateFullEdgeClass("HasAnimal")
+    );
 
     var v1 = graph.addVertex(T.label, "Person", "name", "Jon");
     var v2 = graph.addVertex(T.label, "Person", "name", "Frank");
@@ -245,67 +246,80 @@ public class GraphQueryTest extends GraphBaseTest {
     //      cat    human   bee
 
     final var prefix = "testPolymorphicLabelsSimple_";
-    final var animal = session.createVertexClass(prefix + "animal");
-    final var fish = session.createClass(prefix + "fish", animal.getName());
-    final var mammal = session.createClass(prefix + "mammal", animal.getName());
-    final var bird = session.createClass(prefix + "bird", animal.getName());
-    final var insect = session.createClass(prefix + "insect", animal.getName());
-    final var bee = session.createClass(prefix + "bee", insect.getName());
-    final var cat = session.createClass(prefix + "cat", mammal.getName());
-    final var human = session.createClass(prefix + "human", mammal.getName());
+
+    var animalClassName = prefix + "Animal";
+    var fishClassName = prefix + "Fish";
+    var mammalClassName = prefix + "Mammal";
+    var birdClassName = prefix + "Bird";
+    var insectClassName = prefix + "Insect";
+    var beeClassName = prefix + "bee";
+    var catClassName = prefix + "cat";
+    var humanClassName = prefix + "human";
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(animalClassName).
+            addSchemaClass(fishClassName).addParentClass(animalClassName).
+            addSchemaClass(mammalClassName).addParentClass(animalClassName).
+            addSchemaClass(catClassName).addParentClass(mammalClassName).
+            addSchemaClass(birdClassName).addParentClass(animalClassName).
+            addSchemaClass(insectClassName).addParentClass(animalClassName).
+            addSchemaClass(beeClassName).addParentClass(insectClassName).
+            addSchemaClass(catClassName).addParentClass(mammalClassName).
+            addSchemaClass(humanClassName).addParentClass(mammalClassName)
+    );
 
     session.executeInTx(tx -> {
-      tx.newVertex(animal).setProperty("name", "someAnimal");
+      tx.newVertex(animalClassName).setProperty("name", "someAnimal");
 
-      tx.newVertex(fish).setProperty("name", "someFish");
+      tx.newVertex(fishClassName).setProperty("name", "someFish");
 
-      tx.newVertex(cat).setProperty("name", "someCat");
+      tx.newVertex(catClassName).setProperty("name", "someCat");
 
-      tx.newVertex(cat).setProperty("name", "otherCat");
+      tx.newVertex(catClassName).setProperty("name", "otherCat");
 
-      tx.newVertex(insect).setProperty("name", "someInsect");
+      tx.newVertex(insectClassName).setProperty("name", "someInsect");
     });
 
-    assertThatNames(animal, true)
+    assertThatNames(animalClassName, true)
         .containsExactlyInAnyOrder("someAnimal", "someFish", "someCat", "otherCat", "someInsect");
 
-    assertThatNames(animal, false)
+    assertThatNames(animalClassName, false)
         .containsExactlyInAnyOrder("someAnimal");
 
-    assertThatNames(fish, true)
+    assertThatNames(fishClassName, true)
         .containsExactlyInAnyOrder("someFish");
 
-    assertThatNames(fish, false)
+    assertThatNames(fishClassName, false)
         .containsExactlyInAnyOrder("someFish");
 
-    assertThatNames(mammal, true)
+    assertThatNames(mammalClassName, true)
         .containsExactlyInAnyOrder("someCat", "otherCat");
 
-    assertThatNames(mammal, false)
+    assertThatNames(mammalClassName, false)
         .isEmpty();
 
-    assertThatNames(insect, true)
+    assertThatNames(insectClassName, true)
         .containsExactlyInAnyOrder("someInsect");
 
-    assertThatNames(insect, false)
+    assertThatNames(insectClassName, false)
         .containsExactlyInAnyOrder("someInsect");
 
-    assertThatNames(bird, true)
+    assertThatNames(birdClassName, true)
         .isEmpty();
 
-    assertThatNames(bird, false)
+    assertThatNames(birdClassName, false)
         .isEmpty();
 
-    assertThatNames(cat, true)
+    assertThatNames(catClassName, true)
         .containsExactlyInAnyOrder("someCat", "otherCat");
 
-    assertThatNames(cat, false)
+    assertThatNames(catClassName, false)
         .containsExactlyInAnyOrder("someCat", "otherCat");
 
-    assertThatNames(human, true)
+    assertThatNames(humanClassName, true)
         .isEmpty();
 
-    assertThatNames(human, false)
+    assertThatNames(humanClassName, false)
         .isEmpty();
   }
 
@@ -313,87 +327,91 @@ public class GraphQueryTest extends GraphBaseTest {
   public void testPolymorphicLabelsWithFilters() {
 
     final var prefix = "testPolymorphicLabelsWithFilters_";
-    final var character = session.createVertexClass(prefix + "character");
-    final var pirate = session.createClass(prefix + "pirate", character.getName());
+
+    var characterClassName = prefix + "Character";
+    var pirateClassName = prefix + "Pirate";
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(characterClassName)
+        .addSchemaClass(pirateClassName).addParentClass(characterClassName));
 
     session.executeInTx(tx -> {
-      final var billyBones = tx.newVertex(pirate);
+      final var billyBones = tx.newVertex(pirateClassName);
       billyBones.setProperty("name", "Billy Bones");
       billyBones.setProperty("noOfLegs", 2);
       billyBones.setProperty("noOfEyes", 2);
 
-      final var longJohn = tx.newVertex(pirate);
+      final var longJohn = tx.newVertex(pirateClassName);
       longJohn.setProperty("name", "John Silver");
       longJohn.setProperty("noOfLegs", 1);
       longJohn.setProperty("noOfEyes", 2);
 
-      final var blindPew = tx.newVertex(pirate);
+      final var blindPew = tx.newVertex(pirateClassName);
       blindPew.setProperty("name", "Blind Pew");
       blindPew.setProperty("noOfLegs", 2);
       blindPew.setProperty("noOfEyes", 0);
 
-      final var jim = tx.newVertex(character);
+      final var jim = tx.newVertex(characterClassName);
       jim.setProperty("name", "Jim Hawkins");
       jim.setProperty("noOfLegs", 2);
       jim.setProperty("noOfEyes", 2);
     });
 
-    (assertThatNames(character, false))
+    (assertThatNames(characterClassName, false))
         .containsExactlyInAnyOrder("Jim Hawkins");
 
-    assertThatNames(character, true)
+    assertThatNames(characterClassName, true)
         .containsExactlyInAnyOrder("Jim Hawkins", "Billy Bones", "John Silver", "Blind Pew");
 
     assertThatNames(
-        character, true,
+        characterClassName, true,
         t -> t.has("noOfEyes", P.lt(2))
     ).containsExactlyInAnyOrder("Blind Pew");
 
     assertThatNames(
-        character, false,
+        characterClassName, false,
         t -> t.has("noOfEyes", P.lt(2))
     ).isEmpty();
 
     assertThatNames(
-        pirate, true,
+        pirateClassName, true,
         t -> t.has("noOfEyes", P.lt(2))
     ).containsExactlyInAnyOrder("Blind Pew");
 
     assertThatNames(
-        pirate, false,
+        pirateClassName, false,
         t -> t.has("noOfEyes", P.lt(2))
     ).containsExactlyInAnyOrder("Blind Pew");
 
     assertThatNames(
-        character, false,
+        characterClassName, false,
         t -> t.has("name", TextP.startingWith("J"))
     ).containsExactlyInAnyOrder("Jim Hawkins");
 
     assertThatNames(
-        character, true,
+        characterClassName, true,
         t -> t.has("name", TextP.startingWith("J"))
     ).containsExactlyInAnyOrder("Jim Hawkins", "John Silver");
 
     assertThatNames(
-        character, false,
+        characterClassName, false,
         t -> t.has("name", TextP.startingWith("J"))
     ).containsExactlyInAnyOrder("Jim Hawkins");
 
     assertThatNames(
-        character, true,
+        characterClassName, true,
         t -> t.has("name", TextP.endingWith("s")).has("noOfLegs", P.gt(1))
     ).containsExactlyInAnyOrder("Jim Hawkins", "Billy Bones");
 
     assertThatNames(
-        character, false,
+        characterClassName, false,
         t -> t.has("name", TextP.endingWith("s")).has("noOfLegs", P.gt(1))
     ).containsExactlyInAnyOrder("Jim Hawkins");
 
-    assertThatNames(character, false,
+    assertThatNames(characterClassName, false,
         t -> t.has("noOfLegs", P.neq(2))
     ).isEmpty();
 
-    assertThatNames(character, true,
+    assertThatNames(characterClassName, true,
         t -> t.has("noOfLegs", P.neq(2))
     ).containsExactlyInAnyOrder("John Silver");
   }
@@ -402,77 +420,86 @@ public class GraphQueryTest extends GraphBaseTest {
   public void testMultipleLabels() {
 
     final var prefix = "testMultipleLabels_";
-    final var animal = session.createVertexClass(prefix + "animal");
-    final var mammal = session.createClass(prefix + "mammal", animal.getName());
-    final var dolphin = session.createClass(prefix + "dolphin", mammal.getName());
-    final var human = session.createClass(prefix + "human", mammal.getName());
-    final var fish = session.createClass(prefix + "fish", animal.getName());
+
+    var animalClassName = prefix + "Animal";
+    var mammalClassName = prefix + "Mammal";
+    var dolphinClassName = prefix + "Dolphin";
+    var humanClassName = prefix + "Human";
+    var fishClassName = prefix + "Fish";
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(animalClassName).
+            addSchemaClass(mammalClassName).addParentClass(animalClassName).
+            addSchemaClass(dolphinClassName).addParentClass(mammalClassName).
+            addSchemaClass(humanClassName).addParentClass(mammalClassName).
+            addSchemaClass(fishClassName).addParentClass(animalClassName)
+    );
 
     session.executeInTx(tx -> {
-      tx.newVertex(animal).setProperty("name", "someAnimal");
-      tx.newVertex(mammal).setProperty("name", "someMammal");
-      tx.newVertex(dolphin).setProperty("name", "someDolphin");
-      tx.newVertex(human).setProperty("name", "someHuman");
-      tx.newVertex(fish).setProperty("name", "someFish");
+      tx.newVertex(animalClassName).setProperty("name", "someAnimal");
+      tx.newVertex(mammalClassName).setProperty("name", "someMammal");
+      tx.newVertex(dolphinClassName).setProperty("name", "someDolphin");
+      tx.newVertex(humanClassName).setProperty("name", "someHuman");
+      tx.newVertex(fishClassName).setProperty("name", "someFish");
     });
 
     // union semantics
     assertThatNames(
         List.of(
-            List.of(animal, mammal)
+            List.of(animalClassName, mammalClassName)
         ),
         true
     ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman", "someFish");
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal)
+            List.of(animalClassName, mammalClassName)
         ),
         false
     ).containsExactlyInAnyOrder("someAnimal", "someMammal");
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal, human)
+            List.of(animalClassName, mammalClassName, humanClassName)
         ),
         true
     ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman", "someFish");
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal, human)
+            List.of(animalClassName, mammalClassName, humanClassName)
         ),
         false
     ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someHuman");
 
     assertThatNames(
         List.of(
-            List.of(mammal, dolphin, fish)
+            List.of(mammalClassName, dolphinClassName, fishClassName)
         ),
         true
     ).containsExactlyInAnyOrder("someMammal", "someDolphin", "someFish", "someHuman");
 
     assertThatNames(
         List.of(
-            List.of(mammal, dolphin, fish)
+            List.of(mammalClassName, dolphinClassName, fishClassName)
         ),
         false
     ).containsExactlyInAnyOrder("someMammal", "someDolphin", "someFish");
 
     assertThatNames(
         List.of(
-            List.of(mammal, human),
-            List.of(fish),
-            List.of(animal)
+            List.of(mammalClassName, humanClassName),
+            List.of(fishClassName),
+            List.of(animalClassName)
         ),
         true
     ).isEmpty();
 
     assertThatNames(
         List.of(
-            List.of(mammal, human),
-            List.of(fish),
-            List.of(animal)
+            List.of(mammalClassName, humanClassName),
+            List.of(fishClassName),
+            List.of(animalClassName)
         ),
         false
     ).isEmpty();
@@ -480,100 +507,100 @@ public class GraphQueryTest extends GraphBaseTest {
     // intersection semantics
     assertThatNames(
         List.of(
-            List.of(animal),
-            List.of(mammal)
+            List.of(animalClassName),
+            List.of(mammalClassName)
         ),
         true
     ).containsExactlyInAnyOrder("someMammal", "someDolphin", "someHuman");
 
     assertThatNames(
         List.of(
-            List.of(animal),
-            List.of(mammal)
+            List.of(animalClassName),
+            List.of(mammalClassName)
         ),
         false
     ).isEmpty();
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal),
-            List.of(human)
+            List.of(animalClassName, mammalClassName),
+            List.of(humanClassName)
         ),
         true
     ).containsExactlyInAnyOrder("someHuman");
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal),
-            List.of(human)
+            List.of(animalClassName, mammalClassName),
+            List.of(humanClassName)
         ),
         false
     ).isEmpty();
 
     assertThatNames(
         List.of(
-            List.of(animal),
-            List.of(animal)
+            List.of(animalClassName),
+            List.of(animalClassName)
         ),
         true
     ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman", "someFish");
 
     assertThatNames(
         List.of(
-            List.of(animal),
-            List.of(animal)
+            List.of(animalClassName),
+            List.of(animalClassName)
         ),
         false
     ).containsExactlyInAnyOrder("someAnimal");
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal),
-            List.of(mammal, human)
+            List.of(animalClassName, mammalClassName),
+            List.of(mammalClassName, humanClassName)
         ),
         true
     ).containsExactlyInAnyOrder("someMammal", "someDolphin", "someHuman");
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal),
-            List.of(mammal, human)
+            List.of(animalClassName, mammalClassName),
+            List.of(mammalClassName, humanClassName)
         ),
         false
     ).containsExactlyInAnyOrder("someMammal");
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal),
-            List.of(animal, human)
+            List.of(animalClassName, mammalClassName),
+            List.of(animalClassName, humanClassName)
         ),
         true
     ).containsExactlyInAnyOrder("someAnimal", "someMammal", "someDolphin", "someHuman", "someFish");
 
     assertThatNames(
         List.of(
-            List.of(animal, mammal),
-            List.of(animal, human)
+            List.of(animalClassName, mammalClassName),
+            List.of(animalClassName, humanClassName)
         ),
         false
     ).containsExactlyInAnyOrder("someAnimal");
   }
 
-  private ListAssert<String> assertThatNames(SchemaClass clazz, boolean polymorphic) {
+  private ListAssert<String> assertThatNames(String clazz, boolean polymorphic) {
     return assertThatNames(clazz, polymorphic, Function.identity());
   }
 
-  private ListAssert<String> assertThatNames(SchemaClass clazz, boolean polymorphic,
+  private ListAssert<String> assertThatNames(String clazz, boolean polymorphic,
       Function<YTDBGraphTraversal<Vertex, Vertex>, YTDBGraphTraversal<Vertex, Vertex>> filter) {
 
     return assertThatNames(List.of(List.of(clazz)), polymorphic, filter);
   }
 
-  private ListAssert<String> assertThatNames(List<List<SchemaClass>> classes, boolean polymorphic) {
+  private ListAssert<String> assertThatNames(List<List<String>> classes, boolean polymorphic) {
     return assertThatNames(classes, polymorphic, Function.identity());
   }
 
-  private ListAssert<String> assertThatNames(List<List<SchemaClass>> classes, boolean polymorphic,
+  private ListAssert<String> assertThatNames(List<List<String>> classes, boolean polymorphic,
       Function<YTDBGraphTraversal<Vertex, Vertex>, YTDBGraphTraversal<Vertex, Vertex>> filter) {
 
     var t = pool.asGraph().traversal()
@@ -581,8 +608,8 @@ public class GraphQueryTest extends GraphBaseTest {
         .V();
 
     for (var classesInner : classes) {
-      final var head = classesInner.getFirst().getName();
-      final var tail = classesInner.stream().skip(1).map(SchemaClass::getName)
+      final var head = classesInner.getFirst();
+      final var tail = classesInner.stream().skip(1)
           .toArray(String[]::new);
 
       t = t.hasLabel(head, tail);

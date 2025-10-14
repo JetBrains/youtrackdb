@@ -56,19 +56,21 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return traversal;
   }
 
-  public YTDBGraphTraversal<Vertex, Vertex> addSchemaClass(String className,
-      String... parentClasses) {
-    var clone = (YTDBGraphTraversalSource) this.clone();
-    clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
+  @SafeVarargs
+  public final YTDBGraphTraversal<Vertex, Vertex> addSchemaClass(String className,
+      GraphTraversal<?, Vertex>... sideEffects) {
+    var traversal = addSchemaClass(className);
+    if (sideEffects == null) {
+      return traversal;
+    }
 
-    var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
-    traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
+    for (var propertyDefinition : sideEffects) {
+      traversal = traversal.sideEffect(propertyDefinition);
+    }
 
-    return traversal.addV(YTDBSchemaClass.LABEL).property(name, className).as("result")
-        .addE(parentClass).to(__.V().hasLabel(YTDBSchemaClass.LABEL).
-            has(name, P.within(parentClasses)))
-        .select("result");
+    return traversal;
   }
+
 
   public YTDBGraphTraversal<Vertex, Vertex> addAbstractSchemaClass(String className) {
     var clone = (YTDBGraphTraversalSource) this.clone();
@@ -80,20 +82,22 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return traversal.property(name, className, abstractClass, true);
   }
 
-  public YTDBGraphTraversal<Vertex, Vertex> addAbstractSchemaClass(String className,
-      String... superClasses) {
-    var clone = (YTDBGraphTraversalSource) this.clone();
-    clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
+  @SafeVarargs
+  public final YTDBGraphTraversal<Vertex, Vertex> addAbstractSchemaClass(String className,
+      GraphTraversal<?, Vertex>... propertyDefinitions) {
+    var traversal = addAbstractSchemaClass(className);
 
-    var traversal = new DefaultYTDBGraphTraversal<Vertex, Vertex>(clone);
-    traversal.addStep(new AddVertexStartStep(traversal, YTDBSchemaClass.LABEL));
+    if (propertyDefinitions == null) {
+      return traversal;
+    }
 
-    return traversal.as("result").
-        property(name, className, abstractClass, true).
-        addE(parentClass).to(__.V()
-            .hasLabel(YTDBSchemaClass.LABEL).has(name, P.within(superClasses)))
-        .select("result");
+    for (var propertyDefinition : propertyDefinitions) {
+      traversal.sideEffect(propertyDefinition);
+    }
+
+    return traversal;
   }
+
 
   public YTDBGraphTraversal<Vertex, Vertex> addStateFullEdgeClass(String className) {
     var clone = (YTDBGraphTraversalSource) this.clone();

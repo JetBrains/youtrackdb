@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -27,47 +28,51 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     Identifiable id = ((DBRecord) doc).getIdentity();
     session.commit();
 
-    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
-        .createAbstractClass("EmbeddedValidation");
-    embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
+    var className = "Validation";
+    var embeddedClassName = "EmbeddedValidation";
 
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
-    clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
-    clazz.createProperty("float", PropertyType.FLOAT).setMandatory(true);
-    clazz.createProperty("boolean", PropertyType.BOOLEAN).setMandatory(true);
-    clazz.createProperty("binary", PropertyType.BINARY).setMandatory(true);
-    clazz.createProperty("byte", PropertyType.BYTE).setMandatory(true);
-    clazz.createProperty("date", PropertyType.DATE).setMandatory(true);
-    clazz.createProperty("datetime", PropertyType.DATETIME).setMandatory(true);
-    clazz.createProperty("decimal", PropertyType.DECIMAL).setMandatory(true);
-    clazz.createProperty("double", PropertyType.DOUBLE).setMandatory(true);
-    clazz.createProperty("short", PropertyType.SHORT).setMandatory(true);
-    clazz.createProperty("string", PropertyType.STRING).setMandatory(true);
-    clazz.createProperty("link", PropertyType.LINK).setMandatory(true);
-    clazz.createProperty("embedded", PropertyType.EMBEDDED, embeddedClazz)
-        .setMandatory(true);
-
-    clazz.createProperty("embeddedListNoClass", PropertyType.EMBEDDEDLIST)
-        .setMandatory(true);
-    clazz.createProperty("embeddedSetNoClass", PropertyType.EMBEDDEDSET).setMandatory(
-        true);
-    clazz.createProperty("embeddedMapNoClass", PropertyType.EMBEDDEDMAP).setMandatory(
-        true);
-
-    clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST, embeddedClazz)
-        .setMandatory(true);
-    clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET, embeddedClazz)
-        .setMandatory(true);
-    clazz.createProperty("embeddedMap", PropertyType.EMBEDDEDMAP, embeddedClazz)
-        .setMandatory(true);
-
-    clazz.createProperty("linkList", PropertyType.LINKLIST).setMandatory(true);
-    clazz.createProperty("linkSet", PropertyType.LINKSET).setMandatory(true);
-    clazz.createProperty("linkMap", PropertyType.LINKMAP).setMandatory(true);
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addAbstractSchemaClass(embeddedClassName,
+                __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+            )
+            .addSchemaClass(className,
+                __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+                __.addSchemaProperty("float", PropertyType.FLOAT).mandatoryAttr(true),
+                __.addSchemaProperty("boolean", PropertyType.BOOLEAN).mandatoryAttr(true),
+                __.addSchemaProperty("binary", PropertyType.BINARY).mandatoryAttr(true),
+                __.addSchemaProperty("byte", PropertyType.BYTE).mandatoryAttr(true),
+                __.addSchemaProperty("date", PropertyType.DATE).mandatoryAttr(true),
+                __.addSchemaProperty("datetime", PropertyType.DATETIME).mandatoryAttr(true),
+                __.addSchemaProperty("decimal", PropertyType.DECIMAL).mandatoryAttr(true),
+                __.addSchemaProperty("double", PropertyType.DOUBLE).mandatoryAttr(true),
+                __.addSchemaProperty("short", PropertyType.SHORT).mandatoryAttr(true),
+                __.addSchemaProperty("string", PropertyType.STRING).mandatoryAttr(true),
+                __.addSchemaProperty("link", PropertyType.LINK).mandatoryAttr(true),
+                __.addSchemaProperty("embedded", PropertyType.EMBEDDED,
+                    embeddedClassName).mandatoryAttr(true),
+                __.addSchemaProperty("embeddedListNoClass", PropertyType.EMBEDDEDLIST)
+                    .mandatoryAttr(true),
+                __.addSchemaProperty("embeddedSetNoClass", PropertyType.EMBEDDEDSET)
+                    .mandatoryAttr(true),
+                __.addSchemaProperty("embeddedMapNoClass", PropertyType.EMBEDDEDMAP)
+                    .mandatoryAttr(true),
+                __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST,
+                    embeddedClassName).mandatoryAttr(true),
+                __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET,
+                    embeddedClassName).mandatoryAttr(true),
+                __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP,
+                    embeddedClassName).mandatoryAttr(true),
+                __.addSchemaProperty("linkList", PropertyType.LINKLIST).
+                    mandatoryAttr(true),
+                __.addSchemaProperty("linkSet", PropertyType.LINKSET).
+                    mandatoryAttr(true),
+                __.addSchemaProperty("linkMap", PropertyType.LINKMAP).mandatoryAttr(true)
+            )
+    );
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(clazz);
+    var entity = (EntityImpl) session.newEntity(className);
     entity.setInt("int", 10);
     entity.setLong("long", 10L);
     entity.setFloat("float", 10f);
@@ -89,12 +94,12 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     entity.newEmbeddedSet("embeddedSetNoClass");
     entity.newEmbeddedMap("embeddedMapNoClass");
 
-    var embedded = session.newEmbeddedEntity("EmbeddedValidation");
+    var embedded = session.newEmbeddedEntity(embeddedClassName);
     embedded.setInt("int", 20);
     embedded.setLong("long", 20L);
     entity.setEmbeddedEntity("embedded", embedded);
 
-    var embeddedInList = session.newEmbeddedEntity("EmbeddedValidation");
+    var embeddedInList = session.newEmbeddedEntity(embeddedClassName);
     embeddedInList.setInt("int", 30);
     embeddedInList.setLong("long", 30L);
 
@@ -102,14 +107,14 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     embeddedList.add(embeddedInList);
     entity.setEmbeddedList("embeddedList", embeddedList);
 
-    var embeddedInSet = session.newEmbeddedEntity("EmbeddedValidation");
+    var embeddedInSet = session.newEmbeddedEntity(embeddedClassName);
     embeddedInSet.setInt("int", 30);
     embeddedInSet.setLong("long", 30L);
     var embeddedSet = session.newEmbeddedSet();
     embeddedSet.add(embeddedInSet);
     entity.setEmbeddedSet("embeddedSet", embeddedSet);
 
-    var embeddedInMap = session.newEmbeddedEntity("EmbeddedValidation");
+    var embeddedInMap = session.newEmbeddedEntity(embeddedClassName);
     embeddedInMap.setInt("int", 30);
     embeddedInMap.setLong("long", 30L);
     final Map<String, Entity> embeddedMap = session.newEmbeddedMap();
@@ -143,20 +148,22 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidationNotValidEmbedded() {
-    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
-        .createAbstractClass("EmbeddedValidation");
-    embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
 
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
-    clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
-    clazz.createProperty("embedded", PropertyType.EMBEDDED, embeddedClazz)
-        .setMandatory(true);
-    var clazzNotVertex = session.getMetadata().getSlowMutableSchema().createClass("NotVertex");
-    clazzNotVertex.createProperty("embeddedSimple", PropertyType.EMBEDDED);
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addAbstractSchemaClass("EmbeddedValidation",
+                __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+            ).
+            addSchemaClass("Validation",
+                __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+                __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+                __.addSchemaProperty("embedded", PropertyType.EMBEDDED, "EmbeddedValidation")
+                    .mandatoryAttr(true)
+            )
+    );
 
     session.begin();
-    var d = (EntityImpl) session.newEntity(clazz);
+    var d = (EntityImpl) session.newEntity("Validation");
     d.setProperty("int", 30);
     d.setProperty("long", 30);
     var entity = ((EntityImpl) session.newEmbeddedEntity("EmbeddedValidation"));
@@ -173,19 +180,21 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidationNotValidEmbeddedSet() {
-    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
-        .createAbstractClass("EmbeddedValidation");
-    embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
-    embeddedClazz.createProperty("long", PropertyType.LONG).setMandatory(true);
-
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
-    clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
-    clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET, embeddedClazz)
-        .setMandatory(true);
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addAbstractSchemaClass("EmbeddedValidation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
+        ).addSchemaClass("Validation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+            __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, "EmbeddedValidation")
+                .mandatoryAttr(true)
+        )
+    );
 
     session.begin();
-    var entity = session.newEntity(clazz);
+    var entity = session.newEntity("Validation");
     entity.setInt("int", 30);
     entity.setLong("long", 30L);
     final var embeddedSet = session.newEmbeddedSet();
@@ -211,19 +220,21 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidationNotValidEmbeddedList() {
-    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
-        .createAbstractClass("EmbeddedValidation");
-    embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
-    embeddedClazz.createProperty("long", PropertyType.LONG).setMandatory(true);
-
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
-    clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
-    clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST, embeddedClazz)
-        .setMandatory(true);
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addAbstractSchemaClass("EmbeddedValidation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
+        ).addSchemaClass("Validation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+            __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST,
+                "EmbeddedValidation").mandatoryAttr(true)
+        )
+    );
 
     session.begin();
-    var entity = session.newEntity(clazz);
+    var entity = session.newEntity("Validation");
     entity.setInt("int", 30);
     entity.setLong("long", 30L);
     final var embeddedList = entity.newEmbeddedList("embeddedList");
@@ -248,19 +259,21 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testValidationNotValidEmbeddedMap() {
-    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
-        .createAbstractClass("EmbeddedValidation");
-    embeddedClazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
-    embeddedClazz.createProperty("long", PropertyType.LONG).setMandatory(true);
-
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMandatory(true);
-    clazz.createProperty("long", PropertyType.LONG).setMandatory(true);
-    clazz.createProperty("embeddedMap", PropertyType.EMBEDDEDMAP, embeddedClazz)
-        .setMandatory(true);
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addAbstractSchemaClass("EmbeddedValidation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
+        ).addSchemaClass("Validation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+            __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP, "EmbeddedValidation")
+                .mandatoryAttr(true)
+        )
+    );
 
     session.begin();
-    var entity = session.newEntity(clazz);
+    var entity = session.newEntity("Validation");
     entity.setInt("int", 30);
     entity.setLong("long", 30L);
     var embeddedMap = entity.newEmbeddedMap("embeddedMap");
@@ -300,41 +313,49 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testMaxValidation() {
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMax("11");
-    clazz.createProperty("long", PropertyType.LONG).setMax("11");
-    clazz.createProperty("float", PropertyType.FLOAT).setMax("11");
-    clazz.createProperty("binary", PropertyType.BINARY).setMax("11");
-    clazz.createProperty("byte", PropertyType.BYTE).setMax("11");
-    var cal = Calendar.getInstance();
-    cal.add(Calendar.HOUR, cal.get(Calendar.HOUR) == 11 ? 0 : 1);
-    var format = session.getStorage().getConfiguration().getDateFormatInstance();
-    clazz.createProperty("date", PropertyType.DATE)
-        .setMax(format.format(cal.getTime()));
-    cal = Calendar.getInstance();
-    cal.add(Calendar.HOUR, 1);
-    format = session.getStorage().getConfiguration().getDateTimeFormatInstance();
-    clazz.createProperty("datetime", PropertyType.DATETIME)
-        .setMax(format.format(cal.getTime()));
+    graph.executeInTx(g -> {
+          var cal = Calendar.getInstance();
+          cal.add(Calendar.HOUR, cal.get(Calendar.HOUR) == 11 ? 0 : 1);
+          var format = session.getStorage().getConfiguration().getDateFormatInstance();
 
-    clazz.createProperty("decimal", PropertyType.DECIMAL).setMax("11");
-    clazz.createProperty("double", PropertyType.DOUBLE).setMax("11");
-    clazz.createProperty("short", PropertyType.SHORT).setMax("11");
-    clazz.createProperty("string", PropertyType.STRING).setMax("11");
-    // clazz.createProperty("link", PropertyType.LINK) no meaning
-    // clazz.createProperty("embedded", PropertyType.EMBEDDED) no meaning
+          var traversal = g.addSchemaClass("Validation",
+              __.addSchemaProperty("int", PropertyType.INTEGER).maxAttr("11"),
+              __.addSchemaProperty("long", PropertyType.LONG).maxAttr("11"),
+              __.addSchemaProperty("float", PropertyType.FLOAT, "11"),
+              __.addSchemaProperty("binary", PropertyType.BINARY).maxAttr("11"),
+              __.addSchemaProperty("byte", PropertyType.BYTE).maxAttr("11"),
+              __.addSchemaProperty("date", PropertyType.DATE).maxAttr(format.format(cal.getTime()))
+          );
 
-    clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST).setMax("2");
-    clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET).setMax("2");
-    clazz.createProperty("embeddedMap", PropertyType.EMBEDDEDMAP).setMax("2");
+          cal = Calendar.getInstance();
+          cal.add(Calendar.HOUR, 1);
+          format = session.getStorage().getConfiguration().getDateTimeFormatInstance();
 
-    clazz.createProperty("linkList", PropertyType.LINKLIST).setMax("2");
-    clazz.createProperty("linkSet", PropertyType.LINKSET).setMax("2");
-    clazz.createProperty("linkMap", PropertyType.LINKMAP).setMax("2");
-    clazz.createProperty("linkBag", PropertyType.LINKBAG).setMax("2");
+          //noinspection unchecked
+          traversal.schemaClass("Validation").sideEffects(
+              __.addSchemaProperty("datetime", PropertyType.DATETIME)
+                  .maxAttr(format.format(cal.getTime())),
+              __.addSchemaProperty("decimal", PropertyType.DECIMAL).maxAttr("11"),
+              __.addSchemaProperty("double", PropertyType.DOUBLE).maxAttr("11"),
+              __.addSchemaProperty("short", PropertyType.SHORT).maxAttr("11"),
+              __.addSchemaProperty("string", PropertyType.STRING).maxAttr("11"),
+
+              __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).maxAttr("2"),
+              __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).maxAttr("2"),
+              __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).maxAttr("2"),
+
+              __.addSchemaProperty("linkList", PropertyType.LINKLIST).maxAttr("2"),
+              __.addSchemaProperty("linkSet", PropertyType.LINKSET).maxAttr("2"),
+              __.addSchemaProperty("linkMap", PropertyType.LINKMAP).maxAttr("2"),
+              __.addSchemaProperty("linkBag", PropertyType.LINKBAG).maxAttr("2")
+          );
+
+          traversal.iterate();
+        }
+    );
 
     session.begin();
-    var entity = session.newEntity(clazz);
+    var entity = session.newEntity("Validation");
     entity.setInt("int", 11);
     entity.setLong("long", 11L);
     entity.setFloat("float", 11f);
@@ -390,7 +411,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     checkField(entity, "binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13});
 
     checkField(entity, "byte", 20);
-    cal = Calendar.getInstance();
+    var cal = Calendar.getInstance();
     cal.add(Calendar.DAY_OF_MONTH, 1);
     checkField(entity, "date", cal.getTime());
     checkField(entity, "datetime", cal.getTime());
@@ -452,46 +473,55 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     Identifiable id = ((DBRecord) doc).getIdentity();
     session.commit();
 
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setMin("11");
-    clazz.createProperty("long", PropertyType.LONG).setMin("11");
-    clazz.createProperty("float", PropertyType.FLOAT).setMin("11");
-    clazz.createProperty("binary", PropertyType.BINARY).setMin("11");
-    clazz.createProperty("byte", PropertyType.BYTE).setMin("11");
-    var cal = Calendar.getInstance();
-    cal.add(Calendar.HOUR, cal.get(Calendar.HOUR) == 11 ? 0 : 1);
-    var format = session.getStorage().getConfiguration().getDateFormatInstance();
-    clazz.createProperty("date", PropertyType.DATE)
-        .setMin(format.format(cal.getTime()));
-    cal = Calendar.getInstance();
-    cal.add(Calendar.HOUR, 1);
-    format = session.getStorage().getConfiguration().getDateTimeFormatInstance();
-    clazz.createProperty("datetime", PropertyType.DATETIME)
-        .setMin(format.format(cal.getTime()));
+    graph.executeInTx(g -> {
+          var traversal = g.addSchemaClass("Validation",
+              __.addSchemaProperty("int", PropertyType.INTEGER).minAttr("11"),
+              __.addSchemaProperty("long", PropertyType.LONG).minAttr("11"),
+              __.addSchemaProperty("float", PropertyType.FLOAT).minAttr("11"),
+              __.addSchemaProperty("binary", PropertyType.BINARY).minAttr("11"),
+              __.addSchemaProperty("byte", PropertyType.BYTE).minAttr("11")
+          );
 
-    clazz.createProperty("decimal", PropertyType.DECIMAL).setMin("11");
-    clazz.createProperty("double", PropertyType.DOUBLE).setMin("11");
-    clazz.createProperty("short", PropertyType.SHORT).setMin("11");
-    clazz.createProperty("string", PropertyType.STRING).setMin("11");
+          var cal = Calendar.getInstance();
+          cal.add(Calendar.HOUR, cal.get(Calendar.HOUR) == 11 ? 0 : 1);
+          var format = session.getStorage().getConfiguration().getDateFormatInstance();
 
-    clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST).setMin("1");
-    clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET).setMin("1");
-    clazz.createProperty("embeddedMap", PropertyType.EMBEDDEDMAP).setMin("1");
+          traversal.schemaClass("Validation").addSchemaProperty("date", PropertyType.DATE)
+              .minAttr(format.format(cal.getTime()));
 
-    clazz.createProperty("linkList", PropertyType.LINKLIST).setMin("1");
-    clazz.createProperty("linkSet", PropertyType.LINKSET).setMin("1");
-    clazz.createProperty("linkMap", PropertyType.LINKMAP).setMin("1");
-    clazz.createProperty("linkBag", PropertyType.LINKBAG).setMin("1");
+          cal = Calendar.getInstance();
+          cal.add(Calendar.HOUR, 1);
+          format = session.getStorage().getConfiguration().getDateTimeFormatInstance();
+
+          //noinspection unchecked
+          traversal.schemaClass("Validation").sideEffects(
+              __.addSchemaProperty("datetime", PropertyType.DATETIME)
+                  .minAttr(format.format(cal.getTime())),
+              __.addSchemaProperty("decimal", PropertyType.DECIMAL).minAttr("11"),
+              __.addSchemaProperty("double", PropertyType.DOUBLE).minAttr("11"),
+              __.addSchemaProperty("short", PropertyType.SHORT).minAttr("11"),
+              __.addSchemaProperty("string", PropertyType.STRING).minAttr("11"),
+
+              __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).minAttr("1"),
+              __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).minAttr("1"),
+              __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).minAttr("1"),
+              __.addSchemaProperty("linkList", PropertyType.LINKLIST).minAttr("1"),
+              __.addSchemaProperty("linkSet", PropertyType.LINKSET).minAttr("1"),
+              __.addSchemaProperty("linkMap", PropertyType.LINKMAP).minAttr("1"),
+              __.addSchemaProperty("linkBag", PropertyType.LINKBAG).minAttr("1")
+          ).iterate();
+        }
+    );
 
     session.begin();
-    var entity = session.newEntity(clazz);
+    var entity = session.newEntity("Validation");
     entity.setInt("int", 11);
     entity.setLong("long", 11L);
     entity.setFloat("float", 11f);
     entity.setBinary("binary", new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
     entity.setByte("byte", (byte) 11);
 
-    cal = Calendar.getInstance();
+    var cal = Calendar.getInstance();
     cal.add(Calendar.DAY_OF_MONTH, 1);
     entity.setDate("date", new Date());
     entity.setDateTime("datetime", cal.getTime());
@@ -550,35 +580,33 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     Identifiable id = entity.getIdentity();
     session.commit();
 
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("int", PropertyType.INTEGER).setNotNull(true);
-    clazz.createProperty("long", PropertyType.LONG).setNotNull(true);
-    clazz.createProperty("float", PropertyType.FLOAT).setNotNull(true);
-    clazz.createProperty("boolean", PropertyType.BOOLEAN).setNotNull(true);
-    clazz.createProperty("binary", PropertyType.BINARY).setNotNull(true);
-    clazz.createProperty("byte", PropertyType.BYTE).setNotNull(true);
-    clazz.createProperty("date", PropertyType.DATE).setNotNull(true);
-    clazz.createProperty("datetime", PropertyType.DATETIME).setNotNull(true);
-    clazz.createProperty("decimal", PropertyType.DECIMAL).setNotNull(true);
-    clazz.createProperty("double", PropertyType.DOUBLE).setNotNull(true);
-    clazz.createProperty("short", PropertyType.SHORT).setNotNull(true);
-    clazz.createProperty("string", PropertyType.STRING).setNotNull(true);
-    clazz.createProperty("link", PropertyType.LINK).setNotNull(true);
-    clazz.createProperty("embedded", PropertyType.EMBEDDED).setNotNull(true);
-
-    clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST)
-        .setNotNull(true);
-    clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET)
-        .setNotNull(true);
-    clazz.createProperty("embeddedMap", PropertyType.EMBEDDEDMAP)
-        .setNotNull(true);
-
-    clazz.createProperty("linkList", PropertyType.LINKLIST).setNotNull(true);
-    clazz.createProperty("linkSet", PropertyType.LINKSET).setNotNull(true);
-    clazz.createProperty("linkMap", PropertyType.LINKMAP).setNotNull(true);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Validation",
+            __.addSchemaProperty("int", PropertyType.INTEGER).notNullAttr(true),
+            __.addSchemaProperty("long", PropertyType.LONG).notNullAttr(true),
+            __.addSchemaProperty("float", PropertyType.FLOAT).notNullAttr(true),
+            __.addSchemaProperty("boolean", PropertyType.BOOLEAN).notNullAttr(true),
+            __.addSchemaProperty("binary", PropertyType.BINARY).notNullAttr(true),
+            __.addSchemaProperty("byte", PropertyType.BYTE).notNullAttr(true),
+            __.addSchemaProperty("date", PropertyType.DATE).notNullAttr(true),
+            __.addSchemaProperty("datetime", PropertyType.DATETIME).notNullAttr(true),
+            __.addSchemaProperty("decimal", PropertyType.DECIMAL).notNullAttr(true),
+            __.addSchemaProperty("double", PropertyType.DOUBLE).notNullAttr(true),
+            __.addSchemaProperty("short", PropertyType.SHORT).notNullAttr(true),
+            __.addSchemaProperty("string", PropertyType.STRING).notNullAttr(true),
+            __.addSchemaProperty("link", PropertyType.LINK).notNullAttr(true),
+            __.addSchemaProperty("embedded", PropertyType.EMBEDDED).notNullAttr(true),
+            __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).notNullAttr(true),
+            __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).notNullAttr(true),
+            __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).notNullAttr(true),
+            __.addSchemaProperty("linkList", PropertyType.LINKLIST).notNullAttr(true),
+            __.addSchemaProperty("linkSet", PropertyType.LINKSET).notNullAttr(true),
+            __.addSchemaProperty("linkMap", PropertyType.LINKMAP).notNullAttr(true)
+        )
+    );
 
     session.begin();
-    var e = session.newEntity(clazz);
+    var e = session.newEntity("Validation");
     e.setInt("int", 12);
     e.setLong("long", 12L);
     e.setFloat("float", 12f);
@@ -630,11 +658,13 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testRegExpValidation() {
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("string", PropertyType.STRING).setRegexp("[^Z]*");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Validation").addSchemaProperty("string", PropertyType.STRING)
+            .regExpAttr("[^Z]*")
+    );
 
     session.begin();
-    var entity = session.newEntity(clazz);
+    var entity = session.newEntity("Validation");
     entity.setString("string", "yeah");
     ((EntityImpl) entity).validate();
 
@@ -644,13 +674,15 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testLinkedTypeValidation() {
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Validation",
+            __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER),
+            __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, PropertyType.INTEGER),
+            __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER)
+        )
+    );
+
     var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST)
-        .setLinkedType(PropertyType.INTEGER);
-    clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET)
-        .setLinkedType(PropertyType.INTEGER);
-    clazz.createProperty("embeddedMap", PropertyType.EMBEDDEDMAP)
-        .setLinkedType(PropertyType.INTEGER);
 
     session.begin();
     var entity = session.newEntity(clazz);
@@ -685,49 +717,46 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
   @Test
   public void testLinkedClassValidation() {
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    var clazz1 = session.getMetadata().getSlowMutableSchema().createClass("Validation1");
-    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
-        .createAbstractClass("ValidationEmbedded");
-    var embeddedClazz2 = session.getMetadata().getSlowMutableSchema()
-        .createAbstractClass("ValidationEmbedded2");
-
-    clazz.createProperty("link", PropertyType.LINK).setLinkedClass(clazz1);
-    clazz.createProperty("embedded", PropertyType.EMBEDDED)
-        .setLinkedClass(embeddedClazz);
-    clazz.createProperty("linkList", PropertyType.LINKLIST)
-        .setLinkedClass(clazz1);
-    clazz.createProperty("embeddedList", PropertyType.EMBEDDEDLIST)
-        .setLinkedClass(embeddedClazz);
-    clazz.createProperty("embeddedSet", PropertyType.EMBEDDEDSET)
-        .setLinkedClass(embeddedClazz);
-
-    clazz.createProperty("linkSet", PropertyType.LINKSET).setLinkedClass(clazz1);
-    clazz.createProperty("linkMap", PropertyType.LINKMAP).setLinkedClass(clazz1);
-    clazz.createProperty("linkBag", PropertyType.LINKBAG).setLinkedClass(clazz1);
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Validation").
+            addSchemaClass("Validation1").
+            addAbstractSchemaClass("ValidationEmbedded").
+            addAbstractSchemaClass("ValidationEmbedded2").
+            schemaClass("Validation").sideEffects(
+                __.addSchemaProperty("link", PropertyType.LINK, "Validation1"),
+                __.addSchemaProperty("embedded", PropertyType.EMBEDDED, "ValidationEmbedded"),
+                __.addSchemaProperty("linkList", PropertyType.LINKLIST, "Validation1"),
+                __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST, "ValidationEmbedded"),
+                __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, "ValidationEmbedded"),
+                __.addSchemaProperty("linkSet", PropertyType.LINKSET, "Validation1"),
+                __.addSchemaProperty("linkMap", PropertyType.LINKMAP, "Validation1"),
+                __.addSchemaProperty("linkBag", PropertyType.LINKBAG, "Validation1")
+            )
+    );
 
     session.begin();
-    var entity = session.newEntity(clazz);
-    entity.setLink("link", session.newEntity(clazz1));
-    entity.setEmbeddedEntity("embedded", session.newEmbeddedEntity(embeddedClazz));
+    var entity = session.newEntity("Validation");
+    entity.setLink("link", session.newEntity("Validation1"));
+    entity.setEmbeddedEntity("embedded", session.newEmbeddedEntity("ValidationEmbedded"));
     var list = entity.getOrCreateLinkList("linkList");
-    list.add(session.newEntity(clazz1));
+    list.add(session.newEntity("Validation1"));
     entity.getOrCreateLinkSet("linkSet").addAll(list);
 
     var embeddedList = entity.newEmbeddedList("embeddedList");
-    embeddedList.add(session.newEmbeddedEntity(embeddedClazz));
+    embeddedList.add(session.newEmbeddedEntity("ValidationEmbedded"));
     embeddedList.add(null);
 
     entity.newEmbeddedSet("embeddedSet").addAll(embeddedList);
 
     var map = session.newLinkMap();
-    map.put("a", session.newEntity(clazz1));
+    map.put("a", session.newEntity("Validation1"));
     entity.setLinkMap("linkMap", map);
 
     ((EntityImpl) entity).validate();
 
-    checkField(entity, "link", session.newEntity(clazz));
-    checkField(entity, "embedded", session.newEmbeddedEntity(embeddedClazz2));
+    checkField(entity, "link", session.newEntity("Validation"));
+    checkField(entity, "embedded", session.newEmbeddedEntity("ValidationEmbedded2"));
 
     var newLinkList = session.newEmbeddedList();
     newLinkList.addAll(Arrays.asList("a", "b"));
@@ -735,7 +764,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     var newLinkSet = session.newEmbeddedSet();
     newLinkList.addAll(Arrays.asList("a", "b"));
-    checkField(entity, "linkSet", newLinkList);
+    checkField(entity, "linkSet", newLinkSet);
 
     Map<String, String> map1 = session.newEmbeddedMap();
     map1.put("a", "a1");
@@ -743,56 +772,60 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     checkField(entity, "linkMap", map1);
 
     var newLinkList2 = session.newLinkList();
-    newLinkList2.add(session.newEntity(clazz));
+    newLinkList2.add(session.newEntity("Validation"));
     checkField(entity, "linkList", newLinkList2);
 
     var newLinkSet2 = session.newLinkSet();
-    newLinkSet2.add(session.newEntity(clazz));
+    newLinkSet2.add(session.newEntity("Validation"));
     checkField(entity, "linkSet", newLinkSet2);
 
     var newEmbeddedList = session.newEmbeddedList();
-    newEmbeddedList.add(session.newEmbeddedEntity(embeddedClazz2));
+    newEmbeddedList.add(session.newEmbeddedEntity("ValidationEmbedded2"));
     checkField(entity, "embeddedList", newEmbeddedList);
 
     var newEmbeddedSet = session.newEmbeddedSet();
-    newEmbeddedSet.add(session.newEmbeddedEntity(embeddedClazz2));
+    newEmbeddedSet.add(session.newEmbeddedEntity("ValidationEmbedded2"));
 
     checkField(entity, "embeddedSet", newEmbeddedSet);
 
     var bag = new LinkBag(session);
-    bag.add(session.newEntity(clazz).getIdentity());
+    bag.add(session.newEntity("Validation").getIdentity());
     checkField(entity, "linkBag", bag);
     var map2 = session.newLinkMap();
-    map2.put("a", session.newEntity(clazz));
+    map2.put("a", session.newEntity("Validation"));
     checkField(entity, "linkMap", map2);
     session.rollback();
   }
 
   @Test
   public void testValidLinkCollectionsUpdate() {
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Validation");
-    var clazz1 = session.getMetadata().getSlowMutableSchema().createClass("Validation1");
-    var embeddedClazz = session.getMetadata().getSlowMutableSchema()
-        .createAbstractClass("EmbeddedValidation");
-    clazz.createProperty("linkList", PropertyType.LINKLIST)
-        .setLinkedClass(clazz1);
-    clazz.createProperty("linkSet", PropertyType.LINKSET).setLinkedClass(clazz1);
-    clazz.createProperty("linkMap", PropertyType.LINKMAP).setLinkedClass(clazz1);
-    clazz.createProperty("linkBag", PropertyType.LINKBAG).setLinkedClass(clazz1);
+    //noinspection unchecked
+    graph.autoExecuteInTx(
+        g ->
+            g.addSchemaClass("Validation").
+                addSchemaClass("Validation1").
+                addAbstractSchemaClass("EmbeddedValidation").
+                schemaClass("Validation").sideEffects(
+                    __.addSchemaProperty("linkList", PropertyType.LINKLIST, "Validation1"),
+                    __.addSchemaProperty("linkSet", PropertyType.LINKSET, "Validation1"),
+                    __.addSchemaProperty("linkMap", PropertyType.LINKMAP, "Validation1"),
+                    __.addSchemaProperty("linkBag", PropertyType.LINKBAG, "Validation1")
+                )
+    );
 
     session.begin();
-    var entity = session.newEntity(clazz);
-    entity.setLink("link", session.newEntity(clazz1));
-    entity.setEmbeddedEntity("embedded", session.newEmbeddedEntity(embeddedClazz));
+    var entity = session.newEntity("Validation");
+    entity.setLink("link", session.newEntity("Validation1"));
+    entity.setEmbeddedEntity("embedded", session.newEmbeddedEntity("ValidationEmbedded"));
 
     var list = entity.newLinkList("linkList");
-    list.add(session.newEntity(clazz1));
+    list.add(session.newEntity("Validation1"));
 
     entity.newLinkSet("linkSet");
     ((EntityImpl) entity).setPropertyInternal("linkBag", new LinkBag(session));
 
     var map = session.newLinkMap();
-    map.put("a", session.newEntity(clazz1));
+    map.put("a", session.newEntity("Validation1"));
     entity.setLinkMap("linkMap", map);
     session.commit();
 
@@ -800,7 +833,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
       session.begin();
       var activeTx = session.getActiveTransaction();
       entity = activeTx.load(entity);
-      entity.getLinkList("linkList").add(session.newEntity(clazz));
+      entity.getLinkList("linkList").add(session.newEntity("Validation"));
       ((EntityImpl) entity).validate();
       fail();
     } catch (ValidationException v) {
@@ -811,7 +844,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
       session.begin();
       var activeTx = session.getActiveTransaction();
       entity = activeTx.load(entity);
-      entity.getLinkSet("linkSet").add(session.newEntity(clazz));
+      entity.getLinkSet("linkSet").add(session.newEntity("Validation"));
       ((EntityImpl) entity).validate();
       fail();
     } catch (ValidationException v) {
@@ -822,7 +855,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
       session.begin();
       var activeTx = session.getActiveTransaction();
       entity = activeTx.load(entity);
-      ((LinkBag) entity.getProperty("linkBag")).add(session.newEntity(clazz).getIdentity());
+      ((LinkBag) entity.getProperty("linkBag")).add(session.newEntity("Validation").getIdentity());
       session.commit();
       fail();
     } catch (ValidationException v) {
@@ -833,7 +866,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
       session.begin();
       var activeTx = session.getActiveTransaction();
       entity = activeTx.load(entity);
-      entity.getLinkMap("linkMap").put("a", session.newEntity(clazz));
+      entity.getLinkMap("linkMap").put("a", session.newEntity("Validation"));
       ((EntityImpl) entity).validate();
       fail();
     } catch (ValidationException v) {

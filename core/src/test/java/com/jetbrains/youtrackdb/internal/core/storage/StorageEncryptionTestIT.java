@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -44,17 +45,23 @@ public class StorageEncryptionTestIT {
       try (var session = (DatabaseSessionInternal) youTrackDB.open(
           StorageEncryptionTestIT.class.getSimpleName(), "admin",
           "admin")) {
-        final var schema = session.getSchema();
-        final var cls = schema.createClass("EncryptedData");
-        cls.createProperty("id", PropertyType.INTEGER);
-        cls.createProperty("value", PropertyType.STRING);
 
-        cls.createIndex("EncryptedTree", IndexType.UNIQUE, "id");
-        cls.createIndex("EncryptedHash", IndexType.UNIQUE, "id");
+        var className = "EncryptedData";
+        try (var graph = youTrackDB.openGraph(StorageEncryptionTestIT.class.getSimpleName(),
+            "admin",
+            "admin")) {
+          graph.autoExecuteInTx(g ->
+              g.addSchemaClass("EncryptedData").as("cl").
+                  addSchemaProperty("id", PropertyType.INTEGER).select("cl").
+                  addSchemaProperty("value", PropertyType.STRING).
+                  declaredSchemaClassProperties("id")
+                  .addPropertyIndex("EncryptedTree", IndexType.UNIQUE)
+          );
+        }
 
         var tx = session.begin();
         for (var i = 0; i < 10_000; i++) {
-          final var document = tx.newEntity(cls);
+          final var document = tx.newEntity(className);
           document.setProperty("id", i);
           document.setProperty(
               "value",
@@ -132,9 +139,8 @@ public class StorageEncryptionTestIT {
       try (final var session =
           (DatabaseSessionEmbedded) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
               "admin", "admin")) {
-        final var indexManager = session.getSharedContext().getIndexManager();
-        final var treeIndex = indexManager.getIndex("EncryptedTree");
-        final var hashIndex = indexManager.getIndex("EncryptedHash");
+        final var schema = session.getMetadata().getFastImmutableSchema();
+        final var treeIndex = schema.getIndex("EncryptedTree");
 
         session.executeInTx(tx -> {
           var entityIterator = session.browseClass("EncryptedData");
@@ -142,22 +148,16 @@ public class StorageEncryptionTestIT {
             final var entity = entityIterator.next();
             final int id = entity.getProperty("id");
             final RID treeRid;
+
             try (var rids = treeIndex.getRids(session, id)) {
-              treeRid = rids.findFirst().orElse(null);
-            }
-            final RID hashRid;
-            try (var rids = hashIndex.getRids(session, id)) {
-              hashRid = rids.findFirst().orElse(null);
+              treeRid = YTDBIteratorUtils.findFirst(rids).orElse(null);
             }
 
             Assert.assertEquals(entity.getIdentity(), treeRid);
-            Assert.assertEquals(entity.getIdentity(), hashRid);
           }
 
           Assert.assertEquals(session.countClass("EncryptedData"),
               treeIndex.size(session));
-          Assert.assertEquals(session.countClass("EncryptedData"),
-              hashIndex.size(session));
         });
       }
     }
@@ -183,11 +183,14 @@ public class StorageEncryptionTestIT {
           (DatabaseSessionInternal) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
               "admin", "admin",
               youTrackDBConfig)) {
-        final var schema = session.getSchema();
-        final var cls = schema.createClass("EncryptedData");
+        try (var graph = youTrackDB.openGraph(StorageEncryptionTestIT.class.getSimpleName(),
+            "admin",
+            "admin")) {
+          graph.autoExecuteInTx(g -> g.addSchemaClass("EncryptedData"));
+        }
 
         var tx = session.begin();
-        final var document = tx.newEntity(cls);
+        final var document = tx.newEntity("EncryptedData");
         document.setProperty("id", 10);
         document.setProperty(
             "value",

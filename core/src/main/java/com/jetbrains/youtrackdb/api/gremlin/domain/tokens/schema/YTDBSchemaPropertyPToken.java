@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.api.gremlin.domain.tokens.schema;
 
-import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.gremlin.domain.tokens.YTDBPToken;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 
 public enum YTDBSchemaPropertyPToken implements YTDBPToken<YTDBSchemaProperty> {
   name,
@@ -15,5 +15,5 @@ public enum YTDBSchemaPropertyPToken implements YTDBPToken<YTDBSchemaProperty> {
   min,
   max,
   defaultValue,
-  regexp
+  regExp
 }
