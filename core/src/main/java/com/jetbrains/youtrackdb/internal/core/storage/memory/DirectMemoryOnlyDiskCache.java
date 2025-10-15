@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -183,16 +184,23 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
+  @Override
+  public FileHandler loadFileHandler(long fileId) {
+    // for this in memory implementation there is no casArray
+    // todo reduce allocations
+    return new FileHandler(fileId, null);
+  }
+
   @Nullable
   @Override
   public CacheEntry loadForWrite(
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final LogSequenceNumber startLSN) {
-    assert fileId >= 0;
-    final var cacheEntry = doLoad(fileId, pageIndex);
+    assert fileHandler.fileId() >= 0;
+    final var cacheEntry = doLoad(fileHandler, pageIndex);
 
     if (cacheEntry == null) {
       return null;
@@ -205,12 +213,12 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   @Nullable
   @Override
   public CacheEntry loadForRead(
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
 
-    final var cacheEntry = doLoad(fileId, pageIndex);
+    final var cacheEntry = doLoad(fileHandler, pageIndex);
 
     if (cacheEntry == null) {
       return null;
@@ -223,13 +231,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   @Override
   public CacheEntry silentLoadForRead(
-      long extFileId, int pageIndex, WriteCache writeCache, boolean verifyChecksums) {
-    return loadForRead(extFileId, pageIndex, writeCache, verifyChecksums);
+      FileHandler fileHandler, int pageIndex, WriteCache writeCache, boolean verifyChecksums) {
+    return loadForRead(fileHandler, pageIndex, writeCache, verifyChecksums);
   }
 
   @Nullable
-  private CacheEntry doLoad(final long fileId, final long pageIndex) {
-    final var intId = extractFileId(fileId);
+  private CacheEntry doLoad(final FileHandler fileHandler, final long pageIndex) {
+    final var intId = extractFileId(fileHandler.fileId());
 
     final var memoryFile = getFile(intId);
     final var cacheEntry = memoryFile.loadPage(pageIndex);

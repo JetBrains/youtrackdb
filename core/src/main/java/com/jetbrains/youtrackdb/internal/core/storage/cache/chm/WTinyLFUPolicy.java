@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -14,7 +16,8 @@ public final class WTinyLFUPolicy {
   private static final int PROBATIONARY_PERCENT = 20;
 
   private volatile int maxSize;
-  private final ConcurrentHashMap<PageKey, CacheEntry> data;
+  // todo figure out how data is used
+  private final ConcurrentHashMap<Long, FileHandler> data;
   private final Admittor admittor;
 
   private final AtomicInteger cacheSize;
@@ -28,7 +31,7 @@ public final class WTinyLFUPolicy {
   private int maxSecondLevelSize;
 
   WTinyLFUPolicy(
-      final ConcurrentHashMap<PageKey, CacheEntry> data,
+      final ConcurrentHashMap<Long, FileHandler> data,
       final Admittor admittor,
       final AtomicInteger cacheSize) {
     this.data = data;
@@ -198,28 +201,29 @@ public final class WTinyLFUPolicy {
   }
 
   void assertConsistency() {
-    for (final var cacheEntry : data.values()) {
-      assert eden.contains(cacheEntry)
-          || protection.contains(cacheEntry)
-          || probation.contains(cacheEntry);
-    }
-
-    var counter = 0;
-    for (final var cacheEntry : eden) {
-      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
-      counter++;
-    }
-
-    for (final var cacheEntry : probation) {
-      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
-      counter++;
-    }
-
-    for (final var cacheEntry : protection) {
-      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
-      counter++;
-    }
-
-    assert counter == data.size();
+    assert false : "Not implemented yet";
+//    for (final var cacheEntry : data.values()) {
+//      assert eden.contains(cacheEntry)
+//          || protection.contains(cacheEntry)
+//          || probation.contains(cacheEntry);
+//    }
+//
+//    var counter = 0;
+//    for (final var cacheEntry : eden) {
+//      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
+//      counter++;
+//    }
+//
+//    for (final var cacheEntry : probation) {
+//      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
+//      counter++;
+//    }
+//
+//    for (final var cacheEntry : protection) {
+//      assert data.get(cacheEntry.getPageKey()) == cacheEntry;
+//      counter++;
+//    }
+//
+//    assert counter == data.size();
   }
 }

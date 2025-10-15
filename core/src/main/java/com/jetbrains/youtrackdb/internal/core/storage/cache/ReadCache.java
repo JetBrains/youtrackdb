@@ -46,8 +46,10 @@ public interface ReadCache {
 
   long addFile(String fileName, long fileId, WriteCache writeCache) throws IOException;
 
+  FileHandler loadFileHandler(long fileId);
+
   CacheEntry loadForWrite(
-      long fileId,
+      FileHandler fileHandler,
       long pageIndex,
       WriteCache writeCache,
       boolean verifyChecksums,
@@ -55,11 +57,11 @@ public interface ReadCache {
       throws IOException;
 
   CacheEntry loadForRead(
-      long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums)
+      FileHandler fileHandler, long pageIndex, WriteCache writeCache, boolean verifyChecksums)
       throws IOException;
 
   CacheEntry silentLoadForRead(
-      final long extFileId,
+      final FileHandler fileHandler,
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums);

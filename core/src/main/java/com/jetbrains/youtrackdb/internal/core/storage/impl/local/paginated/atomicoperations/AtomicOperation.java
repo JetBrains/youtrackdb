@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagBucketPointer;
@@ -12,10 +13,13 @@ public interface AtomicOperation {
 
   long getOperationUnitId();
 
-  CacheEntry loadPageForWrite(long fileId, long pageIndex, int pageCount, boolean verifyChecksum)
+  FileHandler loadFileHandler(long fileId);
+
+  CacheEntry loadPageForWrite(FileHandler fileHandler, long pageIndex, int pageCount,
+      boolean verifyChecksum)
       throws IOException;
 
-  CacheEntry loadPageForRead(long fileId, long pageIndex) throws IOException;
+  CacheEntry loadPageForRead(FileHandler fileHandler, long pageIndex) throws IOException;
 
   void addMetadata(AtomicOperationMetadata<?> metadata);
 
@@ -59,7 +63,8 @@ public interface AtomicOperation {
 
   Iterable<String> lockedObjects();
 
-  void addDeletedRecordPosition(final int collectionId, final int pageIndex, final int recordPosition);
+  void addDeletedRecordPosition(final int collectionId, final int pageIndex,
+      final int recordPosition);
 
   IntSet getBookedRecordPositions(final int collectionId, final int pageIndex);
 

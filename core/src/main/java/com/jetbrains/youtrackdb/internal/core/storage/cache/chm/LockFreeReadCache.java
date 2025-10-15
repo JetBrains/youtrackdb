@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
 import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.common.concur.collection.CASObjectArray;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -14,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.BoundedBuffer;
@@ -36,20 +38,19 @@ import javax.annotation.Nullable;
  * handling set of events logged in lock free event buffer. This feature first was introduced in
  * Caffeine framework <a href="https://github.com/ben-manes/caffeine">...</a> and in
  * ConcurrentLinkedHashMap library
- * <a href="https://github.com/ben-manes/concurrentlinkedhashmap">...</a>. The difference is that if
- * consumption of
- * memory in cache is bigger than 1% disk cache is switched from asynchronous processing of stream
- * of events to synchronous processing. But that is true only for threads which cause loading of
- * additional pages from write cache to disk cache. Window TinyLFU policy is used as cache eviction
- * policy because it prevents usage of ghost entries and as result considerably decrease usage of
- * heap memory.
+ * <a href="https://github.com/ben-manes/concurrentlinkedhashmap">...</a>. The difference is that
+ * if consumption of memory in cache is bigger than 1% disk cache is switched from asynchronous
+ * processing of stream of events to synchronous processing. But that is true only for threads which
+ * cause loading of additional pages from write cache to disk cache. Window TinyLFU policy is used
+ * as cache eviction policy because it prevents usage of ghost entries and as result considerably
+ * decrease usage of heap memory.
  */
 public final class LockFreeReadCache implements ReadCache {
 
   private static final int N_CPU = Runtime.getRuntime().availableProcessors();
   private static final int WRITE_BUFFER_MAX_BATCH = 128 * ceilingPowerOfTwo(N_CPU);
 
-  private final ConcurrentHashMap<PageKey, CacheEntry> data;
+  private final ConcurrentHashMap<Long/*fileId*/, FileHandler> data; // todo replace with primitive concurrent hash map
   private final Lock evictionLock = new ReentrantLock();
 
   private final WTinyLFUPolicy policy;
@@ -106,13 +107,18 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
+  public FileHandler loadFileHandler(long fileId) {
+    return data.get(fileId);
+  }
+
+  @Override
   public CacheEntry loadForWrite(
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final LogSequenceNumber startLSN) {
-    final var cacheEntry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    final var cacheEntry = doLoad(fileHandler, (int) pageIndex, writeCache, verifyChecksums);
 
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
@@ -124,46 +130,50 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Override
   public CacheEntry loadForRead(
-      final long fileId,
+      final FileHandler fileHandler,
       final long pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums);
+    return doLoad(fileHandler, (int) pageIndex, writeCache, verifyChecksums);
   }
 
   @Nullable
   @Override
   public CacheEntry silentLoadForRead(
-      final long extFileId,
+      final FileHandler fileHandler,
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
-    final var pageKey = new PageKey(fileId, pageIndex);
+    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(),
+        fileHandler.fileId());
+    assert fileId == fileHandler.fileId() :
+        "File id in handler is different. New FileHandler has to be constructed";
 
     for (; ; ) {
-      var cacheEntry = data.get(pageKey);
+      // todo lookup in existing file handler
+      var existingFileHandler = data.get(fileId);
 
-      if (cacheEntry == null) {
+      if (existingFileHandler == null) {
         final var updatedEntry = new CacheEntry[1];
 
-        cacheEntry =
+        final var newFileHandler =
             data.compute(
-                pageKey,
-                (page, entry) -> {
-                  if (entry == null) {
+                fileId,
+                (fId, oldHandler) -> {
+                  if (oldHandler == null) {
+                    final var newCasArray = new CASObjectArray<CacheEntry>();
                     try {
                       final var pointer =
                           writeCache.load(
-                              fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
+                              fId, pageIndex, new ModifiableBoolean(), verifyChecksums);
                       if (pointer == null) {
-                        return null;
+                        return new FileHandler(fId, newCasArray);
                       }
 
                       updatedEntry[0] =
-                          new CacheEntryImpl(
-                              page.fileId(), page.pageIndex(), pointer, false, this);
-                      return null;
+                          new CacheEntryImpl(fId, pageIndex, pointer, false, this);
+                      newCasArray.add(updatedEntry[0]);
+                      return new FileHandler(fId, newCasArray);
                     } catch (final IOException e) {
                       throw BaseException.wrapException(
                           new StorageException(writeCache.getStorageName(),
@@ -172,18 +182,20 @@ public final class LockFreeReadCache implements ReadCache {
                     }
 
                   } else {
-                    return entry;
+                    return oldHandler;
                   }
                 });
 
-        if (cacheEntry == null) {
-          cacheEntry = updatedEntry[0];
-        }
+        // todo look up in new file handler
+//        if (cacheEntry == null) {
+//          cacheEntry = updatedEntry[0];
+//        }
 
-        if (cacheEntry == null) {
-          return null;
-        }
+//        if (cacheEntry == null) {
+//          return null;
+//        }
       }
+      CacheEntry cacheEntry = null;
       if (cacheEntry.acquireEntry()) {
         return cacheEntry;
       }
@@ -192,11 +204,12 @@ public final class LockFreeReadCache implements ReadCache {
 
   @Nullable
   private CacheEntry doLoad(
-      final long extFileId,
+      final FileHandler fileHandler,
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
+    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(),
+        fileHandler.fileId());
     final var pageKey = new PageKey(fileId, pageIndex);
 
     var success = false;
@@ -206,7 +219,10 @@ public final class LockFreeReadCache implements ReadCache {
 
         CacheEntry cacheEntry;
 
-        cacheEntry = data.get(pageKey);
+        final var storedFileHandler = data.get(fileHandler.fileId());
+        @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) storedFileHandler.casArray();
+        //search for page in an array
+        cacheEntry = null; // entry would be found in an array
 
         if (cacheEntry != null) {
           if (cacheEntry.acquireEntry()) {
@@ -218,11 +234,11 @@ public final class LockFreeReadCache implements ReadCache {
         } else {
           final var read = new boolean[1];
 
-          cacheEntry =
+          final var computedFileHandler =
               data.compute(
-                  pageKey,
-                  (page, entry) -> {
-                    if (entry == null) {
+                  fileId,
+                  (fId, oldFileHandler) -> {
+                    if (casArray == null) {
                       try {
                         final var pointer =
                             writeCache.load(
@@ -232,8 +248,9 @@ public final class LockFreeReadCache implements ReadCache {
                         }
 
                         cacheSize.incrementAndGet();
-                        return new CacheEntryImpl(
-                            page.fileId(), page.pageIndex(), pointer, true, this);
+                        return null; // todo
+//                        return new CacheEntryImpl(
+//                            page.fileId(), page.pageIndex(), pointer, true, this);
                       } catch (final IOException e) {
                         throw BaseException.wrapException(
                             new StorageException(writeCache.getStorageName(),
@@ -243,7 +260,8 @@ public final class LockFreeReadCache implements ReadCache {
                       }
                     } else {
                       read[0] = true;
-                      return entry;
+                      // todo
+                      return null;
                     }
                   });
 
@@ -277,7 +295,6 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   private CacheEntry addNewPagePointerToTheCache(final long fileId, final int pageIndex) {
-
     final var pointer = bufferPool.acquireDirect(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
     final var cachePointer = new CachePointer(pointer, bufferPool, fileId, pageIndex);
     cachePointer.incrementReadersReferrer();
@@ -287,7 +304,8 @@ public final class LockFreeReadCache implements ReadCache {
     final CacheEntry cacheEntry = new CacheEntryImpl(fileId, pageIndex, cachePointer, true, this);
     cacheEntry.acquireEntry();
 
-    final var oldCacheEntry = data.putIfAbsent(cacheEntry.getPageKey(), cacheEntry);
+    // todo
+    final CacheEntry oldCacheEntry = null;//data.putIfAbsent(cacheEntry.getPageKey(), cacheEntry);
     if (oldCacheEntry != null) {
       throw new IllegalStateException(
           "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
@@ -329,12 +347,12 @@ public final class LockFreeReadCache implements ReadCache {
       }
 
       data.compute(
-          cacheEntry.getPageKey(),
-          (page, entry) -> {
+          cacheEntry.getFileId(),
+          (fId, entry) -> {
             writeCache.store(
                 cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry.getCachePointer());
-            return entry; // may be absent if page in pinned pages, in such case we use map as
-            // virtual lock
+            return entry; // may be absent if page is in the pinned pages,
+            // in such case we use map as virtual lock
           });
     }
 
@@ -492,16 +510,23 @@ public final class LockFreeReadCache implements ReadCache {
     try {
       emptyBuffers();
 
-      for (final var entry : data.values()) {
-        if (entry.freeze()) {
-          policy.onRemove(entry);
-        } else {
-          throw new StorageException(null,
-              "Page with index "
-                  + entry.getPageIndex()
-                  + " for file id "
-                  + entry.getFileId()
-                  + " is used and cannot be removed");
+      for (final var fileHandler : data.values()) {
+        // we don't expose this array as part of the public API
+        // however here we have to use it in our internal algorithm
+        @SuppressWarnings("unchecked")
+        var cacheEntries = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+        for (var i = 0; i < cacheEntries.size(); i++) {
+          var entry = cacheEntries.get(i);
+          if (entry.freeze()) {
+            policy.onRemove(entry);
+          } else {
+            throw new StorageException(null,
+                "Page with index "
+                    + entry.getPageIndex()
+                    + " for file id "
+                    + entry.getFileId()
+                    + " is used and cannot be removed");
+          }
         }
       }
 
@@ -570,14 +595,23 @@ public final class LockFreeReadCache implements ReadCache {
     writeCache.close();
   }
 
+  // todo, ask Andrii if we even need this filledUpTo limit anymore
   private void clearFile(final long fileId, final int filledUpTo, final WriteCache writeCache) {
     evictionLock.lock();
     try {
       emptyBuffers();
 
-      for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final var pageKey = new PageKey(fileId, pageIndex);
-        final var cacheEntry = data.remove(pageKey);
+      final var fileHandler = data.remove(fileId);
+      @SuppressWarnings("unchecked") final var pageEntries = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+      for (var pageIndex = 0; pageIndex < pageEntries.size()
+          // this additional check will make sure we are not removing more pages than before
+          // for me, it seems logical we should remove the entire file, but who knows which mysteries are hidden
+          // in the calling code :)
+          // if on the review stage we are sure removing the entire file is correct,
+          // this check and parameter should be removed
+          && pageIndex < filledUpTo;
+          pageIndex++) {
+        final var cacheEntry = pageEntries.get(pageIndex);
         if (cacheEntry != null) {
           if (cacheEntry.freeze()) {
             policy.onRemove(cacheEntry);
