@@ -15,13 +15,10 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class UniqueIndexTest extends DbTestBase {
-
   @Test
   public void compositeIndexWithEdgesTestOne() {
+    graph.autoExecuteInTx(g -> g.addAbstractSchemaClass("Link").addParentClass("E"));
     var linkClass = session.createLightweightEdgeClass("Link");
 
     var entityClass = session.createVertexClass("Entity");

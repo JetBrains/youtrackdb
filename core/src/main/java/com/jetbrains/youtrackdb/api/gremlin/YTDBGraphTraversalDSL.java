@@ -65,6 +65,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, Vertex> addParentClass(GraphTraversal<?, Vertex>... parentClass) {
     @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+
     for (var parent : parentClass) {
       ytdbGraphTraversal = ytdbGraphTraversal.addE(YTDBSchemaClassOutToken.parentClass).to(parent)
           .outV();
@@ -77,6 +78,17 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
 
     return ytdbGraphTraversal.addParentClass(__.schemaClass(parentClass));
+  }
+
+  default GraphTraversal<S, Vertex> addParentClass(String... parentClass) {
+    @SuppressWarnings("unchecked")
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+
+    for (var parent : parentClass) {
+      ytdbGraphTraversal.addParentClass(__.schemaClass(parentClass));
+    }
+
+    return ytdbGraphTraversal;
   }
 
   default GraphTraversal<S, Vertex> addAbstractSchemaClass(String className) {
@@ -93,6 +105,13 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
             __.V().hasLabel(YTDBSchemaClass.LABEL)
                 .has(YTDBSchemaClassPToken.name, P.eq(YTDBSchemaClass.EDGE_CLASS_NAME))
         ).select("result");
+  }
+
+  default GraphTraversal<S, Vertex> addStateFullEdgeClass(String className,
+      GraphTraversal<?, Vertex>... propertyDefinitions) {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    var traversal = ytdbGraphTraversal.addStateFullEdgeClass(className);
+    return traversal.sideEffects(propertyDefinitions);
   }
 
   default GraphTraversal<S, Vertex> addSchemaProperty(String propertyName,

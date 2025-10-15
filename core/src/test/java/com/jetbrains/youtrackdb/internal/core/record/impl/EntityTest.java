@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.record.impl;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
 import org.junit.Test;
@@ -24,7 +25,12 @@ public class EntityTest extends DbTestBase {
 
   @Test
   public void testLoadAndSave() {
-    session.createClassIfNotExist("TestLoadAndSave");
+    //noinspection unchecked
+    graph.autoExecuteInTx(g -> g.schemaClass("TestLoadAndSave").fold().coalesce(
+        __.unfold(),
+        __.addSchemaClass("TestLoadAndSave")
+    ));
+
     session.begin();
     var elem = session.newEntity("TestLoadAndSave");
     elem.setProperty("name", "foo");

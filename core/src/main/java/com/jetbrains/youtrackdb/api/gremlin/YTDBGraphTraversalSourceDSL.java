@@ -98,7 +98,6 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return traversal;
   }
 
-
   public YTDBGraphTraversal<Vertex, Vertex> addStateFullEdgeClass(String className) {
     var clone = (YTDBGraphTraversalSource) this.clone();
     clone.getBytecode().addStep(GraphTraversal.Symbols.addV);
@@ -111,6 +110,13 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
             __.V().hasLabel(YTDBSchemaClass.LABEL)
                 .has(name, P.eq(YTDBSchemaClass.EDGE_CLASS_NAME))
         ).select("schemaClass");
+  }
+
+  public YTDBGraphTraversal<Vertex, Vertex> addStateFullEdgeClass(String className,
+      GraphTraversal<?, Vertex>... propertyDefinitions) {
+    var traversal = addStateFullEdgeClass(className);
+    traversal.sideEffects(propertyDefinitions);
+    return traversal;
   }
 
   public YTDBGraphTraversal<Vertex, Vertex> schemaClass(String... className) {

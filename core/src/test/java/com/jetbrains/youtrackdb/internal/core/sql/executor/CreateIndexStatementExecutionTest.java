@@ -5,11 +5,7 @@ import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabase {
-
   @Test
   public void testPlain() {
     var className = "testPlain";
