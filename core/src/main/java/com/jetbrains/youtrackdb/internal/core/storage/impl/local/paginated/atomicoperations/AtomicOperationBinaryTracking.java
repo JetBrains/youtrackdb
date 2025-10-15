@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -108,13 +109,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return operationUnitId;
   }
 
+  @Override
+  public FileHandler loadFileHandler(long fileId) {
+    return readCache.loadFileHandler(fileId);
+  }
+
   @Nullable
   @Override
   public CacheEntry loadPageForWrite(
-      long fileId, final long pageIndex, final int pageCount, final boolean verifyChecksum)
+      FileHandler fileHandler, final long pageIndex, final int pageCount,
+      final boolean verifyChecksum)
       throws IOException {
     assert pageCount > 0;
-    fileId = checkFileIdCompatibility(fileId, storageId);
+    var fileId = checkFileIdCompatibility(fileHandler.fileId(), storageId);
 
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -134,7 +141,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       if (checkChangesFilledUpTo(changesContainer, pageIndex)) {
         if (pageChangesContainer == null) {
           final var delegate =
-              readCache.loadForRead(fileId, pageIndex, writeCache, verifyChecksum);
+              readCache.loadForRead(fileHandler, pageIndex, writeCache, verifyChecksum);
           if (delegate != null) {
             pageChangesContainer = new CacheEntryChanges(verifyChecksum, this);
             changesContainer.pageChangesMap.put(pageIndex, pageChangesContainer);
@@ -147,7 +154,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           } else {
             // Need to load the page again from cache for locking reasons
             pageChangesContainer.delegate =
-                readCache.loadForRead(fileId, pageIndex, writeCache, verifyChecksum);
+                readCache.loadForRead(fileHandler, pageIndex, writeCache, verifyChecksum);
             return pageChangesContainer;
           }
         }
@@ -158,9 +165,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Nullable
   @Override
-  public CacheEntry loadPageForRead(long fileId, final long pageIndex) throws IOException {
+  public CacheEntry loadPageForRead(FileHandler fileHandler, final long pageIndex)
+      throws IOException {
 
-    fileId = checkFileIdCompatibility(fileId, storageId);
+    var fileId = checkFileIdCompatibility(fileHandler.fileId(), storageId);
 
     if (deletedFiles.contains(fileId)) {
       throw new StorageException(writeCache.getStorageName(),
@@ -169,7 +177,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     final var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
-      return readCache.loadForRead(fileId, pageIndex, writeCache, true);
+      return readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
     }
 
     if (changesContainer.isNew) {
@@ -184,14 +192,14 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
       if (checkChangesFilledUpTo(changesContainer, pageIndex)) {
         if (pageChangesContainer == null) {
-          return readCache.loadForRead(fileId, pageIndex, writeCache, true);
+          return readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
         } else {
           if (pageChangesContainer.isNew) {
             return pageChangesContainer;
           } else {
             // Need to load the page again from cache for locking reasons
             pageChangesContainer.delegate =
-                readCache.loadForRead(fileId, pageIndex, writeCache, true);
+                readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
             return pageChangesContainer;
           }
         }
@@ -546,7 +554,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
           var cacheEntry =
               readCache.loadForWrite(
-                  fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, startLSN);
+                  // todo update interface to avoid allocation?
+                  new FileHandler(fileId, null), pageIndex, writeCache,
+                  filePageChanges.verifyCheckSum, startLSN);
           if (cacheEntry == null) {
             if (!filePageChanges.isNew) {
               throw new StorageException(writeCache.getStorageName(),
@@ -647,7 +657,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return fileId;
     }
     if (storageId(fileId) == 0) {
-      return composeFileId(fileId, storageId);
+      var newFileId = composeFileId(fileId, storageId);
+      assert newFileId
+          == fileId : "File id was updated during compatibility check. New FileHandler should be created.";
+      return newFileId;
     }
     return fileId;
   }

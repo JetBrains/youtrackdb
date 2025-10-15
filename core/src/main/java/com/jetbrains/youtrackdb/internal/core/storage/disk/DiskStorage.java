@@ -1520,8 +1520,9 @@ public class DiskStorage extends AbstractStorage {
       stream.write(binaryFileId, 0, binaryFileId.length);
 
       for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
+        final var fileHandler = readCache.loadFileHandler(fileId);
         final var cacheEntry =
-            readCache.silentLoadForRead(fileId, pageIndex, writeCache, true);
+            readCache.silentLoadForRead(fileHandler, pageIndex, writeCache, true);
         cacheEntry.acquireSharedLock();
         try {
           var cachePointer = cacheEntry.getCachePointer();
@@ -1902,7 +1903,8 @@ public class DiskStorage extends AbstractStorage {
               Cipher.DECRYPT_MODE, aesKey, expectedFileId, pageIndex, data, encryptionIv);
         }
 
-        var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+        final var fileHandler = readCache.loadFileHandler(fileId);
+        var cacheEntry = readCache.loadForWrite(fileHandler, pageIndex, writeCache, true, null);
 
         if (cacheEntry == null) {
           do {

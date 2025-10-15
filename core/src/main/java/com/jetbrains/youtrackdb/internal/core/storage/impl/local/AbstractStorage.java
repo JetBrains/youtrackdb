@@ -4963,7 +4963,8 @@ public abstract class AbstractStorage
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
 
-          var cacheEntry = readCache.loadForWrite(fileId, pageIndex, writeCache, true, null);
+          final var fileHandler = readCache.loadFileHandler(fileId);
+          var cacheEntry = readCache.loadForWrite(fileHandler, pageIndex, writeCache, true, null);
           if (cacheEntry == null) {
             do {
               if (cacheEntry != null) {

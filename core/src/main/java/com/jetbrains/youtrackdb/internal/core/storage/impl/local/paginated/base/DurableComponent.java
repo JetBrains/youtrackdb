@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAb
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.FileHandler;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -40,6 +41,7 @@ import javax.annotation.Nonnull;
  * @since 8/27/13
  */
 public abstract class DurableComponent extends SharedResourceAbstract {
+
   protected final AtomicOperationsManager atomicOperationsManager;
   protected final AbstractStorage storage;
   protected final ReadCache readCache;
@@ -114,15 +116,16 @@ public abstract class DurableComponent extends SharedResourceAbstract {
       final long pageIndex,
       final boolean verifyCheckSum)
       throws IOException {
-    return atomicOperation.loadPageForWrite(fileId, pageIndex, 1, verifyCheckSum);
+    final var fileHandler = atomicOperation.loadFileHandler(fileId);
+    return atomicOperation.loadPageForWrite(fileHandler, pageIndex, 1, verifyCheckSum);
   }
 
   protected CacheEntry loadOrAddPageForWrite(
-      final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
+      final AtomicOperation atomicOperation, final FileHandler fileHandler, final long pageIndex)
       throws IOException {
-    var entry = atomicOperation.loadPageForWrite(fileId, pageIndex, 1, true);
+    var entry = atomicOperation.loadPageForWrite(fileHandler, pageIndex, 1, true);
     if (entry == null) {
-      entry = addPage(atomicOperation, fileId);
+      entry = addPage(atomicOperation, fileHandler.fileId());
     }
     return entry;
   }
@@ -130,10 +133,11 @@ public abstract class DurableComponent extends SharedResourceAbstract {
   protected CacheEntry loadPageForRead(
       final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
       throws IOException {
+    final var fileHandler = readCache.loadFileHandler(fileId);
     if (atomicOperation == null) {
-      return readCache.loadForRead(fileId, pageIndex, writeCache, true);
+      return readCache.loadForRead(fileHandler, pageIndex, writeCache, true);
     }
-    return atomicOperation.loadPageForRead(fileId, pageIndex);
+    return atomicOperation.loadPageForRead(fileHandler, pageIndex);
   }
 
   protected CacheEntry addPage(final AtomicOperation atomicOperation, final long fileId)
