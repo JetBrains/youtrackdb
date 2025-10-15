@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.db.record;
 
 import static org.junit.Assert.assertNotNull;
 
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -19,6 +21,7 @@ public class DBRecordLazyListTest {
 
   private YouTrackDBImpl youTrackDb;
   private DatabaseSessionEmbedded db;
+  private YTDBGraph graph;
 
   @Before
   public void init() throws Exception {
@@ -31,17 +34,22 @@ public class DBRecordLazyListTest {
             DBRecordLazyListTest.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    graph = youTrackDb.openGraph(DBRecordLazyListTest.class.getSimpleName(),
+        "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
   @Test
   public void test() {
-    var schema = db.getMetadata().getSlowMutableSchema();
-    var mainClass = schema.createClass("MainClass");
-    mainClass.createProperty("name", PropertyType.STRING);
-    var itemsProp = mainClass.createProperty("items", PropertyType.LINKLIST);
-    var itemClass = schema.createClass("ItemClass");
-    itemClass.createProperty("name", PropertyType.STRING);
-    itemsProp.setLinkedClass(itemClass);
+    var mainClass = "MainClass";
+    var itemClass = "ItemClass";
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass("MainClass",
+                __.addSchemaProperty("name", PropertyType.STRING),
+                __.addSchemaProperty("items", PropertyType.LINKLIST)
+            ).addSchemaClass("ItemClass").addSchemaProperty("name", PropertyType.STRING)
+            .linkedClassAttr("ItemClass")
+    );
 
     db.begin();
     var doc1 = ((EntityImpl) db.newEntity(itemClass));

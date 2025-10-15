@@ -9,6 +9,10 @@ import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
@@ -18,7 +22,6 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.util.ArrayList;
@@ -91,70 +94,79 @@ public class StorageBackupMTStateTest {
       youTrackDb.create(StorageBackupMTStateTest.class.getSimpleName(), DatabaseType.DISK, "admin",
           "admin", "admin");
 
-      try (var databaseDocumentTx = youTrackDb.open(StorageBackupMTStateTest.class.getSimpleName(),
+      try (var graph = youTrackDb.openGraph(StorageBackupMTStateTest.class.getSimpleName(),
           "admin", "admin")) {
         System.out.println("Create schema");
-        final var schema = databaseDocumentTx.getSchema();
 
-        for (var i = 0; i < 3; i++) {
-          createClass(schema);
-        }
+        graph.executeInTx(g -> {
+          var traversal = g.inject((Vertex) null);
+          for (var i = 0; i < 3; i++) {
+            createClass(traversal);
+          }
+
+          traversal.iterate();
+        });
       }
 
       try (var pool = youTrackDb.cachedPool(StorageBackupMTStateTest.class.getSimpleName(), "admin",
           "admin")) {
-        System.out.println("Start data modification");
-        final var executor = Executors.newFixedThreadPool(5);
-        final var backupExecutor = Executors.newSingleThreadScheduledExecutor();
-        final var classCreatorExecutor =
-            Executors.newSingleThreadScheduledExecutor();
-        final var classDeleterExecutor =
-            Executors.newSingleThreadScheduledExecutor();
+        try (var graph = youTrackDb.openGraph(StorageBackupMTStateTest.class.getSimpleName(),
+            "admin",
+            "admin")) {
+          System.out.println("Start data modification");
+          final var executor = Executors.newFixedThreadPool(5);
+          final var backupExecutor = Executors.newSingleThreadScheduledExecutor();
+          final var classCreatorExecutor =
+              Executors.newSingleThreadScheduledExecutor();
+          final var classDeleterExecutor =
+              Executors.newSingleThreadScheduledExecutor();
 
-        classDeleterExecutor.scheduleWithFixedDelay(new ClassDeleter(pool), 10, 10,
-            TimeUnit.MINUTES);
-        backupExecutor.scheduleWithFixedDelay(new IncrementalBackupThread(pool), 5, 5,
-            TimeUnit.MINUTES);
-        classCreatorExecutor.scheduleWithFixedDelay(new ClassAdder(pool), 7, 5, TimeUnit.MINUTES);
+          classDeleterExecutor.scheduleWithFixedDelay(new ClassDeleter(graph), 10, 10,
+              TimeUnit.MINUTES);
+          backupExecutor.scheduleWithFixedDelay(new IncrementalBackupThread(pool), 5, 5,
+              TimeUnit.MINUTES);
+          classCreatorExecutor.scheduleWithFixedDelay(new ClassAdder(graph), 7, 5,
+              TimeUnit.MINUTES);
 
-        List<Future<Void>> futures = new ArrayList<Future<Void>>();
+          List<Future<Void>> futures = new ArrayList<Future<Void>>();
 
-        futures.add(executor.submit(new NonTxInserter(pool)));
-        futures.add(executor.submit(new NonTxInserter(pool)));
-        futures.add(executor.submit(new TxInserter(pool)));
-        futures.add(executor.submit(new TxInserter(pool)));
-        futures.add(executor.submit(new RecordsDeleter(pool)));
+          futures.add(executor.submit(new NonTxInserter(pool)));
+          futures.add(executor.submit(new NonTxInserter(pool)));
+          futures.add(executor.submit(new TxInserter(pool)));
+          futures.add(executor.submit(new TxInserter(pool)));
+          futures.add(executor.submit(new RecordsDeleter(pool)));
 
-        var k = 0;
-        while (k < 180) {
-          Thread.sleep(30 * 1000);
-          k++;
+          var k = 0;
+          while (k < 180) {
+            Thread.sleep(30 * 1000);
+            k++;
 
-          System.out.println(k * 0.5 + " minutes...");
+            System.out.println(k * 0.5 + " minutes...");
+          }
+
+          stop = true;
+
+          System.out.println("Stop backup");
+          backupExecutor.shutdown();
+
+          System.out.println("Stop class creation/deletion");
+          classCreatorExecutor.shutdown();
+          classDeleterExecutor.shutdown();
+
+          backupExecutor.awaitTermination(15, TimeUnit.MINUTES);
+          classCreatorExecutor.awaitTermination(15, TimeUnit.MINUTES);
+          classDeleterExecutor.awaitTermination(15, TimeUnit.MINUTES);
+
+          System.out.println("Stop data threads");
+
+          for (var future : futures) {
+            future.get();
+          }
+
+          System.out.println("All threads are stopped");
+
+          System.out.println("Final incremental  backup");
         }
-
-        stop = true;
-
-        System.out.println("Stop backup");
-        backupExecutor.shutdown();
-
-        System.out.println("Stop class creation/deletion");
-        classCreatorExecutor.shutdown();
-        classDeleterExecutor.shutdown();
-
-        backupExecutor.awaitTermination(15, TimeUnit.MINUTES);
-        classCreatorExecutor.awaitTermination(15, TimeUnit.MINUTES);
-        classDeleterExecutor.awaitTermination(15, TimeUnit.MINUTES);
-
-        System.out.println("Stop data threads");
-
-        for (var future : futures) {
-          future.get();
-        }
-
-        System.out.println("All threads are stopped");
-
-        System.out.println("Final incremental  backup");
       }
 
       try (var databaseDocumentTx = youTrackDb.open(StorageBackupMTStateTest.class.getSimpleName(),
@@ -191,21 +203,20 @@ public class StorageBackupMTStateTest {
     FileUtils.deleteRecursively(backupDir);
   }
 
-  private void createClass(Schema schema) {
-    var cls = schema.createClass(CLASS_PREFIX + classCounter.getAndIncrement());
+  private void createClass(YTDBGraphTraversal<?, ?> g) {
+    var className = CLASS_PREFIX + classCounter.getAndIncrement();
+    //noinspection unchecked
+    g.addSchemaClass(className,
+        __.addSchemaProperty("id", PropertyType.LONG).addPropertyIndex(IndexType.UNIQUE),
+        __.addSchemaProperty("intValue", PropertyType.INTEGER)
+            .addPropertyIndex(IndexType.NOT_UNIQUE),
+        __.addSchemaProperty("stringValue", PropertyType.STRING),
+        __.addSchemaProperty("linkedDocuments", PropertyType.LINKBAG)
+    );
 
-    cls.createProperty("id", PropertyType.LONG);
-    cls.createProperty("intValue", PropertyType.INTEGER);
-    cls.createProperty("stringValue", PropertyType.STRING);
-    cls.createProperty("linkedDocuments", PropertyType.LINKBAG);
+    classInstancesCounters.put(className, new AtomicInteger());
 
-    cls.createIndex(cls.getName() + "IdIndex", IndexType.UNIQUE, "id");
-    cls.createIndex(
-        cls.getName() + "IntValueIndex", IndexType.NOT_UNIQUE, "intValue");
-
-    classInstancesCounters.put(cls.getName(), new AtomicInteger());
-
-    System.out.println("Class " + cls.getName() + " is added");
+    System.out.println("Class " + className + " is added");
 
   }
 
@@ -388,25 +399,24 @@ public class StorageBackupMTStateTest {
 
   private final class ClassAdder implements Runnable {
 
-    private final SessionPool<DatabaseSession> pool;
+    private final YTDBGraph graph;
 
-    private ClassAdder(SessionPool<DatabaseSession> pool) {
-      this.pool = pool;
+    private ClassAdder(YTDBGraph graph) {
+      this.graph = graph;
     }
 
     @Override
     public void run() {
-      try (var databaseDocumentTx = pool.acquire()) {
-        flowLock.acquireReadLock();
-        try {
-          var schema = databaseDocumentTx.getSchema();
-          createClass(schema);
-        } finally {
-          flowLock.releaseReadLock();
-        }
-      } catch (Exception e) {
-        e.printStackTrace();
+      flowLock.acquireReadLock();
+      try {
+        graph.executeInTx(g -> {
+          var traversal = g.inject((Vertex) null);
+          createClass(traversal);
+        });
+      } finally {
+        flowLock.releaseReadLock();
       }
+
     }
   }
 
@@ -493,39 +503,39 @@ public class StorageBackupMTStateTest {
   private final class ClassDeleter implements Runnable {
 
     private final Random random = new Random();
-    private final SessionPool<DatabaseSession> pool;
+    private final YTDBGraph graph;
 
-    private ClassDeleter(SessionPool<DatabaseSession> pool) {
-      this.pool = pool;
+    private ClassDeleter(YTDBGraph graph) {
+      this.graph = graph;
     }
 
     @Override
     public void run() {
-      try (var db = pool.acquire()) {
-        flowLock.acquireWriteLock();
-        try {
-          final var schema = db.getSchema();
-          final var classes = classCounter.get();
+      flowLock.acquireWriteLock();
+      try {
+        final var classes = classCounter.get();
 
-          String className;
-          AtomicInteger classCounter;
+        String className;
+        AtomicInteger classCounter;
 
-          do {
-            className = CLASS_PREFIX + random.nextInt(classes);
-            classCounter = classInstancesCounters.get(className);
-          } while (classCounter == null);
+        do {
+          className = CLASS_PREFIX + random.nextInt(classes);
+          classCounter = classInstancesCounters.get(className);
+        } while (classCounter == null);
 
-          schema.dropClass(className);
-          classInstancesCounters.remove(className);
-          System.out.println("Class " + className + " was deleted");
+        var classToDrop = className;
+        graph.autoExecuteInTx(g -> g.dropSchemaClass(classToDrop));
 
-        } catch (RuntimeException e) {
-          e.printStackTrace();
-          throw e;
-        } finally {
-          flowLock.releaseWriteLock();
-        }
+        classInstancesCounters.remove(className);
+        System.out.println("Class " + className + " was deleted");
+
+      } catch (RuntimeException e) {
+        e.printStackTrace();
+        throw e;
+      } finally {
+        flowLock.releaseWriteLock();
       }
     }
   }
 }
+

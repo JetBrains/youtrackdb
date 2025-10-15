@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.sql;
 
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import org.junit.Assert;
@@ -10,9 +11,12 @@ public class SqlUpdateContentValidationTest extends DbTestBase {
 
   @Test
   public void testReadOnlyValidation() {
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Test");
-    clazz.createProperty("testNormal", PropertyType.STRING);
-    clazz.createProperty("test", PropertyType.STRING).setReadonly(true);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Test",
+            __.addSchemaProperty("testNormal", PropertyType.STRING),
+            __.addSchemaProperty("test", PropertyType.STRING).readOnlyAttr(true)
+        )
+    );
 
     session.begin();
     var res =

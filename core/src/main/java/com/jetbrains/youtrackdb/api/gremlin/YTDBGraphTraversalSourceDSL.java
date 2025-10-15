@@ -149,6 +149,12 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return clone.schemaIndex(indexName).drop();
   }
 
+  public YTDBGraphTraversal<Vertex, Vertex> dropSchemaClass(String... className) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+
+    return clone.schemaClass(className).drop();
+  }
+
 
   public YTDBGraphTraversalSource with(final YTDBQueryConfigParam key) {
     return with(key, true);

@@ -4,14 +4,14 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.io.IOException;
@@ -94,7 +94,12 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     baseDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
         "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords", "admin", "admin");
-    createSchema(baseDocumentTx);
+
+    try (var graph = youTrackDB.openGraph(
+        "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords", "admin", "admin")) {
+      createSchema(graph);
+    }
+
   }
 
   @Test
@@ -143,8 +148,6 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
     var databaseCompare =
         new DatabaseCompare(testDocumentTx, baseDocumentTx, System.out::println);
-    databaseCompare.setCompareIndexMetadata(true);
-
     Assert.assertTrue(databaseCompare.compare());
   }
 
@@ -247,20 +250,17 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
         });
   }
 
-  private void createSchema(DatabaseSessionInternal session) {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var testOneClass = schema.createClass("TestOne");
-
-    testOneClass.createProperty("intProp", PropertyType.INTEGER);
-    testOneClass.createProperty("stringProp", PropertyType.STRING);
-    testOneClass.createProperty("stringSet", PropertyType.EMBEDDEDSET,
-        PropertyType.STRING);
-    testOneClass.createProperty("linkMap", PropertyType.LINKMAP);
-
-    var testTwoClass = schema.createClass("TestTwo");
-
-    testTwoClass.createProperty("stringList", PropertyType.EMBEDDEDLIST,
-        PropertyType.STRING);
+  private void createSchema(YTDBGraph graph) {
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("TestOne",
+                __.addSchemaProperty("intProp", PropertyType.INTEGER),
+                __.addSchemaProperty("stringProp", PropertyType.STRING),
+                __.addSchemaProperty("stringSet", PropertyType.EMBEDDEDSET,
+                    PropertyType.STRING),
+                __.addSchemaProperty("linkMap", PropertyType.LINKMAP)
+            ).addSchemaClass("TestTwo").
+            addSchemaProperty("stringList", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
+    );
   }
 
   public class DataPropagationTask implements Callable<Void> {

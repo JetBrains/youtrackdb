@@ -4,23 +4,22 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+
 public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testPlain() {
     var className = "testPlain";
     var propertyName = "foo";
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    schema.createClass(className).createProperty(propertyName, PropertyType.STRING);
 
-    Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING));
+
+    Assert.assertNotNull(session.getMetadata().getFastImmutableSchema().getClass(className)
+        .getProperty(propertyName));
     var result = session.execute("drop property " + className + "." + propertyName);
     Assert.assertTrue(result.hasNext());
     var next = result.next();
@@ -28,19 +27,19 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     result.close();
 
-    Assert.assertNull(schema.getClass(className).getProperty(propertyName));
+    Assert.assertNull(session.getMetadata().getFastImmutableSchema().getClass(className)
+        .getProperty(propertyName));
   }
 
   @Test
   public void testDropIndexForce() {
     var className = "testDropIndexForce";
     var propertyName = "foo";
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    schema
-        .createClass(className)
-        .createProperty(propertyName, PropertyType.STRING)
-        .createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING)
+            .addPropertyIndex(IndexType.NOT_UNIQUE));
 
+    var schema = session.getMetadata().getFastImmutableSchema();
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     var result = session.execute("drop property " + className + "." + propertyName + " force");
     for (var i = 0; i < 2; i++) {
@@ -60,12 +59,11 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
 
     var className = "testDropIndex";
     var propertyName = "foo";
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    schema
-        .createClass(className)
-        .createProperty(propertyName, PropertyType.STRING)
-        .createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING)
+            .addPropertyIndex(IndexType.NOT_UNIQUE));
 
+    var schema = session.getMetadata().getFastImmutableSchema();
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     try {
       session.execute("drop property " + className + "." + propertyName);

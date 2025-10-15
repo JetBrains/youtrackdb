@@ -29,9 +29,14 @@ public class TestImmutableIndexLoad {
             TestImmutableIndexLoad.class.getSimpleName(),
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    var one = db.getSchema().createClass("One");
-    var property = one.createProperty("one", PropertyType.STRING);
-    property.createIndex(IndexType.UNIQUE);
+    try (var graph = youTrackDB.openGraph(TestImmutableIndexLoad.class.getSimpleName(),
+        "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+      graph.autoExecuteInTx(
+          g -> g.addSchemaClass("One").addSchemaProperty("one", PropertyType.STRING)
+              .addPropertyIndex(IndexType.UNIQUE));
+    }
+
     db.close();
     youTrackDB.close();
 
