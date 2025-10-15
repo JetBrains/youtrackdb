@@ -2,10 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -14,13 +14,13 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
   @Test
   public void indexAfterRebuildShouldIncludeAllCollections() {
     // given
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var className = "IndexCollectionTest";
 
-    var oclass = schema.createClass(className);
-    oclass.createProperty("key", PropertyType.STRING);
-    oclass.createProperty("value", PropertyType.INTEGER);
-    oclass.createIndex(className + "index1", IndexType.NOT_UNIQUE, "key");
+    var className = "IndexCollectionTest";
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className,
+        __.addSchemaProperty("key", PropertyType.STRING)
+            .addPropertyIndex(className + "index1", IndexType.NOT_UNIQUE),
+        __.addSchemaProperty("value", PropertyType.INTEGER)
+    ));
 
     session.begin();
     while (true) {

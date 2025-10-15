@@ -228,6 +228,10 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         ).<Vertex>select(currentClass).dedup();
   }
 
+  default GraphTraversal<S, Vertex> dropIndex(String... indexName) {
+    return schemaIndex(indexName).drop();
+  }
+
   default GraphTraversal<S, Vertex> addClassIndex(String indexName, IndexType indexType,
       String[] propertyNames, IndexBy[] indexBy) {
     return addClassIndex(indexName, indexType, propertyNames, indexBy, false);

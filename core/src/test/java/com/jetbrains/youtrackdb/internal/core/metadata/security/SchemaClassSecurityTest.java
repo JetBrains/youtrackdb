@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.security;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -19,6 +20,7 @@ public class SchemaClassSecurityTest {
   private static final String DB_NAME = SchemaClassSecurityTest.class.getSimpleName();
   private static YouTrackDBImpl youTrackDB;
   private DatabaseSessionInternal session;
+  private YTDBGraph graph;
 
   @BeforeClass
   public static void beforeClass() {
@@ -49,6 +51,8 @@ public class SchemaClassSecurityTest {
             + "' role reader, writer identified by '"
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role writer)");
+    graph = youTrackDB.openGraph(DB_NAME, "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     this.session = (DatabaseSessionInternal) youTrackDB.open(DB_NAME, "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
@@ -56,13 +60,15 @@ public class SchemaClassSecurityTest {
   @After
   public void after() {
     this.session.close();
+    graph.close();
     youTrackDB.drop(DB_NAME);
     this.session = null;
   }
 
   @Test
   public void testReadWithClassPermissions() {
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
+
     session.begin();
     var reader = session.getMetadata().getSecurity().getRole("reader");
     reader.grant(session, Rule.ResourceGeneric.CLASS, "Person", Role.PERMISSION_NONE);

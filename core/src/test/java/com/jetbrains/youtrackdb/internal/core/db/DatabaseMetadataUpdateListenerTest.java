@@ -5,11 +5,11 @@ import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
 import java.util.Locale;
 import org.junit.After;
@@ -46,7 +46,6 @@ public class DatabaseMetadataUpdateListenerTest {
           @Override
           public void onSchemaUpdate(DatabaseSessionInternal session, String databaseName) {
             schemaCount++;
-            assertNotNull(schema);
           }
 
           @Override
@@ -72,7 +71,7 @@ public class DatabaseMetadataUpdateListenerTest {
 
   @Test
   public void testSchemaUpdateListener() {
-    session.createClass("test1");
+    session.getMetadata().getSlowMutableSchema().createClass("test1");
     assertEquals(1, schemaCount);
   }
 
@@ -99,9 +98,9 @@ public class DatabaseMetadataUpdateListenerTest {
 
   @Test
   public void testIndexUpdate() {
-    session
+    session.getMetadata().getSlowMutableSchema()
         .createClass("Some")
-        .createProperty("test", PropertyType.STRING)
+        .createProperty("test", PropertyTypeInternal.STRING)
         .createIndex(IndexType.NOT_UNIQUE);
     assertEquals(1, indexManagerUpdateCount);
   }

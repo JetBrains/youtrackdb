@@ -2,10 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
 import com.jetbrains.youtrackdb.api.common.query.BasicResultSet;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -17,12 +17,7 @@ import java.util.Set;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
 public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatabase {
-
-  @SuppressWarnings("unchecked")
   @Test
   public void testTruncateClass() {
 
@@ -65,10 +60,10 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     result.close();
     Assert.assertTrue(set.containsAll(Arrays.asList(5, 6, 7, 8, 9, -1)));
 
-    Assert.assertEquals(index.size(session), 6);
+    Assert.assertEquals(6, index.size(session));
 
-    try (var stream = index.ascEntries(session)) {
-      stream.forEach(
+    try (var iterator = index.ascEntries(session)) {
+      iterator.forEachRemaining(
           (entry) -> {
             Assert.assertTrue(set.contains((Integer) entry.first()));
           });
@@ -162,18 +157,16 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     session.execute("insert into TestTruncateVertexClassSubclassWithIndex set name = 'bar'");
     session.commit();
 
-    if (!session.getStorage().isRemote()) {
-      final var indexManager = session.getSharedContext().getIndexManager();
-      final var indexOne =
-          indexManager.getIndex("TestTruncateVertexClassSuperclassWithIndex_index");
-      Assert.assertEquals(2, indexOne.size(session));
+    final var schema = session.getMetadata().getFastImmutableSchema();
+    final var indexOne =
+        schema.getIndex("TestTruncateVertexClassSuperclassWithIndex_index");
+    Assert.assertEquals(2, indexOne.size(session));
 
-      session.execute("truncate class TestTruncateVertexClassSubclassWithIndex");
-      Assert.assertEquals(1, indexOne.size(session));
+    session.execute("truncate class TestTruncateVertexClassSubclassWithIndex");
+    Assert.assertEquals(1, indexOne.size(session));
 
-      session.execute("truncate class TestTruncateVertexClassSuperclassWithIndex polymorphic");
-      Assert.assertEquals(0, indexOne.size(session));
-    }
+    session.execute("truncate class TestTruncateVertexClassSuperclassWithIndex polymorphic");
+    Assert.assertEquals(0, indexOne.size(session));
   }
 
   private List<BasicResult> toList(BasicResultSet input) {
@@ -185,14 +178,15 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
   }
 
   private Index getOrCreateIndex(SchemaClass testClass) {
-    var index = session.getSharedContext().getIndexManager()
-        .getIndex("test_class_by_data");
+    var index = session.getMetadata().getFastImmutableSchema().
+        getIndex("test_class_by_data");
     if (index == null) {
-      testClass.createProperty("data", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
+      testClass.createProperty("data", PropertyTypeInternal.EMBEDDEDLIST,
+          PropertyTypeInternal.INTEGER);
       testClass.createIndex("test_class_by_data", IndexType.UNIQUE,
           "data");
     }
-    return session.getSharedContext().getIndexManager().getIndex("test_class_by_data");
+    return session.getMetadata().getFastImmutableSchema().getIndex("test_class_by_data");
   }
 
   private SchemaClass getOrCreateClass(Schema schema) {
@@ -226,13 +220,13 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
 
     session.begin();
     var result = session.query("select from test_class");
-    Assert.assertEquals(toList(result).size(), 2);
+    Assert.assertEquals(2, toList(result).size());
 
     result.close();
     session.execute("truncate class test_class");
 
     result = session.query("select from test_class");
-    Assert.assertEquals(toList(result).size(), 0);
+    Assert.assertEquals(0, toList(result).size());
     result.close();
     session.commit();
 

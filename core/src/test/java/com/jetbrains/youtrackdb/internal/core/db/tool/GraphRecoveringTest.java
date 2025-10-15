@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -56,11 +57,11 @@ public class GraphRecoveringTest {
     }
   }
 
-  private static void init(DatabaseSessionEmbedded session) {
-    session.getSchema().createVertexClass("V1");
-    session.getSchema().createVertexClass("V2");
-    session.getSchema().createEdgeClass("E1");
-    session.getSchema().createEdgeClass("E2");
+  private static void init(DatabaseSessionEmbedded session, YTDBGraph graph) {
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("V1").addSchemaClass("V2").
+            addStateFullEdgeClass("E1").addStateFullEdgeClass("E2")
+    );
 
     var tx = session.begin();
     var v0 = tx.newVertex();
@@ -86,7 +87,10 @@ public class GraphRecoveringTest {
               + " memory users ( admin identified by 'admin' role admin)");
       try (var session = (DatabaseSessionEmbedded) youTrackDB.open("testRecoverPerfectGraphNonLW",
           "admin", "admin")) {
-        init(session);
+        try (var graph = youTrackDB.openGraph("testRecoverPerfectGraphNonLW",
+            "admin", "admin")) {
+          init(session, graph);
+        }
 
         final var eventListener = new TestListener();
 
@@ -111,7 +115,10 @@ public class GraphRecoveringTest {
               + " memory users ( admin identified by 'admin' role admin)");
       try (var session = (DatabaseSessionEmbedded) youTrackDB.open("testRecoverBrokenGraphAllEdges",
           "admin", "admin")) {
-        init(session);
+        try (var graph = youTrackDB.openGraph("testRecoverBrokenGraphAllEdges",
+            "admin", "admin")) {
+          init(session, graph);
+        }
 
         var tx = session.begin();
         for (var e :
@@ -149,7 +156,10 @@ public class GraphRecoveringTest {
       try (var session =
           (DatabaseSessionEmbedded) youTrackDB.open("testRecoverBrokenGraphLinksInVerticesNonLW",
               "admin", "admin")) {
-        init(session);
+        try (var graph = youTrackDB.openGraph("testRecoverBrokenGraphLinksInVerticesNonLW",
+            "admin", "admin")) {
+          init(session, graph);
+        }
 
         var tx = session.begin();
         for (var v :

@@ -3,12 +3,11 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertNotNull;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
@@ -17,7 +16,7 @@ import org.junit.Test;
 
 public class BrowseCollectionTest {
 
-  private DatabaseSession db;
+  private DatabaseSessionEmbedded db;
   private YouTrackDBImpl youTrackDb;
 
   @Before
@@ -36,8 +35,11 @@ public class BrowseCollectionTest {
             + " users ( admin identified by '"
             + CreateDatabaseUtil.NEW_ADMIN_PASSWORD
             + "' role admin)");
-    db = youTrackDb.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    db.getSchema().createVertexClass("One");
+    db = (DatabaseSessionEmbedded) youTrackDb.open("test", "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    try (var graph = youTrackDb.openGraph("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+      graph.autoExecuteInTx(g -> g.addSchemaClass("One"));
+    }
   }
 
   @Test
@@ -49,10 +51,10 @@ public class BrowseCollectionTest {
       v.setProperty("a", i);
       tx.commit();
     }
-    var collection = db.getSchema().getClass("One").getCollectionIds()[0];
+    var collection = db.getMetadata().getFastImmutableSchema().getClass("One")
+        .getCollectionIds()[0];
     var browser =
-        ((AbstractStorage) ((DatabaseSessionInternal) db).getStorage())
-            .browseCollection(collection);
+        db.getStorage().browseCollection(collection);
     var count = 0;
 
     while (browser.hasNext()) {

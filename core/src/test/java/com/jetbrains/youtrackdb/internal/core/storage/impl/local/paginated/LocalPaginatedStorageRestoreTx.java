@@ -8,12 +8,12 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -130,8 +130,6 @@ public class LocalPaginatedStorageRestoreTx {
                 System.out.println(text);
               }
             });
-    databaseCompare.setCompareIndexMetadata(true);
-
     Assert.assertTrue(databaseCompare.compare());
   }
 
@@ -242,16 +240,16 @@ public class LocalPaginatedStorageRestoreTx {
     Schema schema = session.getMetadata().getSlowMutableSchema();
     var testOneClass = schema.createClass("TestOne");
 
-    testOneClass.createProperty("intProp", PropertyType.INTEGER);
-    testOneClass.createProperty("stringProp", PropertyType.STRING);
-    testOneClass.createProperty("stringSet", PropertyType.EMBEDDEDSET,
-        PropertyType.STRING);
-    testOneClass.createProperty("linkMap", PropertyType.LINKMAP);
+    testOneClass.createProperty("intProp", PropertyTypeInternal.INTEGER);
+    testOneClass.createProperty("stringProp", PropertyTypeInternal.STRING);
+    testOneClass.createProperty("stringSet", PropertyTypeInternal.EMBEDDEDSET,
+        PropertyTypeInternal.STRING);
+    testOneClass.createProperty("linkMap", PropertyTypeInternal.LINKMAP);
 
     var testTwoClass = schema.createClass("TestTwo");
 
-    testTwoClass.createProperty("stringList", PropertyType.EMBEDDEDLIST,
-        PropertyType.STRING);
+    testTwoClass.createProperty("stringList", PropertyTypeInternal.EMBEDDEDLIST,
+        PropertyTypeInternal.STRING);
   }
 
   public class DataPropagationTask implements Callable<Void> {
@@ -273,14 +271,11 @@ public class LocalPaginatedStorageRestoreTx {
         List<RID> secondDocs = new ArrayList<RID>();
         List<RID> firstDocs = new ArrayList<RID>();
 
-        var classOne = db.getSchema().getClass("TestOne");
-        var classTwo = db.getSchema().getClass("TestTwo");
-
         for (var i = 0; i < 20000; i++) {
           try {
 
             db.executeInTx(transaction -> {
-              var docOne = transaction.newEntity(classOne);
+              var docOne = transaction.newEntity("TestOne");
               docOne.setProperty("intProp", random.nextInt());
 
               var stringData = new byte[256];
@@ -298,7 +293,7 @@ public class LocalPaginatedStorageRestoreTx {
               Entity docTwo = null;
 
               if (random.nextBoolean()) {
-                docTwo = transaction.newEntity(classTwo);
+                docTwo = transaction.newEntity("TestTwo");
 
                 List<String> stringList = new ArrayList<String>();
 

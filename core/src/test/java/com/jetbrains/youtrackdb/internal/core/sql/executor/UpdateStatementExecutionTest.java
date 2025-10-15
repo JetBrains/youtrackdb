@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionPlanP
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
@@ -31,6 +32,7 @@ public class UpdateStatementExecutionTest {
   public TestName name = new TestName();
 
   private DatabaseSessionInternal session;
+  private YTDBGraph graph;
 
   private String className;
   private YouTrackDBAbstract<?, ?> youTrackDB;
@@ -44,6 +46,8 @@ public class UpdateStatementExecutionTest {
     session =
         (DatabaseSessionInternal)
             youTrackDB.open(name.getMethodName(), "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    graph = youTrackDB.openGraph(name.getMethodName(), "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
     className = name.getMethodName();
     session.getMetadata().getSlowMutableSchema().createClass(className);
@@ -74,6 +78,7 @@ public class UpdateStatementExecutionTest {
   @After
   public void after() {
     session.close();
+    graph.close();
 
     youTrackDB.close();
   }
@@ -606,8 +611,8 @@ public class UpdateStatementExecutionTest {
   public void testRemove1() {
     var className = "overridden" + this.className;
 
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
-    clazz.createProperty("theProperty", PropertyType.EMBEDDEDLIST);
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className)
+        .addSchemaProperty("theProperty", PropertyType.EMBEDDEDLIST));
 
     session.begin();
     var doc = session.newEntity(className);
@@ -647,8 +652,8 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testRemove2() {
     var className = "overridden" + this.className;
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
-    clazz.createProperty("theProperty", PropertyType.EMBEDDEDLIST);
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className)
+        .addSchemaProperty("theProperty", PropertyType.EMBEDDEDLIST));
 
     session.begin();
     var entity = session.newInstance(className);
@@ -694,8 +699,8 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testRemove3() {
     var className = "overriden" + this.className;
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
-    clazz.createProperty("theProperty", PropertyType.EMBEDDED);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass(className).addSchemaProperty("theProperty", PropertyType.EMBEDDED));
 
     session.begin();
     var doc = session.newInstance(className);

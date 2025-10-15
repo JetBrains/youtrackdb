@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.record;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -375,13 +376,13 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
 
   @Test
   public void updateMapElementViaSql() {
-    final var classWithSchema = session.createClass("EntityWithSchema");
-    classWithSchema.createProperty("oneLevelMap", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    classWithSchema.createProperty("nestedMap", PropertyType.EMBEDDEDMAP, PropertyType.EMBEDDEDMAP);
+    graph.autoExecuteInTx(g -> g.addSchemaClass("EntityWithSchema",
+            __.addSchemaProperty("oneLevelMap", PropertyType.EMBEDDEDMAP, PropertyType.STRING),
+            __.addSchemaProperty("nestedMap", PropertyType.EMBEDDEDMAP, PropertyType.EMBEDDEDMAP)
+        ).addSchemaClass("EntityWithoutSchema")
+    );
 
-    final var classWithoutSchema = session.createClass("EntityWithoutSchema");
-
-    final var classes = List.of(classWithSchema, classWithoutSchema);
+    final var classes = List.of("EntityWithSchema", "EntityWithoutSchema");
 
     session.begin();
 
@@ -390,7 +391,7 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
       for (var init : List.of(true, false)) {
 
         final var entity = session.newEntity(clazz);
-        entity.setProperty("desc", clazz.getName() + " - " + (init ? "init" : "no init"));
+        entity.setProperty("desc", clazz + " - " + (init ? "init" : "no init"));
         entities.add(entity.getIdentity());
 
         final var oneLevelMap = entity.getOrCreateEmbeddedMap("oneLevelMap");
@@ -414,7 +415,7 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
     for (var c : classes) {
 
       tx.command(
-          "UPDATE " + c.getName() + " SET " +
+          "UPDATE " + c + " SET " +
               "oneLevelMap['key1'] = 'newvalue1', " +
               "oneLevelMap['key2'] = 'newvalue2', " +
               "nestedMap['key1']['subkey1'] = 'newvalue3', " +

@@ -3,15 +3,14 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
-import java.util.stream.Collectors;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -38,10 +37,11 @@ public class IndexChangesQueryTest {
         (DatabaseSessionEmbedded)
             youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    final Schema schema = db.getMetadata().getSlowMutableSchema();
-    final var cls = schema.createClass(CLASS_NAME);
-    cls.createProperty(FIELD_NAME, PropertyType.INTEGER);
-    cls.createIndex(INDEX_NAME, IndexType.NOT_UNIQUE, FIELD_NAME);
+    try (var graph = youTrackDB.openGraph("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+      graph.autoExecuteInTx(g -> g.addSchemaClass(CLASS_NAME)
+          .addSchemaProperty(FIELD_NAME, PropertyType.INTEGER)
+          .addPropertyIndex(INDEX_NAME, IndexType.NOT_UNIQUE));
+    }
   }
 
   @After
@@ -55,7 +55,7 @@ public class IndexChangesQueryTest {
     db.begin();
 
     final var index =
-        db.getSharedContext().getIndexManager().getIndex(INDEX_NAME);
+        db.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME);
 
     var doc = ((EntityImpl) db.newEntity(CLASS_NAME));
     doc.setProperty(FIELD_NAME, 1);
@@ -79,8 +79,8 @@ public class IndexChangesQueryTest {
   }
 
   private Collection<RID> fetchCollectionFromIndex(Index index, int key) {
-    try (var stream = index.getRids(db, key)) {
-      return stream.collect(Collectors.toList());
+    try (var iterator = index.getRids(db, key)) {
+      return YTDBIteratorUtils.list(iterator);
     }
   }
 
@@ -98,7 +98,7 @@ public class IndexChangesQueryTest {
     doc3.setProperty(FIELD_NAME, 2);
 
     final var index =
-        db.getSharedContext().getIndexManager().getIndex(INDEX_NAME);
+        db.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME);
 
     db.commit();
 

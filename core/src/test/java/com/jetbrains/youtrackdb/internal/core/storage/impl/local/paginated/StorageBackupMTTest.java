@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -14,7 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.nio.file.Path;
@@ -65,12 +65,15 @@ public class StorageBackupMTTest {
 
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-      final Schema schema = db.getMetadata().getSlowMutableSchema();
-      final var backupClass = schema.createClass("BackupClass");
-      backupClass.createProperty("num", PropertyType.INTEGER);
-      backupClass.createProperty("data", PropertyType.BINARY);
-
-      backupClass.createIndex("backupIndex", IndexType.NOT_UNIQUE, "num");
+      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
+        graph.autoExecuteInTx(g ->
+            g.addSchemaClass(dbName,
+                __.addSchemaProperty("num", PropertyType.INTEGER)
+                    .addPropertyIndex("backupIndex", IndexType.NOT_UNIQUE),
+                __.addSchemaProperty("data", PropertyType.BINARY)
+            )
+        );
+      }
       if (!backupDir.exists()) {
         Assert.assertTrue(backupDir.mkdirs());
       }
@@ -171,12 +174,13 @@ public class StorageBackupMTTest {
           "create database `" + dbName + "` disk users(admin identified by 'admin' role admin)");
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
-      final Schema schema = db.getMetadata().getSlowMutableSchema();
-      final var backupClass = schema.createClass("BackupClass");
-      backupClass.createProperty("num", PropertyType.INTEGER);
-      backupClass.createProperty("data", PropertyType.BINARY);
-
-      backupClass.createIndex("backupIndex", IndexType.NOT_UNIQUE, "num");
+      try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
+        graph.autoExecuteInTx(g -> g.addSchemaClass("BackupClass",
+            __.addSchemaProperty("num", PropertyType.INTEGER)
+                .addPropertyIndex("backupIndex", IndexType.NOT_UNIQUE),
+            __.addSchemaProperty("data", PropertyType.BINARY)
+        ));
+      }
 
       if (!backupDir.exists()) {
         Assert.assertTrue(backupDir.mkdirs());

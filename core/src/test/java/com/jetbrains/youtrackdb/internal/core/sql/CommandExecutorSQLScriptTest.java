@@ -339,7 +339,9 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   @Test
   public void testParameters1() {
     var className = "testParameters1";
-    session.createVertexClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script =
         "BEGIN;"
             + "LET $a = CREATE VERTEX "
@@ -369,7 +371,9 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   @Test
   public void testPositionalParameters() {
     var className = "testPositionalParameters";
-    session.createVertexClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script =
         "BEGIN;"
             + "LET $a = CREATE VERTEX "

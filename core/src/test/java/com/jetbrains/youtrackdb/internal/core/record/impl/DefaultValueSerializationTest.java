@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.record.impl;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import org.junit.Assert;
 import org.junit.Test;
@@ -12,11 +11,10 @@ public class DefaultValueSerializationTest extends DbTestBase {
   @Test
   public void testKeepValueSerialization() {
     // create example schema
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classA = schema.createClass("ClassC");
-
-    var prop = classA.createProperty("name", PropertyType.STRING);
-    prop.setDefaultValue("uuid()");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("ClassC").
+            addSchemaProperty("name", PropertyType.STRING).defaultValueAttr("uuid()")
+    );
 
     session.begin();
     var doc = (EntityImpl) session.newEntity("ClassC");

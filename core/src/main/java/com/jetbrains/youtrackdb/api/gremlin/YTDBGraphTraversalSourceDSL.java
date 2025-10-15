@@ -143,6 +143,12 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
     return ytdbGraphTraversal.hasLabel(YTDBSchemaIndex.LABEL).has(name, P.within(indexName));
   }
 
+  public YTDBGraphTraversal<Vertex, Vertex> dropIndex(String... indexName) {
+    var clone = (YTDBGraphTraversalSource) this.clone();
+
+    return clone.schemaIndex(indexName).drop();
+  }
+
 
   public YTDBGraphTraversalSource with(final YTDBQueryConfigParam key) {
     return with(key, true);

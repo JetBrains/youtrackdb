@@ -62,7 +62,12 @@ public class SessionPoolTest {
 
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     var db = (DatabaseSessionEmbedded) pool.acquire();
-    db.createClass("Test");
+
+    try (var graph = youTrackDb.openGraph("test", "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+      graph.autoExecuteInTx(g -> g.addSchemaClass("Test"));
+    }
+
     db.begin();
     db.newEntity("Test");
     db.close();

@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -31,10 +32,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testGetFromOriginalSimpleDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     var constantFieldName = "constantField";
     var originalValue = "orValue";
@@ -69,12 +76,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testGetFromNestedDelta() {
-    var claz = session.createClass("TestClass");
-    var embeddedClaz = session.createAbstractClass("EmbeddedTestClass");
+    var testClassName = "TestClass";
+    var embeddedClassName = "EmbeddedTestClass";
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(testClassName).addAbstractSchemaClass(embeddedClassName)
+    );
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
-    var nestedDoc = (EntityImpl) session.newEmbeddedEntity(embeddedClaz.getName());
+    var doc = (EntityImpl) session.newEntity(testClassName);
+    var nestedDoc = (EntityImpl) session.newEmbeddedEntity(embeddedClassName);
     var fieldName = "testField";
     var constantFieldName = "constantField";
     var originalValue = "orValue";
@@ -115,10 +126,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testListDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
 
     var fieldName = "testField";
     List<String> originalValue = new ArrayList<>();
@@ -156,10 +173,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testSetDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
 
     var fieldName = "testField";
     Set<String> originalValue = doc.newEmbeddedSet(fieldName);
@@ -194,10 +217,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testSetOfSetsDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     Set<Set<String>> originalValue = new HashSet<>();
     for (var i = 0; i < 2; i++) {
@@ -234,11 +263,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testListOfListsDelta() {
-
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     List<List<String>> originalValue = new ArrayList<>();
 
@@ -280,10 +314,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
   public void testListOfDocsDelta() {
     var fieldName = "testField";
 
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
 
     var constantField = "constField";
     var constValue = "ConstValue";
@@ -323,14 +363,20 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testListOfListsOfDocumentDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     var constantField = "constField";
     var constValue = "ConstValue";
     var variableField = "varField";
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     List<List<Entity>> originalValue = entity.newEmbeddedList(fieldName);
     for (var i = 0; i < 2; i++) {
@@ -375,10 +421,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testListOfListsOfListDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     List<List<List<String>>> originalValue = entity.newEmbeddedList(fieldName);
     for (var i = 0; i < 2; i++) {
@@ -420,10 +472,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
   public void testListOfDocsWithList() {
     var fieldName = "testField";
 
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
 
     var constantField = "constField";
     var constValue = "ConstValue";
@@ -471,10 +529,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testListAddDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
 
     var fieldName = "testField";
     List<String> originalValue = entity.newEmbeddedList(fieldName);
@@ -506,10 +570,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testListOfListAddDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
 
     var fieldName = "testField";
     List<List<String>> originalList = entity.newEmbeddedList(fieldName);
@@ -547,10 +617,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testListRemoveDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
 
     var fieldName = "testField";
     List<String> originalValue = doc.newEmbeddedList(fieldName);
@@ -584,10 +660,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testAddDocFieldDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     var constantFieldName = "constantField";
     var testValue = "testValue";
@@ -617,10 +699,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testRemoveCreateDocFieldDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     var constantFieldName = "constantField";
     var testValue = "testValue";
@@ -656,12 +744,20 @@ public class EntitySerializerDeltaTest extends DbTestBase {
   public void testRemoveNestedDocFieldDelta() {
     var nestedFieldName = "nested";
 
-    var claz = session.createClassIfNotExist("TestClass");
-    var embeddedClazz = session.createAbstractClass("EmbeddedTestClass");
-    claz.createProperty(nestedFieldName, PropertyType.EMBEDDED);
+    var testClassName = "TestClass";
+    var embeddedClassName = "EmbeddedTestClass";
+
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+                .addSchemaProperty(nestedFieldName, PropertyType.EMBEDDED)
+        ).addAbstractSchemaClass(embeddedClassName)
+    );
 
     session.begin();
-    var entity = (EntityImpl) session.newEmbeddedEntity(embeddedClazz);
+    var entity = (EntityImpl) session.newEmbeddedEntity(embeddedClassName);
     var fieldName = "testField";
     var constantFieldName = "constantField";
     var testValue = "testValue";
@@ -669,7 +765,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     entity.setProperty(fieldName, testValue);
     entity.setProperty(constantFieldName, "someValue");
 
-    var rootDoc = (EntityImpl) session.newEntity(claz);
+    var rootDoc = (EntityImpl) session.newEntity(testClassName);
     rootDoc.setProperty(nestedFieldName, entity);
     session.commit();
 
@@ -698,10 +794,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
   public void testRemoveFieldListOfDocsDelta() {
     var fieldName = "testField";
 
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
 
     var constantField = "constField";
     var constValue = "ConstValue";
@@ -743,10 +845,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testUpdateEmbeddedMapDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     Map<String, String> mapValue = entity.newEmbeddedMap(fieldName);
     mapValue.put("first", "one");
@@ -778,10 +886,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testUpdateListOfEmbeddedMapDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     List<Map<String, String>> originalValue = new ArrayList<>();
     for (var i = 0; i < 2; i++) {
@@ -824,10 +938,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testUpdateDocInMapDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     Map<String, EntityImpl> mapValue = entity.newEmbeddedMap(fieldName);
     var d1 = (EntityImpl) session.newEmbeddedEntity();
@@ -863,10 +983,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testListOfMapsUpdateDelta() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
     var originalList = session.<Map<String, String>>newEmbeddedList();
     var copyList = session.<Map<String, String>>newEmbeddedList();
@@ -910,14 +1036,20 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testRidbagsUpdateDeltaAddWithCopy() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
 
-    var first = (EntityImpl) session.newEntity(claz);
-    var second = (EntityImpl) session.newEntity(claz);
+    var first = (EntityImpl) session.newEntity(testClassName);
+    var second = (EntityImpl) session.newEntity(testClassName);
 
     var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
@@ -926,7 +1058,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
     var originalDoc = doc;
 
-    var third = (EntityImpl) session.newEntity(claz);
+    var third = (EntityImpl) session.newEntity(testClassName);
     session.commit();
 
     session.begin();
@@ -960,15 +1092,21 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testRidbagsUpdateDeltaRemoveWithCopy() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
 
-    var first = (EntityImpl) session.newEntity(claz);
-    var second = (EntityImpl) session.newEntity(claz);
-    var third = (EntityImpl) session.newEntity(claz);
+    var first = (EntityImpl) session.newEntity(testClassName);
+    var second = (EntityImpl) session.newEntity(testClassName);
+    var third = (EntityImpl) session.newEntity(testClassName);
     session.commit();
 
     session.begin();
@@ -1019,14 +1157,20 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testRidbagsUpdateDeltaAdd() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
 
-    var first = (EntityImpl) session.newEntity(claz);
-    var second = (EntityImpl) session.newEntity(claz);
+    var first = (EntityImpl) session.newEntity(testClassName);
+    var second = (EntityImpl) session.newEntity(testClassName);
 
     var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
@@ -1038,7 +1182,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var activeTx3 = session.getActiveTransaction();
     entity = activeTx3.load(entity);
 
-    var third = (EntityImpl) session.newEntity(claz);
+    var third = (EntityImpl) session.newEntity(testClassName);
     session.commit();
 
     session.begin();
@@ -1067,15 +1211,21 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testRidbagsUpdateDeltaRemove() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var entity = (EntityImpl) session.newEntity(claz);
+    var entity = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
 
-    var first = (EntityImpl) session.newEntity(claz);
-    var second = (EntityImpl) session.newEntity(claz);
-    var third = (EntityImpl) session.newEntity(claz);
+    var first = (EntityImpl) session.newEntity(testClassName);
+    var second = (EntityImpl) session.newEntity(testClassName);
+    var third = (EntityImpl) session.newEntity(testClassName);
 
     var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
@@ -1107,14 +1257,20 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testRidbagsUpdateDeltaChangeWithCopy() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     var fieldName = "testField";
-    var first = (EntityImpl) session.newEntity(claz);
-    var second = (EntityImpl) session.newEntity(claz);
-    var third = (EntityImpl) session.newEntity(claz);
+    var first = (EntityImpl) session.newEntity(testClassName);
+    var second = (EntityImpl) session.newEntity(testClassName);
+    var third = (EntityImpl) session.newEntity(testClassName);
 
     var ridBag = new LinkBag(session);
     ridBag.add(first.getIdentity());
@@ -1149,10 +1305,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testDeltaNullValues() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     doc.setProperty("one", "value");
     doc.newEmbeddedList("list").add("test");
     doc.newEmbeddedSet("set").addAll(new HashSet<>(List.of("test")));
@@ -1191,10 +1353,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testDeltaLinkAllCases() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     Identifiable link = session.newEntity("testClass");
     var link1 = (DBRecord) session.newEntity("testClass");
     doc.newLinkList("linkList").addAll(Arrays.asList(link, link1, link1));
@@ -1253,10 +1421,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testDeltaAllCasesMap() {
-    var claz = session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var doc = (EntityImpl) session.newEntity(claz);
+    var doc = (EntityImpl) session.newEntity(testClassName);
     Map<String, String> map = new HashMap<>();
     map.put("two", "value");
     doc.newEmbeddedMap("map").putAll(map);
@@ -1795,10 +1969,16 @@ public class EntitySerializerDeltaTest extends DbTestBase {
 
   @Test
   public void testDocumentSimple() {
-    session.createClassIfNotExist("TestClass");
+    var testClassName = "TestClass";
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(testClassName).fold().coalesce(
+            __.unfold(),
+            __.addSchemaClass(testClassName)
+        ));
 
     session.begin();
-    var document = (EntityImpl) session.newEntity("TestClass");
+    var document = (EntityImpl) session.newEntity(testClassName);
     document.setProperty("test", "test");
     var serializerDelta = EntitySerializerDelta.instance();
     var res = EntitySerializerDelta.serialize(session, document);

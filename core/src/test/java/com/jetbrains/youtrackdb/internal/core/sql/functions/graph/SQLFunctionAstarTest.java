@@ -78,7 +78,10 @@ public class SQLFunctionAstarTest {
             youTrackDB.open("SQLFunctionAstarTest", "admin",
                 CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    session.createEdgeClass("has_path");
+    try (var graph = youTrackDB.openGraph("SQLFunctionAstarTest", "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+      graph.autoExecuteInTx(g -> g.addStateFullEdgeClass("has_path"));
+    }
 
     session.begin();
     var cf = session.getMetadata().getFunctionLibrary().createFunction("myCustomHeuristic");

@@ -5,6 +5,7 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.common.query.BasicResult;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.util.Pair;
@@ -19,11 +20,13 @@ public class SQLFunctionExpandTest extends DbTestBase {
   @Test
   public void expandSingleValue() {
 
-    final var aClass = session.createClass("SingleValueClass");
-    aClass.createProperty("stringProp", PropertyType.STRING);
+    var className = "ClassWithSingleValue";
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className)
+        .addSchemaProperty("stringProp", PropertyType.STRING));
+
     session.executeInTx(transaction -> {
-      session.newEntity(aClass).setProperty("stringProp", "a1");
-      session.newEntity(aClass).setProperty("stringProp", "a2");
+      session.newEntity(className).setProperty("stringProp", "a1");
+      session.newEntity(className).setProperty("stringProp", "a2");
     });
 
     session.executeInTx(transaction -> {
@@ -35,26 +38,28 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
   @Test
   public void expandList() {
+    var className = "ClassWithList";
 
-    final var aClass = session.createClass("ClassWithList");
-    aClass.createProperty("name", PropertyType.STRING);
-    aClass.createProperty("listProp", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className,
+        __.addSchemaProperty("name", PropertyType.STRING),
+        __.addSchemaProperty("listProp", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
+    ));
 
     // init data
     session.executeInTx(transaction -> {
-      final var a1 = session.newEntity(aClass);
+      final var a1 = session.newEntity(className);
       a1.setProperty("name", "a1");
       a1.getOrCreateEmbeddedList("listProp").addAll(List.of("a1", "a2"));
 
-      final var a2 = session.newEntity(aClass);
+      final var a2 = session.newEntity(className);
       a2.setProperty("name", "a2");
       a2.getOrCreateEmbeddedList("listProp").addAll(List.of("a3", "a4"));
 
-      final var a3 = session.newEntity(aClass);
+      final var a3 = session.newEntity(className);
       a3.setProperty("name", "a3");
       a3.getOrCreateEmbeddedList("listProp");
 
-      final var a4 = session.newEntity(aClass);
+      final var a4 = session.newEntity(className);
       a4.setProperty("name", "a4");
     });
 
@@ -90,31 +95,34 @@ public class SQLFunctionExpandTest extends DbTestBase {
   @Test
   public void expandMap() {
 
-    final var aClass = session.createClass("ClassWithMap");
-    aClass.createProperty("name", PropertyType.STRING);
-    aClass.createProperty("mapProp", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
+    var className = "ClassWithMap";
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className,
+            __.addSchemaProperty("name", PropertyType.STRING),
+            __.addSchemaProperty("mapProp", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
+        )
+    );
 
     // init data
     session.executeInTx(transaction -> {
-      final var a1 = session.newEntity(aClass);
+      final var a1 = session.newEntity(className);
       a1.setProperty("name", "a1");
       a1.getOrCreateEmbeddedMap("mapProp").putAll(Map.of(
           "key1", "value1",
           "key2", "value2"
       ));
 
-      final var a2 = session.newEntity(aClass);
+      final var a2 = session.newEntity(className);
       a2.setProperty("name", "a2");
       a2.getOrCreateEmbeddedMap("mapProp").putAll(Map.of(
           "key3", "value3",
           "key4", "value4"
       ));
 
-      final var a3 = session.newEntity(aClass);
+      final var a3 = session.newEntity(className);
       a3.setProperty("name", "a3");
       a3.getOrCreateEmbeddedMap("mapProp");
 
-      final var a4 = session.newEntity(aClass);
+      final var a4 = session.newEntity(className);
       a4.setProperty("name", "a4");
     });
 
@@ -174,31 +182,35 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
   @Test
   public void expandSingleLink() {
+    var linkedClassName = "LinkedClass";
+    var linkingClassName = "LinkingClass";
 
-    final var linkedClass = session.createClass("LinkedClass");
-    linkedClass.createProperty("name", PropertyType.STRING);
-
-    final var linkingClass = session.createClass("LinkingClass");
-    linkingClass.createProperty("name", PropertyType.STRING);
-    linkingClass.createProperty("link", PropertyType.LINK, linkedClass);
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(linkedClassName).addSchemaProperty("name", PropertyType.STRING).
+            addSchemaClass(linkingClassName,
+                __.addSchemaProperty("name", PropertyType.STRING),
+                __.addSchemaProperty("link", PropertyType.LINK, linkedClassName)
+            )
+    );
 
     // init data
     session.executeInTx(transaction -> {
-      final var linked1 = session.newEntity(linkedClass);
+      final var linked1 = session.newEntity(linkedClassName);
       linked1.setProperty("name", "linked1");
 
-      final var linked2 = session.newEntity(linkedClass);
+      final var linked2 = session.newEntity(linkedClassName);
       linked2.setProperty("name", "linked2");
 
-      final var linking1 = session.newEntity(linkingClass);
+      final var linking1 = session.newEntity(linkingClassName);
       linking1.setProperty("name", "linking1");
       linking1.setLink("link", linked1);
 
-      final var linking2 = session.newEntity(linkingClass);
+      final var linking2 = session.newEntity(linkingClassName);
       linking2.setProperty("name", "linking2");
       linking2.setLink("link", linked2);
 
-      final var linking3 = session.newEntity(linkingClass);
+      final var linking3 = session.newEntity(linkingClassName);
       linking3.setProperty("name", "linking3");
     });
 
@@ -243,37 +255,42 @@ public class SQLFunctionExpandTest extends DbTestBase {
   @Test
   public void expandLinkList() {
 
-    final var linkedClass = session.createClass("LinkedClass");
-    linkedClass.createProperty("name", PropertyType.STRING);
+    var linkedClassName = "LinkedClass";
+    var linkingClassName = "LinkingClass";
 
-    final var linkingClass = session.createClass("LinkingClass");
-    linkingClass.createProperty("name", PropertyType.STRING);
-    linkingClass.createProperty("links", PropertyType.LINKLIST, linkedClass);
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(linkedClassName).addSchemaProperty("name", PropertyType.STRING).
+            addSchemaClass(linkingClassName,
+                __.addSchemaProperty("name", PropertyType.STRING),
+                __.addSchemaProperty("link", PropertyType.LINKLIST, linkedClassName)
+            )
+    );
 
     // init data
     session.executeInTx(transaction -> {
-      final var linked1 = session.newEntity(linkedClass);
+      final var linked1 = session.newEntity(linkedClassName);
       linked1.setProperty("name", "linked1");
 
-      final var linked2 = session.newEntity(linkedClass);
+      final var linked2 = session.newEntity(linkedClassName);
       linked2.setProperty("name", "linked2");
 
-      final var linked3 = session.newEntity(linkedClass);
+      final var linked3 = session.newEntity(linkedClassName);
       linked3.setProperty("name", "linked3");
 
-      final var linking1 = session.newEntity(linkingClass);
+      final var linking1 = session.newEntity(linkingClassName);
       linking1.setProperty("name", "linking1");
       linking1.getOrCreateLinkList("links").addAll(List.of(linked1, linked2));
 
-      final var linking2 = session.newEntity(linkingClass);
+      final var linking2 = session.newEntity(linkingClassName);
       linking2.setProperty("name", "linking2");
       linking2.getOrCreateLinkList("links").add(linked3);
 
-      final var linking3 = session.newEntity(linkingClass);
+      final var linking3 = session.newEntity(linkingClassName);
       linking3.setProperty("name", "linking3");
       linking3.getOrCreateLinkList("links");
 
-      final var linking4 = session.newEntity(linkingClass);
+      final var linking4 = session.newEntity(linkingClassName);
       linking4.setProperty("name", "linking4");
     });
 

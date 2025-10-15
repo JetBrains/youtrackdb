@@ -15,7 +15,9 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testTwoInserts() {
     var className = "testTwoInserts";
-    session.createClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     session.computeScript(
         "SQL",
         "begin;INSERT INTO "
@@ -33,7 +35,9 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testIf() {
     var className = "testIf";
-    session.createClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
     script += "LET $1 = SELECT count(*) as count FROM " + className + " WHERE name ='bar';";
@@ -55,7 +59,8 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testReturnInIf() {
     var className = "testReturnInIf";
-    session.createClass(className);
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "";
     script += "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
@@ -76,7 +81,9 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testReturnInIf2() {
     var className = "testReturnInIf2";
-    session.createClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
     script += "commit;";
@@ -98,7 +105,7 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testReturnInIf3() {
     var className = "testReturnInIf3";
-    session.createClass(className);
+
     var script = "";
     script += "BEGIN;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
@@ -139,7 +146,9 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testCommitRetry() {
     var className = "testCommitRetry";
-    session.createClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
@@ -164,7 +173,9 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testCommitRetryWithFailure() {
     var className = "testCommitRetryWithFailure";
-    session.createClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
@@ -185,7 +196,9 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testCommitRetryWithFailureAndContinue() {
     var className = "testCommitRetryWithFailureAndContinue";
-    session.createClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
@@ -212,7 +225,9 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testCommitRetryWithFailureScriptAndContinue() {
     var className = "testCommitRetryWithFailureScriptAndContinue";
-    session.createClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
@@ -240,7 +255,9 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testCommitRetryWithFailureScriptAndFail() {
     var className = "testCommitRetryWithFailureScriptAndFail";
-    session.createClass(className);
+
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";
@@ -271,7 +288,8 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testCommitRetryWithFailureScriptAndFail2() {
     var className = "testCommitRetryWithFailureScriptAndFail2";
-    session.createClass(className);
+    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+
     var script = "";
     script += "LET $retries = 0;";
     script += "BEGIN;";

@@ -14,9 +14,10 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
 
   @Test
   public void shouldUseMatchOptimization() {
-    var cls = session.createClass("VMatch");
-    var property = cls.createProperty("name", PropertyType.STRING);
-    property.createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("VMatch").addSchemaProperty("name", PropertyType.STRING)
+            .addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     var traversal = graph.traversal();
     var admin =
@@ -38,12 +39,13 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
   @Test
   public void shouldUseMatchOptimizationWithLabel() {
 
-    var cls = session.createVertexClass("Person");
-    var property = cls.createProperty("name", PropertyType.STRING);
-    property.createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Person").
+            addSchemaProperty("name", PropertyType.STRING).
+            addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     var traversal = graph.traversal();
-
     var admin =
         traversal.V().match(__.as("a").has("name", "Foo").out("Friends").as("b")).asAdmin();
 
@@ -77,9 +79,10 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
 
   @Test
   public void shouldFetchDataUsingMatchOptimization() {
-    var cls = session.createVertexClass("Person");
-    var property = cls.createProperty("name", PropertyType.STRING);
-    property.createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING)
+            .addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     var bar = graph.addVertex(T.label, "Person", "name", "Bar");
 

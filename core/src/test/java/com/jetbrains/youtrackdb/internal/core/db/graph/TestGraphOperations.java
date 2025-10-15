@@ -16,13 +16,12 @@ public class TestGraphOperations extends DbTestBase {
   @Test
   public void testEdgeUniqueConstraint() {
 
-    session.createVertexClass("TestVertex");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("TestVertex").
+            addStateFullEdgeClass("TestLabel").addSchemaProperty("key", PropertyType.STRING)
+            .addPropertyIndex(IndexType.UNIQUE)
+    );
 
-    var testLabel = session.createEdgeClass("TestLabel");
-
-    var key = testLabel.createProperty("key", PropertyType.STRING);
-
-    key.createIndex(IndexType.UNIQUE);
 
     session.begin();
     var vertex = session.newVertex("TestVertex");

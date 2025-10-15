@@ -25,6 +25,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.HashSet;
 import java.util.Random;
@@ -36,6 +37,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -63,11 +65,9 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
         FreezeAndDBRecordInsertAtomicityTest.class.getSimpleName() + " seed: " + seed);
     random = new Random(seed);
 
-    session.getMetadata()
-        .getSlowMutableSchema()
-        .createClass("Person")
-        .createProperty("name", PropertyType.STRING)
-        .createIndex(IndexType.UNIQUE);
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person")
+        .addSchemaProperty("name", PropertyType.STRING)
+        .addPropertyIndex(IndexType.UNIQUE));
 
     executorService = Executors.newFixedThreadPool(THREADS);
     countDownLatch = new CountDownLatch(THREADS);
@@ -91,7 +91,7 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
               () -> {
                 try (final var session = openDatabase()) {
                   final var index =
-                      session.getSharedContext().getIndexManager()
+                      session.getMetadata().getFastImmutableSchema()
                           .getIndex("Person.name");
                   for (var i1 = 0; i1 < ITERATIONS; ++i1) {
                     switch (random.nextInt(2)) {
@@ -114,7 +114,8 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
                             var entity = entityIterator.next();
                             try (var rids =
                                 index.getRids(session, entity.getProperty("name"))) {
-                              assertEquals(entity.getIdentity(), rids.findFirst().orElse(null));
+                              Assert.assertEquals(entity.getIdentity(),
+                                  YTDBIteratorUtils.findFirst(rids).orElse(null));
                             }
                           }
                           session.commit();
