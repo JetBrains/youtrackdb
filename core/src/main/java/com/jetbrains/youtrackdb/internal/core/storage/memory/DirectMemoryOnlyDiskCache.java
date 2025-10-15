@@ -177,6 +177,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
+  @Override
+  public FileHandler loadFileHandler(long fileId) {
+    // for this in memory implementation there is no casArray
+    // todo reduce allocations
+    return new FileHandler(fileId, null);
+  }
+
   @Nullable
   @Override
   public CacheEntry loadForWrite(
