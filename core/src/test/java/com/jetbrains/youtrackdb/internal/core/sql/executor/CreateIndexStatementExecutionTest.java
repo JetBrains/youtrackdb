@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -9,20 +11,19 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
   @Test
   public void testPlain() {
     var className = "testPlain";
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
-    clazz.createProperty("name", PropertyType.STRING);
 
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass(className).addSchemaProperty("name", PropertyType.STRING));
     Assert.assertNull(
-        session.getSharedContext().getIndexManager().getIndex(className + ".name"));
-    var result =
-        session.execute(
-            "create index " + className + ".name on " + className + " (name) notunique");
-    Assert.assertTrue(result.hasNext());
-    var next = result.next();
-    Assert.assertFalse(result.hasNext());
-    Assert.assertNotNull(next);
-    result.close();
-    var idx = session.getSharedContext().getIndexManager()
+        session.getMetadata().getFastImmutableSchema().getIndex(className + ".name"));
+
+    graph.executeInTx(g ->
+        g.schemaClass(className).
+            schemaClassProperties("name").
+            addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
+
+    var idx = session.getMetadata().getFastImmutableSchema()
         .getIndex(className + ".name");
     Assert.assertNotNull(idx);
     Assert.assertFalse(idx.isUnique());
@@ -31,36 +32,32 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
   @Test
   public void testIfNotExists() {
     var className = "testIfNotExists";
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass(className);
-    clazz.createProperty("name", PropertyType.STRING);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass(className).addSchemaProperty("name", PropertyType.STRING)
+    );
 
     Assert.assertNull(
-        session.getSharedContext().getIndexManager().getIndex(className + ".name"));
-    var result =
-        session.execute(
-            "create index "
-                + className
-                + ".name IF NOT EXISTS on "
-                + className
-                + " (name) notunique");
-    Assert.assertTrue(result.hasNext());
-    var next = result.next();
-    Assert.assertFalse(result.hasNext());
-    Assert.assertNotNull(next);
-    result.close();
-    var idx = session.getSharedContext().getIndexManager()
+        session.getMetadata().getFastImmutableSchema().getIndex(className + ".name"));
+
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaIndex(className + ".name").fold().coalesce(
+            __.unfold(),
+            __.schemaClass(className).schemaClassProperties("name").
+                addPropertyIndex(IndexType.NOT_UNIQUE)
+        ));
+
+    var idx = session.getMetadata().getFastImmutableSchema()
         .getIndex(className + ".name");
     Assert.assertNotNull(idx);
     Assert.assertFalse(idx.isUnique());
 
-    result =
-        session.execute(
-            "create index "
-                + className
-                + ".name IF NOT EXISTS on "
-                + className
-                + " (name) notunique");
-    Assert.assertFalse(result.hasNext());
-    result.close();
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaIndex(className + ".name").fold().coalesce(
+            __.unfold(),
+            __.schemaClass(className).schemaClassProperties("name").
+                addPropertyIndex(IndexType.NOT_UNIQUE)
+        ));
   }
 }

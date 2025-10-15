@@ -32,7 +32,11 @@ public class TransactionChangesDetectionTest {
                 TransactionChangesDetectionTest.class.getSimpleName(),
                 "admin",
                 CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
-    db.createClass("test");
+    try (var graph = factory.openGraph(TransactionChangesDetectionTest.class.getSimpleName(),
+        "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+      graph.autoExecuteInTx(g -> g.addSchemaClass("test"));
+    }
   }
 
   @After

@@ -5,9 +5,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass;
 import org.apache.commons.lang.RandomStringUtils;
 
-/**
- *
- */
 public class TestUtilsFixture extends DbTestBase {
 
   protected SchemaClass createClassInstance() {

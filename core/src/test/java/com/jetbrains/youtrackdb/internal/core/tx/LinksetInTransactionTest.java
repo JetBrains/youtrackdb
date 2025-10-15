@@ -12,8 +12,11 @@ public class LinksetInTransactionTest extends DbTestBase {
   @Test
   public void test() {
 
-    session.createClass("WithLinks").createProperty("links", PropertyType.LINKSET);
-    session.createClass("Linked");
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("WithLinks").
+            addSchemaProperty("links", PropertyType.LINKSET).
+            addSchemaClass("Linked")
+    );
 
     session.begin();
     /* A link must already be there */

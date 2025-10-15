@@ -5,33 +5,35 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import java.util.Collections;
-import java.util.List;
 import org.junit.Test;
 
 public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
 
   @Test
   public void testClassCreation() {
-    Schema oSchema = session.getMetadata().getSlowMutableSchema();
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.addAbstractSchemaClass("javaA",
+            __.addSchemaProperty("propertyInt", PropertyType.INTEGER)
+        ).addAbstractSchemaClass("javaB",
+            __.addSchemaProperty("propertyDouble", PropertyType.DOUBLE)
+        ).addSchemaClass("javaC").addParentClass("javaA", "javaB")
+    );
 
-    var aClass = oSchema.createAbstractClass("javaA");
-    var bClass = oSchema.createAbstractClass("javaB");
-    aClass.createProperty("propertyInt", PropertyType.INTEGER);
-    bClass.createProperty("propertyDouble", PropertyType.DOUBLE);
-    var cClass = oSchema.createClass("javaC", aClass, bClass);
-    testClassCreationBranch(aClass, bClass, cClass);
-    testClassCreationBranch(aClass, bClass, cClass);
-    oSchema = session.getMetadata().getFastImmutableSchema(session);
-    aClass = oSchema.getClass("javaA");
-    bClass = oSchema.getClass("javaB");
-    cClass = oSchema.getClass("javaC");
+    var schema = session.getMetadata().getFastImmutableSchema();
+    var aClass = schema.getClass("javaA");
+    var bClass = schema.getClass("javaB");
+    var cClass = schema.getClass("javaC");
     testClassCreationBranch(aClass, bClass, cClass);
   }
 
-  private void testClassCreationBranch(SchemaClass aClass, SchemaClass bClass, SchemaClass cClass) {
+  private static void testClassCreationBranch(ImmutableSchemaClass aClass,
+      ImmutableSchemaClass bClass,
+      ImmutableSchemaClass cClass) {
     assertNotNull(aClass.getParentClasses());
     assertEquals(0, aClass.getParentClasses().size());
     assertNotNull(bClass.getParentClassesNames());
@@ -39,7 +41,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     assertNotNull(cClass.getParentClassesNames());
     assertEquals(2, cClass.getParentClassesNames().size());
 
-    List<? extends SchemaClass> superClasses = cClass.getParentClasses();
+    var superClasses = cClass.getParentClasses();
     assertTrue(superClasses.contains(aClass));
     assertTrue(superClasses.contains(bClass));
     assertTrue(cClass.isChildOf(aClass));
@@ -48,14 +50,14 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
     assertTrue(bClass.isParentOf(cClass));
 
     var property = cClass.getProperty("propertyInt");
-    assertEquals(PropertyType.INTEGER, property.getType());
+    assertEquals(PropertyTypeInternal.INTEGER, property.getType());
     property = cClass.getPropertiesMap().get("propertyInt");
-    assertEquals(PropertyType.INTEGER, property.getType());
+    assertEquals(PropertyTypeInternal.INTEGER, property.getType());
 
     property = cClass.getProperty("propertyDouble");
-    assertEquals(PropertyType.DOUBLE, property.getType());
+    assertEquals(PropertyTypeInternal.DOUBLE, property.getType());
     property = cClass.getPropertiesMap().get("propertyDouble");
-    assertEquals(PropertyType.DOUBLE, property.getType());
+    assertEquals(PropertyTypeInternal.DOUBLE, property.getType());
   }
 
   @Test
@@ -104,22 +106,20 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
   public void testParametersImpactGoodScenario() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var aClass = oSchema.createAbstractClass("impactGoodA");
-    aClass.createProperty("property", PropertyType.STRING);
+    aClass.createProperty("property", PropertyTypeInternal.STRING);
     var bClass = oSchema.createAbstractClass("impactGoodB");
-    bClass.createProperty("property", PropertyType.STRING);
+    bClass.createProperty("property", PropertyTypeInternal.STRING);
     var cClass = oSchema.createAbstractClass("impactGoodC", aClass, bClass);
     assertTrue(cClass.existsProperty("property"));
   }
 
-  @Test(
-      expected = SchemaException.class)
-  // }, expectedExceptionsMessageRegExp = "(?s).*conflict.*")
+  @Test(expected = SchemaException.class)
   public void testParametersImpactBadScenario() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var aClass = oSchema.createAbstractClass("impactBadA");
-    aClass.createProperty("property", PropertyType.STRING);
+    aClass.createProperty("property", PropertyTypeInternal.STRING);
     var bClass = oSchema.createAbstractClass("impactBadB");
-    bClass.createProperty("property", PropertyType.INTEGER);
+    bClass.createProperty("property", PropertyTypeInternal.INTEGER);
     oSchema.createAbstractClass("impactBadC", aClass, bClass);
   }
 

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -9,9 +10,11 @@ public class SQLFunctionIndexKeySizeTest extends DbTestBase {
 
   @Test
   public void test() {
-    var clazz = session.getMetadata().getSlowMutableSchema().createClass("Test");
-    clazz.createProperty("name", PropertyType.STRING);
-    session.execute("create index testindex on  Test (name) notunique").close();
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Test").
+            addSchemaProperty("name", PropertyType.STRING).
+            addPropertyIndex("testindex", IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     session.execute("insert into Test set name = 'a'").close();

@@ -36,10 +36,12 @@ public class NestedInsertTest extends DbTestBase {
 
   @Test
   public void testLinkedNested() {
-    Schema schm = session.getMetadata().getSlowMutableSchema();
-    var cl = schm.createClass("myClass");
-    var linked = schm.createClass("Linked");
-    cl.createProperty("some", PropertyType.LINK, linked);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("myClass").
+            addSchemaClass("Linked").
+            schemaClass("myClass")
+            .addSchemaProperty("some", PropertyType.LINK, "Linked")
+    );
 
     session.begin();
     var result =
