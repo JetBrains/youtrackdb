@@ -110,6 +110,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     return operationUnitId;
   }
 
+  @Override
+  public FileHandler loadFileHandler(long fileId) {
+    return readCache.loadFileHandler(fileId);
+  }
+
   @Nullable
   @Override
   public CacheEntry loadPageForWrite(
