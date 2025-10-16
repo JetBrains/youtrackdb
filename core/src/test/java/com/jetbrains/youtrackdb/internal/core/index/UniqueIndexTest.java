@@ -6,28 +6,31 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.common.util.Triple;
+import com.jetbrains.youtrackdb.internal.common.util.RawTriple;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class UniqueIndexTest extends DbTestBase {
+
   @Test
   public void compositeIndexWithEdgesTestOne() {
-    graph.autoExecuteInTx(g -> g.addAbstractSchemaClass("Link").addParentClass("E"));
-    var linkClass = session.createLightweightEdgeClass("Link");
+    var entityClass = "Entity";
+    var linkClass = "Link";
 
-    var entityClass = session.createVertexClass("Entity");
-    var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
-
-    entityClass.createProperty("type", PropertyType.STRING);
-    entityClass.createIndex("typeLink", IndexType.UNIQUE, "type",
-        edgeOutPropertyName);
+    graph.executeInTx(g -> {
+          var traversal = g.addAbstractSchemaClass(linkClass).addParentClass("E")
+              .addSchemaClass(entityClass);
+          var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
+          traversal.addSchemaProperty(edgeOutPropertyName, PropertyType.LINKBAG)
+              .addPropertyIndex("typeLink", IndexType.UNIQUE);
+          traversal.addSchemaProperty("type", PropertyType.STRING);
+          traversal.iterate();
+        }
+    );
 
     session.begin();
     var firstEntity = session.newVertex(entityClass);
@@ -58,15 +61,18 @@ public class UniqueIndexTest extends DbTestBase {
 
   @Test
   public void compositeIndexWithEdgesTestTwo() {
-    var linkClass = session.createLightweightEdgeClass("Link");
+    var linkClass = "Link";
+    var entityClass = "Entity";
 
-    var entityClass = session.createVertexClass("Entity");
-    var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
-
-    entityClass.createProperty("type", PropertyType.STRING);
-    entityClass.createIndex("typeLink", IndexType.UNIQUE, "type",
-        edgeOutPropertyName);
+    graph.executeInTx(g -> {
+          var traversal = g.addAbstractSchemaClass(linkClass).addParentClass("E")
+              .addSchemaClass(entityClass);
+          var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
+          traversal.addSchemaProperty(edgeOutPropertyName, PropertyType.LINKBAG)
+              .addPropertyIndex("typeLink", IndexType.UNIQUE);
+          traversal.iterate();
+        }
+    );
 
     session.begin();
     var firstEntity = session.newVertex(entityClass);
@@ -86,15 +92,18 @@ public class UniqueIndexTest extends DbTestBase {
 
   @Test
   public void compositeIndexWithEdgesTestThree() {
-    var linkClass = session.createLightweightEdgeClass("Link");
+    var linkClass = "Link";
+    var entityClass = "Entity";
 
-    var entityClass = session.createVertexClass("Entity");
-    var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
-    entityClass.createProperty(edgeOutPropertyName, PropertyType.LINKBAG);
-
-    entityClass.createProperty("type", PropertyType.STRING);
-    entityClass.createIndex("typeLink", IndexType.UNIQUE, "type",
-        edgeOutPropertyName);
+    graph.executeInTx(g -> {
+          var traversal = g.addAbstractSchemaClass(linkClass).addParentClass("E")
+              .addSchemaClass(entityClass);
+          var edgeOutPropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "Link");
+          traversal.addSchemaProperty(edgeOutPropertyName, PropertyType.LINKBAG)
+              .addPropertyIndex("typeLink", IndexType.UNIQUE);
+          traversal.iterate();
+        }
+    );
 
     session.begin();
     var firstEntity = session.newVertex(entityClass);
@@ -113,10 +122,11 @@ public class UniqueIndexTest extends DbTestBase {
 
   @Test()
   public void testUniqueOnUpdate() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var userClass = schema.createClass("User");
-    userClass.createProperty("MailAddress", PropertyType.STRING)
-        .createIndex(IndexType.UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("User").
+            addSchemaProperty("MailAddress", PropertyType.STRING).
+            addPropertyIndex(IndexType.UNIQUE)
+    );
 
     session.begin();
     var john = (EntityImpl) session.newEntity("User");
@@ -141,16 +151,16 @@ public class UniqueIndexTest extends DbTestBase {
     }
     session.begin();
     EntityImpl fromDb = session.load(id.getIdentity());
-    Assert.assertEquals(fromDb.getProperty("MailAddress"), "jane@doe.com");
+    Assert.assertEquals("jane@doe.com", fromDb.getProperty("MailAddress"));
     session.commit();
   }
 
   @Test
   public void testUniqueOnUpdateNegativeVersion() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var userClass = schema.createClass("User");
-    userClass.createProperty("MailAddress", PropertyType.STRING)
-        .createIndex(IndexType.UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("User").
+            addSchemaProperty("MailAddress", PropertyType.STRING).
+            addPropertyIndex(IndexType.UNIQUE));
 
     session.begin();
     var jane = (EntityImpl) session.newEntity("User");
@@ -184,20 +194,19 @@ public class UniqueIndexTest extends DbTestBase {
 
     session.begin();
     final var result = session.query("select from User where MailAddress = 'john@doe.com'");
-    Assert.assertEquals(result.stream().count(), 1);
+    Assert.assertEquals(1, result.stream().count());
     session.commit();
   }
 
   @Test
   public void uniqueIndexOnLinkBag() {
-    final var schema = session.getMetadata().getSlowMutableSchema();
-    final var bClass = schema.createClass("bClass_" + UniqueIndexTest.class.getSimpleName());
-    final var aClass = schema.createClass("aClass_" + UniqueIndexTest.class.getSimpleName());
-    aClass.createProperty("bLinks", PropertyType.LINKBAG, bClass);
+    var bClass = "bClass_" + UniqueIndexTest.class.getSimpleName();
+    var aClass = "aClass_" + UniqueIndexTest.class.getSimpleName();
 
-    // a unique index on the LINKBAG property
-    aClass.createIndex(
-        "unique_index_123", IndexType.UNIQUE, "bLinks"
+    graph.autoExecuteInTx(g -> g.addSchemaClass(bClass).
+        addSchemaClass(aClass).
+        addSchemaProperty("bLinks", PropertyType.LINKBAG, bClass).
+        addPropertyIndex("unique_index_123", IndexType.UNIQUE)
     );
 
     // 2 entities with different "bLinks" fields.
@@ -211,14 +220,14 @@ public class UniqueIndexTest extends DbTestBase {
       bag1.add(b.getIdentity());
       a1.setProperty("bLinks", bag1);
 
-      return new Triple<>(b.getIdentity(), a1.getIdentity(), a2.getIdentity());
+      return new RawTriple<>(b.getIdentity(), a1.getIdentity(), a2.getIdentity());
     });
 
     // removing link from a1, adding it to a2
     session.executeInTx(tx -> {
-      final var b = tx.loadEntity(ids.key);
-      final var a1 = tx.loadEntity(ids.value.key);
-      final var a2 = tx.loadEntity(ids.value.value);
+      final var b = tx.loadEntity(ids.first());
+      final var a1 = tx.loadEntity(ids.second());
+      final var a2 = tx.loadEntity(ids.third());
 
       final var bag2 = new LinkBag((DatabaseSessionInternal) tx.getDatabaseSession());
       bag2.add(b.getIdentity());

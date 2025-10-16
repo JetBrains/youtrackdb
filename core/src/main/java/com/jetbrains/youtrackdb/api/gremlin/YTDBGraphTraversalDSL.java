@@ -80,6 +80,15 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return ytdbGraphTraversal.addParentClass(__.schemaClass(parentClass));
   }
 
+  default GraphTraversal<S, Vertex> removeParentClass(String parentClass) {
+    @SuppressWarnings("unchecked")
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+
+    var currentSchemaClass = "currentSchemaClass";
+    return ytdbGraphTraversal.as(currentSchemaClass).out(YTDBSchemaClassOutToken.parentClass)
+        .has(YTDBSchemaClassPToken.name, parentClass).drop().select(currentSchemaClass);
+  }
+
   default GraphTraversal<S, Vertex> addParentClass(String... parentClass) {
     @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
@@ -521,6 +530,20 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return ytdbGraphTraversal.values(YTDBSchemaClassPToken.abstractClass);
   }
 
+  default GraphTraversal<S, Vertex> makeClassAbstract() {
+    @SuppressWarnings("unchecked")
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+
+    return ytdbGraphTraversal.property(YTDBSchemaClassPToken.abstractClass, true);
+  }
+
+  default GraphTraversal<S, Vertex> makeClassConcrete() {
+    @SuppressWarnings("unchecked")
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
+
+    return ytdbGraphTraversal.property(YTDBSchemaClassPToken.abstractClass, false);
+  }
+
   default GraphTraversal<S, Boolean> isClassInStrictMode() {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.values(YTDBSchemaClassPToken.strictMode);
@@ -592,6 +615,15 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
 
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.has(propertyKey, traversal);
+  }
+
+  @SkipAsAnonymousMethod
+  default GraphTraversal<S, E> has(final YTDBPToken<?> pToken,
+      final String value) {
+    var propertyKey = pToken.name();
+
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    return ytdbGraphTraversal.has(propertyKey, value);
   }
 
   default GraphTraversal<S, Edge> addE(final YTDBOutToken<?> out) {

@@ -37,7 +37,11 @@ public class CreateLightWeightEdgesSQLTest {
             "admin",
             CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    session.getSchema().createLightweightEdgeClass("lightweight");
+    try (var graph = youTrackDB.openGraph(CreateLightWeightEdgesSQLTest.class.getSimpleName(),
+        "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+      graph.autoExecuteInTx(g -> g.addAbstractSchemaClass("lightweight").addParentClass("E"));
+    }
 
     var tx = session.begin();
     tx.command("create vertex v set name='a' ");
@@ -67,7 +71,11 @@ public class CreateLightWeightEdgesSQLTest {
 
     var session = pool.acquire();
 
-    session.getSchema().createLightweightEdgeClass("lightweight");
+    try (var graph = youTrackDB.openGraph(CreateLightWeightEdgesSQLTest.class.getSimpleName(),
+        "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
+      graph.autoExecuteInTx(g -> g.addAbstractSchemaClass("lightweight").addParentClass("E"));
+    }
 
     var tx = session.begin();
     tx.command("create vertex v set id = 1 ");

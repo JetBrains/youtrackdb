@@ -22,27 +22,22 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
 
-/**
- *
- */
+
 public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
 
-  private Index index;
-
+  @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
-    final var class_ = session.getMetadata().getSlowMutableSchema().createClass("Person");
-    var indexName =
-        class_
-            .createProperty("name", PropertyType.STRING)
-            .createIndex(IndexType.UNIQUE);
-    index = session.getIndex(indexName);
+    graph.autoExecuteInTx(
+        g -> g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING)
+            .addPropertyIndex(IndexType.UNIQUE));
+
   }
 
   @Test
@@ -77,8 +72,10 @@ public class DuplicateUniqueIndexChangesTxTest extends DbTestBase {
   }
 
   private EntityImpl fetchDocumentFromIndex(String o) {
-    try (var stream = index.getRids(session, o)) {
-      return (EntityImpl) stream.findFirst().map(rid -> {
+    try (var iterator = session.getMetadata().getFastImmutableSchemaSnapshot()
+        .getIndex("Person.name")
+        .getRids(session, o)) {
+      return (EntityImpl) YTDBIteratorUtils.findFirst(iterator).map(rid -> {
         var transaction = session.getActiveTransaction();
         return transaction.load(rid);
       }).orElse(null);
