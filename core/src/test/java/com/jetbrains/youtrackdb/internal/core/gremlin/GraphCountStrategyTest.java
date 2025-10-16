@@ -81,7 +81,7 @@ public class GraphCountStrategyTest extends GraphBaseTest {
 
   @Test
   public void shouldUseGlobalCountStepWithCustomClass() {
-    session.getSchema().createVertexClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
     var traversal = graph.traversal();
 
     var admin = traversal.V().hasLabel("Person").count().asAdmin();

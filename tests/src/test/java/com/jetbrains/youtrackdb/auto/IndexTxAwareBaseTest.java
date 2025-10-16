@@ -5,9 +5,9 @@ import static org.testng.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
@@ -41,10 +41,10 @@ public abstract class IndexTxAwareBaseTest extends BaseDBTest {
     super.beforeClass();
 
     final var cls = session.getMetadata().getSlowMutableSchema().createClass(className);
-    cls.createProperty(fieldName, PropertyType.INTEGER);
+    cls.createProperty(fieldName, PropertyTypeInternal.INTEGER);
     cls.createIndex(
         indexName,
-        unique ? INDEX_TYPE.UNIQUE : INDEX_TYPE.NOTUNIQUE,
+        unique ? IndexType.UNIQUE : IndexType.NOT_UNIQUE,
         fieldName
     );
   }
@@ -52,7 +52,7 @@ public abstract class IndexTxAwareBaseTest extends BaseDBTest {
   @Override
   @AfterMethod
   public void afterMethod() throws Exception {
-    session.getMetadata().getSlowMutableSchema().getClassInternal(className).truncate();
+    session.getMetadata().getSlowMutableSchema().getClass(className).truncate();
     super.afterMethod();
   }
 
@@ -60,7 +60,7 @@ public abstract class IndexTxAwareBaseTest extends BaseDBTest {
   @BeforeMethod
   public void beforeMethod() throws Exception {
     super.beforeMethod();
-    index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(indexName);
   }
 
   protected EntityImpl newDoc(int fieldValue) {

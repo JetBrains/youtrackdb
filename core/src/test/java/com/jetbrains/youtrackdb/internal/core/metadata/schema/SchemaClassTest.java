@@ -15,7 +15,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 import org.junit.Test;
 
-public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
+public class SchemaClassTest extends BaseMemoryInternalDatabase {
 
   /**
    * If class was not abstract and we call {@code setAbstract(false)} collections should not be
@@ -54,7 +54,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
 
     var oClass = oSchema.createClass("Test21");
-    oClass.createProperty("some", PropertyType.LINKLIST, (SchemaClass) null);
+    oClass.createProperty("some", PropertyTypeInternal.LINKLIST, (SchemaClass) null);
     oClass.createProperty("some2", PropertyTypeInternal.LINKLIST, (SchemaClass) null);
 
     assertNotNull(oClass.getProperty("some"));
@@ -72,7 +72,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
           document.setProperty("some", "String");
         });
 
-    oClass.createProperty("some", PropertyType.INTEGER);
+    oClass.createProperty("some", PropertyTypeInternal.INTEGER);
   }
 
   @Test(expected = SchemaException.class)
@@ -88,7 +88,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
           entity.setLinkList("some", list);
         });
 
-    oClass.createProperty("some", PropertyType.EMBEDDEDLIST);
+    oClass.createProperty("some", PropertyTypeInternal.EMBEDDEDLIST);
   }
 
   @Test(expected = SchemaException.class)
@@ -104,7 +104,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
           entity.setLinkSet("somelinkset", set);
         });
 
-    oClass.createProperty("somelinkset", PropertyType.EMBEDDEDSET);
+    oClass.createProperty("somelinkset", PropertyTypeInternal.EMBEDDEDSET);
   }
 
   @Test(expected = SchemaException.class)
@@ -121,7 +121,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
           entity.setEmbeddedSet("someembededset", list);
         });
 
-    oClass.createProperty("someembededset", PropertyType.LINKSET);
+    oClass.createProperty("someembededset", PropertyTypeInternal.LINKSET);
   }
 
   @Test(expected = SchemaException.class)
@@ -137,7 +137,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
           entity.setEmbeddedList("someembeddedlist", list);
         });
 
-    oClass.createProperty("someembeddedlist", PropertyType.LINKLIST);
+    oClass.createProperty("someembeddedlist", PropertyTypeInternal.LINKLIST);
   }
 
   @Test(expected = SchemaException.class)
@@ -154,7 +154,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
           entity.setEmbeddedMap("someembededmap", map);
         });
 
-    oClass.createProperty("someembededmap", PropertyType.LINKMAP);
+    oClass.createProperty("someembededmap", PropertyTypeInternal.LINKMAP);
   }
 
   @Test(expected = SchemaException.class)
@@ -171,7 +171,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
           entity.setLinkMap("somelinkmap", map);
         });
 
-    oClass.createProperty("somelinkmap", PropertyType.EMBEDDEDMAP);
+    oClass.createProperty("somelinkmap", PropertyTypeInternal.EMBEDDEDMAP);
   }
 
   @Test
@@ -193,12 +193,12 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
               return document.getIdentity();
             });
 
-    oClass.createProperty("test1", PropertyType.INTEGER);
-    oClass.createProperty("test2", PropertyType.LONG);
-    oClass.createProperty("test3", PropertyType.DOUBLE);
-    oClass.createProperty("test4", PropertyType.DOUBLE);
-    oClass.createProperty("test5", PropertyType.DECIMAL);
-    oClass.createProperty("test6", PropertyType.FLOAT);
+    oClass.createProperty("test1", PropertyTypeInternal.INTEGER);
+    oClass.createProperty("test2", PropertyTypeInternal.LONG);
+    oClass.createProperty("test3", PropertyTypeInternal.DOUBLE);
+    oClass.createProperty("test4", PropertyTypeInternal.DOUBLE);
+    oClass.createProperty("test5", PropertyTypeInternal.DECIMAL);
+    oClass.createProperty("test6", PropertyTypeInternal.FLOAT);
 
     session.begin();
     EntityImpl doc1 = session.load(rid);
@@ -235,12 +235,12 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
               return entity.getIdentity();
             });
 
-    oClass.createProperty("test1", PropertyType.LINKLIST);
-    oClass.createProperty("test2", PropertyType.EMBEDDEDLIST);
-    oClass.createProperty("test3", PropertyType.LINKSET);
-    oClass.createProperty("test4", PropertyType.EMBEDDEDSET);
-    oClass.createProperty("test5", PropertyType.LINKMAP);
-    oClass.createProperty("test6", PropertyType.EMBEDDEDMAP);
+    oClass.createProperty("test1", PropertyTypeInternal.LINKLIST);
+    oClass.createProperty("test2", PropertyTypeInternal.EMBEDDEDLIST);
+    oClass.createProperty("test3", PropertyTypeInternal.LINKSET);
+    oClass.createProperty("test4", PropertyTypeInternal.EMBEDDEDSET);
+    oClass.createProperty("test5", PropertyTypeInternal.LINKMAP);
+    oClass.createProperty("test6", PropertyTypeInternal.EMBEDDEDMAP);
 
     session.begin();
     EntityImpl doc1 = session.load(rid);
@@ -257,10 +257,10 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
   public void testCreatePropertyIdKeep() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test12");
-    var prop = oClass.createProperty("test2", PropertyType.STRING);
+    var prop = oClass.createProperty("test2", PropertyTypeInternal.STRING);
     var id = prop.getId();
     oClass.dropProperty("test2");
-    prop = oClass.createProperty("test2", PropertyType.STRING);
+    prop = oClass.createProperty("test2", PropertyTypeInternal.STRING);
     assertEquals(id, prop.getId());
   }
 
@@ -268,7 +268,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
   public void testRenameProperty() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test13");
-    var prop = oClass.createProperty("test1", PropertyType.STRING);
+    var prop = oClass.createProperty("test1", PropertyTypeInternal.STRING);
     var id = prop.getId();
     prop.setName("test2");
     assertNotEquals(id, prop.getId());
@@ -278,9 +278,9 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
   public void testChangeTypeProperty() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test14");
-    var prop = oClass.createProperty("test1", PropertyType.SHORT);
+    var prop = oClass.createProperty("test1", PropertyTypeInternal.SHORT);
     var id = prop.getId();
-    prop.setType(PropertyType.INTEGER);
+    prop.setType(PropertyTypeInternal.INTEGER);
     assertNotEquals(id, prop.getId());
   }
 
@@ -288,7 +288,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
   public void testRenameBackProperty() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test15");
-    var prop = oClass.createProperty("test1", PropertyType.STRING);
+    var prop = oClass.createProperty("test1", PropertyTypeInternal.STRING);
     var id = prop.getId();
     prop.setName("test2");
     assertNotEquals(id, prop.getId());
@@ -300,15 +300,15 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
   public void testSetUncastableType() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test16");
-    var prop = oClass.createProperty("test1", PropertyType.STRING);
-    prop.setType(PropertyType.INTEGER);
+    var prop = oClass.createProperty("test1", PropertyTypeInternal.STRING);
+    prop.setType(PropertyTypeInternal.INTEGER);
   }
 
   @Test
   public void testFindById() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test17");
-    var prop = oClass.createProperty("testaaa", PropertyType.STRING);
+    var prop = oClass.createProperty("testaaa", PropertyTypeInternal.STRING);
     var global = oSchema.getGlobalPropertyById(prop.getId());
 
     assertEquals(prop.getId(), global.getId());
@@ -320,7 +320,7 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
   public void testFindByIdDrop() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test18");
-    var prop = oClass.createProperty("testaaa", PropertyType.STRING);
+    var prop = oClass.createProperty("testaaa", PropertyTypeInternal.STRING);
     var id = prop.getId();
     oClass.dropProperty("testaaa");
     var global = oSchema.getGlobalPropertyById(id);
@@ -335,12 +335,12 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test19");
 
-    oClass.createProperty("test1", PropertyType.SHORT);
-    oClass.createProperty("test2", PropertyType.INTEGER);
-    oClass.createProperty("test3", PropertyType.LONG);
-    oClass.createProperty("test4", PropertyType.FLOAT);
-    oClass.createProperty("test5", PropertyType.DOUBLE);
-    oClass.createProperty("test6", PropertyType.INTEGER);
+    oClass.createProperty("test1", PropertyTypeInternal.SHORT);
+    oClass.createProperty("test2", PropertyTypeInternal.INTEGER);
+    oClass.createProperty("test3", PropertyTypeInternal.LONG);
+    oClass.createProperty("test4", PropertyTypeInternal.FLOAT);
+    oClass.createProperty("test5", PropertyTypeInternal.DOUBLE);
+    oClass.createProperty("test6", PropertyTypeInternal.INTEGER);
 
     var rid =
         session.computeInTx(
@@ -356,12 +356,12 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
               return document.getIdentity();
             });
 
-    oClass.getProperty("test1").setType(PropertyType.INTEGER);
-    oClass.getProperty("test2").setType(PropertyType.LONG);
-    oClass.getProperty("test3").setType(PropertyType.DOUBLE);
-    oClass.getProperty("test4").setType(PropertyType.DOUBLE);
-    oClass.getProperty("test5").setType(PropertyType.DECIMAL);
-    oClass.getProperty("test6").setType(PropertyType.FLOAT);
+    oClass.getProperty("test1").setType(PropertyTypeInternal.INTEGER);
+    oClass.getProperty("test2").setType(PropertyTypeInternal.LONG);
+    oClass.getProperty("test3").setType(PropertyTypeInternal.DOUBLE);
+    oClass.getProperty("test4").setType(PropertyTypeInternal.DOUBLE);
+    oClass.getProperty("test5").setType(PropertyTypeInternal.DECIMAL);
+    oClass.getProperty("test6").setType(PropertyTypeInternal.FLOAT);
 
     session.begin();
     EntityImpl doc1 = session.load(rid);
@@ -385,12 +385,12 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var oClass = oSchema.createClass("Test20");
 
-    oClass.createProperty("test1", PropertyType.SHORT);
-    oClass.createProperty("test2", PropertyType.INTEGER);
-    oClass.createProperty("test3", PropertyType.LONG);
-    oClass.createProperty("test4", PropertyType.FLOAT);
-    oClass.createProperty("test5", PropertyType.DOUBLE);
-    oClass.createProperty("test6", PropertyType.INTEGER);
+    oClass.createProperty("test1", PropertyTypeInternal.SHORT);
+    oClass.createProperty("test2", PropertyTypeInternal.INTEGER);
+    oClass.createProperty("test3", PropertyTypeInternal.LONG);
+    oClass.createProperty("test4", PropertyTypeInternal.FLOAT);
+    oClass.createProperty("test5", PropertyTypeInternal.DOUBLE);
+    oClass.createProperty("test6", PropertyTypeInternal.INTEGER);
 
     var rid =
         session.computeInTx(
@@ -449,12 +449,12 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
               return entity.getIdentity();
             });
 
-    oClass.createProperty("test1", PropertyType.LINKLIST);
-    oClass.createProperty("test2", PropertyType.EMBEDDEDLIST);
-    oClass.createProperty("test3", PropertyType.LINKSET);
-    oClass.createProperty("test4", PropertyType.EMBEDDEDSET);
-    oClass.createProperty("test5", PropertyType.LINKMAP);
-    oClass.createProperty("test6", PropertyType.EMBEDDEDMAP);
+    oClass.createProperty("test1", PropertyTypeInternal.LINKLIST);
+    oClass.createProperty("test2", PropertyTypeInternal.EMBEDDEDLIST);
+    oClass.createProperty("test3", PropertyTypeInternal.LINKSET);
+    oClass.createProperty("test4", PropertyTypeInternal.EMBEDDEDSET);
+    oClass.createProperty("test5", PropertyTypeInternal.LINKMAP);
+    oClass.createProperty("test6", PropertyTypeInternal.EMBEDDEDMAP);
 
     try (var sessionCopy = session.copy()) {
       sessionCopy.executeInTx(transaction -> {
@@ -515,10 +515,10 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
   public void testCreateVertexLinkProperty() {
     final Schema oSchema = session.getMetadata().getSlowMutableSchema();
     var vertexClass =
-        oSchema.createVertexClass("MyVertex" + SchemaClassSharedTest.class.getSimpleName());
+        oSchema.createVertexClass("MyVertex" + SchemaClassTest.class.getSimpleName());
 
     var edgeClass =
-        oSchema.createEdgeClass("MyEdge" + SchemaClassSharedTest.class.getSimpleName());
+        oSchema.createEdgeClass("MyEdge" + SchemaClassTest.class.getSimpleName());
 
     // creating edge
     session.executeInTx(tx -> {
@@ -529,6 +529,6 @@ public class SchemaClassSharedTest extends BaseMemoryInternalDatabase {
     });
 
     final var propName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClass.getName());
-    vertexClass.createProperty(propName, PropertyType.LINKBAG);
+    vertexClass.createProperty(propName, PropertyTypeInternal.LINKBAG);
   }
 }

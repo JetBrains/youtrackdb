@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.Assert;
@@ -15,26 +14,14 @@ public class ClassIteratorTest extends DbTestBase {
 
   private Set<String> names;
 
-  private void createPerson(final String iClassName, final String first) {
-    // Create Person document
-    session.begin();
-    final var personDoc = session.newInstance(iClassName);
-    personDoc.setProperty("First", first);
-    session.commit();
-  }
-
   public void beforeTest() throws Exception {
     super.beforeTest();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-
-    // Create Person class
-    final var personClass = schema.createClass("Person");
-    personClass
-        .createProperty("First", PropertyType.STRING)
-        .setMandatory(true)
-        .setNotNull(true)
-        .setMin("1");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Person").
+            addSchemaProperty("First", PropertyType.STRING).mandatoryAttr(true).
+            readOnlyAttr(true).minAttr("1")
+    );
 
     // Insert some data
     names = new HashSet<String>();
@@ -44,7 +31,11 @@ public class ClassIteratorTest extends DbTestBase {
     names.add("Daniel");
 
     for (var name : names) {
-      createPerson("Person", name);
+      // Create Person document
+      session.begin();
+      final var personDoc = session.newInstance("Person");
+      personDoc.setProperty("First", name);
+      session.commit();
     }
   }
 
@@ -55,7 +46,11 @@ public class ClassIteratorTest extends DbTestBase {
     // empty old collection but keep it attached
     personClass.truncate();
     for (var name : names) {
-      createPerson("Person", name);
+      // Create Person document
+      session.begin();
+      final var personDoc = session.newInstance("Person");
+      personDoc.setProperty("First", name);
+      session.commit();
     }
 
     // Use descending class iterator.
@@ -74,7 +69,11 @@ public class ClassIteratorTest extends DbTestBase {
   public void testMultipleCollections() throws Exception {
     session.getMetadata().getSlowMutableSchema().createClass("PersonMultipleCollections");
     for (var name : names) {
-      createPerson("PersonMultipleCollections", name);
+      // Create Person document
+      session.begin();
+      final var personDoc = session.newInstance("PersonMultipleCollections");
+      personDoc.setProperty("First", name);
+      session.commit();
     }
 
     final var personIter = new RecordIteratorClass(session, "PersonMultipleCollections", true, true);

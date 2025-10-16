@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -18,6 +19,7 @@ public class RevokeStatementExecutionTest {
 
   static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded session;
+  private YTDBGraph graph;
 
   @BeforeClass
   public static void beforeClass() {
@@ -35,11 +37,14 @@ public class RevokeStatementExecutionTest {
     CreateDatabaseUtil.createDatabase("test", youTrackDB, CreateDatabaseUtil.TYPE_MEMORY);
     this.session = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+    graph = youTrackDB.openGraph("test", "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
   }
 
   @After
   public void after() {
     this.session.close();
+    graph.close();
     youTrackDB.drop("test");
     this.session = null;
   }
@@ -75,7 +80,7 @@ public class RevokeStatementExecutionTest {
   public void testRemovePolicy() {
     var security = session.getSharedContext().getSecurity();
 
-    session.createClass("Person");
+    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "testPolicy");

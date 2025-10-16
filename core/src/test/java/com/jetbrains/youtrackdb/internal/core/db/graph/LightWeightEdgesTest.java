@@ -3,19 +3,18 @@ package com.jetbrains.youtrackdb.internal.core.db.graph;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
-import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 public class LightWeightEdgesTest {
-
   private YouTrackDBImpl youTrackDB;
-  private DatabaseSession session;
+  private DatabaseSessionEmbedded session;
 
   @Before
   public void before() {
@@ -23,10 +22,14 @@ public class LightWeightEdgesTest {
         (YouTrackDBImpl) CreateDatabaseUtil.createDatabase("test",
             DbTestBase.embeddedDBUrl(getClass()),
             CreateDatabaseUtil.TYPE_MEMORY);
-    session = youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    session.getSchema().createVertexClass("Vertex");
-    session.getSchema().createLightweightEdgeClass("Edge");
+    session = (DatabaseSessionEmbedded) youTrackDB.open("test", "admin",
+        CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
+
+    var schema = session.getMetadata().getSlowMutableSchema();
+
+    schema.createVertexClass("Vertex");
+    schema.createLightweightEdgeClass("Edge");
   }
 
   @Test
@@ -44,28 +47,29 @@ public class LightWeightEdgesTest {
         tx.query(" select expand(out('Edge')) from `Vertex` where name = 'aName'")) {
       assertTrue(res.hasNext());
       var r = res.next();
-      assertEquals(r.getProperty("name"), "bName");
+      assertEquals("bName", r.getProperty("name"));
     }
 
     try (var res =
         tx.query(" select expand(in('Edge')) from `Vertex` where name = 'bName'")) {
       assertTrue(res.hasNext());
       var r = res.next();
-      assertEquals(r.getProperty("name"), "aName");
+      assertEquals("aName", r.getProperty("name"));
     }
     tx.commit();
   }
 
   @Test
   public void testRegularBySchema() {
+    var schema = session.getMetadata().getSlowMutableSchema();
     var vClazz = "VtestRegularBySchema";
-    var vClass = session.getSchema().createVertexClass(vClazz);
+    var vClass = schema.createVertexClass(vClazz);
 
     var eClazz = "EtestRegularBySchema";
-    var eClass = session.getSchema().createEdgeClass(eClazz);
+    var eClass = schema.createEdgeClass(eClazz);
 
-    vClass.createProperty("out_" + eClazz, PropertyType.LINKBAG, eClass);
-    vClass.createProperty("in_" + eClazz, PropertyType.LINKBAG, eClass);
+    vClass.createProperty("out_" + eClazz, PropertyTypeInternal.LINKBAG, eClass);
+    vClass.createProperty("in_" + eClazz, PropertyTypeInternal.LINKBAG, eClass);
 
     var tx = session.begin();
     var v = tx.newVertex(vClass);

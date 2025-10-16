@@ -40,10 +40,10 @@ public class CheckSafeDeleteStepTest extends TestUtilsFixture {
   public void shouldNotDeleteVertexAndEdge() {
     switch (className) {
       case VERTEX_CLASS_NAME:
-        session.createVertexClass(VERTEX_CLASS_NAME);
+        session.getMetadata().getSlowMutableSchema().createVertexClass(VERTEX_CLASS_NAME);
         break;
       case EDGE_CLASS_NAME:
-        session.createEdgeClass(EDGE_CLASS_NAME);
+        session.getMetadata().getSlowMutableSchema().createEdgeClass(EDGE_CLASS_NAME);
         break;
     }
 

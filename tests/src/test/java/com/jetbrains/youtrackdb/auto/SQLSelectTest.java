@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;

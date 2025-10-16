@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.server.handler;
 
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.parser.SystemVariableResolver;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.server.YouTrackDBServer;
@@ -38,7 +38,7 @@ public class AutomaticBackupTest {
   private static String URL;
   private static String URL2;
   private final String tempDirectory;
-  private DatabaseSession db;
+  private DatabaseSessionEmbedded db;
   private final YouTrackDBServer server;
 
   public AutomaticBackupTest() throws IllegalArgumentException, SecurityException {
@@ -102,7 +102,7 @@ public class AutomaticBackupTest {
         .execute("create database ? disk users (admin identified by 'admin' role admin)", DBNAME);
     db = server.getDatabases().openNoAuthorization(DBNAME);
 
-    db.getSchema().createClass("TestBackup");
+    db.getMetadata().getSlowMutableSchema().createClass("TestBackup");
     var tx = db.begin();
     tx.newEntity("TestBackup").setProperty("name", DBNAME);
 
