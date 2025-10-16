@@ -753,8 +753,8 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
             .toList();
     assertEquals(4, descFilteredResult.size());
     assertEquals(
-        descResult.stream().sorted(Comparator.reverseOrder()).toList(),
-        descResult
+        descFilteredResult.stream().sorted(Comparator.reverseOrder()).toList(),
+        descFilteredResult
     );
   }
 
