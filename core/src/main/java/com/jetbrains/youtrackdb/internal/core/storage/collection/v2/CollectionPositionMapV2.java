@@ -601,7 +601,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   ///            it probably will make sense to use some container types, as arrays or collections.
   interface PositionResultBuilder<T> {
 
-    /// Return emtpy result.
+    /// Return empty result.
     T emptyResult();
 
     /// Construct a new result of size `size`.

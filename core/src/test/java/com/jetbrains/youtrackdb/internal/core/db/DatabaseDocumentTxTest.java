@@ -375,8 +375,6 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     }
 
     assertEquals(m, i);
-
-    System.out.println();
   }
 
   @Test
@@ -409,8 +407,6 @@ public class DatabaseDocumentTxTest extends DbTestBase {
     }
 
     assertEquals(m, i);
-
-    System.out.println();
   }
 
   @Test

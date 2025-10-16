@@ -32,7 +32,7 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 /// Iterator that browses records from a specific collection ordered by RID (either ascending or
-/// descending). It handles both new (not yet committed, with negative RID positions) and exising
+/// descending). It handles both new (not yet committed, with negative RID positions) and existing
 /// records.
 public class RecordIteratorCollection<REC extends RecordAbstract>
     implements Iterator<REC>, AutoCloseable {
