@@ -49,8 +49,10 @@ public class RecordIteratorCollections<REC extends RecordAbstract>
   private final int[] collectionIds;
 
   public RecordIteratorCollections(
-      @Nonnull final DatabaseSessionInternal session, final int[] iCollectionIds,
+      @Nonnull final DatabaseSessionInternal session,
+      final int[] iCollectionIds,
       boolean forwardDirection) {
+    RecordIteratorUtil.checkCollectionsAccess(session, iCollectionIds);
     this.session = session;
 
     collectionIds = iCollectionIds.clone();
@@ -65,7 +67,7 @@ public class RecordIteratorCollections<REC extends RecordAbstract>
 
     for (var i = 0; i < collectionIds.length; ++i) {
       collectionIterators[i] =
-          new RecordIteratorCollection<>(session, collectionIds[i], forwardDirection);
+          new RecordIteratorCollection<>(session, collectionIds[i], forwardDirection, false);
     }
 
     currentCollectionIterator = collectionIterators[collectionIndex];

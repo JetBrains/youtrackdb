@@ -53,6 +53,17 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
       int collectionId,
       boolean forwardDirection
   ) {
+    this(session, collectionId, forwardDirection, true);
+  }
+  public RecordIteratorCollection(
+      DatabaseSessionInternal session,
+      int collectionId,
+      boolean forwardDirection,
+      boolean checkAccess
+  ) {
+    if (checkAccess) {
+      RecordIteratorUtil.checkCollectionAccess(session, collectionId);
+    }
     this.session = session;
     this.collectionId = collectionId;
     this.forwardDirection = forwardDirection;
