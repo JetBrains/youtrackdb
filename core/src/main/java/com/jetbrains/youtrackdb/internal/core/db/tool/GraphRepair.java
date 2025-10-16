@@ -110,7 +110,7 @@ public class GraphRepair {
     session.executeInTx(
         transaction -> {
           final var metadata = session.getMetadata();
-          final var schema = metadata.getFastImmutableSchema();
+          final var schema = metadata.getFastImmutableSchemaSnapshot();
 
           final var useVertexFieldsForEdgeLabels = true; // db.isUseVertexFieldsForEdgeLabels();
 
@@ -311,7 +311,7 @@ public class GraphRepair {
       final boolean checkOnly) {
     final var db = (DatabaseSessionInternal) session;
     final var metadata = db.getMetadata();
-    final var schema = metadata.getFastImmutableSchema();
+    final var schema = metadata.getFastImmutableSchemaSnapshot();
 
     final var vertexClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
     if (vertexClass != null) {
@@ -369,7 +369,8 @@ public class GraphRepair {
               for (var fieldName : vertex.getPropertyNamesInternal(false, false)) {
                 final var connection =
                     VertexEntityImpl.getConnection(
-                        db.getMetadata().getFastImmutableSchema(), Direction.BOTH, fieldName);
+                        db.getMetadata().getFastImmutableSchemaSnapshot(), Direction.BOTH,
+                        fieldName);
                 if (connection == null) {
                   continue;
                 }

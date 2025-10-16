@@ -156,7 +156,7 @@ public class SQLFromItem extends SimpleNode {
 
     var stringValue = identifier.getStringValue();
     if (stringValue != null && !stringValue.isEmpty()) {
-      return session.getMetadata().getFastImmutableSchema().getClass(stringValue);
+      return session.getMetadata().getFastImmutableSchemaSnapshot().getClass(stringValue);
     }
 
     return null;

@@ -48,7 +48,7 @@ public class CountFromIndexWithKeyStep extends AbstractExecutionStep {
 
   private Result produce(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var idx = schema.getIndex(target.getIndexName());
     var db = ctx.getDatabaseSession();
     var val =

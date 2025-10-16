@@ -39,7 +39,7 @@ public class CommandExecutorSQLSelectIndexTest extends BaseMemoryInternalDatabas
     assertEquals(1, results.stream().count());
     results.close();
 
-    final var index = session.getMetadata().getFastImmutableSchema().getIndex("Foo.bar");
+    final var index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex("Foo.bar");
     assertEquals(1, index.size(session));
   }
 

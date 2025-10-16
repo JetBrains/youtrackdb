@@ -168,11 +168,12 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public ImmutableSchemaClass getImmutableSchemaClass() {
     if (session.getActiveTransaction().isSchemaChanged()) {
       immutableSchemaClass = null;
-      return session.getMetadata().getFastImmutableSchema().getClass(className);
+      return session.getMetadata().getFastImmutableSchemaSnapshot().getClass(className);
     }
 
     if (immutableSchemaClass == null) {
-      immutableSchemaClass = session.getMetadata().getFastImmutableSchema().getClass(className);
+      immutableSchemaClass = session.getMetadata().getFastImmutableSchemaSnapshot()
+          .getClass(className);
     }
 
     return immutableSchemaClass;
@@ -3207,7 +3208,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
       return;
     }
 
-    final var _clazz = session.getMetadata().getFastImmutableSchema().getClass(iClassName);
+    final var _clazz = session.getMetadata().getFastImmutableSchemaSnapshot().getClass(iClassName);
     if (_clazz != null) {
       className = _clazz.getName();
       convertPropertiesToClassAndInitDefaultValues(_clazz);
@@ -3251,7 +3252,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     var metadata = session.getMetadata();
-    var schemaSnapshot = metadata.getFastImmutableSchema();
+    var schemaSnapshot = metadata.getFastImmutableSchemaSnapshot();
 
     var immutableClazz = schemaSnapshot.getClass(className);
     if (immutableClazz == null) {
@@ -3299,7 +3300,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
         }
       }
 
-      final var immutableSchema = session.getMetadata().getFastImmutableSchema();
+      final var immutableSchema = session.getMetadata().getFastImmutableSchemaSnapshot();
       for (var p : immutableSchemaClass.getProperties()) {
         validateProperty(session, immutableSchema, this, (SchemaPropertySnapshot) p);
       }
@@ -3397,7 +3398,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     checkForBinding();
 
     var metadata = session.getMetadata();
-    var schema = metadata.getFastImmutableSchema();
+    var schema = metadata.getFastImmutableSchemaSnapshot();
     return schema.getGlobalPropertyById(id);
   }
 
@@ -3745,7 +3746,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   private void fetchClassName(DatabaseSessionInternal session) {
     if (recordId.getCollectionId() >= 0) {
-      final var schema = session.getMetadata().getFastImmutableSchema();
+      final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
       if (schema != null) {
         var clazz = schema.getClassByCollectionId(recordId.getCollectionId());
         if (clazz != null) {

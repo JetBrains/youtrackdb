@@ -60,7 +60,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
     // In the last case we return related property names.
 
     if (schemaClass.isVertexType()) {
-      var immutableSchema = session.getMetadata().getFastImmutableSchema();
+      var immutableSchema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
       return VertexEntityImpl.getAllPossibleEdgePropertyNames(
           immutableSchema,
@@ -126,7 +126,7 @@ public interface SQLGraphNavigationFunction extends SQLFunction {
 
     //if an entity is vertex, we collect property names that are references of lightweight edges,
     // so we return only properties that directly reference opposite vertices.
-    var immutableSchema = session.getMetadata().getFastImmutableSchema();
+    var immutableSchema = session.getMetadata().getFastImmutableSchemaSnapshot();
     return VertexEntityImpl.getAllPossibleEdgePropertyNames(
         immutableSchema,
         direction, EdgeType.LIGHTWEIGHT, labels);

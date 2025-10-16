@@ -37,12 +37,12 @@ public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
   @Before
   public void beforeTest() throws Exception {
     super.beforeTest();
-    session.getMetadata()
-        .getSlowMutableSchema()
-        .createClass("user")
-        .createProperty("name", PropertyType.STRING)
-        .setCollate("ci")
-        .createIndex(IndexType.NOT_UNIQUE);
+
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("user").
+            addSchemaProperty("name", PropertyType.STRING).collateAttr("ci")
+            .addPropertyIndex(IndexType.NOT_UNIQUE)
+    );
 
     session.begin();
     var user = session.newEntity("user");

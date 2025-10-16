@@ -55,7 +55,7 @@ public class IndexChangesQueryTest {
     db.begin();
 
     final var index =
-        db.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME);
+        db.getMetadata().getFastImmutableSchemaSnapshot().getIndex(INDEX_NAME);
 
     var doc = ((EntityImpl) db.newEntity(CLASS_NAME));
     doc.setProperty(FIELD_NAME, 1);
@@ -98,7 +98,7 @@ public class IndexChangesQueryTest {
     doc3.setProperty(FIELD_NAME, 2);
 
     final var index =
-        db.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME);
+        db.getMetadata().getFastImmutableSchemaSnapshot().getIndex(INDEX_NAME);
 
     db.commit();
 

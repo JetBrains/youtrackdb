@@ -45,7 +45,7 @@ public class IndexCandidateImpl implements IndexCandidate {
   @Override
   public IndexCandidate normalize(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var index = schema.getIndex(name);
     if (property.getName().equals(index.getDefinition().getProperties().getFirst())) {
       return this;

@@ -54,7 +54,7 @@ public class StorageEncryptionTestIT {
               g.addSchemaClass("EncryptedData").as("cl").
                   addSchemaProperty("id", PropertyType.INTEGER).select("cl").
                   addSchemaProperty("value", PropertyType.STRING).
-                  declaredSchemaClassProperties("id")
+                  declaredSchemaClassProperty("id")
                   .addPropertyIndex("EncryptedTree", IndexType.UNIQUE)
           );
         }
@@ -139,7 +139,7 @@ public class StorageEncryptionTestIT {
       try (final var session =
           (DatabaseSessionEmbedded) youTrackDB.open(StorageEncryptionTestIT.class.getSimpleName(),
               "admin", "admin")) {
-        final var schema = session.getMetadata().getFastImmutableSchema();
+        final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
         final var treeIndex = schema.getIndex("EncryptedTree");
 
         session.executeInTx(tx -> {

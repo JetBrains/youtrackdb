@@ -70,7 +70,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
     // exclude automatically generated collections
     excludeIndexes.add(DatabaseImport.EXPORT_IMPORT_INDEX_NAME);
 
-    var schemaTwo = sessionTwo.getMetadata().getFastImmutableSchema();
+    var schemaTwo = sessionTwo.getMetadata().getFastImmutableSchemaSnapshot();
     final var cls = schemaTwo.getClass(DatabaseImport.EXPORT_IMPORT_CLASS_NAME);
 
     if (cls != null) {
@@ -92,7 +92,7 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
             "\n"
                 + "Auto discovery of mapping between RIDs of exported and imported records is"
                 + " switched on, try to discover mapping data on disk.");
-        if (sessionTwo.getMetadata().getFastImmutableSchema()
+        if (sessionTwo.getMetadata().getFastImmutableSchemaSnapshot()
             .getClass(DatabaseImport.EXPORT_IMPORT_CLASS_NAME)
             != null) {
           listener.onMessage("\nMapping data were found and will be loaded.");
@@ -163,8 +163,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
   }
 
   private void compareSchema() {
-    var schema1 = sessionOne.getMetadata().getFastImmutableSchema();
-    var schema2 = sessionTwo.getMetadata().getFastImmutableSchema();
+    var schema1 = sessionOne.getMetadata().getFastImmutableSchemaSnapshot();
+    var schema2 = sessionTwo.getMetadata().getFastImmutableSchemaSnapshot();
 
     var ok = true;
     for (var clazz : schema1.getClasses()) {
@@ -344,8 +344,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
 
     var ok = true;
 
-    var schemaOne = sessionOne.getMetadata().getFastImmutableSchema();
-    var schemaTwo = sessionTwo.getMetadata().getFastImmutableSchema();
+    var schemaOne = sessionOne.getMetadata().getFastImmutableSchemaSnapshot();
+    var schemaTwo = sessionTwo.getMetadata().getFastImmutableSchemaSnapshot();
 
     final var indexesOne = schemaOne.getIndexes();
     var indexesSizeOne = indexesOne.size();

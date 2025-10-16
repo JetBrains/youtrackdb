@@ -887,7 +887,7 @@ public final class FrontendTransactionImpl implements
     {
       return true;
     }
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     for (var entry : indexEntries.entrySet()) {
       final var index = schema.getIndex(entry.getKey());
       if (index == null) {

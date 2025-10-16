@@ -590,7 +590,7 @@ public final class SQLMatchStatement extends SQLStatement implements IterableRec
   @Nullable
   private static String getLowerSubclass(DatabaseSessionInternal session, String className1,
       String className2) {
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
     if (class1 == null) {

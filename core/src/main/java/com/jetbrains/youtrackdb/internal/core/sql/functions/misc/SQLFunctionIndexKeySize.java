@@ -50,7 +50,7 @@ public class SQLFunctionIndexKeySize extends SQLFunctionAbstract {
 
     var indexName = String.valueOf(value);
     final var database = context.getDatabaseSession();
-    var index = database.getMetadata().getFastImmutableSchema().getIndex(indexName);
+    var index = database.getMetadata().getFastImmutableSchemaSnapshot().getIndex(indexName);
     if (index == null) {
       return null;
     }

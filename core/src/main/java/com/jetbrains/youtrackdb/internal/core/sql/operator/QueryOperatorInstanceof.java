@@ -47,7 +47,7 @@ public class QueryOperatorInstanceof extends QueryOperatorEqualityNotNulls {
       final Object iRight,
       CommandContext iContext) {
     var session = iContext.getDatabaseSession();
-    final var schema = session.getMetadata().getFastImmutableSchema();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
     final var baseClassName = iRight.toString();
     final var baseClass = schema.getClass(baseClassName);

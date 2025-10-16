@@ -24,7 +24,7 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
         ).addSchemaClass("javaC").addParentClass("javaA", "javaB")
     );
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var aClass = schema.getClass("javaA");
     var bClass = schema.getClass("javaB");
     var cClass = schema.getClass("javaC");

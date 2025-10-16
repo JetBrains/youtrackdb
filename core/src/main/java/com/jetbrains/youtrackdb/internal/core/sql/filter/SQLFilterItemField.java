@@ -172,7 +172,7 @@ public class SQLFilterItemField extends SQLFilterItemAbstract {
         result,
         name,
         rec.isEmbedded(),
-        session.getMetadata().getFastImmutableSchema(), encryption);
+        session.getMetadata().getFastImmutableSchemaSnapshot(), encryption);
   }
 
   public String getRoot(DatabaseSession session) {

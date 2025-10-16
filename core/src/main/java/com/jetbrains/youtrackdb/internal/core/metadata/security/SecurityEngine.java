@@ -107,7 +107,7 @@ public class SecurityEngine {
     var clazz =
         session
             .getMetadata()
-            .getFastImmutableSchema()
+            .getFastImmutableSchemaSnapshot()
             .getClass(resource.getClassName());
     var propertyName = resource.getPropertyName();
     var roles = session.getCurrentUser().getRoles();
@@ -142,7 +142,7 @@ public class SecurityEngine {
     var clazz =
         session
             .getMetadata()
-            .getFastImmutableSchema()
+            .getFastImmutableSchemaSnapshot()
             .getClass(resource.getClassName());
     if (clazz == null) {
       return SQLBooleanExpression.TRUE;

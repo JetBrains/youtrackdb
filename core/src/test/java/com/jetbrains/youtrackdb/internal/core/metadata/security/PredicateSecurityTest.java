@@ -680,7 +680,7 @@ public class PredicateSecurityTest {
         (DatabaseSessionEmbedded)
             youTrackDB.open(DB_NAME, "reader", CreateDatabaseUtil.NEW_ADMIN_PASSWORD); // "reader"
 
-    var index = session.getMetadata().getFastImmutableSchema().getIndex("Person.name");
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex("Person.name");
 
     session.begin();
     try (var rids = index.getRids(session, "bar")) {

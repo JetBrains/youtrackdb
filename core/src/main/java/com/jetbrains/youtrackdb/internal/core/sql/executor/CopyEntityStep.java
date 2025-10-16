@@ -41,7 +41,7 @@ public class CopyEntityStep extends AbstractExecutionStep {
     if (className == null) {
       resultEntity = session.newEntity();
     } else {
-      var immutableSchema = session.getMetadata().getFastImmutableSchema();
+      var immutableSchema = session.getMetadata().getFastImmutableSchemaSnapshot();
       var cls = immutableSchema.getClass(className);
       if (cls == null) {
         throw new CommandExecutionException("Class " + className + " not found");

@@ -169,7 +169,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
       return session.newStatefulEdge(this, to, EdgeInternal.CLASS_NAME);
     }
 
-    var schemaClass = session.getMetadata().getFastImmutableSchema().getClass(type);
+    var schemaClass = session.getMetadata().getFastImmutableSchemaSnapshot().getClass(type);
     if (schemaClass == null) {
       throw new IllegalArgumentException("Schema class for label " + type + " not found");
     }
@@ -294,7 +294,7 @@ public class VertexEntityImpl extends EntityImpl implements Vertex {
 
   private Iterable<EdgeInternal> getEdgesInternal(Direction direction,
       String[] labels) {
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     labels = resolveAliases(schema, labels);
 
     Collection<String> propertyNames = null;

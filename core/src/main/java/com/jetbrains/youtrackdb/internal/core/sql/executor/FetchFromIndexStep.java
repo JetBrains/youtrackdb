@@ -876,7 +876,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         additionalRangeCondition.deserialize(fromResult.getProperty("additionalRangeCondition"));
       }
 
-      var index = session.getMetadata().getFastImmutableSchema().getIndex(indexName);
+      var index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(indexName);
       desc = new IndexSearchDescriptor(index, condition, additionalRangeCondition, null);
       orderAsc = fromResult.getProperty("orderAsc");
     } catch (Exception e) {

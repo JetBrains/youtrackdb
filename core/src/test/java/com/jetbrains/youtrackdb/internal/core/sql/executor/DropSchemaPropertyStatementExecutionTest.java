@@ -18,7 +18,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(
         g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING));
 
-    Assert.assertNotNull(session.getMetadata().getFastImmutableSchema().getClass(className)
+    Assert.assertNotNull(session.getMetadata().getFastImmutableSchemaSnapshot().getClass(className)
         .getProperty(propertyName));
     var result = session.execute("drop property " + className + "." + propertyName);
     Assert.assertTrue(result.hasNext());
@@ -27,7 +27,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     Assert.assertFalse(result.hasNext());
     result.close();
 
-    Assert.assertNull(session.getMetadata().getFastImmutableSchema().getClass(className)
+    Assert.assertNull(session.getMetadata().getFastImmutableSchemaSnapshot().getClass(className)
         .getProperty(propertyName));
   }
 
@@ -39,7 +39,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
         g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING)
             .addPropertyIndex(IndexType.NOT_UNIQUE));
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     var result = session.execute("drop property " + className + "." + propertyName + " force");
     for (var i = 0; i < 2; i++) {
@@ -63,7 +63,7 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
         g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING)
             .addPropertyIndex(IndexType.NOT_UNIQUE));
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
     try {
       session.execute("drop property " + className + "." + propertyName);

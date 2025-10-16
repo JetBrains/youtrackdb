@@ -17,7 +17,7 @@ public class FetchFromIndexManagerStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    var schema = ctx.getDatabaseSession().getMetadata().getFastImmutableSchema();
+    var schema = ctx.getDatabaseSession().getMetadata().getFastImmutableSchemaSnapshot();
     var indexes = schema.getIndexes();
 
     return ExecutionStream.iterator(indexes.stream().map(index -> {

@@ -113,7 +113,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
 
   @Test
   public void testGetClass() {
-    var clazz = session.getMetadata().getFastImmutableSchema().getClass("TestGetClass");
+    var clazz = session.getMetadata().getFastImmutableSchemaSnapshot().getClass("TestGetClass");
 
     Assert.assertNotNull(clazz);
     Assert.assertEquals("TestGetClass", clazz.getName());
@@ -122,7 +122,7 @@ public class DatabaseDocumentTxTest extends DbTestBase {
       assertTrue(superclasses.isEmpty());
     }
 
-    var clazz2 = session.getMetadata().getFastImmutableSchema()
+    var clazz2 = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getClass("TestGetClass_non_existing");
     Assert.assertNull(clazz2);
   }

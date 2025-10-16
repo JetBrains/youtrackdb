@@ -947,7 +947,7 @@ public class SelectExecutionPlanner {
       if (!className.isEmpty() && className.charAt(0) == '$'
           && !ctx.getDatabaseSession()
           .getMetadata()
-          .getFastImmutableSchema()
+          .getFastImmutableSchemaSnapshot()
           .existsClass(className)) {
         handleVariableAsTarget(result, info, ctx, profilingEnabled);
       } else {
@@ -1885,7 +1885,7 @@ public class SelectExecutionPlanner {
   }
 
   private static ImmutableSchema getSchemaFromContext(CommandContext ctx) {
-    return ctx.getDatabaseSession().getMetadata().getFastImmutableSchema();
+    return ctx.getDatabaseSession().getMetadata().getFastImmutableSchemaSnapshot();
   }
 
   private static boolean fullySorted(SQLOrderBy orderBy, IndexSearchDescriptor desc) {

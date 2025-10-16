@@ -52,7 +52,8 @@ public class ClassTest extends BaseMemoryInternalDatabase {
     assertEquals("DescriptionTest-class-description", oClass.getDescription());
     assertEquals("DescriptionTest-property-description", property.getDescription());
 
-    var immutableClass = session.getMetadata().getFastImmutableSchema().getClass("DescriptionTest");
+    var immutableClass = session.getMetadata().getFastImmutableSchemaSnapshot()
+        .getClass("DescriptionTest");
     var immutableSchemaProperty = immutableClass.getProperty("property");
     assertEquals("DescriptionTest-class-description", immutableClass.getDescription());
     assertEquals("DescriptionTest-property-description", immutableSchemaProperty.getDescription());

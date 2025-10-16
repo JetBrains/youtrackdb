@@ -15,15 +15,15 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     graph.autoExecuteInTx(
         g -> g.addSchemaClass(className).addSchemaProperty("name", PropertyType.STRING));
     Assert.assertNull(
-        session.getMetadata().getFastImmutableSchema().getIndex(className + ".name"));
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(className + ".name"));
 
     graph.executeInTx(g ->
         g.schemaClass(className).
-            schemaClassProperties("name").
+            schemaClassProperty("name").
             addPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
-    var idx = session.getMetadata().getFastImmutableSchema()
+    var idx = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex(className + ".name");
     Assert.assertNotNull(idx);
     Assert.assertFalse(idx.isUnique());
@@ -37,17 +37,17 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     );
 
     Assert.assertNull(
-        session.getMetadata().getFastImmutableSchema().getIndex(className + ".name"));
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(className + ".name"));
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
         g.schemaIndex(className + ".name").fold().coalesce(
             __.unfold(),
-            __.schemaClass(className).schemaClassProperties("name").
+            __.schemaClass(className).schemaClassProperty("name").
                 addPropertyIndex(IndexType.NOT_UNIQUE)
         ));
 
-    var idx = session.getMetadata().getFastImmutableSchema()
+    var idx = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex(className + ".name");
     Assert.assertNotNull(idx);
     Assert.assertFalse(idx.isUnique());
@@ -56,7 +56,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     graph.autoExecuteInTx(g ->
         g.schemaIndex(className + ".name").fold().coalesce(
             __.unfold(),
-            __.schemaClass(className).schemaClassProperties("name").
+            __.schemaClass(className).schemaClassProperty("name").
                 addPropertyIndex(IndexType.NOT_UNIQUE)
         ));
   }

@@ -262,7 +262,7 @@ public class JSONSerializerJackson {
           if (recordMetaData.className == null) {
             record = session.newInstance();
           } else {
-            var schemaSnapshot = session.getMetadata().getFastImmutableSchema();
+            var schemaSnapshot = session.getMetadata().getFastImmutableSchemaSnapshot();
             var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
             if (schemaClass == null) {
               throw new SerializationException(session,
@@ -307,7 +307,7 @@ public class JSONSerializerJackson {
                 "Record class name mismatch: " + className + " != " + null);
           }
 
-          var schemaSnapshot = session.getMetadata().getFastImmutableSchema();
+          var schemaSnapshot = session.getMetadata().getFastImmutableSchemaSnapshot();
           var schemaClass = schemaSnapshot.getClass(recordMetaData.className);
 
           if (schemaClass == null) {
@@ -462,7 +462,7 @@ public class JSONSerializerJackson {
       return null;
     }
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     ImmutableSchemaClass schemaClass = null;
     if (className == null && defaultClassName == null && recordId != null) {
       schemaClass = schema.getClassByCollectionId(recordId.getCollectionId());
@@ -500,7 +500,7 @@ public class JSONSerializerJackson {
       if (className == null) {
         embeddedValue = asValue && recordId == null;
       } else {
-        var cls = session.getMetadata().getFastImmutableSchema().getClass(className);
+        var cls = session.getMetadata().getFastImmutableSchemaSnapshot().getClass(className);
         if (cls != null) {
           embeddedValue = cls.isAbstract();
         } else {

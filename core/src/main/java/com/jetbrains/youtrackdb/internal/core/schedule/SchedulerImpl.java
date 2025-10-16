@@ -137,7 +137,8 @@ public class SchedulerImpl {
   }
 
   public void load(DatabaseSessionInternal session) {
-    if (session.getMetadata().getFastImmutableSchema().existsClass(ScheduledEvent.CLASS_NAME)) {
+    if (session.getMetadata().getFastImmutableSchemaSnapshot()
+        .existsClass(ScheduledEvent.CLASS_NAME)) {
       session.executeInTx(tx -> {
         try (var result = tx.query("select from " + ScheduledEvent.CLASS_NAME)) {
           while (result.hasNext()) {
@@ -159,7 +160,7 @@ public class SchedulerImpl {
   public static void create(DatabaseSessionInternal database) {
     if (database
         .getMetadata()
-        .getFastImmutableSchema()
+        .getFastImmutableSchemaSnapshot()
         .existsClass(ScheduledEvent.CLASS_NAME)) {
       return;
     }

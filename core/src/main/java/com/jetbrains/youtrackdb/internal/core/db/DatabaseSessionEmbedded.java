@@ -939,7 +939,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    var cls = getMetadata().getFastImmutableSchema().getClass(className);
+    var cls = getMetadata().getFastImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");
     }
@@ -1069,7 +1069,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   @Override
   public StatefullEdgeEntityImpl newStatefulEdgeInternal(final String className) {
-    var cls = getMetadata().getFastImmutableSchema().getClass(className);
+    var cls = getMetadata().getFastImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");
     }
@@ -1115,7 +1115,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     outEntity = (EntityImpl) toVertex;
     inEntity = (EntityImpl) inVertex;
 
-    var schema = getMetadata().getFastImmutableSchema();
+    var schema = getMetadata().getFastImmutableSchemaSnapshot();
     final var edgeType = schema.getClass(className);
 
     if (edgeType == null) {
@@ -1172,7 +1172,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    var cl = getMetadata().getFastImmutableSchema().getClass(type);
+    var cl = getMetadata().getFastImmutableSchemaSnapshot().getClass(type);
     if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(type + " is not a regular edge class");
     }
@@ -1190,7 +1190,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    var cl = getMetadata().getFastImmutableSchema().getClass(type);
+    var cl = getMetadata().getFastImmutableSchemaSnapshot().getClass(type);
     if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(type + " is not a lightweight edge class");
     }
@@ -1573,7 +1573,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     checkOpenness();
-    var cl = getMetadata().getFastImmutableSchema().getClass(iClassName);
+    var cl = getMetadata().getFastImmutableSchemaSnapshot().getClass(iClassName);
 
     if (cl == null || !cl.isEdgeType()) {
       throw new IllegalArgumentException(iClassName + " is not an edge class");
@@ -1597,7 +1597,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    var cls = getMetadata().getFastImmutableSchema().getClass(className);
+    var cls = getMetadata().getFastImmutableSchemaSnapshot().getClass(className);
     if (cls == null) {
       throw new IllegalArgumentException("Class " + className + " not found");
     }
@@ -2591,7 +2591,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
 
     this.checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_UPDATE);
-    var clazz = getMetadata().getFastImmutableSchema().getClass(name);
+    var clazz = getMetadata().getFastImmutableSchemaSnapshot().getClass(name);
     int[] collectionIds;
     if (polimorfic) {
       collectionIds = clazz.getPolymorphicCollectionIds();
@@ -2624,7 +2624,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       throw new DatabaseException(getDatabaseName(),
           "Collection with name " + collectionName + " does not exist");
     }
-    final var clazz = getMetadata().getFastImmutableSchema().getClassByCollectionId(id);
+    final var clazz = getMetadata().getFastImmutableSchemaSnapshot().getClassByCollectionId(id);
     if (clazz != null) {
       checkSecurity(Rule.ResourceGeneric.CLASS, Role.PERMISSION_DELETE, clazz.getName());
     }
@@ -3456,7 +3456,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
     checkOpenness();
 
-    if (getMetadata().getFastImmutableSchema().getClass(className) == null) {
+    if (getMetadata().getFastImmutableSchemaSnapshot().getClass(className) == null) {
       throw new IllegalArgumentException(
           "Class '" + className + "' not found in current database");
     }
@@ -3516,7 +3516,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     final var cls =
-        getMetadata().getFastImmutableSchema().getClass(iClassName);
+        getMetadata().getFastImmutableSchemaSnapshot().getClass(iClassName);
     if (cls == null) {
       throw new IllegalArgumentException("Class not found in database");
     }
@@ -3815,7 +3815,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     assert assertIfNotActive();
 
     final var collectionIdClass =
-        metadata.getFastImmutableSchema().getClassByCollectionId(rid.getCollectionId());
+        metadata.getFastImmutableSchemaSnapshot().getClassByCollectionId(rid.getCollectionId());
     if (recordClass == null && collectionIdClass != null
         || collectionIdClass == null && recordClass != null
         || (recordClass != null && !recordClass.equals(collectionIdClass))) {
@@ -3854,7 +3854,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
 
     var clazz =
-        (SchemaClassSnapshot) getMetadata().getFastImmutableSchema().getClass(iClassName);
+        (SchemaClassSnapshot) getMetadata().getFastImmutableSchemaSnapshot().getClass(iClassName);
     return new EdgeImpl(this, from, to, clazz);
   }
 

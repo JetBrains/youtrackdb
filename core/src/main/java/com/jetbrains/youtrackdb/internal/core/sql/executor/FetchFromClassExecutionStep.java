@@ -111,7 +111,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
   }
 
   protected static ImmutableSchemaClass loadClassFromSchema(String className, CommandContext ctx) {
-    var clazz = ctx.getDatabaseSession().getMetadata().getFastImmutableSchema()
+    var clazz = ctx.getDatabaseSession().getMetadata().getFastImmutableSchemaSnapshot()
         .getClass(className);
     if (clazz == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

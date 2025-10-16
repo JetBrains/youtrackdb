@@ -198,7 +198,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       removeDefaultNonSecurityClasses();
 
-      var beforeImportSchemaSnapshot = session.getMetadata().getFastImmutableSchema();
+      var beforeImportSchemaSnapshot = session.getMetadata().getFastImmutableSchemaSnapshot();
       for (final var index : beforeImportSchemaSnapshot.getIndexes()) {
         indexesToRebuild.add(index.getName());
       }
@@ -297,7 +297,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   }
 
   public void rebuildIndexes() {
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
     listener.onMessage("\nRebuild of stale indexes...");
     for (var indexName : indexesToRebuild) {
@@ -1079,7 +1079,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     final var ridMapCollections =
         IntStream
-            .of(session.getMetadata().getFastImmutableSchema()
+            .of(session.getMetadata().getFastImmutableSchemaSnapshot()
                 .getClass(EXPORT_IMPORT_CLASS_NAME).getCollectionIds())
             .boxed()
             .map(session::getCollectionNameById)

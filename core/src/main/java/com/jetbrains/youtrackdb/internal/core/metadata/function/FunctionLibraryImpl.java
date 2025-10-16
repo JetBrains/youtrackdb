@@ -71,7 +71,7 @@ public class FunctionLibraryImpl {
     functions.clear();
 
     // LOAD ALL THE FUNCTIONS IN MEMORY
-    if (session.getMetadata().getFastImmutableSchema().existsClass("OFunction")) {
+    if (session.getMetadata().getFastImmutableSchemaSnapshot().existsClass("OFunction")) {
       session.executeInTx(tx -> {
         try (var result = tx.query("select from OFunction order by name")) {
           while (result.hasNext()) {
@@ -162,7 +162,7 @@ public class FunctionLibraryImpl {
   }
 
   protected static void init(final DatabaseSessionInternal session) {
-    if (session.getMetadata().getFastImmutableSchema().existsClass("OFunction")) {
+    if (session.getMetadata().getFastImmutableSchemaSnapshot().existsClass("OFunction")) {
       var f = session.getMetadata().getSlowMutableSchema().getClass("OFunction");
       var prop = f.getProperty("name");
 

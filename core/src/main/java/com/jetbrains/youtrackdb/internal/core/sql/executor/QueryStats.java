@@ -36,7 +36,7 @@ public class QueryStats {
       return val;
     }
     if (database instanceof DatabaseSessionInternal db) {
-      var idx = db.getMetadata().getFastImmutableSchema().getIndex(indexName);
+      var idx = db.getMetadata().getFastImmutableSchemaSnapshot().getIndex(indexName);
       if (idx != null
           && idx.isUnique()
           && (idx.getDefinition().getProperties().size() == params)

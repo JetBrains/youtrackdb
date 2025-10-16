@@ -114,7 +114,8 @@ public class SystemDatabase {
 
   private synchronized void checkServerId() {
     try (var session = openSystemDatabaseSession()) {
-      var clazz = session.getMetadata().getFastImmutableSchema().getClass(SERVER_INFO_CLASS);
+      var clazz = session.getMetadata().getFastImmutableSchemaSnapshot()
+          .getClass(SERVER_INFO_CLASS);
       if (clazz == null) {
         clazz = session.getMetadata().getSlowMutableSchema().createClass(SERVER_INFO_CLASS);
       }

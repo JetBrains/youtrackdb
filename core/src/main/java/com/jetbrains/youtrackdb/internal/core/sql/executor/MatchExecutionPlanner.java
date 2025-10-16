@@ -801,7 +801,7 @@ public class MatchExecutionPlanner {
   @Nullable
   private static String getLowerSubclass(
       DatabaseSessionInternal db, String className1, String className2) {
-    var schema = db.getMetadata().getFastImmutableSchema();
+    var schema = db.getMetadata().getFastImmutableSchemaSnapshot();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
     if (class1.isChildOf(class2)) {
@@ -845,7 +845,7 @@ public class MatchExecutionPlanner {
     allAliases.addAll(aliasRids.keySet());
 
     var db = ctx.getDatabaseSession();
-    var schema = db.getMetadata().getFastImmutableSchema();
+    var schema = db.getMetadata().getFastImmutableSchemaSnapshot();
 
     Map<String, Long> result = new LinkedHashMap<String, Long>();
     for (var alias : allAliases) {

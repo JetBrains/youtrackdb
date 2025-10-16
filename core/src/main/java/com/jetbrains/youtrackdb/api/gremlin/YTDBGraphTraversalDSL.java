@@ -365,7 +365,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return ytdbGraphTraversal.outE(out.name());
   }
 
-  default GraphTraversal<S, Vertex> declaredSchemaClassProperties(String... propertyName) {
+  default GraphTraversal<S, Vertex> declaredSchemaClassProperty(String... propertyName) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
 
     if (propertyName == null || propertyName.length == 0) {
@@ -376,7 +376,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .has(YTDBSchemaPropertyPToken.name, P.within(propertyName));
   }
 
-  default GraphTraversal<S, Vertex> schemaClassProperties(String... propertyName) {
+  default GraphTraversal<S, Vertex> schemaClassProperty(String... propertyName) {
     @SuppressWarnings("unchecked")
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, Vertex>) this;
 

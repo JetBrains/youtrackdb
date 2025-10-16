@@ -74,7 +74,7 @@ public class EdgeIterator extends RelationsIteratorAbstract<Vertex, EdgeInternal
       if (connection.getValue() != null) {
         clazz =
             (SchemaClassSnapshot)
-                session.getMetadata().getFastImmutableSchema()
+                session.getMetadata().getFastImmutableSchemaSnapshot()
                     .getClass(connection.getValue());
       }
       if (connection.getKey() == Direction.OUT) {

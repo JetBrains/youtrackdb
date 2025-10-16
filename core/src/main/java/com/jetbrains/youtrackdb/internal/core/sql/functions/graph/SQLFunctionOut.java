@@ -84,7 +84,7 @@ public class SQLFunctionOut extends SQLFunctionMoveFiltered implements SQLGraphN
     var edgeClass =
         session
             .getMetadata()
-            .getFastImmutableSchema()
+            .getFastImmutableSchemaSnapshot()
             .getClass(edgeClassName);
     if (edgeClass == null) {
       return null;

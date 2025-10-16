@@ -115,7 +115,7 @@ public final class SessionMetadata {
     return schema;
   }
 
-  public ImmutableSchema getFastImmutableSchema() {
+  public ImmutableSchema getFastImmutableSchemaSnapshot() {
     var transaction = session.getTransactionInternal();
 
     if (transaction.isSchemaChanged()) {

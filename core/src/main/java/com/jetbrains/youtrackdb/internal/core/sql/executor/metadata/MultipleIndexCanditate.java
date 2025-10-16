@@ -97,7 +97,7 @@ public class MultipleIndexCanditate implements IndexCandidate {
     Map<String, IndexCandidate> newCanditates = new HashMap<>();
     for (var cand : canditates) {
       if (!newCanditates.containsKey(cand.getName())) {
-        var index = session.getMetadata().getFastImmutableSchema()
+        var index = session.getMetadata().getFastImmutableSchemaSnapshot()
             .getIndex(cand.getName());
         List<ImmutableSchemaProperty> foundProps = new ArrayList<>();
         for (var field : index.getDefinition().getProperties()) {

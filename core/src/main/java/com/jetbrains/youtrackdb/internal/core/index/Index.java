@@ -204,7 +204,7 @@ public interface Index extends Comparable<Index> {
       String propertyName) {
     Set<String> classesToCheck = new HashSet<>();
     classesToCheck.add(indexClass);
-    var clazz = session.getMetadata().getFastImmutableSchema().getClass(indexClass);
+    var clazz = session.getMetadata().getFastImmutableSchemaSnapshot().getClass(indexClass);
     if (clazz == null) {
       return false;
     }
@@ -233,7 +233,7 @@ public interface Index extends Comparable<Index> {
       return true;
     }
 
-    var clazz = session.getMetadata().getFastImmutableSchema().getClass(indexClass);
+    var clazz = session.getMetadata().getFastImmutableSchemaSnapshot().getClass(indexClass);
     if (clazz != null) {
       var sub = clazz.getChildClasses();
       for (var subClass : sub) {

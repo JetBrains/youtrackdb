@@ -29,7 +29,7 @@ public class SQLTruncateClassStatement extends DDLStatement {
   @Override
   public ExecutionStream executeDDL(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var clazz = schema.getClass(className.getStringValue());
     if (clazz == null) {
       throw new CommandExecutionException(session, "Schema Class not found: " + className);

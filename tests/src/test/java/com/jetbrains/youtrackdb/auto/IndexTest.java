@@ -425,7 +425,7 @@ public class IndexTest extends BaseDBTest {
   @Test(dependsOnMethods = {"createNotUniqueIndexOnNick", "populateIndexDocuments"})
   public void testIndexInNotUniqueIndex() {
     Assert.assertEquals(
-        session.getMetadata().getFastImmutableSchema().getClass("Profile").
+        session.getMetadata().getFastImmutableSchemaSnapshot().getClass("Profile").
             getInvolvedIndexes("nick").iterator()
             .next().getType(),
         IndexType.NOT_UNIQUE.toString());

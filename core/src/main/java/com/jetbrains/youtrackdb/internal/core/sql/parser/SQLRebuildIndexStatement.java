@@ -29,12 +29,12 @@ public class SQLRebuildIndexStatement extends SQLSimpleExecStatement {
     result.setProperty("operation", "rebuild index");
 
     if (all) {
-      for (var idx : session.getMetadata().getFastImmutableSchema().getIndexes()) {
+      for (var idx : session.getMetadata().getFastImmutableSchemaSnapshot().getIndexes()) {
         idx.rebuild(session);
       }
     } else {
       final var idx =
-          session.getMetadata().getFastImmutableSchema().getIndex(name.getValue());
+          session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(name.getValue());
       if (idx == null) {
         throw new CommandExecutionException(session, "Index '" + name + "' not found");
       }

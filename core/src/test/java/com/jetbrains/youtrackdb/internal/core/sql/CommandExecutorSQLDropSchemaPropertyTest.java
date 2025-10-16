@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.sql;
 
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -29,41 +28,52 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
 
   @Test
   public void test() {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var foo = schema.createClass("Foo");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("Foo").addSchemaProperty("name", PropertyType.STRING)
+    );
 
-    foo.createProperty("name", PropertyType.STRING);
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
-    session.execute("DROP PROPERTY Foo.name").close();
+
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Foo").schemaClassProperty("name").drop()
+    );
+
+    schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
-    foo.createProperty("name", PropertyType.STRING);
-    Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
-    session.execute("DROP PROPERTY `Foo`.name").close();
-    Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
+    graph.autoExecuteInTx(g -> g.schemaClass("Foo").
+        addSchemaProperty("name", PropertyType.STRING)
+    );
 
-    foo.createProperty("name", PropertyType.STRING);
+    schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
-    session.execute("DROP PROPERTY Foo.`name`").close();
-    Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
-    foo.createProperty("name", PropertyType.STRING);
-    Assert.assertTrue(schema.getClass("Foo").existsProperty("name"));
-    session.execute("DROP PROPERTY `Foo`.`name`").close();
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Foo").schemaClassProperty("name").drop()
+    );
+
+    schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
   }
 
   @Test
   public void testIfExists() {
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var testIfExistsClass = schema.createClass("testIfExists");
+    graph.autoExecuteInTx(g ->
+        g.addSchemaClass("testIfExists").addSchemaProperty("name", PropertyType.STRING)
+    );
 
-    testIfExistsClass.createProperty("name", PropertyType.STRING);
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertTrue(schema.getClass("testIfExists").existsProperty("name"));
-    session.execute("DROP PROPERTY testIfExists.name if exists").close();
+
+    graph.autoExecuteInTx(g -> g.schemaClass("testIfExists").
+        schemaClassProperty("name").drop());
+
+    schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertFalse(schema.getClass("testIfExists").existsProperty("name"));
 
-    session.execute("DROP PROPERTY testIfExists.name if exists").close();
+    graph.autoExecuteInTx(g -> g.schemaClass("testIfExists").
+        schemaClassProperty("name").drop());
     Assert.assertFalse(schema.getClass("testIfExists").existsProperty("name"));
   }
 }

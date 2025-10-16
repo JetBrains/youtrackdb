@@ -498,7 +498,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final BytesContainer bytes) {
     ImmutableSchema schema = null;
     if (entity != null) {
-      schema = session.getMetadata().getFastImmutableSchema();
+      schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     }
     ImmutableSchemaClass result = null;
     if (entity != null) {
@@ -519,7 +519,7 @@ public class RecordSerializerBinaryV1 implements EntitySerializer {
       final BytesContainer bytes) {
     ImmutableSchema schema = null;
     if (entity != null) {
-      schema = session.getMetadata().getFastImmutableSchema();
+      schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     }
     var encryption = entity.propertyEncryption;
     var clazz = entity.getImmutableSchemaClass();

@@ -81,7 +81,7 @@ public class CreateEdgeExecutionPlanner {
       var clazz =
           ctx.getDatabaseSession()
               .getMetadata()
-              .getFastImmutableSchema()
+              .getFastImmutableSchemaSnapshot()
               .getClass(targetClass.getStringValue());
       if (clazz == null) {
         throw new CommandExecutionException(session,

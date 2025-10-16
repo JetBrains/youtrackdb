@@ -88,7 +88,7 @@ public class ScriptDocumentDatabaseWrapper {
   }
 
   public Index getIndex(final String name) {
-    return session.getMetadata().getFastImmutableSchema().getIndex(name);
+    return session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(name);
   }
 
   public EntityImpl newInstance() {

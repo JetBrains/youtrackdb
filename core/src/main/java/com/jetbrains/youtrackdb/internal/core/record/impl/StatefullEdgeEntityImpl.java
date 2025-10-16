@@ -81,7 +81,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public Identifiable getFromLink() {
     var db = getSession();
-    var schema = db.getMetadata().getFastImmutableSchema();
+    var schema = db.getMetadata().getFastImmutableSchemaSnapshot();
 
     var result = getLinkPropertyInternal(DIRECTION_OUT);
     if (result == null) {
@@ -115,7 +115,7 @@ public class StatefullEdgeEntityImpl extends EntityImpl implements EdgeInternal,
   @Override
   public Identifiable getToLink() {
     checkForBinding();
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var result = getLinkPropertyInternal(DIRECTION_IN);
     if (result == null) {
       return null;

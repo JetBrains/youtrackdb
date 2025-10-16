@@ -79,7 +79,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     var sourceClass =
         session
             .getMetadata()
-            .getFastImmutableSchema()
+            .getFastImmutableSchemaSnapshot()
             .getClass(this.sourceClass.getStringValue());
     if (sourceClass == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),
@@ -89,7 +89,7 @@ public class SQLCreateLinkStatement extends SQLSimpleExecStatement {
     var destClass =
         session
             .getMetadata()
-            .getFastImmutableSchema()
+            .getFastImmutableSchemaSnapshot()
             .getClass(this.destClass.getStringValue());
     if (destClass == null) {
       throw new CommandExecutionException(ctx.getDatabaseSession(),

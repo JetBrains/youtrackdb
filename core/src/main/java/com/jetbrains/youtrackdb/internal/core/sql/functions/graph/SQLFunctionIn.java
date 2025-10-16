@@ -83,7 +83,7 @@ public class SQLFunctionIn extends SQLFunctionMoveFiltered implements SQLGraphNa
     var edgeClass =
         session
             .getMetadata()
-            .getFastImmutableSchema()
+            .getFastImmutableSchemaSnapshot()
             .getClass(edgeClassName);
     if (edgeClass == null) {
       return null;

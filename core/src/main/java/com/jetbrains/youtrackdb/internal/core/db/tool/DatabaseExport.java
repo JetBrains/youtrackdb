@@ -401,7 +401,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     jsonGenerator.writeArrayFieldStart("indexes");
 
-    final var indexes = session.getMetadata().getFastImmutableSchema().getIndexes();
+    final var indexes = session.getMetadata().getFastImmutableSchemaSnapshot().getIndexes();
 
     for (var index : indexes) {
       final var clsName =
@@ -439,7 +439,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     listener.onMessage("\nExporting schema...");
 
     jsonGenerator.writeObjectFieldStart("schema");
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     if (!schema.getClasses().isEmpty()) {
       jsonGenerator.writeArrayFieldStart("classes");
 

@@ -68,7 +68,7 @@ public class RecordIteratorClass implements Iterator<EntityImpl> {
 
   private static ImmutableSchemaClass getSchemaClassInternal(DatabaseSessionInternal session,
       String className) {
-    var targetClass = session.getMetadata().getFastImmutableSchema()
+    var targetClass = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getClass(className);
     if (targetClass == null) {
       throw new IllegalArgumentException(

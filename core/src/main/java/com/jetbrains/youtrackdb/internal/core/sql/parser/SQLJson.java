@@ -73,7 +73,7 @@ public class SQLJson extends SimpleNode {
     if (className == null) {
       entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
-      var cls = session.getMetadata().getFastImmutableSchema().getClass(className);
+      var cls = session.getMetadata().getFastImmutableSchemaSnapshot().getClass(className);
 
       if (cls.isAbstract()) {
         entity = (EntityImpl) session.newEmbeddedEntity();
@@ -110,7 +110,7 @@ public class SQLJson extends SimpleNode {
     if (className == null) {
       entity = (EntityImpl) session.newEmbeddedEntity();
     } else {
-      var cls = session.getMetadata().getFastImmutableSchema().getClass(className);
+      var cls = session.getMetadata().getFastImmutableSchemaSnapshot().getClass(className);
 
       if (cls.isAbstract()) {
         entity = (EntityImpl) session.newEmbeddedEntity(cls);

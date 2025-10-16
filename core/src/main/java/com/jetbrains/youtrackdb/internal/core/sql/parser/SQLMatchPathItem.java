@@ -96,7 +96,7 @@ public class SQLMatchPathItem extends SimpleNode {
       whileCondition = this.filter.getWhileCondition();
       maxDepth = this.filter.getMaxDepth();
       var className = this.filter.getClassName(iCommandContext);
-      cls = iCommandContext.getDatabaseSession().getMetadata().getFastImmutableSchema()
+      cls = iCommandContext.getDatabaseSession().getMetadata().getFastImmutableSchemaSnapshot()
           .getClass(className);
     }
 

@@ -348,7 +348,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
     session.begin();
     // verify index state
-    var index = session.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME);
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(INDEX_NAME);
     try (var stream = index.getRids(session, "Name")) {
       stream.forEachRemaining(
           (rid) -> {
@@ -362,7 +362,7 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
 
   private void assertRids(String indexKey, Identifiable... rids) {
     final Set<RID> actualRids;
-    var index = session.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME);
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(INDEX_NAME);
     try (var iterator = index.getRids(session, indexKey)) {
       actualRids = YTDBIteratorUtils.set(iterator);
     }

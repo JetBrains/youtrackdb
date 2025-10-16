@@ -51,7 +51,7 @@ public class BrowseCollectionTest {
       v.setProperty("a", i);
       tx.commit();
     }
-    var collection = db.getMetadata().getFastImmutableSchema().getClass("One")
+    var collection = db.getMetadata().getFastImmutableSchemaSnapshot().getClass("One")
         .getCollectionIds()[0];
     var browser =
         db.getStorage().browseCollection(collection);

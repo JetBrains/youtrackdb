@@ -131,7 +131,7 @@ public class YTDBGraphQueryBuilder {
 
   @Nullable
   public YTDBGraphBaseQuery build(DatabaseSessionEmbedded session) {
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     assert schema != null;
 
     final var classes = buildClassList(new HierarchyAnalyzer(schema));

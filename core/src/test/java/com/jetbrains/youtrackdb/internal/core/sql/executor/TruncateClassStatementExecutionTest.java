@@ -157,7 +157,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
     session.execute("insert into TestTruncateVertexClassSubclassWithIndex set name = 'bar'");
     session.commit();
 
-    final var schema = session.getMetadata().getFastImmutableSchema();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var indexOne =
         schema.getIndex("TestTruncateVertexClassSuperclassWithIndex_index");
     Assert.assertEquals(2, indexOne.size(session));
@@ -178,7 +178,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
   }
 
   private Index getOrCreateIndex(SchemaClass testClass) {
-    var index = session.getMetadata().getFastImmutableSchema().
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot().
         getIndex("test_class_by_data");
     if (index == null) {
       testClass.createProperty("data", PropertyTypeInternal.EMBEDDEDLIST,
@@ -186,7 +186,7 @@ public class TruncateClassStatementExecutionTest extends BaseMemoryInternalDatab
       testClass.createIndex("test_class_by_data", IndexType.UNIQUE,
           "data");
     }
-    return session.getMetadata().getFastImmutableSchema().getIndex("test_class_by_data");
+    return session.getMetadata().getFastImmutableSchemaSnapshot().getIndex("test_class_by_data");
   }
 
   private SchemaClass getOrCreateClass(Schema schema) {

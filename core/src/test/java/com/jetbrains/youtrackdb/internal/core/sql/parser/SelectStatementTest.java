@@ -602,7 +602,7 @@ public class SelectStatementTest extends DbTestBase {
     var stm =
         (SQLSelectStatement) checkRightSyntax("select from ouser where name = 'foo'");
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var flattended = stm.whereClause.flatten(ctx, schema.getClass("OUser"));
     assertTrue(
         ((SQLBinaryCondition) flattended.getFirst().subBlocks.getFirst()).left.isBaseIdentifier());

@@ -218,7 +218,7 @@ public final class SchemaManager {
 
   public static SchemaClassEntity getClassByCollectionId(@Nonnull DatabaseSessionEmbedded session,
       int collectionId) {
-    var index = session.getMetadata().getFastImmutableSchema()
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex(SCHEMA_COLLECTION_ID_CLASS_INDEX);
 
     var result = YTDBIteratorUtils.findFirst(index.getRids(session, collectionId));
@@ -229,7 +229,7 @@ public final class SchemaManager {
 
   public static boolean existsClass(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final String className) {
-    var index = session.getMetadata().getFastImmutableSchema()
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex(SCHEMA_COLLECTION_ID_CLASS_INDEX);
     return YTDBIteratorUtils.findFirst(index.getRids(session, className)).isPresent();
   }
@@ -237,7 +237,8 @@ public final class SchemaManager {
   @Nullable
   public static SchemaClassEntity getClass(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final String className) {
-    var index = session.getMetadata().getFastImmutableSchema().getIndex(SCHEMA_CLASS_NAME_INDEX);
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot()
+        .getIndex(SCHEMA_CLASS_NAME_INDEX);
     return (SchemaClassEntity) YTDBIteratorUtils.findFirst(index.getRids(session, className))
         .map(session::load).orElse(null);
   }
@@ -245,7 +246,8 @@ public final class SchemaManager {
   @Nullable
   public static RID getClassLink(@Nonnull DatabaseSessionEmbedded session,
       @Nonnull final String className) {
-    var index = session.getMetadata().getFastImmutableSchema().getIndex(SCHEMA_CLASS_NAME_INDEX);
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot()
+        .getIndex(SCHEMA_CLASS_NAME_INDEX);
     return YTDBIteratorUtils.findFirst(index.getRids(session, className)).orElse(null);
   }
 
@@ -557,7 +559,8 @@ public final class SchemaManager {
 
   public static @Nullable SchemaIndexEntity getIndex(
       DatabaseSessionEmbedded session, @Nonnull String name) {
-    var indexNamesIndex = session.getMetadata().getFastImmutableSchema().getIndex(INDEX_NAME_INDEX);
+    var indexNamesIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
+        .getIndex(INDEX_NAME_INDEX);
 
     return YTDBIteratorUtils.findFirst(
         YTDBIteratorUtils.map(indexNamesIndex.getRids(session, name),
@@ -568,7 +571,8 @@ public final class SchemaManager {
   @Nullable
   public static SchemaGlobalPropertyEntity getGlobalPropertyById(
       @Nonnull DatabaseSessionEmbedded session, int id) {
-    var index = session.getMetadata().getFastImmutableSchema().getIndex(GLOBAL_PROPERTY_ID_INDEX);
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot()
+        .getIndex(GLOBAL_PROPERTY_ID_INDEX);
     var result = YTDBIteratorUtils.findFirst(index.getRids(session, id));
     if (result.isEmpty()) {
       return null;
@@ -592,7 +596,7 @@ public final class SchemaManager {
       @Nonnull final String name,
       @Nonnull final PropertyTypeInternal type) {
     var typeName = type.name();
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var namePropertyIndex = schema.getIndex(GLOBAL_PROPERTY_NAME_TYPE_INDEX);
     var globalPropertyRid = YTDBIteratorUtils.findFirst(
         namePropertyIndex.getRids(session, new CompositeKey(name, typeName)));
@@ -661,7 +665,7 @@ public final class SchemaManager {
       return;
     }
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var schemaClassNameIndex = schema.getIndex(SCHEMA_CLASS_NAME_INDEX);
     schemaClassNameIndex.put(transaction, className, entity.getIdentity());
 
@@ -682,7 +686,7 @@ public final class SchemaManager {
       return;
     }
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var transaction = session.getActiveTransaction();
     if (entity.isNameChangedInCallback()) {
       var originalValue = entity.getOriginalValue(SchemaClassEntity.PropertyNames.NAME);
@@ -745,7 +749,7 @@ public final class SchemaManager {
       property.delete();
     }
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var activeTransaction = session.getActiveTransaction();
     var schemaClassNameIndex = schema.getIndex(SCHEMA_CLASS_NAME_INDEX);
     schemaClassNameIndex.remove(activeTransaction, entity.getName());
@@ -940,7 +944,7 @@ public final class SchemaManager {
     Set<String> classesToCheck = new HashSet<>();
     classesToCheck.add(indexClass);
 
-    var clazz = database.getMetadata().getFastImmutableSchema().getClass(indexClass);
+    var clazz = database.getMetadata().getFastImmutableSchemaSnapshot().getClass(indexClass);
     if (clazz == null) {
       return;
     }
@@ -984,7 +988,7 @@ public final class SchemaManager {
       return;
     }
 
-    var schema = session.getMetadata().getFastImmutableSchema();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     var indexNameIndex = schema.getIndex(INDEX_NAME_INDEX);
     var transaction = session.getActiveTransaction();
     indexNameIndex.put(transaction, entity.getName(), entity.getIdentity());

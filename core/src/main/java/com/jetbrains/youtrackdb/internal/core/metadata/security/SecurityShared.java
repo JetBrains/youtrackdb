@@ -517,7 +517,7 @@ public class SecurityShared implements SecurityInternal {
       var clazz =
           session
               .getMetadata()
-              .getFastImmutableSchema()
+              .getFastImmutableSchemaSnapshot()
               .getClass(clazzName);
       if (clazz == null) {
         return;
@@ -608,7 +608,7 @@ public class SecurityShared implements SecurityInternal {
   @Override
   @Nullable
   public SecurityUserImpl create(final DatabaseSessionInternal session) {
-    if (!session.getMetadata().getFastImmutableSchema().getClasses().isEmpty()) {
+    if (!session.getMetadata().getFastImmutableSchemaSnapshot().getClasses().isEmpty()) {
       return null;
     }
 
@@ -1231,7 +1231,7 @@ public class SecurityShared implements SecurityInternal {
 
     if (!session
         .getMetadata()
-        .getFastImmutableSchema()
+        .getFastImmutableSchemaSnapshot()
         .existsClass(Role.CLASS_NAME)) {
       return;
     }
@@ -1784,7 +1784,7 @@ public class SecurityShared implements SecurityInternal {
     Set<SecurityResourceProperty> result = new HashSet<>();
     if (!db
         .getMetadata()
-        .getFastImmutableSchema()
+        .getFastImmutableSchemaSnapshot()
         .existsClass(Role.CLASS_NAME)) {
       return Collections.emptySet();
     }
