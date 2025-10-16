@@ -86,9 +86,7 @@ public interface Storage extends Backupable, StorageInfo {
 
   // CRUD OPERATIONS
   @Nonnull
-  ReadRecordResult readRecord(
-      DatabaseSessionInternal session, RecordIdInternal iRid, boolean fetchPreviousRid,
-      boolean fetchNextRid);
+  RawBuffer readRecord(RecordIdInternal iRid);
 
   boolean recordExists(DatabaseSessionInternal session, RID rid);
 

@@ -243,7 +243,7 @@ public class StorageCollectionRemote implements StorageCollection {
   }
 
   @Override
-  public CollectionBrowsePage nextPage(long lastPosition) {
+  public CollectionBrowsePage nextPage(long lastPosition, boolean forward) {
     throw new UnsupportedOperationException();
   }
 

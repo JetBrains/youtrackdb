@@ -24,7 +24,6 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
@@ -67,8 +66,7 @@ public interface FrontendTransaction extends Transaction {
   void clearRecordEntries();
 
   @Nonnull
-  LoadRecordResult loadRecord(RID rid)
-      throws RecordNotFoundException;
+  RecordAbstract loadRecord(RID rid) throws RecordNotFoundException;
 
   @Override
   boolean exists(@Nonnull RID rid);
@@ -226,16 +224,10 @@ public interface FrontendTransaction extends Transaction {
   RecordOperation addRecordOperation(RecordAbstract record, byte status);
 
   @Nullable
-  RecordIdInternal getFirstRid(int collectionId);
+  RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid, long upperBoundExclusive);
 
   @Nullable
-  RecordIdInternal getLastRid(int collectionId);
-
-  @Nullable
-  RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid);
-
-  @Nullable
-  RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid);
+  RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid, long lowerBoundInclusive);
 
   boolean isDeletedInTx(@Nonnull RID rid);
 

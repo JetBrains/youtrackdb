@@ -56,7 +56,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
-import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
@@ -1986,12 +1986,9 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
-  public @Nonnull ReadRecordResult readRecord(
-      DatabaseSessionInternal session, RecordIdInternal iRid, boolean fetchPreviousRid,
-      boolean fetchNextRid) {
-
+  public @Nonnull RawBuffer readRecord(RecordIdInternal iRid) {
     try {
-      return super.readRecord(session, iRid, fetchPreviousRid, fetchNextRid);
+      return super.readRecord(iRid);
     } finally {
       listeners.forEach(EnterpriseStorageOperationListener::onRead);
     }

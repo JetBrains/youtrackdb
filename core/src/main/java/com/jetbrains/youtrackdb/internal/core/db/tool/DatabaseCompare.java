@@ -705,10 +705,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
               continue;
             }
 
-            final var buffer1 =
-                sessionOne.getStorage().readRecord(sessionOne, rid1, false, false).buffer();
-            final var buffer2 = sessionTwo.getStorage()
-                .readRecord(sessionTwo, rid2, false, false).buffer();
+            final var buffer1 = sessionOne.getStorage().readRecord(rid1);
+            final var buffer2 = sessionTwo.getStorage().readRecord(rid2);
 
             if (buffer1.recordType() != buffer2.recordType()) {
               listener.onMessage(

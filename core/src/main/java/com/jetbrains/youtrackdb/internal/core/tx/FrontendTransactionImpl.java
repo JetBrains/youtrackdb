@@ -42,12 +42,10 @@ import com.jetbrains.youtrackdb.api.transaction.RecordOperationType;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableIdentity;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.ClassIndexManager;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
@@ -409,7 +407,7 @@ public class FrontendTransactionImpl implements
   }
 
   @Override
-  public @Nonnull LoadRecordResult loadRecord(RID rid) {
+  public @Nonnull RecordAbstract loadRecord(RID rid) {
     checkTransactionValid();
 
     if (isDeletedInTx(rid)) {
@@ -417,11 +415,11 @@ public class FrontendTransactionImpl implements
     }
     final var txRecord = getRecord(rid);
     if (txRecord != null) {
-      return new LoadRecordResult(txRecord, null, null);
+      return txRecord;
     }
 
     // DELEGATE TO THE STORAGE, NO TOMBSTONES SUPPORT IN TX MODE
-    return session.executeReadRecord((RecordIdInternal) rid, false, false, true);
+    return session.executeReadRecord((RecordIdInternal) rid, null, true);
   }
 
   @Override
@@ -1103,62 +1101,21 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public RecordIdInternal getFirstRid(int collectionId) {
-    var result = recordsInTransaction.ceiling(new RecordId(collectionId, Long.MIN_VALUE));
-
-    if (result == null) {
-      return null;
-    }
-
-    if (result.getCollectionId() != collectionId) {
-      return null;
-    }
-
-    var record = getRecordEntry(result);
-    if (record != null && record.type == RecordOperation.DELETED) {
-      return getNextRidInCollection(result);
-    }
-
-    return result;
-  }
-
-  @Override
-  @Nullable
-  public RecordIdInternal getLastRid(int collectionId) {
-    var result = recordsInTransaction.floor(new RecordId(collectionId, Long.MAX_VALUE));
-
-    if (result == null) {
-      return null;
-    }
-
-    if (result.getCollectionId() != collectionId) {
-      return null;
-    }
-
-    var record = getRecordEntry(result);
-    if (record != null && record.type == RecordOperation.DELETED) {
-      return getPreviousRidInCollection(result);
-    }
-
-    return result;
-  }
-
-  @Override
-  @Nullable
-  public RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid) {
-    var collectionId = rid.getCollectionId();
-
+  public RecordIdInternal getNextRidInCollection(
+      @Nonnull RecordIdInternal rid,
+      long upperBoundExclusive
+  ) {
+    final var collectionId = rid.getCollectionId();
     while (true) {
       var result = recordsInTransaction.higher(rid);
 
-      if (result == null) {
-        return null;
-      }
-      if (result.getCollectionId() != collectionId) {
+      if (result == null ||
+          result.getCollectionId() != collectionId ||
+          result.getCollectionPosition() >= upperBoundExclusive) {
         return null;
       }
 
-      var record = getRecordEntry(result);
+      final var record = getRecordEntry(result);
 
       if (record != null && record.type == RecordOperation.DELETED) {
         rid = result;
@@ -1170,19 +1127,23 @@ public class FrontendTransactionImpl implements
 
   @Override
   @Nullable
-  public RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid) {
-    var collectionId = rid.getCollectionId();
+  public RecordIdInternal getPreviousRidInCollection(
+      @Nonnull RecordIdInternal rid,
+      long lowerBoundInclusive
+  ) {
+    final var collectionId = rid.getCollectionId();
+
     while (true) {
       var result = recordsInTransaction.lower(rid);
 
-      if (result == null) {
-        return null;
-      }
-      if (result.getCollectionId() != collectionId) {
+      if (result == null ||
+          result.getCollectionId() != collectionId ||
+          result.getCollectionPosition() < lowerBoundInclusive
+      ) {
         return null;
       }
 
-      var record = getRecordEntry(result);
+      final var record = getRecordEntry(result);
       if (record != null && record.type == RecordOperation.DELETED) {
         rid = result;
         continue;

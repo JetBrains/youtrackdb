@@ -29,11 +29,13 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.api.common.query.BasicResult;
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
 import com.jetbrains.youtrackdb.api.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.query.ResultSet;
+import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
@@ -43,6 +45,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
@@ -720,37 +723,39 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
 
   @Test
   public void testOrderByRid() {
-    var qResult = session.query("select from ridsorttest order by @rid ASC");
-    assertTrue(qResult.hasNext());
+    final var ascResult =
+        session.query("select from ridsorttest order by @rid ASC")
+            .stream()
+            .map(BasicResult::getIdentity)
+            .toList();
+    assertEquals(7, ascResult.size());
+    assertEquals(ascResult.stream().sorted().toList(), ascResult);
 
-    var prev = qResult.next();
-    while (qResult.hasNext()) {
-      var next = qResult.next();
-      assertTrue(prev.getIdentity().compareTo(next.getIdentity()) <= 0);
-      prev = next;
-    }
-    qResult.close();
+    final var descResult =
+        session.query("select from ridsorttest order by @rid DESC")
+            .stream()
+            .map(BasicResult::getIdentity)
+            .toList();
+    assertEquals(7, descResult.size());
+    assertEquals(
+        ascResult.reversed(),
+        descResult
+    );
+    assertEquals(
+        descResult.stream().sorted(Comparator.reverseOrder()).toList(),
+        descResult
+    );
 
-    qResult = session.query("select from ridsorttest order by @rid DESC");
-    assertTrue(qResult.hasNext());
-
-    prev = qResult.next();
-    while (qResult.hasNext()) {
-      var next = qResult.next();
-      assertTrue(prev.getIdentity().compareTo(next.getIdentity()) >= 0);
-      prev = next;
-    }
-    qResult.close();
-
-    qResult = session.query("select from ridsorttest where name > 3 order by @rid DESC");
-    assertTrue(qResult.hasNext());
-
-    prev = qResult.next();
-    while (qResult.hasNext()) {
-      var next = qResult.next();
-      assertTrue(prev.getIdentity().compareTo(next.getIdentity()) >= 0);
-      prev = next;
-    }
+    var descFilteredResult =
+        session.query("select from ridsorttest where name > 3 order by @rid DESC")
+            .stream()
+            .map(BasicResult::getIdentity)
+            .toList();
+    assertEquals(4, descFilteredResult.size());
+    assertEquals(
+        descResult.stream().sorted(Comparator.reverseOrder()).toList(),
+        descResult
+    );
   }
 
   @Test

@@ -42,6 +42,7 @@ public class RecordIteratorCollections<REC extends RecordAbstract>
   private int collectionIndex = 0;
   private REC currentRecord;
   private RecordIteratorCollection<REC> currentCollectionIterator;
+  private boolean colIteratorsInitialized = false;
 
   @Nonnull
   private final DatabaseSessionInternal session;
@@ -63,7 +64,8 @@ public class RecordIteratorCollections<REC extends RecordAbstract>
     collectionIterators = new RecordIteratorCollection[collectionIds.length];
 
     for (var i = 0; i < collectionIds.length; ++i) {
-      collectionIterators[i] = new RecordIteratorCollection<>(session, collectionIds[i], forwardDirection);
+      collectionIterators[i] =
+          new RecordIteratorCollection<>(session, collectionIds[i], forwardDirection);
     }
 
     currentCollectionIterator = collectionIterators[collectionIndex];
@@ -75,6 +77,16 @@ public class RecordIteratorCollections<REC extends RecordAbstract>
 
   @Override
   public boolean hasNext() {
+    if (!colIteratorsInitialized) {
+      // we want to initialize the underlying collection iterators as early as possible
+      // so that they remember the current lowest record id in transaction and
+      // don't return records created after the iteration has started.
+      for (var it : collectionIterators) {
+        it.initialize(true);
+      }
+      colIteratorsInitialized = true;
+    }
+
     if (currentCollectionIterator == null) {
       return false;
     }

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.suites;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBAddVertexProcessTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBHasLabelProcessTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBPropertiesProcessTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios.YTDBTemporaryRidConversionTest;
@@ -184,6 +185,7 @@ public class YTDBGremlinProcessTests {
       // ytdb
       YTDBPropertiesProcessTest.class,
       YTDBHasLabelProcessTest.class,
+      YTDBAddVertexProcessTest.class
   };
 
   private static final Class<?>[] remoteOnlyTests = new Class<?>[]{
