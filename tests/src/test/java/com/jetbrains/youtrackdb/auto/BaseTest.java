@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -25,6 +26,8 @@ public abstract class BaseTest {
   public static final String DEFAULT_DB_NAME = "demo";
 
   protected DatabaseSessionEmbedded session;
+  protected YTDBGraph graph;
+
   protected String dbName;
 
   protected DatabaseType databaseType;
@@ -72,6 +75,11 @@ public abstract class BaseTest {
 
 
   protected void createDatabase(String dbName) {
+    if (graph != null && graph.isOpen()) {
+      graph.close();
+      graph = null;
+    }
+
     getYouTrackDB().createIfNotExists(
         dbName,
         databaseType,
@@ -84,6 +92,8 @@ public abstract class BaseTest {
         "reader",
         "reader",
         "reader");
+
+    graph = youTrackDB.openGraph(dbName, "admin", "admin");
   }
 
   protected void createDatabase() {
@@ -91,6 +101,8 @@ public abstract class BaseTest {
   }
 
   protected void dropDatabase(String dbName) {
+    graph.close();
+
     var youTrackDB = getYouTrackDB();
 
     if (youTrackDB.exists(dbName)) {
@@ -101,6 +113,10 @@ public abstract class BaseTest {
   @AfterSuite
   public void afterSuite() {
     try {
+      if (graph != null) {
+        graph.close();
+        graph = null;
+      }
       if (youTrackDB != null) {
         youTrackDB.close();
         youTrackDB = null;
@@ -200,6 +216,6 @@ public abstract class BaseTest {
   protected Index getIndex(final String indexName) {
     final DatabaseSessionInternal db = this.session;
 
-    return db.getSharedContext().getIndexManager().getIndex(indexName);
+    return db.getMetadata().getFastImmutableSchemaSnapshot().getIndex(indexName);
   }
 }

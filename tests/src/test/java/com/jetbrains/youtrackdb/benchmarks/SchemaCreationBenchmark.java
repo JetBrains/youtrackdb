@@ -2,9 +2,11 @@ package com.jetbrains.youtrackdb.benchmarks;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 
 public class SchemaCreationBenchmark {
 
@@ -18,20 +20,27 @@ public class SchemaCreationBenchmark {
         youTrackDB.drop(DB_NAME);
       }
       youTrackDB.create(DB_NAME, DatabaseType.DISK, "admin", "admin", "admin");
-      try (var session = youTrackDB.open(DB_NAME, "admin", "admin")) {
-        var schema = session.getSchema();
 
+      try (var graph = youTrackDB.openGraph(DB_NAME, "admin", "admin")) {
         var start = System.nanoTime();
-        for (var i = 0; i < 1_000; i++) {
-          if (i % 10 == 0) {
-            System.out.println("Creating class " + (i + 1) + " of 1000");
-          }
+        graph.executeInTx(g -> {
+              var traversal = g.inject((Vertex) null);
 
-          var cls = schema.createClass("TestClass" + i);
-          for (var j = 0; j < 20; j++) {
-            cls.createProperty("TestProperty" + j, PropertyType.STRING);
-          }
-        }
+              for (var i = 0; i < 1_000; i++) {
+                if (i % 10 == 0) {
+                  System.out.println("Creating class " + (i + 1) + " of 1000");
+                }
+
+                traversal.addSchemaClass("TestClass" + i);
+                for (var j = 0; j < 20; j++) {
+                  traversal.sideEffect(__.addSchemaProperty("TestProperty" + j,
+                      PropertyType.STRING));
+                }
+              }
+
+              traversal.iterate();
+            }
+        );
         var end = System.nanoTime();
 
         var min = ((end - start) / 1_000_000_000 / 60);
@@ -42,18 +51,27 @@ public class SchemaCreationBenchmark {
 
         System.out.println("Creating index");
         start = System.nanoTime();
-        var counter = 0;
-        for (var i = 0; i < 1_000; i++) {
-          for (var j = 0; j < 20; j++) {
-            if (counter % 10 == 0) {
-              System.out.println("Creating index " + (counter + 1) + " of 20,000");
-            }
 
-            counter++;
-            var cls = schema.getClass("TestClass" + i);
-            cls.createIndex("TestIndex" + (i * 1_000) + j, INDEX_TYPE.UNIQUE, "TestProperty" + j);
-          }
-        }
+        graph.executeInTx(g -> {
+              var traversal = g.inject((Vertex) null);
+
+              var counter = 0;
+              for (var i = 0; i < 1_000; i++) {
+                for (var j = 0; j < 20; j++) {
+                  if (counter % 10 == 0) {
+                    System.out.println("Creating index " + (counter + 1) + " of 20,000");
+                  }
+
+                  counter++;
+                  traversal.schemaClass("TestClass" + i).addClassIndex(
+                      "TestIndex" + (i * 1_000) + j, IndexType.UNIQUE, "TestProperty" + j);
+                }
+              }
+
+              traversal.iterate();
+            }
+        );
+
         end = System.nanoTime();
 
         min = ((end - start) / 1_000_000_000 / 60);
