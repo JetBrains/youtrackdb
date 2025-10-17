@@ -49,7 +49,6 @@ import com.jetbrains.youtrackdb.api.transaction.TxBiConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxConsumer;
 import com.jetbrains.youtrackdb.api.transaction.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
-import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
@@ -67,6 +66,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.StatefullEdgeEntityImp
 import com.jetbrains.youtrackdb.internal.core.security.SecurityUser;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageInfo;
@@ -184,25 +184,20 @@ public interface DatabaseSessionInternal extends DatabaseSession {
 
   void callbackHooks(final TYPE type, final RecordAbstract record);
 
+  /// Read the record by `rid`. If the record is found in the active transaction cache, it's gonna
+  /// be returned. Otherwise it will be read from the storage.
+  ///
+  /// @param rid                            ID of the record to find.
+  /// @param prefetchedBuffer               Raw buffer to be used instead of reading from the
+  ///                                       storage.
+  /// @param throwExceptionIfRecordNotFound Whether an exception should be thrown when the record
+  ///                                       does not exist.
   @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadFirstRecordAndNextRidInCollection(
-      int collectionId);
-
-  @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadLastRecordAndPreviousRidInCollection(
-      int collectionId);
-
-  @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndNextRidInCollection(
-      @Nonnull final RecordIdInternal recordId);
-
-  @Nullable
-  <RET extends RecordAbstract> RawPair<RET, RecordIdInternal> loadRecordAndPreviousRidInCollection(
-      @Nonnull final RecordIdInternal recordId);
-
-  @Nullable
-  LoadRecordResult executeReadRecord(@Nonnull final RecordIdInternal rid, boolean fetchPreviousRid,
-      boolean fetchNextRid, boolean throwIfNotFound);
+  RecordAbstract executeReadRecord(
+      @Nonnull final RecordIdInternal rid,
+      @Nullable final RawBuffer prefetchedBuffer,
+      boolean throwExceptionIfRecordNotFound
+  );
 
   boolean executeExists(@Nonnull RID rid);
 
@@ -1338,6 +1333,10 @@ public interface DatabaseSessionInternal extends DatabaseSession {
   @Override
   @Nonnull
   FrontendTransaction getActiveTransaction();
+
+  @Override
+  @Nullable
+  FrontendTransaction getActiveTransactionOrNull();
 
   @Override
   FrontendTransaction begin();

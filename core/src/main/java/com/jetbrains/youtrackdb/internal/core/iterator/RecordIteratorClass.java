@@ -41,13 +41,18 @@ public class RecordIteratorClass implements Iterator<EntityImpl>, AutoCloseable 
   public RecordIteratorClass(
       @Nonnull final DatabaseSessionInternal session,
       @Nonnull final String className,
-      final boolean polymorphic, boolean forwardDirection) {
+      final boolean polymorphic,
+      final boolean forwardDirection
+  ) {
     this(session, getSchemaClassInternal(session, className), polymorphic, forwardDirection);
   }
 
-  public RecordIteratorClass(@Nonnull final DatabaseSessionInternal session,
+  public RecordIteratorClass(
+      @Nonnull final DatabaseSessionInternal session,
       @Nonnull final SchemaClassInternal targetClass,
-      final boolean polymorphic, boolean forwardDirection) {
+      final boolean polymorphic,
+      final boolean forwardDirection
+  ) {
     var collectionIds = polymorphic ? targetClass.getPolymorphicCollectionIds()
         : targetClass.getCollectionIds();
     collectionIds = SchemaClassImpl.readableCollections(session, collectionIds,

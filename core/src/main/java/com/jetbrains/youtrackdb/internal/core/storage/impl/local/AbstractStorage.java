@@ -100,7 +100,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream.St
 import com.jetbrains.youtrackdb.internal.core.sql.executor.LiveQueryListenerImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.IdentifiableStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordCallback;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -1554,29 +1554,29 @@ public abstract class AbstractStorage
     }
   }
 
-  public Iterator<CollectionBrowsePage> browseCollection(final int collectionId) {
+  public Iterator<CollectionBrowsePage> browseCollection(
+      final int collectionId,
+      final boolean forward
+  ) {
     try {
       stateLock.readLock().lock();
       try {
 
         checkOpennessAndMigration();
 
-        final int finalCollectionId;
         if (collectionId == RID.COLLECTION_ID_INVALID) {
           // GET THE DEFAULT COLLECTION
           throw new StorageException(name, "Collection Id " + collectionId + " is invalid");
-        } else {
-          finalCollectionId = collectionId;
         }
         return new Iterator<>() {
           @Nullable
           private CollectionBrowsePage page;
-          private long lastPos = -1;
+          private long lastPos = forward ? -1 : Long.MAX_VALUE;
 
           @Override
           public boolean hasNext() {
             if (page == null) {
-              page = nextPage(finalCollectionId, lastPos);
+              page = nextPage(collectionId, lastPos, forward);
               if (page != null) {
                 lastPos = page.getLastPosition();
               }
@@ -1606,7 +1606,11 @@ public abstract class AbstractStorage
     }
   }
 
-  private CollectionBrowsePage nextPage(final int collectionId, final long lastPosition) {
+  private CollectionBrowsePage nextPage(
+      final int collectionId,
+      final long lastPosition,
+      final boolean forward
+  ) {
     try {
       stateLock.readLock().lock();
       try {
@@ -1614,7 +1618,7 @@ public abstract class AbstractStorage
         checkOpennessAndMigration();
 
         final var collection = doGetAndCheckCollection(collectionId);
-        return collection.nextPage(lastPosition);
+        return collection.nextPage(lastPosition, forward);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -1638,11 +1642,9 @@ public abstract class AbstractStorage
   }
 
   @Override
-  public @Nonnull ReadRecordResult readRecord(
-      DatabaseSessionInternal session, final RecordIdInternal rid, boolean fetchPreviousRid,
-      boolean fetchNextRid) {
+  public @Nonnull RawBuffer readRecord(final RecordIdInternal rid) {
     try {
-      return readRecord(rid, fetchPreviousRid, fetchNextRid);
+      return readRecordInternal(rid);
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -3949,8 +3951,7 @@ public abstract class AbstractStorage
   }
 
   @Nonnull
-  private ReadRecordResult readRecord(final RecordIdInternal rid, boolean fetchPreviousRid,
-      boolean fetchNextRid) {
+  private RawBuffer readRecordInternal(final RecordIdInternal rid) {
     if (!rid.isPersistent()) {
       throw new RecordNotFoundException(name,
           rid, "Cannot read record "
@@ -3970,7 +3971,7 @@ public abstract class AbstractStorage
       }
       // Disabled this assert have no meaning anymore
       // assert iLockingStrategy.equals(LOCKING_STRATEGY.DEFAULT);
-      return doReadRecord(collection, rid, fetchPreviousRid, fetchNextRid);
+      return doReadRecord(collection, rid);
     }
 
     stateLock.readLock().lock();
@@ -3982,7 +3983,7 @@ public abstract class AbstractStorage
       } catch (IllegalArgumentException e) {
         throw BaseException.wrapException(new RecordNotFoundException(name, rid), e, name);
       }
-      return doReadRecord(collection, rid, fetchPreviousRid, fetchNextRid);
+      return doReadRecord(collection, rid);
     } finally {
       stateLock.readLock().unlock();
     }
@@ -4239,31 +4240,11 @@ public abstract class AbstractStorage
   }
 
   @Nonnull
-  private ReadRecordResult doReadRecord(
-      final StorageCollection collection, final RecordIdInternal rid, boolean fetchPreviousRid,
-      boolean fetchNextRid) {
+  private RawBuffer doReadRecord(final StorageCollection collection, final RecordIdInternal rid) {
     collection.meters().read().record();
     try {
 
       final var buff = collection.readRecord(rid.getCollectionPosition());
-      RecordIdInternal prevRid = null;
-      RecordIdInternal nextRid = null;
-
-      if (fetchNextRid) {
-        var positions = collection.higherPositions(
-            new PhysicalPosition(rid.getCollectionPosition()), 1);
-        if (positions != null && positions.length > 0) {
-          nextRid = new RecordId(rid.getCollectionId(), positions[0].collectionPosition);
-        }
-      }
-
-      if (fetchPreviousRid) {
-        var positions = collection.lowerPositions(new PhysicalPosition(rid.getCollectionPosition()),
-            1);
-        if (positions != null && positions.length > 0) {
-          prevRid = new RecordId(rid.getCollectionId(), positions[0].collectionPosition);
-        }
-      }
 
       if (logger.isDebugEnabled()) {
         LogManager.instance()
@@ -4275,7 +4256,7 @@ public abstract class AbstractStorage
                 buff.buffer() != null ? buff.buffer().length : 0);
       }
 
-      return new ReadRecordResult(buff, prevRid, nextRid);
+      return buff;
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(name, "Error during read of record with rid = " + rid), e, name);

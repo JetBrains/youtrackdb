@@ -38,7 +38,6 @@ import com.jetbrains.youtrackdb.api.record.StatefulEdge;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.db.LoadRecordResult;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
@@ -239,7 +238,7 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
   }
 
   @Override
-  public @Nonnull LoadRecordResult loadRecord(final RID rid) {
+  public @Nonnull RecordAbstract loadRecord(final RID rid) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
@@ -448,25 +447,17 @@ public class FrontendTransactionNoTx implements FrontendTransaction {
 
   @Nullable
   @Override
-  public RecordIdInternal getFirstRid(int collectionId) {
+  public RecordIdInternal getNextRidInCollection(
+      @Nonnull RecordIdInternal rid,
+      long upperBoundExclusive) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 
   @Nullable
   @Override
-  public RecordIdInternal getLastRid(int collectionId) {
-    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
-  }
-
-  @Nullable
-  @Override
-  public RecordIdInternal getNextRidInCollection(@Nonnull RecordIdInternal rid) {
-    throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
-  }
-
-  @Nullable
-  @Override
-  public RecordIdInternal getPreviousRidInCollection(@Nonnull RecordIdInternal rid) {
+  public RecordIdInternal getPreviousRidInCollection(
+      @Nonnull RecordIdInternal rid,
+      long lowerBoundInclusive) {
     throw new NoTxRecordReadException(session.getDatabaseName(), NON_TX_EXCEPTION_READ_MESSAGE);
   }
 

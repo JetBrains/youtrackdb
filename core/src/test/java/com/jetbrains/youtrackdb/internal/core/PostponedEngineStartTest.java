@@ -34,7 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.engine.Engine;
 import com.jetbrains.youtrackdb.internal.core.engine.EngineAbstract;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
-import com.jetbrains.youtrackdb.internal.core.storage.ReadRecordResult;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
@@ -282,9 +282,7 @@ public class PostponedEngineStartTest {
         }
 
         @Override
-        public @Nonnull ReadRecordResult readRecord(
-            DatabaseSessionInternal session, RecordIdInternal iRid, boolean fetchPreviousRid,
-            boolean fetchNextRid) {
+        public @Nonnull RawBuffer readRecord(RecordIdInternal iRid) {
           return null;
         }
 

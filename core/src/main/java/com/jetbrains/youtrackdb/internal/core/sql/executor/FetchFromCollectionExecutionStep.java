@@ -9,9 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
-import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import java.util.Iterator;
 
 /**
  *
@@ -46,15 +44,11 @@ public class FetchFromCollectionExecutionStep extends AbstractExecutionStep {
       prev.start(ctx).close(ctx);
     }
 
-    Iterator<RecordAbstract> iter;
-    if (ORDER_DESC.equals(order)) {
-      iter = new RecordIteratorCollection<>(
-          ctx.getDatabaseSession(), collectionId, false);
-    } else {
-      iter = new RecordIteratorCollection<>(
-          ctx.getDatabaseSession(), collectionId, true);
-      ;
-    }
+    final var iter = new RecordIteratorCollection<>(
+        ctx.getDatabaseSession(),
+        collectionId,
+        !ORDER_DESC.equals(order)
+    );
 
     var set = ExecutionStream.loadIterator(iter);
 

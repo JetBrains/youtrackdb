@@ -270,39 +270,67 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     }
   }
 
-  long[] higherPositions(final long collectionPosition, final AtomicOperation atomicOperation,
-      int limit)
-      throws IOException {
+  long[] ceilingPositions(
+      long collectionPosition,
+      AtomicOperation atomicOperation,
+      int limit
+  ) throws IOException {
+    return ceilingPositionsImpl(collectionPosition, limit, atomicOperation,
+        LONG_ARRAY_RESULT_BUILDER);
+  }
+
+  long[] higherPositions(
+      long collectionPosition,
+      AtomicOperation atomicOperation,
+      int limit
+  ) throws IOException {
     if (collectionPosition == Long.MAX_VALUE) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
 
-    return ceilingPositions(collectionPosition + 1, atomicOperation, limit);
+    return ceilingPositionsImpl(
+        collectionPosition + 1, limit, atomicOperation,
+        LONG_ARRAY_RESULT_BUILDER);
   }
 
   CollectionPositionEntry[] higherPositionsEntries(
-      final long collectionPosition, final AtomicOperation atomicOperation) throws IOException {
+      long collectionPosition,
+      AtomicOperation atomicOperation
+  ) throws IOException {
     if (collectionPosition == Long.MAX_VALUE) {
       return new CollectionPositionEntry[]{};
     }
 
-    final long realPosition;
+    return ceilingPositionsImpl(
+        collectionPosition + 1, -1, atomicOperation,
+        COL_POS_ENTRY_ARRAY_RESULT_BUILDER);
+  }
+
+  /// General logic for finding ceiling positions for the given position.
+  private <T> T ceilingPositionsImpl(
+      long collectionPosition,
+      int limit,
+      final AtomicOperation atomicOperation,
+      final PositionResultBuilder<T> resultBuilder
+  ) throws IOException {
+
     if (collectionPosition < 0) {
-      realPosition = 0;
-    } else {
-      realPosition = collectionPosition + 1;
+      collectionPosition = 0;
+    }
+    if (limit <= 0) {
+      limit = Integer.MAX_VALUE;
     }
 
-    var pageIndex = realPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
-    var index = (int) (realPosition % CollectionPositionMapBucket.MAX_ENTRIES);
+    var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
+    var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
 
     final var lastPage = getLastPage(atomicOperation);
 
     if (pageIndex > lastPage) {
-      return new CollectionPositionEntry[]{};
+      return resultBuilder.emptyResult();
     }
 
-    CollectionPositionEntry[] result = null;
+    T result = null;
     do {
       try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
 
@@ -317,75 +345,12 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           final var startIndex =
               (long) (cacheEntry.getPageIndex() - 1) * CollectionPositionMapBucket.MAX_ENTRIES
                   + index;
-          result = new CollectionPositionEntry[resultSize];
-          for (var i = 0; i < resultSize; i++) {
-            if (bucket.exists(i + index)) {
-              final var val = bucket.get(i + index);
-              assert val != null;
-              result[entriesCount] =
-                  new CollectionPositionEntry(
-                      startIndex + i, val.getPageIndex(), val.getRecordPosition());
-              entriesCount++;
-            }
-          }
 
-          if (entriesCount == 0) {
-            result = null;
-            pageIndex++;
-            index = 0;
-          } else {
-            result = Arrays.copyOf(result, entriesCount);
-          }
-        }
-      }
-    } while (result == null && pageIndex <= lastPage);
-
-    if (result == null) {
-      result = new CollectionPositionEntry[]{};
-    }
-
-    return result;
-  }
-
-  long[] ceilingPositions(long collectionPosition, final AtomicOperation atomicOperation, int limit)
-      throws IOException {
-    if (collectionPosition < 0) {
-      collectionPosition = 0;
-    }
-
-    var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
-    var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
-
-    final var lastPage = getLastPage(atomicOperation);
-
-    if (pageIndex > lastPage) {
-      return CommonConst.EMPTY_LONG_ARRAY;
-    }
-
-    if (limit <= 0) {
-      limit = Integer.MAX_VALUE;
-    }
-
-    long[] result = null;
-    do {
-      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
-        final var bucket = new CollectionPositionMapBucket(cacheEntry);
-        var resultSize = bucket.getSize() - index;
-
-        if (resultSize <= 0) {
-          pageIndex++;
-          index = 0;
-        } else {
-          var entriesCount = 0;
-          final var startIndex =
-              (long) cacheEntry.getPageIndex() * CollectionPositionMapBucket.MAX_ENTRIES + index;
-
-          result = new long[resultSize];
-
+          result = resultBuilder.newResultOfSize(resultSize);
           var currentLimit = Math.min(limit, resultSize);
           for (var i = 0; i < resultSize && entriesCount < currentLimit; i++) {
             if (bucket.exists(i + index)) {
-              result[entriesCount] = startIndex + i - CollectionPositionMapBucket.MAX_ENTRIES;
+              resultBuilder.setElement(result, entriesCount, startIndex + i, bucket, i + index);
               entriesCount++;
             }
           }
@@ -395,41 +360,76 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
             pageIndex++;
             index = 0;
           } else {
-            result = Arrays.copyOf(result, entriesCount);
+            result = resultBuilder.copyResult(result, entriesCount);
           }
         }
       }
     } while (result == null && pageIndex <= lastPage);
 
     if (result == null) {
-      result = CommonConst.EMPTY_LONG_ARRAY;
+      result = resultBuilder.emptyResult();
     }
 
     return result;
   }
 
-  long[] lowerPositions(final long collectionPosition, final AtomicOperation atomicOperation,
-      int limit)
-      throws IOException {
+  long[] lowerPositions(
+      long collectionPosition,
+      AtomicOperation atomicOperation,
+      int limit
+  ) throws IOException {
     if (collectionPosition == 0) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
 
-    return floorPositions(collectionPosition - 1, atomicOperation, limit);
+    return floorPositionsImpl(
+        collectionPosition - 1, limit, atomicOperation,
+        LONG_ARRAY_RESULT_BUILDER, false);
   }
 
-  long[] floorPositions(final long collectionPosition, final AtomicOperation atomicOperation,
-      int limit)
-      throws IOException {
+  CollectionPositionEntry[] lowerPositionsEntriesReversed(
+      long collectionPosition,
+      AtomicOperation atomicOperation
+  ) throws IOException {
+    if (collectionPosition == 0) {
+      return new CollectionPositionEntry[]{};
+    }
+
+    return floorPositionsImpl(
+        collectionPosition - 1, -1, atomicOperation,
+        COL_POS_ENTRY_ARRAY_RESULT_BUILDER, true);
+  }
+
+  long[] floorPositions(
+      long collectionPosition,
+      AtomicOperation atomicOperation,
+      int limit
+  ) throws IOException {
+    return floorPositionsImpl(
+        collectionPosition, limit, atomicOperation,
+        LONG_ARRAY_RESULT_BUILDER, false
+    );
+  }
+
+  /// General logic for finding floor positions for the given position.
+  private <T> T floorPositionsImpl(
+      final long collectionPosition,
+      int limit,
+      final AtomicOperation atomicOperation,
+      final PositionResultBuilder<T> resultBuilder,
+      final boolean reverseOrder
+  ) throws IOException {
     if (collectionPosition < 0) {
-      return CommonConst.EMPTY_LONG_ARRAY;
+      return resultBuilder.emptyResult();
+    }
+    if (limit <= 0) {
+      limit = Integer.MAX_VALUE;
     }
 
     var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
 
     final var lastPage = getLastPage(atomicOperation);
-    long[] result;
 
     if (pageIndex > lastPage) {
       pageIndex = lastPage;
@@ -437,13 +437,10 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     }
 
     if (pageIndex < 0) {
-      return CommonConst.EMPTY_LONG_ARRAY;
+      return resultBuilder.emptyResult();
     }
 
-    if (limit <= 0) {
-      limit = Integer.MAX_VALUE;
-    }
-
+    T result;
     do {
       try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
         final var bucket = new CollectionPositionMapBucket(cacheEntry);
@@ -456,13 +453,13 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
         var entriesCount = 0;
 
         final var startPosition =
-            (long) cacheEntry.getPageIndex() * CollectionPositionMapBucket.MAX_ENTRIES;
+            (long) (cacheEntry.getPageIndex() - 1) * CollectionPositionMapBucket.MAX_ENTRIES;
         var currentLimit = Math.min(resultSize, limit);
-        result = new long[resultSize];
+        result = resultBuilder.newResultOfSize(resultSize);
 
         for (var i = resultSize - 1; i >= 0 && entriesCount < currentLimit; i--) {
           if (bucket.exists(i)) {
-            result[entriesCount] = startPosition + i - CollectionPositionMapBucket.MAX_ENTRIES;
+            resultBuilder.setElement(result, entriesCount, startPosition + i, bucket, i);
             entriesCount++;
           }
         }
@@ -472,16 +469,18 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           pageIndex--;
           index = Integer.MIN_VALUE;
         } else {
-          result = Arrays.copyOf(result, entriesCount);
+          result = resultBuilder.copyResult(result, entriesCount);
         }
       }
     } while (result == null && pageIndex >= 0);
 
     if (result == null) {
-      result = CommonConst.EMPTY_LONG_ARRAY;
+      result = resultBuilder.emptyResult();
     }
 
-    ArrayUtils.reverse(result);
+    if (!reverseOrder) {
+      resultBuilder.reverseResult(result);
+    }
     return result;
   }
 
@@ -592,4 +591,108 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       return offset;
     }
   }
+
+  /// Response builder for `lower*`, `higher*`, `floor*` and `ceiling*` positions methods. This
+  /// interface abstracts away the actual result type, making it possible to use the same lookup
+  /// logic for both primitive results (`long[]`) and object results (`CollectionPositionEntry[]`)
+  /// without unnecessary allocations or boxing.
+  ///
+  /// @param <T> Result type. Although there are no restrictions on what types could be used here,
+  ///            it probably will make sense to use some container types, as arrays or collections.
+  interface PositionResultBuilder<T> {
+
+    /// Return empty result.
+    T emptyResult();
+
+    /// Construct a new result of size `size`.
+    T newResultOfSize(int size);
+
+    /// Reverse the order of the given result.
+    void reverseResult(T result);
+
+    /// Set the value of the `index`-th element in `result`.
+    ///
+    /// @param result      Result container
+    /// @param index       Index of the element to set in the result.
+    /// @param position    Collection position that will be stored on the `index`-th position of the
+    ///                    result.
+    /// @param bucket      Collection position bucket that holds the entry for `position`.
+    /// @param bucketIndex Index in the `bucket` of the entry for `position`.
+    void setElement(
+        T result, int index,
+        long position, CollectionPositionMapBucket bucket, int bucketIndex
+    );
+
+    /// Create a copy of the given result of the given size. This method has the same semantics as
+    /// [Arrays#copyOf]
+    T copyResult(T result, int size);
+  }
+
+  private static final PositionResultBuilder<long[]> LONG_ARRAY_RESULT_BUILDER =
+      new PositionResultBuilder<>() {
+        @Override
+        public long[] emptyResult() {
+          return CommonConst.EMPTY_LONG_ARRAY;
+        }
+
+        @Override
+        public long[] newResultOfSize(int size) {
+          return new long[size];
+        }
+
+        @Override
+        public void reverseResult(long[] result) {
+          ArrayUtils.reverse(result);
+        }
+
+        @Override
+        public void setElement(
+            long[] result, int index, long position,
+            CollectionPositionMapBucket bucket, int bucketIndex) {
+          result[index] = position;
+        }
+
+        @Override
+        public long[] copyResult(long[] result, int newLength) {
+          return Arrays.copyOf(result, newLength);
+        }
+      };
+
+  private static final PositionResultBuilder<CollectionPositionEntry[]> COL_POS_ENTRY_ARRAY_RESULT_BUILDER =
+      new PositionResultBuilder<>() {
+        @Override
+        public CollectionPositionEntry[] emptyResult() {
+          return new CollectionPositionEntry[0];
+        }
+
+        @Override
+        public CollectionPositionEntry[] newResultOfSize(int size) {
+          return new CollectionPositionEntry[size];
+        }
+
+        @Override
+        public void reverseResult(CollectionPositionEntry[] result) {
+          ArrayUtils.reverse(result);
+        }
+
+        @Override
+        public void setElement(
+            CollectionPositionEntry[] result, int index, long position,
+            CollectionPositionMapBucket bucket, int bucketIndex) {
+
+          final var entry = bucket.get(bucketIndex);
+          assert entry != null;
+
+          result[index] = new CollectionPositionEntry(
+              position,
+              entry.getPageIndex(),
+              entry.getRecordPosition());
+        }
+
+        @Override
+        public CollectionPositionEntry[] copyResult(CollectionPositionEntry[] result,
+            int newLength) {
+          return Arrays.copyOf(result, newLength);
+        }
+      };
 }

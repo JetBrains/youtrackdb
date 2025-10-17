@@ -9,9 +9,9 @@ public class CollectionBrowsePage implements Iterable<CollectionBrowseEntry> {
   private final List<CollectionBrowseEntry> entries;
   private final long lastPosition;
 
-  public CollectionBrowsePage(List<CollectionBrowseEntry> entries, long lastPosition) {
+  public CollectionBrowsePage(List<CollectionBrowseEntry> entries) {
     this.entries = entries;
-    this.lastPosition = lastPosition;
+    this.lastPosition = entries.getLast().collectionPosition();
   }
 
   @Override

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
@@ -350,5 +351,88 @@ public class DatabaseDocumentTxTest extends DbTestBase {
         new RecordIteratorClass(session, className, true, false);
     Assert.assertTrue(reverseIterator.hasNext());
     Assert.assertEquals(document, reverseIterator.next());
+  }
+
+  @Test
+  public void createVertexWhileIteratingSimple() {
+    var className = "bar";
+    var schema = session.getMetadata().getSchema();
+    schema.createClass(className, 8, schema.getClass(SchemaClass.VERTEX_CLASS_NAME));
+    session.begin();
+    final var m = 1000;
+
+    for (var i = 0; i < m; i++) {
+      session.newVertex(className);
+    }
+
+    var result = session.query("select from V");
+
+    var i = 0;
+    while (result.hasNext()) {
+      session.newVertex(className);
+      result.next();
+      i++;
+    }
+
+    assertEquals(m, i);
+  }
+
+  @Test
+  public void createVertexWhileIteratingHierarchy() {
+    var class1 = "foo";
+    var class2 = "bar";
+    var schema = session.getMetadata().getSchema();
+    schema.createClass(class1, 8, schema.getClass(SchemaClass.VERTEX_CLASS_NAME));
+    schema.createClass(class2, 8, schema.getClass(SchemaClass.VERTEX_CLASS_NAME));
+    session.begin();
+    final var n = 10000;
+    final var m = 1000;
+
+    for (var i = 0; i < n; i++) {
+      session.newVertex(class1).delete();
+      session.newVertex(class2).delete();
+    }
+
+    for (var i = 0; i < m; i++) {
+      session.newVertex(class1);
+    }
+
+    var it = new RecordIteratorClass(session, SchemaClass.VERTEX_CLASS_NAME, true, true);
+
+    var i = 0;
+    while (it.hasNext()) {
+      session.newVertex(class2);
+      it.next();
+      i++;
+    }
+
+    assertEquals(m, i);
+  }
+
+  @Test
+  public void createVertexWhileIteratingMinimal() {
+
+    var schema = session.getMetadata().getSchema();
+    var foo = schema.createVertexClass("foo");
+    var bar = schema.createVertexClass("bar");
+
+    session.begin();
+
+    session.newVertex(foo).delete();
+    session.newVertex(bar).delete();
+
+    session.newVertex(foo);
+
+    var result = session.query("select from V");
+
+    var i = 0;
+    while (result.hasNext()) {
+      session.newVertex(bar);
+      result.next();
+      i++;
+    }
+
+    assertEquals(1, i);
+    session.commit();
   }
 }
