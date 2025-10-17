@@ -31,9 +31,9 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-/// Iterator that browses records from a specific collection ordered by RID (either ascending or
-/// descending). It handles both new (not yet committed, with negative RID positions) and existing
-/// records.
+/// Iterator class to browse forward and backward the records of a collection. Once browsed in a
+/// direction, the iterator cannot change it. It handles both new (not yet committed, with negative
+/// RID positions) and existing records.
 public class RecordIteratorCollection<REC extends RecordAbstract>
     implements Iterator<REC>, AutoCloseable {
 
