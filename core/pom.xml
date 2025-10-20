@@ -48,10 +48,24 @@
       -Dyoutrackdb.security.createDefaultUsers=false
       --add-opens jdk.unsupported/sun.misc=ALL-UNNAMED
       --add-opens java.base/sun.security.x509=ALL-UNNAMED
-      --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
       -Dyoutrackdb.memory.directMemory.preallocate=false
       -Dyoutrackdb.file.log.deletion=false
+      -XX:+IgnoreUnrecognizedVMOptions
+      --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+      --add-exports=java.base/sun.security.x509=ALL-UNNAMED
+      --add-exports=java.base/sun.security.action=ALL-UNNAMED
+      --add-opens=java.base/java.io=ALL-UNNAMED
+      --add-opens=java.base/java.nio=ALL-UNNAMED
+      --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+      --add-opens=java.base/java.lang=ALL-UNNAMED
+      --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+      --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+      --add-opens=java.base/java.util=ALL-UNNAMED
+      --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+      --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+      --add-opens=java.base/java.net=ALL-UNNAMED
     </argLine>
+    <guice.version>6.0.0</guice.version>
   </properties>
 
   <profiles>
@@ -319,6 +333,12 @@
       <groupId>org.graalvm.js</groupId>
       <artifactId>js-scriptengine</artifactId>
       <version>${graalvm.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <version>${guice.version}</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 

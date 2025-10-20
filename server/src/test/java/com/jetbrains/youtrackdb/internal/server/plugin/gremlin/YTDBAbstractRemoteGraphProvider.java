@@ -221,4 +221,16 @@ public abstract class YTDBAbstractRemoteGraphProvider extends AbstractRemoteGrap
         .traversal(YTDBGraphTraversalSource.class)
         .withRemote(((RemoteGraph) graph).getConnection());
   }
+
+  public void closeConnections() {
+    remoteCache.forEach((k, v) -> {
+      try {
+        v.getConnection().close();
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    });
+
+    remoteCache.clear();
+  }
 }

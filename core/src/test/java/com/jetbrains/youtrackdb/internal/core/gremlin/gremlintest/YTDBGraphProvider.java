@@ -41,21 +41,7 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
       throw new AssumptionViolatedException("graphson-v1-embedded support not implemented");
     }
 
-    var configs = new HashMap<String, Object>();
-    configs.put(Graph.GRAPH, YTDBGraph.class.getName());
-
-    var dbType = calculateDbType();
-    var directoryPath = getWorkingDirectory();
-
-    configs.put(ConfigurationParameters.CONFIG_DB_NAME, graphName);
-    configs.put(ConfigurationParameters.CONFIG_USER_NAME, "adminuser");
-    configs.put(ConfigurationParameters.CONFIG_USER_PWD, "adminpwd");
-    configs.put(ConfigurationParameters.CONFIG_DB_PATH, directoryPath);
-    configs.put(ConfigurationParameters.CONFIG_CREATE_IF_NOT_EXISTS, true);
-    configs.put(ConfigurationParameters.CONFIG_DB_TYPE, dbType.name());
-    configs.put(ConfigurationParameters.CONFIG_USER_ROLE, "admin");
-
-    return configs;
+    return YTDBGraphInitUtil.getBaseConfiguration(graphName, getWorkingDirectory());
   }
 
   @SuppressWarnings({"rawtypes"})
@@ -126,16 +112,5 @@ public class YTDBGraphProvider extends AbstractGraphProvider {
     }
 
     return new MockRID("Invalid id: " + id + " for " + c);
-  }
-
-  private static DatabaseType calculateDbType() {
-    final var testConfig =
-        System.getProperty("youtrackdb.test.env", DatabaseType.MEMORY.name().toLowerCase());
-
-    if ("ci".equals(testConfig) || "release".equals(testConfig)) {
-      return DatabaseType.DISK;
-    }
-
-    return DatabaseType.MEMORY;
   }
 }

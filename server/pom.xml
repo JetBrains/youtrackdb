@@ -33,6 +33,7 @@ nse, Version 2.0 (the "License");
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <!--This property is updated automatically and is needed to make build reproducible-->
     <project.build.outputTimestamp>2023-01-01T00:00:00Z</project.build.outputTimestamp>
+    <guice.version>6.0.0</guice.version>
   </properties>
 
   <dependencies>
@@ -113,6 +114,12 @@ nse, Version 2.0 (the "License");
       <groupId>org.apache.httpcomponents</groupId>
       <artifactId>fluent-hc</artifactId>
       <version>4.5.14</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <version>${guice.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -246,6 +253,23 @@ nse, Version 2.0 (the "License");
               <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
+          <argLine>${argLine}
+            -ea
+            -XX:+IgnoreUnrecognizedVMOptions
+            --add-exports=java.base/sun.nio.ch=ALL-UNNAMED
+            --add-exports=java.base/sun.security.x509=ALL-UNNAMED
+            --add-exports=java.base/sun.security.action=ALL-UNNAMED
+            --add-opens=java.base/java.io=ALL-UNNAMED
+            --add-opens=java.base/java.nio=ALL-UNNAMED
+            --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+            --add-opens=java.base/java.lang=ALL-UNNAMED
+            --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+            --add-opens=java.base/java.util=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+            --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+            --add-opens=java.base/java.net=ALL-UNNAMED
+          </argLine>
         </configuration>
       </plugin>
       <plugin>
