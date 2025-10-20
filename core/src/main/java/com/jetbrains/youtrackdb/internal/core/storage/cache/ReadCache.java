@@ -46,8 +46,6 @@ public interface ReadCache {
 
   long addFile(String fileName, long fileId, WriteCache writeCache) throws IOException;
 
-  FileHandler loadFileHandler(long fileId);
-
   CacheEntry loadForWrite(
       FileHandler fileHandler,
       long pageIndex,
