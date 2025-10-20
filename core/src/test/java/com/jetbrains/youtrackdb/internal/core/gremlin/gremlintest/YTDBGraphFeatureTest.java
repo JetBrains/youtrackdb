@@ -15,6 +15,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 import org.apache.commons.configuration2.BaseConfiguration;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData;
 import org.apache.tinkerpop.gremlin.TestHelper;
@@ -26,8 +27,6 @@ import org.apache.tinkerpop.gremlin.structure.io.gryo.GryoResourceAccess;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactory;
 import org.junit.AssumptionViolatedException;
 import org.junit.runner.RunWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @RunWith(Cucumber.class)
 @CucumberOptions(
@@ -46,7 +45,6 @@ import org.slf4j.LoggerFactory;
     plugin = {"progress", "junit:target/cucumber.xml"})
 public class YTDBGraphFeatureTest {
 
-  private static final Logger logger = LoggerFactory.getLogger(YTDBGraphFeatureTest.class);
   private static final Map<String, String> IGNORED_TESTS = Map.of(
       "g_injectXhello_hiX_concat_XV_valuesXnameXX",
       "YouTrackDB doesn't guarantee a consistent order of element's IDs"
@@ -86,11 +84,11 @@ public class YTDBGraphFeatureTest {
       final var directory =
           makeTestDirectory(graphData == null ? "default" : graphData.name().toLowerCase());
 
-      final var f = new File(directory);
-      if (f.exists()) {
-        deleteDirectory(f);
+      try {
+        FileUtils.deleteDirectory(new File(directory));
+      } catch (IOException e) {
+        throw new RuntimeException(e);
       }
-      f.mkdirs();
 
       YTDBGraphInitUtil.getBaseConfiguration("ssss", directory)
           .forEach(configs::setProperty);
@@ -102,23 +100,6 @@ public class YTDBGraphFeatureTest {
       return graph;
     }
 
-    private static void deleteDirectory(final File directory) {
-      if (directory.exists()) {
-        for (var file : directory.listFiles()) {
-          if (file.isDirectory()) {
-            deleteDirectory(file);
-          } else {
-            file.delete();
-          }
-        }
-        directory.delete();
-      }
-
-      if (directory.exists()) {
-        logger.error("unable to delete directory " + directory.getAbsolutePath());
-      }
-    }
-
     private static String makeTestDirectory(final String graphName) {
       return getWorkingDirectory() + File.separator
           + RandomStringUtils.randomAlphabetic(10) + File.separator
@@ -126,7 +107,6 @@ public class YTDBGraphFeatureTest {
     }
 
     private static void cleanEmpty() {
-      GRAPH_EMPTY.traversal().E().drop().iterate();
       GRAPH_EMPTY.traversal().V().drop().iterate();
     }
 
