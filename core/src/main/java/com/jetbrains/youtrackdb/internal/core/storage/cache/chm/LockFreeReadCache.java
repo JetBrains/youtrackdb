@@ -107,11 +107,6 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public FileHandler loadFileHandler(long fileId) {
-    return data.get(fileId);
-  }
-
-  @Override
   public CacheEntry loadForWrite(
       final FileHandler fileHandler,
       final long pageIndex,
@@ -149,53 +144,36 @@ public final class LockFreeReadCache implements ReadCache {
     assert fileId == fileHandler.fileId() :
         "File id in handler is different. New FileHandler has to be constructed";
 
+    final var updatedEntry = new CacheEntry[1];
     for (; ; ) {
-      // todo lookup in existing file handler
-      var existingFileHandler = data.get(fileId);
+      @SuppressWarnings("unechecked") final var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+      var cacheEntry = casArray.get(pageIndex);
+      if (cacheEntry == null) {
 
-      if (existingFileHandler == null) {
-        final var updatedEntry = new CacheEntry[1];
+        try {
+          final var pointer = writeCache.load(fileHandler.fileId(), pageIndex,
+              new ModifiableBoolean(), verifyChecksums);
+          if (pointer != null) {
+            updatedEntry[0] = new CacheEntryImpl(fileHandler.fileId(), pageIndex, pointer, false,
+                this);
+          }
 
-        final var newFileHandler =
-            data.compute(
-                fileId,
-                (fId, oldHandler) -> {
-                  if (oldHandler == null) {
-                    final var newCasArray = new CASObjectArray<CacheEntry>();
-                    try {
-                      final var pointer =
-                          writeCache.load(
-                              fId, pageIndex, new ModifiableBoolean(), verifyChecksums);
-                      if (pointer == null) {
-                        return new FileHandler(fId, newCasArray);
-                      }
+        } catch (final IOException e) {
+          throw BaseException.wrapException(
+              new StorageException(writeCache.getStorageName(),
+                  "Error during loading of page " + pageIndex + " for file " + fileId),
+              e, writeCache.getStorageName());
+        }
 
-                      updatedEntry[0] =
-                          new CacheEntryImpl(fId, pageIndex, pointer, false, this);
-                      newCasArray.add(updatedEntry[0]);
-                      return new FileHandler(fId, newCasArray);
-                    } catch (final IOException e) {
-                      throw BaseException.wrapException(
-                          new StorageException(writeCache.getStorageName(),
-                              "Error during loading of page " + pageIndex + " for file " + fileId),
-                          e, writeCache.getStorageName());
-                    }
+        cacheEntry = casArray.get(pageIndex);
+        if (cacheEntry == null) {
+          cacheEntry = updatedEntry[0];
+        }
 
-                  } else {
-                    return oldHandler;
-                  }
-                });
-
-        // todo look up in new file handler
-//        if (cacheEntry == null) {
-//          cacheEntry = updatedEntry[0];
-//        }
-
-//        if (cacheEntry == null) {
-//          return null;
-//        }
+        if (cacheEntry == null) {
+          return null;
+        }
       }
-      CacheEntry cacheEntry = null;
       if (cacheEntry.acquireEntry()) {
         return cacheEntry;
       }
@@ -208,10 +186,6 @@ public final class LockFreeReadCache implements ReadCache {
       final int pageIndex,
       final WriteCache writeCache,
       final boolean verifyChecksums) {
-    final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(),
-        fileHandler.fileId());
-    final var pageKey = new PageKey(fileId, pageIndex);
-
     var success = false;
     try {
       while (true) {
@@ -219,11 +193,11 @@ public final class LockFreeReadCache implements ReadCache {
 
         CacheEntry cacheEntry;
 
-        final var storedFileHandler = data.get(fileHandler.fileId());
-        @SuppressWarnings("unchecked") final var casArray = (CASObjectArray<CacheEntry>) storedFileHandler.casArray();
+        @SuppressWarnings("unchecked")
+        var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
         //search for page in an array
-        cacheEntry = null; // entry would be found in an array
-
+        cacheEntry = casArray.get(pageIndex);
+        var read = true;
         if (cacheEntry != null) {
           if (cacheEntry.acquireEntry()) {
             afterRead(cacheEntry);
@@ -232,61 +206,50 @@ public final class LockFreeReadCache implements ReadCache {
             return cacheEntry;
           }
         } else {
-          final var read = new boolean[1];
+          try {
+            final var pointer = writeCache.load(
+                fileHandler.fileId(), pageIndex, new ModifiableBoolean(), verifyChecksums);
+            if (pointer != null) {
 
-          final var computedFileHandler =
-              data.compute(
-                  fileId,
-                  (fId, oldFileHandler) -> {
-                    if (casArray == null) {
-                      try {
-                        final var pointer =
-                            writeCache.load(
-                                fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
-                        if (pointer == null) {
-                          return null;
-                        }
-
-                        cacheSize.incrementAndGet();
-                        return null; // todo
-//                        return new CacheEntryImpl(
-//                            page.fileId(), page.pageIndex(), pointer, true, this);
-                      } catch (final IOException e) {
-                        throw BaseException.wrapException(
-                            new StorageException(writeCache.getStorageName(),
-                                "Error during loading of page " + pageIndex + " for file "
-                                    + fileId),
-                            e, writeCache.getStorageName());
-                      }
-                    } else {
-                      read[0] = true;
-                      // todo
-                      return null;
-                    }
-                  });
-
-          if (cacheEntry == null) {
-            return null;
-          }
-
-          if (cacheEntry.acquireEntry()) {
-            if (read[0]) {
-              success = true;
-              afterRead(cacheEntry);
-            } else {
-              afterAdd(cacheEntry);
-
-              try {
-                writeCache.checkCacheOverflow();
-              } catch (final java.lang.InterruptedException e) {
-                throw BaseException.wrapException(
-                    new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                    e, writeCache.getStorageName());
-              }
+              cacheSize.incrementAndGet();
+              var newCacheEntry = new CacheEntryImpl(
+                  fileHandler.fileId(), pageIndex, pointer, true, this);
+              // if record was updated, this means we've written it,
+              // thus read is false
+              // if records was not update, this meand someone else did write, and
+              // this thread are doing read
+              read = !casArray.compareAndSet(pageIndex, null, newCacheEntry);
             }
-
-            return cacheEntry;
+          } catch (final IOException e) {
+            throw BaseException.wrapException(
+                new StorageException(writeCache.getStorageName(),
+                    "Error during loading of page " + pageIndex + " for file "
+                        + fileHandler.fileId()),
+                e, writeCache.getStorageName());
           }
+        }
+        cacheEntry = casArray.get(pageIndex); // reread after update
+        if (cacheEntry == null) {
+          return null;
+        }
+
+        if (cacheEntry.acquireEntry()) {
+          if (read) {
+            success = true;
+            afterRead(cacheEntry);
+          } else {
+            afterAdd(cacheEntry);
+
+            try {
+              writeCache.checkCacheOverflow();
+            } catch (final java.lang.InterruptedException e) {
+              throw BaseException.wrapException(
+                  new ThreadInterruptedException("Check of write cache overflow was interrupted"),
+                  e, writeCache.getStorageName());
+            }
+          }
+
+          return cacheEntry;
         }
       }
     } finally {
@@ -294,21 +257,25 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
-  private CacheEntry addNewPagePointerToTheCache(final long fileId, final int pageIndex) {
+  private CacheEntry addNewPagePointerToTheCache(final FileHandler fileHandler,
+      final int pageIndex) {
     final var pointer = bufferPool.acquireDirect(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
-    final var cachePointer = new CachePointer(pointer, bufferPool, fileId, pageIndex);
+    final var cachePointer = new CachePointer(pointer, bufferPool, fileHandler.fileId(), pageIndex);
     cachePointer.incrementReadersReferrer();
     DurablePage.setLogSequenceNumberForPage(
         pointer.getNativeByteBuffer(), new LogSequenceNumber(-1, -1));
 
-    final CacheEntry cacheEntry = new CacheEntryImpl(fileId, pageIndex, cachePointer, true, this);
+    final CacheEntry cacheEntry = new CacheEntryImpl(fileHandler.fileId(), pageIndex, cachePointer,
+        true, this);
     cacheEntry.acquireEntry();
 
-    // todo
-    final CacheEntry oldCacheEntry = null;//data.putIfAbsent(cacheEntry.getPageKey(), cacheEntry);
-    if (oldCacheEntry != null) {
+    @SuppressWarnings("unchecked")
+    var casArray = (CASObjectArray<CacheEntry>) fileHandler.casArray();
+    //if cas does not work, it means old entry is present
+    final var oldCacheEntryPresent = !casArray.compareAndSet(pageIndex, null, cacheEntry);
+    if (oldCacheEntryPresent) {
       throw new IllegalStateException(
-          "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
+          "Page  " + fileHandler.fileId() + ":" + pageIndex + " was allocated in other thread");
     }
 
     afterAdd(cacheEntry);
@@ -347,6 +314,7 @@ public final class LockFreeReadCache implements ReadCache {
       }
 
       data.compute(
+          // todo this logic I don't get yet, need to ponder on it
           cacheEntry.getFileId(),
           (fId, entry) -> {
             writeCache.store(
@@ -559,22 +527,16 @@ public final class LockFreeReadCache implements ReadCache {
   @Override
   public void deleteFile(long fileId, final WriteCache writeCache) throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-    final var filledUpTo = (int) writeCache.getFilledUpTo(fileId);
 
-    clearFile(fileId, filledUpTo, writeCache);
+    clearFile(fileId, writeCache);
     writeCache.deleteFile(fileId);
   }
 
   @Override
   public void deleteStorage(final WriteCache writeCache) throws IOException {
     final var files = writeCache.files().values();
-    final List<RawPairLongInteger> filledUpTo = new ArrayList<>(1024);
     for (final long fileId : files) {
-      filledUpTo.add(new RawPairLongInteger(fileId, (int) writeCache.getFilledUpTo(fileId)));
-    }
-
-    for (final var entry : filledUpTo) {
-      clearFile(entry.first, entry.second, writeCache);
+      clearFile(fileId, writeCache);
     }
 
     writeCache.delete();
@@ -595,22 +557,14 @@ public final class LockFreeReadCache implements ReadCache {
     writeCache.close();
   }
 
-  // todo, ask Andrii if we even need this filledUpTo limit anymore
-  private void clearFile(final long fileId, final int filledUpTo, final WriteCache writeCache) {
+  private void clearFile(final long fileId, final WriteCache writeCache) {
     evictionLock.lock();
     try {
       emptyBuffers();
 
       final var fileHandler = data.remove(fileId);
       @SuppressWarnings("unchecked") final var pageEntries = (CASObjectArray<CacheEntry>) fileHandler.casArray();
-      for (var pageIndex = 0; pageIndex < pageEntries.size()
-          // this additional check will make sure we are not removing more pages than before
-          // for me, it seems logical we should remove the entire file, but who knows which mysteries are hidden
-          // in the calling code :)
-          // if on the review stage we are sure removing the entire file is correct,
-          // this check and parameter should be removed
-          && pageIndex < filledUpTo;
-          pageIndex++) {
+      for (var pageIndex = 0; pageIndex < pageEntries.size(); pageIndex++) {
         final var cacheEntry = pageEntries.get(pageIndex);
         if (cacheEntry != null) {
           if (cacheEntry.freeze()) {
