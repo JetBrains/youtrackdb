@@ -117,11 +117,6 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public FileHandler loadFileHandler(long fileId) {
-    return data.get(fileId);
-  }
-
-  @Override
   public CacheEntry loadForWrite(
       final FileHandler fileHandler,
       final long pageIndex,
@@ -185,11 +180,10 @@ public final class LockFreeReadCache implements ReadCache {
           cacheEntry = updatedEntry[0];
         }
 
-//        if (cacheEntry == null) {
-//          return null;
-//        }
+        if (cacheEntry == null) {
+          return null;
+        }
       }
-      CacheEntry cacheEntry = null;
       if (cacheEntry.acquireEntry()) {
         return cacheEntry;
       }
