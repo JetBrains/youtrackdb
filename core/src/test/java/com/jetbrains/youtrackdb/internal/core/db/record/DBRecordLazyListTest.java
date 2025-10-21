@@ -44,10 +44,10 @@ public class DBRecordLazyListTest {
     var mainClass = "MainClass";
     var itemClass = "ItemClass";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass("MainClass",
-                __.addSchemaProperty("name", PropertyType.STRING),
-                __.addSchemaProperty("items", PropertyType.LINKLIST)
-            ).addSchemaClass("ItemClass").addSchemaProperty("name", PropertyType.STRING)
+    graph.autoExecuteInTx(g -> g.createSchemaClass("MainClass",
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("items", PropertyType.LINKLIST)
+            ).createSchemaClass("ItemClass").createSchemaProperty("name", PropertyType.STRING)
             .linkedClassAttr("ItemClass")
     );
 

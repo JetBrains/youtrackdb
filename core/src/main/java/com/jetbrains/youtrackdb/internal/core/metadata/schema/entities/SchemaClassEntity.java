@@ -315,6 +315,22 @@ public class SchemaClassEntity extends EntityImpl implements SchemaEntity {
     return false;
   }
 
+  public boolean iAssignableFrom(@Nonnull SchemaClassEntity entity) {
+    if (entity.equals(this)) {
+      return true;
+    }
+
+    return isParentOf(entity);
+  }
+
+  public boolean iAssignableFrom(@Nonnull String className) {
+    if (className.equals(getName())) {
+      return true;
+    }
+
+    return isParentOf(className);
+  }
+
   public boolean isParentOf(String className) {
     var childClass = SchemaManager.getClass(session, className);
     if (childClass == null) {

@@ -16,7 +16,7 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testTwoInserts() {
     var className = "testTwoInserts";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     session.computeScript(
         "SQL",
@@ -36,7 +36,7 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testIf() {
     var className = "testIf";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
@@ -59,7 +59,7 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testReturnInIf() {
     var className = "testReturnInIf";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "";
     script += "begin;";
@@ -82,7 +82,7 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testReturnInIf2() {
     var className = "testReturnInIf2";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "begin;";
     script += "INSERT INTO " + className + " SET name = 'foo';";
@@ -147,7 +147,7 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testCommitRetry() {
     var className = "testCommitRetry";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "";
     script += "LET $retries = 0;";
@@ -174,7 +174,7 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testCommitRetryWithFailure() {
     var className = "testCommitRetryWithFailure";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "";
     script += "LET $retries = 0;";
@@ -197,7 +197,7 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testCommitRetryWithFailureAndContinue() {
     var className = "testCommitRetryWithFailureAndContinue";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "";
     script += "LET $retries = 0;";
@@ -226,7 +226,7 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testCommitRetryWithFailureScriptAndContinue() {
     var className = "testCommitRetryWithFailureScriptAndContinue";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "";
     script += "LET $retries = 0;";
@@ -256,7 +256,7 @@ public class ScriptExecutionTest extends DbTestBase {
   public void testCommitRetryWithFailureScriptAndFail() {
     var className = "testCommitRetryWithFailureScriptAndFail";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "";
     script += "LET $retries = 0;";
@@ -288,7 +288,7 @@ public class ScriptExecutionTest extends DbTestBase {
   @Test
   public void testCommitRetryWithFailureScriptAndFail2() {
     var className = "testCommitRetryWithFailureScriptAndFail2";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script = "";
     script += "LET $retries = 0;";

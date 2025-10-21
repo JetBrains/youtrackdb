@@ -13,7 +13,7 @@ public interface YTDBSchemaIndex extends YTDBDomainVertex {
   @Nonnull
   String name();
 
-  void name(String name);
+  void name(@Nonnull String name);
 
   boolean nullValuesIgnored();
 
@@ -23,16 +23,17 @@ public interface YTDBSchemaIndex extends YTDBDomainVertex {
   @Nonnull
   PropertyType[] keyTypes();
 
+  @Nonnull
   IndexBy[] indexBy();
 
   @Nonnull
   IndexType indexType();
 
   @Nullable
-  YTDBSchemaClass classToIndex();
+  YTDBSchemaClass indexClass();
 
   @Nonnull
-  Iterator<YTDBSchemaProperty> propertiesToIndex();
+  Iterator<YTDBSchemaProperty> indexProperties();
 
   enum IndexType {
     UNIQUE,

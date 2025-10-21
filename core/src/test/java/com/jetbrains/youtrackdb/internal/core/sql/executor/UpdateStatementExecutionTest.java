@@ -611,8 +611,8 @@ public class UpdateStatementExecutionTest {
   public void testRemove1() {
     var className = "overridden" + this.className;
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className)
-        .addSchemaProperty("theProperty", PropertyType.EMBEDDEDLIST));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className)
+        .createSchemaProperty("theProperty", PropertyType.EMBEDDEDLIST));
 
     session.begin();
     var doc = session.newEntity(className);
@@ -652,8 +652,8 @@ public class UpdateStatementExecutionTest {
   @Test
   public void testRemove2() {
     var className = "overridden" + this.className;
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className)
-        .addSchemaProperty("theProperty", PropertyType.EMBEDDEDLIST));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className)
+        .createSchemaProperty("theProperty", PropertyType.EMBEDDEDLIST));
 
     session.begin();
     var entity = session.newInstance(className);
@@ -700,7 +700,8 @@ public class UpdateStatementExecutionTest {
   public void testRemove3() {
     var className = "overriden" + this.className;
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(className).addSchemaProperty("theProperty", PropertyType.EMBEDDED));
+        g -> g.createSchemaClass(className)
+            .createSchemaProperty("theProperty", PropertyType.EMBEDDED));
 
     session.begin();
     var doc = session.newInstance(className);

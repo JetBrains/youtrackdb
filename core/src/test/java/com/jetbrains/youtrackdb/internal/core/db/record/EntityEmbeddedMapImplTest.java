@@ -376,10 +376,10 @@ public class EntityEmbeddedMapImplTest extends DbTestBase {
 
   @Test
   public void updateMapElementViaSql() {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("EntityWithSchema",
-            __.addSchemaProperty("oneLevelMap", PropertyType.EMBEDDEDMAP, PropertyType.STRING),
-            __.addSchemaProperty("nestedMap", PropertyType.EMBEDDEDMAP, PropertyType.EMBEDDEDMAP)
-        ).addSchemaClass("EntityWithoutSchema")
+    graph.autoExecuteInTx(g -> g.createSchemaClass("EntityWithSchema",
+            __.createSchemaProperty("oneLevelMap", PropertyType.EMBEDDEDMAP, PropertyType.STRING),
+            __.createSchemaProperty("nestedMap", PropertyType.EMBEDDEDMAP, PropertyType.EMBEDDEDMAP)
+        ).createSchemaClass("EntityWithoutSchema")
     );
 
     final var classes = List.of("EntityWithSchema", "EntityWithoutSchema");

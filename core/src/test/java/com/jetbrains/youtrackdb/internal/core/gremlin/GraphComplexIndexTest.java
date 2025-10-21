@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
@@ -12,10 +12,10 @@ public class GraphComplexIndexTest extends GraphBaseTest {
   @Test
   public void compositeIndexSingleSecondFieldTest() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Foo",
-            __.addSchemaProperty("prop1", PropertyType.LONG),
-            __.addSchemaProperty("prop2", PropertyType.STRING)
-        ).addClassIndex("V_Foo", IndexType.UNIQUE, "prop1", "prop2")
+        g.createSchemaClass("Foo",
+            __.createSchemaProperty("prop1", PropertyType.LONG),
+            __.createSchemaProperty("prop2", PropertyType.STRING)
+        ).createClassIndex("V_Foo", IndexType.UNIQUE, "prop1", "prop2")
     );
 
     graph.addVertex(T.label, "Foo", "prop1", 1, "prop2", "4ab25da0-3602-4f4a-bc5e-28bfefa5ca4c");
@@ -33,10 +33,10 @@ public class GraphComplexIndexTest extends GraphBaseTest {
   @Test
   public void compositeIndexSingleFirstFieldTest() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Foo",
-            __.addSchemaProperty("prop1", PropertyType.LONG),
-            __.addSchemaProperty("prop2", PropertyType.STRING)
-        ).addClassIndex("V_Foo", IndexType.UNIQUE, "prop1", "prop2")
+        g.createSchemaClass("Foo",
+            __.createSchemaProperty("prop1", PropertyType.LONG),
+            __.createSchemaProperty("prop2", PropertyType.STRING)
+        ).createClassIndex("V_Foo", IndexType.UNIQUE, "prop1", "prop2")
     );
 
     graph.addVertex(T.label, "Foo", "prop1", 1, "prop2", "4ab25da0-3602-4f4a-bc5e-28bfefa5ca4c");
@@ -50,10 +50,10 @@ public class GraphComplexIndexTest extends GraphBaseTest {
   @Test
   public void compositeIndexTest() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Foo",
-            __.addSchemaProperty("prop1", PropertyType.LONG),
-            __.addSchemaProperty("prop2", PropertyType.STRING)
-        ).addClassIndex("V_Foo", IndexType.UNIQUE, "prop1", "prop2")
+        g.createSchemaClass("Foo",
+            __.createSchemaProperty("prop1", PropertyType.LONG),
+            __.createSchemaProperty("prop2", PropertyType.STRING)
+        ).createClassIndex("V_Foo", IndexType.UNIQUE, "prop1", "prop2")
     );
 
     graph.addVertex(T.label, "Foo", "prop1", 1,

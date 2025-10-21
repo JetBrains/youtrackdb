@@ -67,7 +67,7 @@ public class SchemaClassSecurityTest {
 
   @Test
   public void testReadWithClassPermissions() {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Person"));
 
     session.begin();
     var reader = session.getMetadata().getSecurity().getRole("reader");

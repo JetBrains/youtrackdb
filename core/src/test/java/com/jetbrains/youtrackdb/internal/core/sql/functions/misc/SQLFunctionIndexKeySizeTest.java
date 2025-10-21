@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql.functions.misc;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -11,9 +11,9 @@ public class SQLFunctionIndexKeySizeTest extends DbTestBase {
   @Test
   public void test() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Test").
-            addSchemaProperty("name", PropertyType.STRING).
-            addPropertyIndex("testindex", IndexType.NOT_UNIQUE)
+        g.createSchemaClass("Test").
+            createSchemaProperty("name", PropertyType.STRING).
+            createPropertyIndex("testindex", IndexType.NOT_UNIQUE)
     );
 
     session.begin();

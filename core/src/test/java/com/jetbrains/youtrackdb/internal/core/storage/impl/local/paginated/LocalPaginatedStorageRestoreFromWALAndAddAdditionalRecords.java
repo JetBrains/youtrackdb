@@ -252,14 +252,14 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   private void createSchema(YTDBGraph graph) {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("TestOne",
-                __.addSchemaProperty("intProp", PropertyType.INTEGER),
-                __.addSchemaProperty("stringProp", PropertyType.STRING),
-                __.addSchemaProperty("stringSet", PropertyType.EMBEDDEDSET,
+        g.createSchemaClass("TestOne",
+                __.createSchemaProperty("intProp", PropertyType.INTEGER),
+                __.createSchemaProperty("stringProp", PropertyType.STRING),
+                __.createSchemaProperty("stringSet", PropertyType.EMBEDDEDSET,
                     PropertyType.STRING),
-                __.addSchemaProperty("linkMap", PropertyType.LINKMAP)
-            ).addSchemaClass("TestTwo").
-            addSchemaProperty("stringList", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
+                __.createSchemaProperty("linkMap", PropertyType.LINKMAP)
+            ).createSchemaClass("TestTwo").
+            createSchemaProperty("stringList", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
     );
   }
 

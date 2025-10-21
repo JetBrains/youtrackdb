@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -15,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBConfigImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.io.File;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
@@ -51,11 +51,11 @@ public class StorageEncryptionTestIT {
             "admin",
             "admin")) {
           graph.autoExecuteInTx(g ->
-              g.addSchemaClass("EncryptedData").as("cl").
-                  addSchemaProperty("id", PropertyType.INTEGER).select("cl").
-                  addSchemaProperty("value", PropertyType.STRING).
+              g.createSchemaClass("EncryptedData").as("cl").
+                  createSchemaProperty("id", PropertyType.INTEGER).select("cl").
+                  createSchemaProperty("value", PropertyType.STRING).
                   declaredSchemaClassProperty("id")
-                  .addPropertyIndex("EncryptedTree", IndexType.UNIQUE)
+                  .createPropertyIndex("EncryptedTree", IndexType.UNIQUE)
           );
         }
 
@@ -186,7 +186,7 @@ public class StorageEncryptionTestIT {
         try (var graph = youTrackDB.openGraph(StorageEncryptionTestIT.class.getSimpleName(),
             "admin",
             "admin")) {
-          graph.autoExecuteInTx(g -> g.addSchemaClass("EncryptedData"));
+          graph.autoExecuteInTx(g -> g.createSchemaClass("EncryptedData"));
         }
 
         var tx = session.begin();

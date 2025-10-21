@@ -5,10 +5,10 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.common.SessionPool;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -44,8 +44,8 @@ public class LiveIndexRebuildTest {
       try (var graph = youTrackDb.openGraph(LiveIndexRebuildTest.class.getSimpleName(), "admin",
           "admin")) {
         graph.autoExecuteInTx(g ->
-            g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.INTEGER)
-                .addPropertyIndex(indexName, IndexType.UNIQUE)
+            g.createSchemaClass(className).createSchemaProperty(propertyName, PropertyType.INTEGER)
+                .createPropertyIndex(indexName, IndexType.UNIQUE)
         );
 
         graph.autoExecuteInTx(g ->

@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -16,7 +16,8 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     var propertyName = "foo";
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING));
+        g -> g.createSchemaClass(className)
+            .createSchemaProperty(propertyName, PropertyType.STRING));
 
     Assert.assertNotNull(session.getMetadata().getFastImmutableSchemaSnapshot().getClass(className)
         .getProperty(propertyName));
@@ -36,8 +37,8 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     var className = "testDropIndexForce";
     var propertyName = "foo";
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE));
+        g -> g.createSchemaClass(className).createSchemaProperty(propertyName, PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE));
 
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));
@@ -60,8 +61,8 @@ public class DropSchemaPropertyStatementExecutionTest extends DbTestBase {
     var className = "testDropIndex";
     var propertyName = "foo";
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(className).addSchemaProperty(propertyName, PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE));
+        g -> g.createSchemaClass(className).createSchemaProperty(propertyName, PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE));
 
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     Assert.assertNotNull(schema.getClass(className).getProperty(propertyName));

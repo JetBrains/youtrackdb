@@ -23,10 +23,10 @@ package com.jetbrains.youtrackdb.internal.core.db;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
@@ -65,9 +65,9 @@ public class FreezeAndDBRecordInsertAtomicityTest extends DbTestBase {
         FreezeAndDBRecordInsertAtomicityTest.class.getSimpleName() + " seed: " + seed);
     random = new Random(seed);
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass("Person")
-        .addSchemaProperty("name", PropertyType.STRING)
-        .addPropertyIndex(IndexType.UNIQUE));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Person")
+        .createSchemaProperty("name", PropertyType.STRING)
+        .createPropertyIndex(IndexType.UNIQUE));
 
     executorService = Executors.newFixedThreadPool(THREADS);
     countDownLatch = new CountDownLatch(THREADS);

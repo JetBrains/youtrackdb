@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.Arrays;
 import org.junit.Test;
 
@@ -11,12 +11,12 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
   @Test
   public void testCompositeGrowShrink() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("CompositeIndex",
-            __.addSchemaProperty("id", PropertyType.INTEGER),
-            __.addSchemaProperty("bar", PropertyType.INTEGER),
-            __.addSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING),
-            __.addSchemaProperty("name", PropertyType.STRING)
-        ).addClassIndex("CompositeIndex_id_tags_name", IndexType.NOT_UNIQUE,
+        g.createSchemaClass("CompositeIndex",
+            __.createSchemaProperty("id", PropertyType.INTEGER),
+            __.createSchemaProperty("bar", PropertyType.INTEGER),
+            __.createSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING),
+            __.createSchemaProperty("name", PropertyType.STRING)
+        ).createClassIndex("CompositeIndex_id_tags_name", IndexType.NOT_UNIQUE,
             "id", "tags", "name")
     );
 
@@ -43,12 +43,12 @@ public class CompositeIndexGrowShrinkIT extends DbTestBase {
   @Test
   public void testCompositeGrowDrop() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("CompositeIndex",
-            __.addSchemaProperty("id", PropertyType.INTEGER),
-            __.addSchemaProperty("bar", PropertyType.INTEGER),
-            __.addSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING),
-            __.addSchemaProperty("name", PropertyType.STRING)
-        ).addClassIndex("CompositeIndex_id_tags_name", IndexType.NOT_UNIQUE,
+        g.createSchemaClass("CompositeIndex",
+            __.createSchemaProperty("id", PropertyType.INTEGER),
+            __.createSchemaProperty("bar", PropertyType.INTEGER),
+            __.createSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING),
+            __.createSchemaProperty("name", PropertyType.STRING)
+        ).createClassIndex("CompositeIndex_id_tags_name", IndexType.NOT_UNIQUE,
             "id", "tags", "name")
     );
 

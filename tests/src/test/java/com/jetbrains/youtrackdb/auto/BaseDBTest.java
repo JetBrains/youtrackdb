@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.api.query.ExecutionStep;
 import com.jetbrains.youtrackdb.api.query.Result;
@@ -12,8 +14,6 @@ import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import java.util.Arrays;
@@ -304,8 +304,8 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("Country").fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("Country").
-                addSchemaProperty("name", PropertyType.STRING)
+            __.createSchemaClass("Country").
+                createSchemaProperty("name", PropertyType.STRING)
         )
     );
   }
@@ -317,9 +317,9 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("City").fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("City",
-                __.addSchemaProperty("name", PropertyType.STRING),
-                __.addSchemaProperty("country", PropertyType.LINK, "Country")
+            __.createSchemaClass("City",
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("country", PropertyType.LINK, "Country")
             )
         )
     );
@@ -332,10 +332,10 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("Address").fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("Address",
-                __.addSchemaProperty("type", PropertyType.STRING),
-                __.addSchemaProperty("street", PropertyType.STRING),
-                __.addSchemaProperty("city", PropertyType.LINK, "City")
+            __.createSchemaClass("Address",
+                __.createSchemaProperty("type", PropertyType.STRING),
+                __.createSchemaProperty("street", PropertyType.STRING),
+                __.createSchemaProperty("city", PropertyType.LINK, "City")
             )
         )
     );
@@ -346,15 +346,15 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("Account").fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("Account",
-                __.addSchemaProperty("id", PropertyType.INTEGER),
-                __.addSchemaProperty("name", PropertyType.STRING),
-                __.addSchemaProperty("surname", PropertyType.STRING),
-                __.addSchemaProperty("birthDate", PropertyType.DATE),
-                __.addSchemaProperty("salary", PropertyType.FLOAT),
-                __.addSchemaProperty("thumbnail", PropertyType.BINARY),
-                __.addSchemaProperty("photo", PropertyType.BINARY),
-                __.addSchemaProperty("addresses", PropertyType.LINKLIST, "Address")
+            __.createSchemaClass("Account",
+                __.createSchemaProperty("id", PropertyType.INTEGER),
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("surname", PropertyType.STRING),
+                __.createSchemaProperty("birthDate", PropertyType.DATE),
+                __.createSchemaProperty("salary", PropertyType.FLOAT),
+                __.createSchemaProperty("thumbnail", PropertyType.BINARY),
+                __.createSchemaProperty("photo", PropertyType.BINARY),
+                __.createSchemaProperty("addresses", PropertyType.LINKLIST, "Address")
             )
         )
     );
@@ -368,8 +368,8 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("Company").fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("Company").addParentClass("Account")
-                .addSchemaProperty("employees", PropertyType.INTEGER))
+            __.createSchemaClass("Company").addParentClass("Account")
+                .createSchemaProperty("employees", PropertyType.INTEGER))
     );
   }
 
@@ -380,19 +380,19 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("Profile").fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("Profile",
-                __.addSchemaProperty("nick", PropertyType.STRING).
+            __.createSchemaClass("Profile",
+                __.createSchemaProperty("nick", PropertyType.STRING).
                     minAttr("3").maxAttr("30")
-                    .addPropertyIndex(IndexType.UNIQUE, IndexBy.BY_VALUE, true),
-                __.addSchemaProperty("name", PropertyType.STRING).minAttr("3").maxAttr("30")
-                    .addPropertyIndex(IndexType.NOT_UNIQUE),
-                __.addSchemaProperty("location", PropertyType.LINK, "Address"),
-                __.addSchemaProperty("surname", PropertyType.STRING).minAttr("3").maxAttr("30"),
-                __.addSchemaProperty("hash", PropertyType.LONG),
-                __.addSchemaProperty("value", PropertyType.INTEGER),
-                __.addSchemaProperty("registeredOn", PropertyType.DATETIME)
+                    .createPropertyIndex(IndexType.UNIQUE, IndexBy.BY_VALUE, true),
+                __.createSchemaProperty("name", PropertyType.STRING).minAttr("3").maxAttr("30")
+                    .createPropertyIndex(IndexType.NOT_UNIQUE),
+                __.createSchemaProperty("location", PropertyType.LINK, "Address"),
+                __.createSchemaProperty("surname", PropertyType.STRING).minAttr("3").maxAttr("30"),
+                __.createSchemaProperty("hash", PropertyType.LONG),
+                __.createSchemaProperty("value", PropertyType.INTEGER),
+                __.createSchemaProperty("registeredOn", PropertyType.DATETIME)
                     .minAttr("2010-01-01 00:00:00"),
-                __.addSchemaProperty("lastAccessOn", PropertyType.DATETIME)
+                __.createSchemaProperty("lastAccessOn", PropertyType.DATETIME)
                     .minAttr("2010-01-01 00:00:00")
             )
         )
@@ -400,10 +400,10 @@ public abstract class BaseDBTest extends BaseTest {
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.schemaClass("Profile").sideEffects(
-            __.addSchemaProperty("invitedBy", PropertyType.LINK, "Profile"),
-            __.addSchemaProperty("followings", PropertyType.LINKSET, "Profile"),
-            __.addSchemaProperty("followers", PropertyType.LINKSET, "Profile")
+        g.schemaClass("Profile").insertSchemaProperties(
+            __.createSchemaProperty("invitedBy", PropertyType.LINK, "Profile"),
+            __.createSchemaProperty("followings", PropertyType.LINKSET, "Profile"),
+            __.createSchemaProperty("followers", PropertyType.LINKSET, "Profile")
         )
     );
   }
@@ -413,8 +413,8 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("InheritanceTestAbstractClass").fold().coalesce(
             __.unfold(),
-            __.addAbstractSchemaClass("InheritanceTestAbstractClass")
-                .addSchemaProperty("cField", PropertyType.INTEGER)
+            __.createAbstractSchemaClass("InheritanceTestAbstractClass")
+                .createSchemaProperty("cField", PropertyType.INTEGER)
         ));
   }
 
@@ -425,9 +425,9 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g -> g.schemaClass("InheritanceTestBaseClass").
         fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("InheritanceTestBaseClass").
+            __.createSchemaClass("InheritanceTestBaseClass").
                 addParentClass("InheritanceTestAbstractClass")
-                .addSchemaProperty("aField", PropertyType.STRING)
+                .createSchemaProperty("aField", PropertyType.STRING)
         ));
   }
 
@@ -438,9 +438,9 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("InheritanceTestClass").fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("InheritanceTestClass")
+            __.createSchemaClass("InheritanceTestClass")
                 .addParentClass("InheritanceTestBaseClass")
-                .addSchemaProperty("bField", PropertyType.STRING)
+                .createSchemaProperty("bField", PropertyType.STRING)
         )
     );
   }
@@ -463,14 +463,14 @@ public abstract class BaseDBTest extends BaseTest {
     //noinspection unchecked
     graph.autoExecuteInTx(g -> g.schemaClass("Whiz").fold().coalesce(
         __.unfold(),
-        __.addSchemaClass("Whiz")
-            .addSchemaProperty("id", PropertyType.INTEGER)
-            .addSchemaProperty("account", PropertyType.LINK, "Account")
-            .addSchemaProperty("date", PropertyType.DATE).minAttr("2010-01-01")
-            .addSchemaProperty("text", PropertyType.STRING).mandatoryAttr(true)
+        __.createSchemaClass("Whiz")
+            .createSchemaProperty("id", PropertyType.INTEGER)
+            .createSchemaProperty("account", PropertyType.LINK, "Account")
+            .createSchemaProperty("date", PropertyType.DATE).minAttr("2010-01-01")
+            .createSchemaProperty("text", PropertyType.STRING).mandatoryAttr(true)
             .minAttr("1")
             .maxAttr("140")
-            .addSchemaProperty("replyTo", PropertyType.LINK, "Account")
+            .createSchemaProperty("replyTo", PropertyType.LINK, "Account")
     ));
   }
 
@@ -478,10 +478,10 @@ public abstract class BaseDBTest extends BaseTest {
     //noinspection unchecked
     graph.autoExecuteInTx(g -> g.schemaClass("AnimalRace").fold().coalesce(
         __.unfold(),
-        __.addSchemaClass("AnimalRace").addSchemaProperty("name", PropertyType.STRING).
-            addSchemaClass("Animal",
-                __.addSchemaProperty("races", PropertyType.LINKSET, "AnimalRace"),
-                __.addSchemaProperty("name", PropertyType.STRING)
+        __.createSchemaClass("AnimalRace").createSchemaProperty("name", PropertyType.STRING).
+            createSchemaClass("Animal",
+                __.createSchemaProperty("races", PropertyType.LINKSET, "AnimalRace"),
+                __.createSchemaProperty("name", PropertyType.STRING)
             )
     ));
   }
@@ -490,9 +490,9 @@ public abstract class BaseDBTest extends BaseTest {
     //noinspection unchecked
     graph.autoExecuteInTx(g -> g.schemaClass("StrictTest").fold().coalesce(
         __.unfold(),
-        __.addSchemaClass("StrictTest",
-            __.addSchemaProperty("id", PropertyType.INTEGER).mandatoryAttr(true),
-            __.addSchemaProperty("name", PropertyType.STRING)
+        __.createSchemaClass("StrictTest",
+            __.createSchemaProperty("id", PropertyType.INTEGER).mandatoryAttr(true),
+            __.createSchemaProperty("name", PropertyType.STRING)
         )
     ));
   }
@@ -503,24 +503,24 @@ public abstract class BaseDBTest extends BaseTest {
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Child").addSchemaProperty("name", PropertyType.STRING).
-            addSchemaClass("JavaComplexTestClass",
-                __.addSchemaProperty("embeddedDocument", PropertyType.EMBEDDED),
-                __.addSchemaProperty("document", PropertyType.LINK),
-                __.addSchemaProperty("byteArray", PropertyType.LINK),
-                __.addSchemaProperty("name", PropertyType.STRING),
-                __.addSchemaProperty("stringMap", PropertyType.EMBEDDEDMAP),
-                __.addSchemaProperty("stringListMap", PropertyType.EMBEDDEDMAP),
-                __.addSchemaProperty("stringSet", PropertyType.EMBEDDEDSET),
-                __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST),
-                __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET),
-                __.addSchemaProperty("embeddedChildren", PropertyType.EMBEDDEDMAP),
-                __.addSchemaProperty("mapObject", PropertyType.EMBEDDEDMAP),
+        g.createSchemaClass("Child").createSchemaProperty("name", PropertyType.STRING).
+            createSchemaClass("JavaComplexTestClass",
+                __.createSchemaProperty("embeddedDocument", PropertyType.EMBEDDED),
+                __.createSchemaProperty("document", PropertyType.LINK),
+                __.createSchemaProperty("byteArray", PropertyType.LINK),
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("stringMap", PropertyType.EMBEDDEDMAP),
+                __.createSchemaProperty("stringListMap", PropertyType.EMBEDDEDMAP),
+                __.createSchemaProperty("stringSet", PropertyType.EMBEDDEDSET),
+                __.createSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET),
+                __.createSchemaProperty("embeddedChildren", PropertyType.EMBEDDEDMAP),
+                __.createSchemaProperty("mapObject", PropertyType.EMBEDDEDMAP),
 
-                __.addSchemaProperty("child", PropertyType.LINK, "Child"),
-                __.addSchemaProperty("set", PropertyType.LINKSET, "Child"),
-                __.addSchemaProperty("duplicationTestSet", PropertyType.LINKSET, "Child"),
-                __.addSchemaProperty("children", PropertyType.LINKMAP, "Child")
+                __.createSchemaProperty("child", PropertyType.LINK, "Child"),
+                __.createSchemaProperty("set", PropertyType.LINKSET, "Child"),
+                __.createSchemaProperty("duplicationTestSet", PropertyType.LINKSET, "Child"),
+                __.createSchemaProperty("children", PropertyType.LINKMAP, "Child")
             )
     );
   }
@@ -530,15 +530,15 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g ->
         g.schemaClass("JavaSimpleTestClass").fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("JavaSimpleTestClass",
-                __.addSchemaProperty("text", PropertyType.STRING).defaultValueAttr("initTest"),
-                __.addSchemaProperty("numberSimple", PropertyType.INTEGER).defaultValueAttr("0"),
-                __.addSchemaProperty("longSimple", PropertyType.LONG).defaultValueAttr("0"),
-                __.addSchemaProperty("doubleSimple", PropertyType.DOUBLE).defaultValueAttr("0"),
-                __.addSchemaProperty("floatSimple", PropertyType.FLOAT).defaultValueAttr("0"),
-                __.addSchemaProperty("byteSimple", PropertyType.BYTE).defaultValueAttr("0"),
-                __.addSchemaProperty("shortSimple", PropertyType.SHORT).defaultValueAttr("0"),
-                __.addSchemaProperty("dateField", PropertyType.DATETIME)
+            __.createSchemaClass("JavaSimpleTestClass",
+                __.createSchemaProperty("text", PropertyType.STRING).defaultValueAttr("initTest"),
+                __.createSchemaProperty("numberSimple", PropertyType.INTEGER).defaultValueAttr("0"),
+                __.createSchemaProperty("longSimple", PropertyType.LONG).defaultValueAttr("0"),
+                __.createSchemaProperty("doubleSimple", PropertyType.DOUBLE).defaultValueAttr("0"),
+                __.createSchemaProperty("floatSimple", PropertyType.FLOAT).defaultValueAttr("0"),
+                __.createSchemaProperty("byteSimple", PropertyType.BYTE).defaultValueAttr("0"),
+                __.createSchemaProperty("shortSimple", PropertyType.SHORT).defaultValueAttr("0"),
+                __.createSchemaProperty("dateField", PropertyType.DATETIME)
             )
         )
     );
@@ -549,9 +549,9 @@ public abstract class BaseDBTest extends BaseTest {
     graph.autoExecuteInTx(g -> g.schemaClass("GraphVehicle").
         fold().coalesce(
             __.unfold(),
-            __.addSchemaClass("GraphVehicle").addSchemaClass("GraphCar")
+            __.createSchemaClass("GraphVehicle").createSchemaClass("GraphCar")
                 .addParentClass("GraphVehicle").
-                addSchemaClass("GraphMotocycle").addParentClass("GraphVehicle")
+                createSchemaClass("GraphMotocycle").addParentClass("GraphVehicle")
         )
     );
 

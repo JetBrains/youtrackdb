@@ -23,7 +23,7 @@ public class DateBinaryComparatorTest extends DbTestBase {
 
   private void initSchema() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Test").addSchemaProperty("date", PropertyType.DATE));
+        g -> g.createSchemaClass("Test").createSchemaProperty("date", PropertyType.DATE));
 
     session.begin();
     var document = (EntityImpl) session.newEntity("Test");

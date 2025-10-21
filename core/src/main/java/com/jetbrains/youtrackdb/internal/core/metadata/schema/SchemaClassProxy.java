@@ -133,7 +133,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
 
   @Nullable
   @Override
-  public Index getClassIndex(DatabaseSessionInternal session, String name) {
+  public Index getClassIndex(String name) {
     assert this.session.assertIfNotActive();
     var indexEntity = SchemaManager.getClassIndex(delegate, name);
     if (indexEntity == null) {

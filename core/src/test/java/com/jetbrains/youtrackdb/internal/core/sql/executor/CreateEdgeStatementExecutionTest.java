@@ -3,9 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import org.junit.Assert;
 import org.junit.Test;
@@ -164,11 +164,11 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(vClass1).addSchemaClass(vClass2).
-            addStateFullEdgeClass(eClass,
-                __.addSchemaProperty("out", PropertyType.LINK, vClass1),
-                __.addSchemaProperty("in", PropertyType.LINK, vClass2)
-            ).addClassIndex(eClass + "out_in", IndexType.UNIQUE, "out", "in")
+        g.createSchemaClass(vClass1).createSchemaClass(vClass2).
+            createStateFullEdgeClass(eClass,
+                __.createSchemaProperty("out", PropertyType.LINK, vClass1),
+                __.createSchemaProperty("in", PropertyType.LINK, vClass2)
+            ).createClassIndex(eClass + "out_in", IndexType.UNIQUE, "out", "in")
     );
 
     for (var i = 0; i < 2; i++) {
@@ -235,10 +235,10 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(vClass1).addSchemaClass(vClass2).addStateFullEdgeClass(eClass,
-            __.addSchemaProperty("out", PropertyType.LINK, vClass1),
-            __.addSchemaProperty("in", PropertyType.LINK, vClass2)
-        ).addClassIndex(eClass + "out_in", IndexType.UNIQUE, "out", "in")
+        g.createSchemaClass(vClass1).createSchemaClass(vClass2).createStateFullEdgeClass(eClass,
+            __.createSchemaProperty("out", PropertyType.LINK, vClass1),
+            __.createSchemaProperty("in", PropertyType.LINK, vClass2)
+        ).createClassIndex(eClass + "out_in", IndexType.UNIQUE, "out", "in")
     );
 
     for (var i = 0; i < 2; i++) {
@@ -341,7 +341,7 @@ public class CreateEdgeStatementExecutionTest extends DbTestBase {
     var eClass = "testPositionalParamsE";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(vClass1).addStateFullEdgeClass(eClass)
+        g.createSchemaClass(vClass1).createStateFullEdgeClass(eClass)
     );
 
     for (var i = 0; i < 2; i++) {

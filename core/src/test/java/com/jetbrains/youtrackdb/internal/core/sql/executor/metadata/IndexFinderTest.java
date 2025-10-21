@@ -4,13 +4,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexFinder.Operation;
 import org.junit.After;
 import org.junit.Assert;
@@ -39,10 +39,12 @@ public class IndexFinderTest {
   public void testFindSimpleMatchIndex() {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
-      graph.autoExecuteInTx(g -> g.addSchemaClass("cl").as("cl").
-          addSchemaProperty("name", PropertyType.STRING).addPropertyIndex(IndexType.NOT_UNIQUE)
+      graph.autoExecuteInTx(g -> g.createSchemaClass("cl").as("cl").
+          createSchemaProperty("name", PropertyType.STRING)
+          .createPropertyIndex(IndexType.NOT_UNIQUE)
           .select("cl").
-          addSchemaProperty("surname", PropertyType.STRING).addPropertyIndex(IndexType.UNIQUE));
+          createSchemaProperty("surname", PropertyType.STRING)
+          .createPropertyIndex(IndexType.UNIQUE));
     }
 
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -62,10 +64,12 @@ public class IndexFinderTest {
   public void testFindRangeMatchIndex() {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
-      graph.autoExecuteInTx(g -> g.addSchemaClass("cl").as("cl").
-          addSchemaProperty("name", PropertyType.STRING).addPropertyIndex(IndexType.NOT_UNIQUE)
+      graph.autoExecuteInTx(g -> g.createSchemaClass("cl").as("cl").
+          createSchemaProperty("name", PropertyType.STRING)
+          .createPropertyIndex(IndexType.NOT_UNIQUE)
           .select("cl").
-          addSchemaProperty("surname", PropertyType.STRING).addPropertyIndex(IndexType.UNIQUE));
+          createSchemaProperty("surname", PropertyType.STRING)
+          .createPropertyIndex(IndexType.UNIQUE));
     }
 
     IndexFinder finder = new ClassIndexFinder("cl");
@@ -86,12 +90,14 @@ public class IndexFinderTest {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("cl").as("cl").
-              addSchemaProperty("name", PropertyType.STRING).addPropertyIndex(IndexType.NOT_UNIQUE)
+          g.createSchemaClass("cl").as("cl").
+              createSchemaProperty("name", PropertyType.STRING)
+              .createPropertyIndex(IndexType.NOT_UNIQUE)
               .select("cl").
-              addSchemaProperty("surname", PropertyType.STRING).addPropertyIndex(IndexType.UNIQUE)
+              createSchemaProperty("surname", PropertyType.STRING)
+              .createPropertyIndex(IndexType.UNIQUE)
               .select("cl").
-              addSchemaProperty("third", PropertyType.STRING)
+              createSchemaProperty("third", PropertyType.STRING)
       );
     }
 
@@ -118,8 +124,8 @@ public class IndexFinderTest {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("cl").addSchemaProperty("map", PropertyType.EMBEDDEDMAP)
-              .addPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_KEY)
+          g.createSchemaClass("cl").createSchemaProperty("map", PropertyType.EMBEDDEDMAP)
+              .createPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_KEY)
 
       );
     }
@@ -136,9 +142,9 @@ public class IndexFinderTest {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("cl")
-              .addSchemaProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
-              .addPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
+          g.createSchemaClass("cl")
+              .createSchemaProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
+              .createPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
       );
     }
 
@@ -154,11 +160,12 @@ public class IndexFinderTest {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("cl").as("cl")
-              .addSchemaProperty("name", PropertyType.STRING).addPropertyIndex(IndexType.NOT_UNIQUE)
+          g.createSchemaClass("cl").as("cl")
+              .createSchemaProperty("name", PropertyType.STRING)
+              .createPropertyIndex(IndexType.NOT_UNIQUE)
               .select("cl")
-              .addSchemaProperty("friend", PropertyType.LINK, "cl")
-              .addPropertyIndex(IndexType.UNIQUE)
+              .createSchemaProperty("friend", PropertyType.LINK, "cl")
+              .createPropertyIndex(IndexType.UNIQUE)
 
       );
     }
@@ -177,11 +184,12 @@ public class IndexFinderTest {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("cl").as("cl")
-              .addSchemaProperty("name", PropertyType.STRING).addPropertyIndex(IndexType.NOT_UNIQUE)
+          g.createSchemaClass("cl").as("cl")
+              .createSchemaProperty("name", PropertyType.STRING)
+              .createPropertyIndex(IndexType.NOT_UNIQUE)
               .select("cl")
-              .addSchemaProperty("friend", PropertyType.LINK, "cl")
-              .addPropertyIndex(IndexType.UNIQUE)
+              .createSchemaProperty("friend", PropertyType.LINK, "cl")
+              .createPropertyIndex(IndexType.UNIQUE)
 
       );
     }
@@ -199,12 +207,12 @@ public class IndexFinderTest {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("cl").as("cl")
-              .addSchemaProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
-              .addPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_KEY)
+          g.createSchemaClass("cl").as("cl")
+              .createSchemaProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
+              .createPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_KEY)
               .select("cl")
-              .addSchemaProperty("friend", PropertyType.LINK, "cl")
-              .addPropertyIndex(IndexType.UNIQUE)
+              .createSchemaProperty("friend", PropertyType.LINK, "cl")
+              .createPropertyIndex(IndexType.UNIQUE)
 
       );
     }
@@ -223,12 +231,12 @@ public class IndexFinderTest {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("cl").as("cl")
-              .addSchemaProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
-              .addPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
+          g.createSchemaClass("cl").as("cl")
+              .createSchemaProperty("map", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
+              .createPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
               .select("cl")
-              .addSchemaProperty("friend", PropertyType.LINK, "cl")
-              .addPropertyIndex(IndexType.UNIQUE)
+              .createSchemaProperty("friend", PropertyType.LINK, "cl")
+              .createPropertyIndex(IndexType.UNIQUE)
 
       );
     }
@@ -246,11 +254,11 @@ public class IndexFinderTest {
   public void testFindMultivalueMatchIndex() {
     try (var graph = youTrackDb.openGraph(IndexFinderTest.class.getSimpleName(), "admin",
         "adminpwd")) {
-      graph.autoExecuteInTx(g -> g.addSchemaClass("cl").as("cl").
-          addSchemaProperty("name", PropertyType.STRING)
+      graph.autoExecuteInTx(g -> g.createSchemaClass("cl").as("cl").
+          createSchemaProperty("name", PropertyType.STRING)
           .select("cl").
-          addSchemaProperty("surname", PropertyType.STRING)
-          .select("cl").addClassIndex("cl.name_surname", IndexType.NOT_UNIQUE, "name", "surname")
+          createSchemaProperty("surname", PropertyType.STRING)
+          .select("cl").createClassIndex("cl.name_surname", IndexType.NOT_UNIQUE, "name", "surname")
       );
     }
 

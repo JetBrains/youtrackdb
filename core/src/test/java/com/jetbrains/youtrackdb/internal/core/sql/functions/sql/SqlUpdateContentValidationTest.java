@@ -12,9 +12,9 @@ public class SqlUpdateContentValidationTest extends DbTestBase {
   @Test
   public void testReadOnlyValidation() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Test",
-            __.addSchemaProperty("testNormal", PropertyType.STRING),
-            __.addSchemaProperty("test", PropertyType.STRING).readOnlyAttr(true)
+        g.createSchemaClass("Test",
+            __.createSchemaProperty("testNormal", PropertyType.STRING),
+            __.createSchemaProperty("test", PropertyType.STRING).readOnlyAttr(true)
         )
     );
 

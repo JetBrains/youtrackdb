@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.db.graph;
 
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -17,9 +17,9 @@ public class TestGraphOperations extends DbTestBase {
   public void testEdgeUniqueConstraint() {
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("TestVertex").
-            addStateFullEdgeClass("TestLabel").addSchemaProperty("key", PropertyType.STRING)
-            .addPropertyIndex(IndexType.UNIQUE)
+        g.createSchemaClass("TestVertex").
+            createStateFullEdgeClass("TestLabel").createSchemaProperty("key", PropertyType.STRING)
+            .createPropertyIndex(IndexType.UNIQUE)
     );
 
 

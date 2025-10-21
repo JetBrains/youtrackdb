@@ -5,11 +5,11 @@ import static org.junit.Assert.assertNull;
 
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.EntityHookAbstract;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.UUID;
 import org.junit.Test;
@@ -24,10 +24,10 @@ public class CheckHookCallCountTest extends DbTestBase {
   @Test
   public void testMultipleCallHook() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(CLASS_NAME,
-            __.addSchemaProperty(FIELD_ID, PropertyType.STRING),
-            __.addSchemaProperty(FIELD_STATUS, PropertyType.STRING)
-                .addPropertyIndex("IDX", IndexType.NOT_UNIQUE)
+        g.createSchemaClass(CLASS_NAME,
+            __.createSchemaProperty(FIELD_ID, PropertyType.STRING),
+            __.createSchemaProperty(FIELD_STATUS, PropertyType.STRING)
+                .createPropertyIndex("IDX", IndexType.NOT_UNIQUE)
         )
     );
 
@@ -56,10 +56,10 @@ public class CheckHookCallCountTest extends DbTestBase {
   public void testInHook() throws Exception {
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("TestInHook",
-            __.addSchemaProperty("a", PropertyType.INTEGER),
-            __.addSchemaProperty("b", PropertyType.INTEGER),
-            __.addSchemaProperty("c", PropertyType.INTEGER)
+        g.createSchemaClass("TestInHook",
+            __.createSchemaProperty("a", PropertyType.INTEGER),
+            __.createSchemaProperty("b", PropertyType.INTEGER),
+            __.createSchemaProperty("c", PropertyType.INTEGER)
         )
     );
 

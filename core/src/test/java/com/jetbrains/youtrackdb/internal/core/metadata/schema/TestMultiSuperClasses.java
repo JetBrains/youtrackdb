@@ -17,11 +17,11 @@ public class TestMultiSuperClasses extends BaseMemoryInternalDatabase {
   public void testClassCreation() {
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addAbstractSchemaClass("javaA",
-            __.addSchemaProperty("propertyInt", PropertyType.INTEGER)
-        ).addAbstractSchemaClass("javaB",
-            __.addSchemaProperty("propertyDouble", PropertyType.DOUBLE)
-        ).addSchemaClass("javaC").addParentClass("javaA", "javaB")
+        g.createAbstractSchemaClass("javaA",
+            __.createSchemaProperty("propertyInt", PropertyType.INTEGER)
+        ).createAbstractSchemaClass("javaB",
+            __.createSchemaProperty("propertyDouble", PropertyType.DOUBLE)
+        ).createSchemaClass("javaC").addParentClass("javaA", "javaB")
     );
 
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();

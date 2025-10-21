@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.sql;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Assert;
 import org.junit.Test;
@@ -15,9 +15,9 @@ public class TestOrderByIndexPropDesc extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(DOCUMENT_CLASS_NAME)
-            .addSchemaProperty(PROP_INDEXED_STRING, PropertyType.STRING)
-            .addPropertyIndex("index", IndexType.NOT_UNIQUE));
+        g.createSchemaClass(DOCUMENT_CLASS_NAME)
+            .createSchemaProperty(PROP_INDEXED_STRING, PropertyType.STRING)
+            .createPropertyIndex("index", IndexType.NOT_UNIQUE));
   }
 
   @Test

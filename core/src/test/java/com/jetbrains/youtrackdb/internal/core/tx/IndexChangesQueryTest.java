@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -8,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import org.junit.After;
@@ -16,9 +16,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- *
- */
+
 public class IndexChangesQueryTest {
 
   public static final String CLASS_NAME = "idxTxAwareMultiValueGetEntriesTest";
@@ -38,9 +36,9 @@ public class IndexChangesQueryTest {
             youTrackDB.open("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
     try (var graph = youTrackDB.openGraph("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-      graph.autoExecuteInTx(g -> g.addSchemaClass(CLASS_NAME)
-          .addSchemaProperty(FIELD_NAME, PropertyType.INTEGER)
-          .addPropertyIndex(INDEX_NAME, IndexType.NOT_UNIQUE));
+      graph.autoExecuteInTx(g -> g.createSchemaClass(CLASS_NAME)
+          .createSchemaProperty(FIELD_NAME, PropertyType.INTEGER)
+          .createPropertyIndex(INDEX_NAME, IndexType.NOT_UNIQUE));
     }
   }
 

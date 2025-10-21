@@ -340,7 +340,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   public void testParameters1() {
     var className = "testParameters1";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script =
         "BEGIN;"
@@ -372,7 +372,7 @@ public class CommandExecutorSQLScriptTest extends DbTestBase {
   public void testPositionalParameters() {
     var className = "testPositionalParameters";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     var script =
         "BEGIN;"

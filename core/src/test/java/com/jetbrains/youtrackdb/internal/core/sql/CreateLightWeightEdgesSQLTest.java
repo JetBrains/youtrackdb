@@ -40,7 +40,7 @@ public class CreateLightWeightEdgesSQLTest {
     try (var graph = youTrackDB.openGraph(CreateLightWeightEdgesSQLTest.class.getSimpleName(),
         "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-      graph.autoExecuteInTx(g -> g.addAbstractSchemaClass("lightweight").addParentClass("E"));
+      graph.autoExecuteInTx(g -> g.createAbstractSchemaClass("lightweight").addParentClass("E"));
     }
 
     var tx = session.begin();
@@ -74,7 +74,7 @@ public class CreateLightWeightEdgesSQLTest {
     try (var graph = youTrackDB.openGraph(CreateLightWeightEdgesSQLTest.class.getSimpleName(),
         "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-      graph.autoExecuteInTx(g -> g.addAbstractSchemaClass("lightweight").addParentClass("E"));
+      graph.autoExecuteInTx(g -> g.createAbstractSchemaClass("lightweight").addParentClass("E"));
     }
 
     var tx = session.begin();

@@ -31,7 +31,7 @@ public class SchemaCreationBenchmark {
                   System.out.println("Creating class " + (i + 1) + " of 1000");
                 }
 
-                traversal.addSchemaClass("TestClass" + i);
+                traversal.createSchemaClass("TestClass" + i);
                 for (var j = 0; j < 20; j++) {
                   traversal.sideEffect(__.addSchemaProperty("TestProperty" + j,
                       PropertyType.STRING));

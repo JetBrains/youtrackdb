@@ -38,7 +38,7 @@ public class BrowseCollectionTest {
     db = (DatabaseSessionEmbedded) youTrackDb.open("test", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
     try (var graph = youTrackDb.openGraph("test", "admin", CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-      graph.autoExecuteInTx(g -> g.addSchemaClass("One"));
+      graph.autoExecuteInTx(g -> g.createSchemaClass("One"));
     }
   }
 

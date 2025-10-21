@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema;
 
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
 
 public enum YTDBSchemaPropertyPTokenInternal implements YTDBPTokenInternal<YTDBSchemaPropertyImpl> {
@@ -47,7 +48,7 @@ public enum YTDBSchemaPropertyPTokenInternal implements YTDBPTokenInternal<YTDBS
     @Override
     public void update(YTDBSchemaPropertyImpl domainObject, Object value) {
       validateValue(value);
-      domainObject.type((String) value);
+      domainObject.type(PropertyType.valueOf(value.toString()));
     }
 
     @Override
@@ -70,7 +71,7 @@ public enum YTDBSchemaPropertyPTokenInternal implements YTDBPTokenInternal<YTDBS
     @Override
     public void update(YTDBSchemaPropertyImpl domainObject, Object value) {
       validateValue(value);
-      domainObject.linkedType((String) value);
+      domainObject.linkedType(PropertyType.valueOf(value.toString()));
     }
 
     @Override

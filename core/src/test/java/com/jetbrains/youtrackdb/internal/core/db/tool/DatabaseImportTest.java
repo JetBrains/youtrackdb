@@ -26,7 +26,8 @@ public class DatabaseImportTest {
     try (final var db = (DatabaseSessionEmbedded) youTrackDB.open(databaseName, "admin", "admin")) {
       try (var graph = youTrackDB.openGraph(databaseName, "admin", "admin")) {
         graph.autoExecuteInTx(
-            g -> g.addSchemaClass("SimpleVertexClass").addStateFullEdgeClass("SimpleEdgeClass"));
+            g -> g.createSchemaClass("SimpleVertexClass")
+                .createStateFullEdgeClass("SimpleEdgeClass"));
       }
 
       final var export =

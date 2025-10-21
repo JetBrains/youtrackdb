@@ -1,14 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class GraphIndexTest extends GraphBaseTest {
+
   String vertexLabel1 = "SomeVertexLabel1";
   String vertexLabel2 = "SomeVertexLabel2";
 
@@ -20,9 +21,8 @@ public class GraphIndexTest extends GraphBaseTest {
   @Test
   public void vertexUniqueConstraint() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING)
-            .addPropertyIndex("vIndex",
-                IndexType.UNIQUE));
+        g.createSchemaClass(vertexLabel1).createSchemaProperty(key, PropertyType.STRING)
+            .createPropertyIndex("vIndex", IndexType.UNIQUE));
 
     var value = "value1";
     graph.addVertex(T.label, vertexLabel1, key, value);
@@ -45,8 +45,8 @@ public class GraphIndexTest extends GraphBaseTest {
   @Test
   public void edgeUniqueConstraint() {
     graph.autoExecuteInTx(g ->
-        g.addStateFullEdgeClass(edgeLabel1).addSchemaProperty(key, PropertyType.STRING)
-            .addPropertyIndex("eIndex", IndexType.UNIQUE));
+        g.createStateFullEdgeClass(edgeLabel1).createSchemaProperty(key, PropertyType.STRING)
+            .createPropertyIndex("eIndex", IndexType.UNIQUE));
 
     var value = "value1";
 
@@ -73,8 +73,8 @@ public class GraphIndexTest extends GraphBaseTest {
   @Test
   public void vertexUniqueIndexLookupWithValue() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING)
-            .addPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
+        g.createSchemaClass(vertexLabel1).createSchemaProperty(key, PropertyType.STRING)
+            .createPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
 
     var value = "value1";
 
@@ -94,12 +94,12 @@ public class GraphIndexTest extends GraphBaseTest {
   @Test
   public void vertexUniqueIndexLookupWithValueInMidTraversal() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING)
-            .addPropertyIndex("vIndex1", IndexType.NOT_UNIQUE));
+        g -> g.createSchemaClass(vertexLabel1).createSchemaProperty(key, PropertyType.STRING)
+            .createPropertyIndex("vIndex1", IndexType.NOT_UNIQUE));
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(vertexLabel2).addSchemaProperty(key, PropertyType.STRING)
-            .addPropertyIndex("vIndex2", IndexType.NOT_UNIQUE));
+        g.createSchemaClass(vertexLabel2).createSchemaProperty(key, PropertyType.STRING)
+            .createPropertyIndex("vIndex2", IndexType.NOT_UNIQUE));
 
     var value = "value1";
 
@@ -139,12 +139,12 @@ public class GraphIndexTest extends GraphBaseTest {
     final var value1 = "value1";
 
     graph.executeInTx(g -> {
-          g.addSchemaClass(label1).addSchemaProperty(key, PropertyType.STRING)
-              .addPropertyIndex("vIndex", IndexType.NOT_UNIQUE).iterate();
-          g.addSchemaClass(label2).addSchemaProperty(key, PropertyType.STRING)
-              .addPropertyIndex("vIndex2", IndexType.NOT_UNIQUE).iterate();
-          g.addSchemaClass(label3).addSchemaProperty(key, PropertyType.STRING)
-              .addPropertyIndex("vIndex3", IndexType.NOT_UNIQUE).iterate();
+      g.createSchemaClass(label1).createSchemaProperty(key, PropertyType.STRING)
+          .createPropertyIndex("vIndex", IndexType.NOT_UNIQUE).iterate();
+      g.createSchemaClass(label2).createSchemaProperty(key, PropertyType.STRING)
+          .createPropertyIndex("vIndex2", IndexType.NOT_UNIQUE).iterate();
+      g.createSchemaClass(label3).createSchemaProperty(key, PropertyType.STRING)
+          .createPropertyIndex("vIndex3", IndexType.NOT_UNIQUE).iterate();
         }
     );
 
@@ -164,8 +164,8 @@ public class GraphIndexTest extends GraphBaseTest {
   //  @Test
   public void vertexUniqueIndexLookupWithMultipleValues() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(vertexLabel1).addSchemaProperty(key, PropertyType.STRING).
-            addPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
+        g -> g.createSchemaClass(vertexLabel1).createSchemaProperty(key, PropertyType.STRING).
+            createPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
 
     var value1 = "value1";
     var value2 = "value2";
@@ -189,9 +189,9 @@ public class GraphIndexTest extends GraphBaseTest {
   @Test
   public void edgeUniqueIndexLookupWithValue() {
     graph.autoExecuteInTx(
-        g -> g.addStateFullEdgeClass(edgeLabel1).
-            addSchemaProperty(key, PropertyType.STRING)
-            .addPropertyIndex("vIndex", IndexType.UNIQUE));
+        g -> g.createStateFullEdgeClass(edgeLabel1).
+            createSchemaProperty(key, PropertyType.STRING)
+            .createPropertyIndex("vIndex", IndexType.UNIQUE));
 
     var value = "value1";
 
@@ -225,8 +225,8 @@ public class GraphIndexTest extends GraphBaseTest {
   @Test
   public void edgeNotUniqueIndexLookupWithValue() {
     graph.autoExecuteInTx(
-        g -> g.addStateFullEdgeClass(edgeLabel1).addSchemaProperty(key, PropertyType.STRING)
-            .addPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
+        g -> g.createStateFullEdgeClass(edgeLabel1).createSchemaProperty(key, PropertyType.STRING)
+            .createPropertyIndex("vIndex", IndexType.NOT_UNIQUE));
 
     var value = "value1";
 

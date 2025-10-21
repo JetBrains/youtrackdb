@@ -25,14 +25,9 @@ public interface YTDBSchemaProperty extends YTDBDomainVertex {
   String fullName();
 
   @Nonnull
-  PropertyType propertyType();
+  PropertyType type();
 
-  void propertyType(@Nonnull PropertyType propertyType);
-
-  @Nonnull
-  String type();
-
-  void type(@Nonnull final String propertyType);
+  void type(@Nonnull PropertyType propertyType);
 
   @Nullable
   YTDBSchemaClass linkedClass();
@@ -40,14 +35,9 @@ public interface YTDBSchemaProperty extends YTDBDomainVertex {
   void linkedClass(@Nullable YTDBSchemaClass linkedClass);
 
   @Nullable
-  PropertyType linkedPropertyType();
+  PropertyType linkedType();
 
-  void linkedPropertyType(@Nullable PropertyType linkedPropertyType);
-
-  @Nullable
-  String linkedType();
-
-  void linkedType(@Nullable String type);
+  void linkedType(@Nullable PropertyType linkedPropertyType);
 
   boolean notNull();
 
@@ -109,6 +99,9 @@ public interface YTDBSchemaProperty extends YTDBDomainVertex {
   YTDBSchemaIndex createIndex(String indexName, IndexType indexType);
 
   YTDBSchemaIndex createIndex(String indexName, IndexType indexType, IndexBy indexBy);
+
+  YTDBSchemaIndex createIndex(String indexName, IndexType indexType, IndexBy indexBy,
+      boolean ignoreNulls);
 
   Iterator<YTDBSchemaIndex> indexes(String... indexName);
 }

@@ -29,7 +29,7 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
   @Test
   public void test() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Foo").addSchemaProperty("name", PropertyType.STRING)
+        g.createSchemaClass("Foo").createSchemaProperty("name", PropertyType.STRING)
     );
 
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
@@ -43,7 +43,7 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
     Assert.assertFalse(schema.getClass("Foo").existsProperty("name"));
 
     graph.autoExecuteInTx(g -> g.schemaClass("Foo").
-        addSchemaProperty("name", PropertyType.STRING)
+        createSchemaProperty("name", PropertyType.STRING)
     );
 
     schema = session.getMetadata().getFastImmutableSchemaSnapshot();
@@ -60,7 +60,7 @@ public class CommandExecutorSQLDropSchemaPropertyTest extends DbTestBase {
   @Test
   public void testIfExists() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("testIfExists").addSchemaProperty("name", PropertyType.STRING)
+        g.createSchemaClass("testIfExists").createSchemaProperty("name", PropertyType.STRING)
     );
 
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();

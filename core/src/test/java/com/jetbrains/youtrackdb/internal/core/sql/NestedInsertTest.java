@@ -37,10 +37,10 @@ public class NestedInsertTest extends DbTestBase {
   @Test
   public void testLinkedNested() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("myClass").
-            addSchemaClass("Linked").
+        g.createSchemaClass("myClass").
+            createSchemaClass("Linked").
             schemaClass("myClass")
-            .addSchemaProperty("some", PropertyType.LINK, "Linked")
+            .createSchemaProperty("some", PropertyType.LINK, "Linked")
     );
 
     session.begin();

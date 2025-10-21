@@ -52,7 +52,7 @@ public class SQLFunctionDijkstraTest {
     graph = youTrackDB.openGraph("SQLFunctionDijkstraTest", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-    graph.autoExecuteInTx(g -> g.addStateFullEdgeClass("weight"));
+    graph.autoExecuteInTx(g -> g.createStateFullEdgeClass("weight"));
 
     var tx = session.begin();
     v1 = tx.newVertex();

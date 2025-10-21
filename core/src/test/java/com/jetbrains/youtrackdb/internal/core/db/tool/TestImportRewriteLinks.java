@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import static com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
@@ -10,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBAbstract;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,9 +34,10 @@ public class TestImportRewriteLinks {
       try (var graph = youTrackDb.openGraph("testDB", "admin",
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
         graph.autoExecuteInTx(g ->
-            g.addSchemaClass(EXPORT_IMPORT_CLASS_NAME).as("c").
-                addSchemaProperty("value", PropertyType.STRING).select("c").
-                addSchemaProperty("key", PropertyType.STRING).addPropertyIndex(IndexType.UNIQUE)
+            g.createSchemaClass(EXPORT_IMPORT_CLASS_NAME).as("c").
+                createSchemaProperty("value", PropertyType.STRING).select("c").
+                createSchemaProperty("key", PropertyType.STRING)
+                .createPropertyIndex(IndexType.UNIQUE)
         );
       }
 

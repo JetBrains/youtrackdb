@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
@@ -21,7 +22,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.File;
 import java.util.ArrayList;
@@ -206,12 +206,12 @@ public class StorageBackupMTStateTest {
   private void createClass(YTDBGraphTraversal<?, ?> g) {
     var className = CLASS_PREFIX + classCounter.getAndIncrement();
     //noinspection unchecked
-    g.addSchemaClass(className,
-        __.addSchemaProperty("id", PropertyType.LONG).addPropertyIndex(IndexType.UNIQUE),
-        __.addSchemaProperty("intValue", PropertyType.INTEGER)
-            .addPropertyIndex(IndexType.NOT_UNIQUE),
-        __.addSchemaProperty("stringValue", PropertyType.STRING),
-        __.addSchemaProperty("linkedDocuments", PropertyType.LINKBAG)
+    g.createSchemaClass(className,
+        __.createSchemaProperty("id", PropertyType.LONG).createPropertyIndex(IndexType.UNIQUE),
+        __.createSchemaProperty("intValue", PropertyType.INTEGER)
+            .createPropertyIndex(IndexType.NOT_UNIQUE),
+        __.createSchemaProperty("stringValue", PropertyType.STRING),
+        __.createSchemaProperty("linkedDocuments", PropertyType.LINKBAG)
     );
 
     classInstancesCounters.put(className, new AtomicInteger());
@@ -524,7 +524,7 @@ public class StorageBackupMTStateTest {
         } while (classCounter == null);
 
         var classToDrop = className;
-        graph.autoExecuteInTx(g -> g.dropSchemaClass(classToDrop));
+        graph.autoExecuteInTx(g -> g.schemaClass(classToDrop).drop());
 
         classInstancesCounters.remove(className);
         System.out.println("Class " + className + " was deleted");

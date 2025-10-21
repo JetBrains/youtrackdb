@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.exception.BaseException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.text.ParseException;
 import org.junit.Assert;
@@ -14,7 +14,8 @@ public class UniqueHashIndexForDateTest extends DbTestBase {
   @Test
   public void testSimpleUniqueDateIndex() throws ParseException {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("test_edge").addSchemaProperty("date", PropertyType.DATE).addPropertyIndex(
+        g.createSchemaClass("test_edge").createSchemaProperty("date", PropertyType.DATE)
+            .createPropertyIndex(
             IndexType.NOT_UNIQUE));
     session.begin();
     var doc = (EntityImpl) session.newEntity("test_edge");

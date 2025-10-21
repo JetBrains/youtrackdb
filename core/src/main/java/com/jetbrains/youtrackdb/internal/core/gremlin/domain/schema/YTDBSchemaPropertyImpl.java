@@ -47,28 +47,17 @@ public class YTDBSchemaPropertyImpl extends
   }
 
   @Override
-  public @Nonnull PropertyType propertyType() {
+  public @Nonnull PropertyType type() {
     var entity = entityReadPreprocessing();
     return entity.getPropertyType().getPublicPropertyType();
   }
 
   @Override
-  public void propertyType(@Nonnull PropertyType propertyType) {
+  public void type(@Nonnull PropertyType propertyType) {
     var entity = entityWritePreprocessing();
     entity.setPropertyType(PropertyTypeInternal.convertFromPublicType(propertyType));
   }
 
-  @Override
-  public @Nonnull String type() {
-    var entity = entityReadPreprocessing();
-    return entity.getType();
-  }
-
-  @Override
-  public void type(@Nonnull String propertyType) {
-    var entity = entityWritePreprocessing();
-    entity.setType(propertyType);
-  }
 
   @Override
   public YTDBSchemaClass linkedClass() {
@@ -91,28 +80,17 @@ public class YTDBSchemaPropertyImpl extends
   }
 
   @Override
-  public PropertyType linkedPropertyType() {
+  public PropertyType linkedType() {
     var entity = entityReadPreprocessing();
     return entity.getLinkedPropertyType().getPublicPropertyType();
   }
 
   @Override
-  public void linkedPropertyType(@Nullable PropertyType linkedPropertyType) {
+  public void linkedType(@Nullable PropertyType linkedPropertyType) {
     var entity = entityWritePreprocessing();
     entity.setLinkedPropertyType(PropertyTypeInternal.convertFromPublicType(linkedPropertyType));
   }
 
-  @Override
-  public String linkedType() {
-    var entity = entityReadPreprocessing();
-    return entity.getLinkedType();
-  }
-
-  @Override
-  public void linkedType(@Nullable String type) {
-    var entity = entityWritePreprocessing();
-    entity.setLinkedType(type);
-  }
 
   @Override
   public boolean notNull() {
@@ -281,6 +259,12 @@ public class YTDBSchemaPropertyImpl extends
   @Override
   public YTDBSchemaIndex createIndex(String indexName, YTDBSchemaIndex.IndexType indexType,
       IndexBy indexBy) {
+    return createIndex(indexName, indexType, indexBy, false);
+  }
+
+  @Override
+  public YTDBSchemaIndex createIndex(String indexName, YTDBSchemaIndex.IndexType indexType,
+      IndexBy indexBy, boolean ignoreNulls) {
     var entity = entityWritePreprocessing();
 
     var session = graph.tx().getDatabaseSession();
@@ -292,6 +276,7 @@ public class YTDBSchemaPropertyImpl extends
     indexEntity.setClassToIndex(declaringClass);
     indexEntity.addClassPropertyToIndex(entity,
         SchemaIndexEntity.IndexBy.fromPublicIndexBy(indexBy));
+    indexEntity.setNullValuesIgnored(ignoreNulls);
 
     return new YTDBSchemaIndexImpl(graph, indexEntity);
   }

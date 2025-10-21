@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.domain.schema;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaProperty;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
@@ -12,7 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.domain.YTDBDomainVertexAbs
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBInTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBOutTokenInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.domain.tokens.YTDBPTokenInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaManager;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaClassEntity;
@@ -24,6 +25,7 @@ import org.apache.commons.lang3.ArrayUtils;
 public class YTDBSchemaClassImpl extends
     YTDBDomainVertexSchemaAbstract<SchemaClassEntity> implements
     YTDBSchemaClass {
+
   public YTDBSchemaClassImpl(YTDBGraphInternal graph, Identifiable identifiable) {
     super(graph, identifiable);
   }
@@ -203,7 +205,23 @@ public class YTDBSchemaClassImpl extends
   public boolean isParentOf(@Nonnull YTDBSchemaClass classInstance) {
     var entity = entityReadPreprocessing();
     var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
+
     return entity.isParentOf(schemaClassImpl.getRawEntity());
+  }
+
+  @Override
+  public boolean iAssignableFrom(@Nonnull YTDBSchemaClass classInstance) {
+    var entity = entityReadPreprocessing();
+    var schemaClassImpl = (YTDBSchemaClassImpl) classInstance;
+
+    return entity.iAssignableFrom(schemaClassImpl.getRawEntity());
+  }
+
+  @Override
+  public boolean isAssignableFrom(@Nonnull String className) {
+    var entity = entityReadPreprocessing();
+
+    return entity.iAssignableFrom(className);
   }
 
   @Override
@@ -265,7 +283,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
+  public @Nonnull YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType) {
     var entity = entityWritePreprocessing();
     var tx = graph.tx();
@@ -292,7 +310,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
+  public @Nonnull YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull YTDBSchemaClass linkedClass) {
     var entity = entityWritePreprocessing();
@@ -309,7 +327,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
+  public @Nonnull YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull PropertyType linkedType) {
     var entity = entityWritePreprocessing();
@@ -325,7 +343,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public void dropSchemaProperty(@Nonnull String propertyName) {
+  public void dropDeclaredProperty(@Nonnull String propertyName) {
     var entity = entityWritePreprocessing();
     entity.removeSchemaProperty(propertyName);
   }
@@ -346,8 +364,30 @@ public class YTDBSchemaClassImpl extends
     var entity = entityWritePreprocessing();
     var tx = graph.tx();
     var session = tx.getDatabaseSession();
-    var indexEntity = SchemaManager.createIndex(session, entity, indexName, indexType,
+
+    var indexEntity = SchemaManager.createIndex(session, entity, indexName,
+        ImmutableSchema.IndexType.fromPublicIndexType(indexType),
         propertyNames);
+
+    return new YTDBSchemaIndexImpl(graph, indexEntity);
+  }
+
+  @Override
+  public YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType,
+      boolean ignoreNulls, String... propertyNames) {
+    if (propertyNames == null || propertyNames.length == 0) {
+      throw new IllegalArgumentException("Property names cannot be null or empty");
+    }
+
+    var entity = entityWritePreprocessing();
+    var tx = graph.tx();
+    var session = tx.getDatabaseSession();
+
+    var indexEntity = SchemaManager.createIndex(session, entity, indexName,
+        ImmutableSchema.IndexType.fromPublicIndexType(indexType),
+        propertyNames);
+
+    indexEntity.setNullValuesIgnored(ignoreNulls);
 
     return new YTDBSchemaIndexImpl(graph, indexEntity);
   }
@@ -364,8 +404,27 @@ public class YTDBSchemaClassImpl extends
     var session = tx.getDatabaseSession();
 
     var indexEntity = SchemaManager.createIndex(session, entity, indexName,
-        indexType, null,
+        ImmutableSchema.IndexType.fromPublicIndexType(indexType), null,
         propertyNames, indexBy);
+
+    return new YTDBSchemaIndexImpl(graph, indexEntity);
+  }
+
+  @Override
+  public YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType,
+      boolean ignoreNulls, String[] propertyNames, IndexBy[] indexBy) {
+    if (propertyNames == null || propertyNames.length == 0) {
+      throw new IllegalArgumentException("Property names cannot be null or empty");
+    }
+
+    var entity = entityWritePreprocessing();
+    var tx = graph.tx();
+    var session = tx.getDatabaseSession();
+
+    var indexEntity = SchemaManager.createIndex(session, entity, indexName,
+        ImmutableSchema.IndexType.fromPublicIndexType(indexType), null,
+        propertyNames, indexBy);
+    indexEntity.setNullValuesIgnored(ignoreNulls);
 
     return new YTDBSchemaIndexImpl(graph, indexEntity);
   }

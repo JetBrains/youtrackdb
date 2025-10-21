@@ -35,7 +35,7 @@ public class TransactionChangesDetectionTest {
     try (var graph = factory.openGraph(TransactionChangesDetectionTest.class.getSimpleName(),
         "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-      graph.autoExecuteInTx(g -> g.addSchemaClass("test"));
+      graph.autoExecuteInTx(g -> g.createSchemaClass("test"));
     }
   }
 

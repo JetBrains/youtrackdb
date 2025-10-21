@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.api.exception.ModificationOperationProhibitedException;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
@@ -13,7 +14,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionInternal;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -54,10 +54,10 @@ public class StorageBackupMTIT {
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
-        graph.autoExecuteInTx(g -> g.addSchemaClass("BackupClass",
-            __.addSchemaProperty("num", PropertyType.INTEGER)
-                .addPropertyIndex("backupIndex", IndexType.NOT_UNIQUE),
-            __.addSchemaProperty("data", PropertyType.BINARY)
+        graph.autoExecuteInTx(g -> g.createSchemaClass("BackupClass",
+            __.createSchemaProperty("num", PropertyType.INTEGER)
+                .createPropertyIndex("backupIndex", IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("data", PropertyType.BINARY)
         ));
       }
 
@@ -159,10 +159,10 @@ public class StorageBackupMTIT {
       var db = (DatabaseSessionInternal) youTrackDB.open(dbName, "admin", "admin");
 
       try (var graph = youTrackDB.openGraph(dbName, "admin", "admin")) {
-        graph.autoExecuteInTx(g -> g.addSchemaClass("BackupClass",
-            __.addSchemaProperty("num", PropertyType.INTEGER)
-                .addPropertyIndex("backupIndex", IndexType.NOT_UNIQUE),
-            __.addSchemaProperty("data", PropertyType.BINARY)
+        graph.autoExecuteInTx(g -> g.createSchemaClass("BackupClass",
+            __.createSchemaProperty("num", PropertyType.INTEGER)
+                .createPropertyIndex("backupIndex", IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("data", PropertyType.BINARY)
         ));
       }
 

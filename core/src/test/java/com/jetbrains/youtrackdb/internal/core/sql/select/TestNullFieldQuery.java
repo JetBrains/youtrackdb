@@ -29,7 +29,7 @@ public class TestNullFieldQuery extends DbTestBase {
   @Test
   public void testQueryNullValueSchemaFull() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Test").addSchemaProperty("name", PropertyType.STRING)
+        g.createSchemaClass("Test").createSchemaProperty("name", PropertyType.STRING)
     );
 
     session.begin();

@@ -18,17 +18,17 @@ public class AlterSuperclassTest extends DbTestBase {
     var childClass2 = "ChildClass2";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(parentClass).
+        g.createSchemaClass(parentClass).
             makeClassAbstract().
-            addSchemaProperty("RevNumberNine", PropertyType.INTEGER).
-            addSchemaClass(childClass)
+            createSchemaProperty("RevNumberNine", PropertyType.INTEGER).
+            createSchemaClass(childClass)
     );
 
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     assertEquals(schema.getClass(childClass).getParentClasses(),
         List.of(schema.getClass(parentClass)));
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(childClass2).
+    graph.autoExecuteInTx(g -> g.createSchemaClass(childClass2).
         addParentClass(childClass)
     );
 
@@ -50,17 +50,17 @@ public class AlterSuperclassTest extends DbTestBase {
     var childClass2 = "ChildClass2";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(parentClass).makeClassAbstract()
-            .addSchemaProperty("RevNumberNine", PropertyType.INTEGER).
-            addSchemaClass(childClass).addParentClass(parentClass)
+        g.createSchemaClass(parentClass).makeClassAbstract()
+            .createSchemaProperty("RevNumberNine", PropertyType.INTEGER).
+            createSchemaClass(childClass).addParentClass(parentClass)
     );
 
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     assertEquals(schema.getClass(childClass).getParentClasses(),
         List.of(schema.getClass(parentClass)));
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(childClass2).
-        addSchemaProperty("RevNumberNine", PropertyType.STRING).
+    graph.autoExecuteInTx(g -> g.createSchemaClass(childClass2).
+        createSchemaProperty("RevNumberNine", PropertyType.STRING).
         addParentClass(childClass)
     );
   }
@@ -71,7 +71,7 @@ public class AlterSuperclassTest extends DbTestBase {
     var childClass = "ChildClass1";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(parentClass).addSchemaClass(childClass).addParentClass(parentClass)
+        g.createSchemaClass(parentClass).createSchemaClass(childClass).addParentClass(parentClass)
     );
 
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
@@ -90,10 +90,10 @@ public class AlterSuperclassTest extends DbTestBase {
     var childClass2 = "ChildClass2";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("BaseClass").
-            addSchemaClass(childClass).
+        g.createSchemaClass("BaseClass").
+            createSchemaClass(childClass).
             addParentClass(parentClass).
-            addSchemaClass(childClass2).
+            createSchemaClass(childClass2).
             addParentClass(parentClass)
     );
 

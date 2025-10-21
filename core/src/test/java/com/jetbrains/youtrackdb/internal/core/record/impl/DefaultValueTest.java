@@ -18,7 +18,7 @@ public class DefaultValueTest extends DbTestBase {
   public void testKeepValueSerialization() {
     // create example schema
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("ClassC").addSchemaProperty("name", PropertyType.STRING)
+        g -> g.createSchemaClass("ClassC").createSchemaProperty("name", PropertyType.STRING)
             .defaultValueAttr("uuid()"));
 
     session.begin();
@@ -38,10 +38,10 @@ public class DefaultValueTest extends DbTestBase {
   public void testDefaultValueDate() {
 
     var classA = "ClassA";
-    graph.autoExecuteInTx(g -> g.addSchemaClass("ClassA",
-            __.addSchemaProperty("date", PropertyType.DATE)
+    graph.autoExecuteInTx(g -> g.createSchemaClass("ClassA",
+        __.createSchemaProperty("date", PropertyType.DATE)
                 .defaultValueAttr(DateHelper.getDateTimeFormatInstance(session).format(new Date())),
-            __.addSchemaProperty("id", PropertyType.STRING)
+        __.createSchemaProperty("id", PropertyType.STRING)
                 .defaultValueAttr("uuid()")
         )
     );
@@ -72,10 +72,10 @@ public class DefaultValueTest extends DbTestBase {
   @Test
   public void testDefaultValueDateFromContent() {
     var classA = "ClassA";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(classA,
-            __.addSchemaProperty("date", PropertyType.DATE)
+    graph.autoExecuteInTx(g -> g.createSchemaClass(classA,
+        __.createSchemaProperty("date", PropertyType.DATE)
                 .defaultValueAttr(DateHelper.getDateTimeFormatInstance(session).format(new Date())),
-            __.addSchemaProperty("id", PropertyType.STRING)
+        __.createSchemaProperty("id", PropertyType.STRING)
                 .defaultValueAttr("uuid()")
         )
     );
@@ -112,8 +112,8 @@ public class DefaultValueTest extends DbTestBase {
   @Test
   public void testDefaultValueFromJson() {
     var classA = "ClassA";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(classA,
-            __.addSchemaProperty("date", PropertyType.DATE)
+    graph.autoExecuteInTx(g -> g.createSchemaClass(classA,
+        __.createSchemaProperty("date", PropertyType.DATE)
                 .defaultValueAttr(DateHelper.getDateTimeFormatInstance(session).format(new Date()))
         )
     );
@@ -135,8 +135,8 @@ public class DefaultValueTest extends DbTestBase {
 
   @Test
   public void testDefaultValueProvidedFromJson() {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("ClassA",
-            __.addSchemaProperty("date", PropertyType.DATETIME)
+    graph.autoExecuteInTx(g -> g.createSchemaClass("ClassA",
+        __.createSchemaProperty("date", PropertyType.DATETIME)
                 .defaultValueAttr(DateHelper.getDateTimeFormatInstance(session).format(new Date()))
         )
     );
@@ -161,7 +161,7 @@ public class DefaultValueTest extends DbTestBase {
   @Test
   public void testDefaultValueMandatoryReadonlyFromJson() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("ClassA").addSchemaProperty("date", PropertyType.DATE)
+        g.createSchemaClass("ClassA").createSchemaProperty("date", PropertyType.DATE)
             .defaultValueAttr(DateHelper.getDateTimeFormatInstance(session).format(new Date()))
             .mandatoryAttr(true).readOnlyAttr(true)
     );
@@ -184,7 +184,7 @@ public class DefaultValueTest extends DbTestBase {
   @Test
   public void testDefaultValueProvidedMandatoryReadonlyFromJson() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("ClassA").addSchemaProperty("date", PropertyType.DATETIME)
+        g -> g.createSchemaClass("ClassA").createSchemaProperty("date", PropertyType.DATETIME)
             .defaultValueAttr(DateHelper.getDateTimeFormatInstance(session).format(new Date()))
             .mandatoryAttr(true).readOnlyAttr(true)
     );
@@ -209,7 +209,7 @@ public class DefaultValueTest extends DbTestBase {
   @Test
   public void testDefaultValueUpdateMandatoryReadonlyFromJson() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("ClassA").addSchemaProperty("date", PropertyType.DATETIME)
+        g -> g.createSchemaClass("ClassA").createSchemaProperty("date", PropertyType.DATETIME)
             .defaultValueAttr(DateHelper.getDateTimeFormatInstance(session).format(new Date()))
             .mandatoryAttr(true).readOnlyAttr(true)
     );

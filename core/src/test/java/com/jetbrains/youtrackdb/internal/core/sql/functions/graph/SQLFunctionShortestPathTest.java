@@ -48,8 +48,8 @@ public class SQLFunctionShortestPathTest {
     try (var graph = youTrackDB.openGraph("SQLFunctionShortestPath", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
       graph.autoExecuteInTx(g ->
-          g.addStateFullEdgeClass("Edge1").
-              addStateFullEdgeClass("Edge2"));
+          g.createStateFullEdgeClass("Edge1").
+              createStateFullEdgeClass("Edge2"));
     }
     session.begin();
     var v1 = session.newVertex();

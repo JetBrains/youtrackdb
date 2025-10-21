@@ -22,9 +22,9 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,9 +39,9 @@ public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
     super.beforeTest();
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("user").
-            addSchemaProperty("name", PropertyType.STRING).collateAttr("ci")
-            .addPropertyIndex(IndexType.NOT_UNIQUE)
+        g.createSchemaClass("user").
+            createSchemaProperty("name", PropertyType.STRING).collateAttr("ci")
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     session.begin();

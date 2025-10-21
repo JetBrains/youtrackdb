@@ -54,7 +54,7 @@ public class ResultSetTest extends DbTestBase {
     withOverriddenConfig(GlobalConfiguration.QUERY_RESULT_SET_OPEN_WARNING_THRESHOLD, 100,
         session -> {
 
-          graph.autoExecuteInTx(g -> g.addSchemaClass("ResultSetTest_testAutoClose"));
+          graph.autoExecuteInTx(g -> g.createSchemaClass("ResultSetTest_testAutoClose"));
           for (var i = 0; i < 10; i++) {
             final var name = "foo" + i;
             session.executeInTx(

@@ -33,41 +33,41 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addAbstractSchemaClass(embeddedClassName,
-                __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+        g.createAbstractSchemaClass(embeddedClassName,
+                __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
             )
-            .addSchemaClass(className,
-                __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
-                __.addSchemaProperty("float", PropertyType.FLOAT).mandatoryAttr(true),
-                __.addSchemaProperty("boolean", PropertyType.BOOLEAN).mandatoryAttr(true),
-                __.addSchemaProperty("binary", PropertyType.BINARY).mandatoryAttr(true),
-                __.addSchemaProperty("byte", PropertyType.BYTE).mandatoryAttr(true),
-                __.addSchemaProperty("date", PropertyType.DATE).mandatoryAttr(true),
-                __.addSchemaProperty("datetime", PropertyType.DATETIME).mandatoryAttr(true),
-                __.addSchemaProperty("decimal", PropertyType.DECIMAL).mandatoryAttr(true),
-                __.addSchemaProperty("double", PropertyType.DOUBLE).mandatoryAttr(true),
-                __.addSchemaProperty("short", PropertyType.SHORT).mandatoryAttr(true),
-                __.addSchemaProperty("string", PropertyType.STRING).mandatoryAttr(true),
-                __.addSchemaProperty("link", PropertyType.LINK).mandatoryAttr(true),
-                __.addSchemaProperty("embedded", PropertyType.EMBEDDED,
+            .createSchemaClass(className,
+                __.createSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+                __.createSchemaProperty("float", PropertyType.FLOAT).mandatoryAttr(true),
+                __.createSchemaProperty("boolean", PropertyType.BOOLEAN).mandatoryAttr(true),
+                __.createSchemaProperty("binary", PropertyType.BINARY).mandatoryAttr(true),
+                __.createSchemaProperty("byte", PropertyType.BYTE).mandatoryAttr(true),
+                __.createSchemaProperty("date", PropertyType.DATE).mandatoryAttr(true),
+                __.createSchemaProperty("datetime", PropertyType.DATETIME).mandatoryAttr(true),
+                __.createSchemaProperty("decimal", PropertyType.DECIMAL).mandatoryAttr(true),
+                __.createSchemaProperty("double", PropertyType.DOUBLE).mandatoryAttr(true),
+                __.createSchemaProperty("short", PropertyType.SHORT).mandatoryAttr(true),
+                __.createSchemaProperty("string", PropertyType.STRING).mandatoryAttr(true),
+                __.createSchemaProperty("link", PropertyType.LINK).mandatoryAttr(true),
+                __.createSchemaProperty("embedded", PropertyType.EMBEDDED,
                     embeddedClassName).mandatoryAttr(true),
-                __.addSchemaProperty("embeddedListNoClass", PropertyType.EMBEDDEDLIST)
+                __.createSchemaProperty("embeddedListNoClass", PropertyType.EMBEDDEDLIST)
                     .mandatoryAttr(true),
-                __.addSchemaProperty("embeddedSetNoClass", PropertyType.EMBEDDEDSET)
+                __.createSchemaProperty("embeddedSetNoClass", PropertyType.EMBEDDEDSET)
                     .mandatoryAttr(true),
-                __.addSchemaProperty("embeddedMapNoClass", PropertyType.EMBEDDEDMAP)
+                __.createSchemaProperty("embeddedMapNoClass", PropertyType.EMBEDDEDMAP)
                     .mandatoryAttr(true),
-                __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST,
+                __.createSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST,
                     embeddedClassName).mandatoryAttr(true),
-                __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET,
+                __.createSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET,
                     embeddedClassName).mandatoryAttr(true),
-                __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP,
+                __.createSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP,
                     embeddedClassName).mandatoryAttr(true),
-                __.addSchemaProperty("linkList", PropertyType.LINKLIST).
+                __.createSchemaProperty("linkList", PropertyType.LINKLIST).
                     mandatoryAttr(true),
-                __.addSchemaProperty("linkSet", PropertyType.LINKSET).
+                __.createSchemaProperty("linkSet", PropertyType.LINKSET).
                     mandatoryAttr(true),
-                __.addSchemaProperty("linkMap", PropertyType.LINKMAP).mandatoryAttr(true)
+                __.createSchemaProperty("linkMap", PropertyType.LINKMAP).mandatoryAttr(true)
             )
     );
 
@@ -151,13 +151,13 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addAbstractSchemaClass("EmbeddedValidation",
-                __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+        g.createAbstractSchemaClass("EmbeddedValidation",
+                __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
             ).
-            addSchemaClass("Validation",
-                __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
-                __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
-                __.addSchemaProperty("embedded", PropertyType.EMBEDDED, "EmbeddedValidation")
+            createSchemaClass("Validation",
+                __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+                __.createSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+                __.createSchemaProperty("embedded", PropertyType.EMBEDDED, "EmbeddedValidation")
                     .mandatoryAttr(true)
             )
     );
@@ -182,13 +182,13 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
   public void testValidationNotValidEmbeddedSet() {
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addAbstractSchemaClass("EmbeddedValidation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
-            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
-        ).addSchemaClass("Validation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
-            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
-            __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, "EmbeddedValidation")
+        g.createAbstractSchemaClass("EmbeddedValidation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.createSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
+        ).createSchemaClass("Validation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.createSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+            __.createSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, "EmbeddedValidation")
                 .mandatoryAttr(true)
         )
     );
@@ -222,13 +222,13 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
   public void testValidationNotValidEmbeddedList() {
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addAbstractSchemaClass("EmbeddedValidation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
-            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
-        ).addSchemaClass("Validation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
-            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
-            __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST,
+        g.createAbstractSchemaClass("EmbeddedValidation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.createSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
+        ).createSchemaClass("Validation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.createSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+            __.createSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST,
                 "EmbeddedValidation").mandatoryAttr(true)
         )
     );
@@ -261,13 +261,13 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
   public void testValidationNotValidEmbeddedMap() {
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addAbstractSchemaClass("EmbeddedValidation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
-            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
-        ).addSchemaClass("Validation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
-            __.addSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
-            __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP, "EmbeddedValidation")
+        g.createAbstractSchemaClass("EmbeddedValidation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.createSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true)
+        ).createSchemaClass("Validation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true),
+            __.createSchemaProperty("long", PropertyType.LONG).mandatoryAttr(true),
+            __.createSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP, "EmbeddedValidation")
                 .mandatoryAttr(true)
         )
     );
@@ -318,13 +318,13 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
           cal.add(Calendar.HOUR, cal.get(Calendar.HOUR) == 11 ? 0 : 1);
           var format = session.getStorage().getConfiguration().getDateFormatInstance();
 
-          var traversal = g.addSchemaClass("Validation",
-              __.addSchemaProperty("int", PropertyType.INTEGER).maxAttr("11"),
-              __.addSchemaProperty("long", PropertyType.LONG).maxAttr("11"),
-              __.addSchemaProperty("float", PropertyType.FLOAT, "11"),
-              __.addSchemaProperty("binary", PropertyType.BINARY).maxAttr("11"),
-              __.addSchemaProperty("byte", PropertyType.BYTE).maxAttr("11"),
-              __.addSchemaProperty("date", PropertyType.DATE).maxAttr(format.format(cal.getTime()))
+      var traversal = g.createSchemaClass("Validation",
+          __.createSchemaProperty("int", PropertyType.INTEGER).maxAttr("11"),
+          __.createSchemaProperty("long", PropertyType.LONG).maxAttr("11"),
+          __.createSchemaProperty("float", PropertyType.FLOAT, "11"),
+          __.createSchemaProperty("binary", PropertyType.BINARY).maxAttr("11"),
+          __.createSchemaProperty("byte", PropertyType.BYTE).maxAttr("11"),
+          __.createSchemaProperty("date", PropertyType.DATE).maxAttr(format.format(cal.getTime()))
           );
 
           cal = Calendar.getInstance();
@@ -332,22 +332,22 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
           format = session.getStorage().getConfiguration().getDateTimeFormatInstance();
 
           //noinspection unchecked
-          traversal.schemaClass("Validation").sideEffects(
-              __.addSchemaProperty("datetime", PropertyType.DATETIME)
+      traversal.schemaClass("Validation").insertSchemaProperties(
+          __.createSchemaProperty("datetime", PropertyType.DATETIME)
                   .maxAttr(format.format(cal.getTime())),
-              __.addSchemaProperty("decimal", PropertyType.DECIMAL).maxAttr("11"),
-              __.addSchemaProperty("double", PropertyType.DOUBLE).maxAttr("11"),
-              __.addSchemaProperty("short", PropertyType.SHORT).maxAttr("11"),
-              __.addSchemaProperty("string", PropertyType.STRING).maxAttr("11"),
+          __.createSchemaProperty("decimal", PropertyType.DECIMAL).maxAttr("11"),
+          __.createSchemaProperty("double", PropertyType.DOUBLE).maxAttr("11"),
+          __.createSchemaProperty("short", PropertyType.SHORT).maxAttr("11"),
+          __.createSchemaProperty("string", PropertyType.STRING).maxAttr("11"),
 
-              __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).maxAttr("2"),
-              __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).maxAttr("2"),
-              __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).maxAttr("2"),
+          __.createSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).maxAttr("2"),
+          __.createSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).maxAttr("2"),
+          __.createSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).maxAttr("2"),
 
-              __.addSchemaProperty("linkList", PropertyType.LINKLIST).maxAttr("2"),
-              __.addSchemaProperty("linkSet", PropertyType.LINKSET).maxAttr("2"),
-              __.addSchemaProperty("linkMap", PropertyType.LINKMAP).maxAttr("2"),
-              __.addSchemaProperty("linkBag", PropertyType.LINKBAG).maxAttr("2")
+          __.createSchemaProperty("linkList", PropertyType.LINKLIST).maxAttr("2"),
+          __.createSchemaProperty("linkSet", PropertyType.LINKSET).maxAttr("2"),
+          __.createSchemaProperty("linkMap", PropertyType.LINKMAP).maxAttr("2"),
+          __.createSchemaProperty("linkBag", PropertyType.LINKBAG).maxAttr("2")
           );
 
           traversal.iterate();
@@ -474,19 +474,19 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     session.commit();
 
     graph.executeInTx(g -> {
-          var traversal = g.addSchemaClass("Validation",
-              __.addSchemaProperty("int", PropertyType.INTEGER).minAttr("11"),
-              __.addSchemaProperty("long", PropertyType.LONG).minAttr("11"),
-              __.addSchemaProperty("float", PropertyType.FLOAT).minAttr("11"),
-              __.addSchemaProperty("binary", PropertyType.BINARY).minAttr("11"),
-              __.addSchemaProperty("byte", PropertyType.BYTE).minAttr("11")
+      var traversal = g.createSchemaClass("Validation",
+          __.createSchemaProperty("int", PropertyType.INTEGER).minAttr("11"),
+          __.createSchemaProperty("long", PropertyType.LONG).minAttr("11"),
+          __.createSchemaProperty("float", PropertyType.FLOAT).minAttr("11"),
+          __.createSchemaProperty("binary", PropertyType.BINARY).minAttr("11"),
+          __.createSchemaProperty("byte", PropertyType.BYTE).minAttr("11")
           );
 
           var cal = Calendar.getInstance();
           cal.add(Calendar.HOUR, cal.get(Calendar.HOUR) == 11 ? 0 : 1);
           var format = session.getStorage().getConfiguration().getDateFormatInstance();
 
-          traversal.schemaClass("Validation").addSchemaProperty("date", PropertyType.DATE)
+      traversal.schemaClass("Validation").createSchemaProperty("date", PropertyType.DATE)
               .minAttr(format.format(cal.getTime()));
 
           cal = Calendar.getInstance();
@@ -494,21 +494,21 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
           format = session.getStorage().getConfiguration().getDateTimeFormatInstance();
 
           //noinspection unchecked
-          traversal.schemaClass("Validation").sideEffects(
-              __.addSchemaProperty("datetime", PropertyType.DATETIME)
+      traversal.schemaClass("Validation").insertSchemaProperties(
+          __.createSchemaProperty("datetime", PropertyType.DATETIME)
                   .minAttr(format.format(cal.getTime())),
-              __.addSchemaProperty("decimal", PropertyType.DECIMAL).minAttr("11"),
-              __.addSchemaProperty("double", PropertyType.DOUBLE).minAttr("11"),
-              __.addSchemaProperty("short", PropertyType.SHORT).minAttr("11"),
-              __.addSchemaProperty("string", PropertyType.STRING).minAttr("11"),
+          __.createSchemaProperty("decimal", PropertyType.DECIMAL).minAttr("11"),
+          __.createSchemaProperty("double", PropertyType.DOUBLE).minAttr("11"),
+          __.createSchemaProperty("short", PropertyType.SHORT).minAttr("11"),
+          __.createSchemaProperty("string", PropertyType.STRING).minAttr("11"),
 
-              __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).minAttr("1"),
-              __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).minAttr("1"),
-              __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).minAttr("1"),
-              __.addSchemaProperty("linkList", PropertyType.LINKLIST).minAttr("1"),
-              __.addSchemaProperty("linkSet", PropertyType.LINKSET).minAttr("1"),
-              __.addSchemaProperty("linkMap", PropertyType.LINKMAP).minAttr("1"),
-              __.addSchemaProperty("linkBag", PropertyType.LINKBAG).minAttr("1")
+          __.createSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).minAttr("1"),
+          __.createSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).minAttr("1"),
+          __.createSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).minAttr("1"),
+          __.createSchemaProperty("linkList", PropertyType.LINKLIST).minAttr("1"),
+          __.createSchemaProperty("linkSet", PropertyType.LINKSET).minAttr("1"),
+          __.createSchemaProperty("linkMap", PropertyType.LINKMAP).minAttr("1"),
+          __.createSchemaProperty("linkBag", PropertyType.LINKBAG).minAttr("1")
           ).iterate();
         }
     );
@@ -581,27 +581,27 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     session.commit();
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Validation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).notNullAttr(true),
-            __.addSchemaProperty("long", PropertyType.LONG).notNullAttr(true),
-            __.addSchemaProperty("float", PropertyType.FLOAT).notNullAttr(true),
-            __.addSchemaProperty("boolean", PropertyType.BOOLEAN).notNullAttr(true),
-            __.addSchemaProperty("binary", PropertyType.BINARY).notNullAttr(true),
-            __.addSchemaProperty("byte", PropertyType.BYTE).notNullAttr(true),
-            __.addSchemaProperty("date", PropertyType.DATE).notNullAttr(true),
-            __.addSchemaProperty("datetime", PropertyType.DATETIME).notNullAttr(true),
-            __.addSchemaProperty("decimal", PropertyType.DECIMAL).notNullAttr(true),
-            __.addSchemaProperty("double", PropertyType.DOUBLE).notNullAttr(true),
-            __.addSchemaProperty("short", PropertyType.SHORT).notNullAttr(true),
-            __.addSchemaProperty("string", PropertyType.STRING).notNullAttr(true),
-            __.addSchemaProperty("link", PropertyType.LINK).notNullAttr(true),
-            __.addSchemaProperty("embedded", PropertyType.EMBEDDED).notNullAttr(true),
-            __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).notNullAttr(true),
-            __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).notNullAttr(true),
-            __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).notNullAttr(true),
-            __.addSchemaProperty("linkList", PropertyType.LINKLIST).notNullAttr(true),
-            __.addSchemaProperty("linkSet", PropertyType.LINKSET).notNullAttr(true),
-            __.addSchemaProperty("linkMap", PropertyType.LINKMAP).notNullAttr(true)
+        g.createSchemaClass("Validation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).notNullAttr(true),
+            __.createSchemaProperty("long", PropertyType.LONG).notNullAttr(true),
+            __.createSchemaProperty("float", PropertyType.FLOAT).notNullAttr(true),
+            __.createSchemaProperty("boolean", PropertyType.BOOLEAN).notNullAttr(true),
+            __.createSchemaProperty("binary", PropertyType.BINARY).notNullAttr(true),
+            __.createSchemaProperty("byte", PropertyType.BYTE).notNullAttr(true),
+            __.createSchemaProperty("date", PropertyType.DATE).notNullAttr(true),
+            __.createSchemaProperty("datetime", PropertyType.DATETIME).notNullAttr(true),
+            __.createSchemaProperty("decimal", PropertyType.DECIMAL).notNullAttr(true),
+            __.createSchemaProperty("double", PropertyType.DOUBLE).notNullAttr(true),
+            __.createSchemaProperty("short", PropertyType.SHORT).notNullAttr(true),
+            __.createSchemaProperty("string", PropertyType.STRING).notNullAttr(true),
+            __.createSchemaProperty("link", PropertyType.LINK).notNullAttr(true),
+            __.createSchemaProperty("embedded", PropertyType.EMBEDDED).notNullAttr(true),
+            __.createSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST).notNullAttr(true),
+            __.createSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET).notNullAttr(true),
+            __.createSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP).notNullAttr(true),
+            __.createSchemaProperty("linkList", PropertyType.LINKLIST).notNullAttr(true),
+            __.createSchemaProperty("linkSet", PropertyType.LINKSET).notNullAttr(true),
+            __.createSchemaProperty("linkMap", PropertyType.LINKMAP).notNullAttr(true)
         )
     );
 
@@ -659,7 +659,7 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
   @Test
   public void testRegExpValidation() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Validation").addSchemaProperty("string", PropertyType.STRING)
+        g.createSchemaClass("Validation").createSchemaProperty("string", PropertyType.STRING)
             .regExpAttr("[^Z]*")
     );
 
@@ -675,10 +675,11 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
   @Test
   public void testLinkedTypeValidation() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Validation",
-            __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER),
-            __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, PropertyType.INTEGER),
-            __.addSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER)
+        g -> g.createSchemaClass("Validation",
+            __.createSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST,
+                PropertyType.INTEGER),
+            __.createSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, PropertyType.INTEGER),
+            __.createSchemaProperty("embeddedMap", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER)
         )
     );
 
@@ -719,19 +720,20 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
   public void testLinkedClassValidation() {
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Validation").
-            addSchemaClass("Validation1").
-            addAbstractSchemaClass("ValidationEmbedded").
-            addAbstractSchemaClass("ValidationEmbedded2").
-            schemaClass("Validation").sideEffects(
-                __.addSchemaProperty("link", PropertyType.LINK, "Validation1"),
-                __.addSchemaProperty("embedded", PropertyType.EMBEDDED, "ValidationEmbedded"),
-                __.addSchemaProperty("linkList", PropertyType.LINKLIST, "Validation1"),
-                __.addSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST, "ValidationEmbedded"),
-                __.addSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, "ValidationEmbedded"),
-                __.addSchemaProperty("linkSet", PropertyType.LINKSET, "Validation1"),
-                __.addSchemaProperty("linkMap", PropertyType.LINKMAP, "Validation1"),
-                __.addSchemaProperty("linkBag", PropertyType.LINKBAG, "Validation1")
+        g.createSchemaClass("Validation").
+            createSchemaClass("Validation1").
+            createAbstractSchemaClass("ValidationEmbedded").
+            createAbstractSchemaClass("ValidationEmbedded2").
+            schemaClass("Validation").insertSchemaProperties(
+                __.createSchemaProperty("link", PropertyType.LINK, "Validation1"),
+                __.createSchemaProperty("embedded", PropertyType.EMBEDDED, "ValidationEmbedded"),
+                __.createSchemaProperty("linkList", PropertyType.LINKLIST, "Validation1"),
+                __.createSchemaProperty("embeddedList", PropertyType.EMBEDDEDLIST,
+                    "ValidationEmbedded"),
+                __.createSchemaProperty("embeddedSet", PropertyType.EMBEDDEDSET, "ValidationEmbedded"),
+                __.createSchemaProperty("linkSet", PropertyType.LINKSET, "Validation1"),
+                __.createSchemaProperty("linkMap", PropertyType.LINKMAP, "Validation1"),
+                __.createSchemaProperty("linkBag", PropertyType.LINKBAG, "Validation1")
             )
     );
 
@@ -802,14 +804,14 @@ public class DocumentValidationTest extends BaseMemoryInternalDatabase {
     //noinspection unchecked
     graph.autoExecuteInTx(
         g ->
-            g.addSchemaClass("Validation").
-                addSchemaClass("Validation1").
-                addAbstractSchemaClass("EmbeddedValidation").
-                schemaClass("Validation").sideEffects(
-                    __.addSchemaProperty("linkList", PropertyType.LINKLIST, "Validation1"),
-                    __.addSchemaProperty("linkSet", PropertyType.LINKSET, "Validation1"),
-                    __.addSchemaProperty("linkMap", PropertyType.LINKMAP, "Validation1"),
-                    __.addSchemaProperty("linkBag", PropertyType.LINKBAG, "Validation1")
+            g.createSchemaClass("Validation").
+                createSchemaClass("Validation1").
+                createAbstractSchemaClass("EmbeddedValidation").
+                schemaClass("Validation").insertSchemaProperties(
+                    __.createSchemaProperty("linkList", PropertyType.LINKLIST, "Validation1"),
+                    __.createSchemaProperty("linkSet", PropertyType.LINKSET, "Validation1"),
+                    __.createSchemaProperty("linkMap", PropertyType.LINKMAP, "Validation1"),
+                    __.createSchemaProperty("linkBag", PropertyType.LINKBAG, "Validation1")
                 )
     );
 

@@ -10,6 +10,8 @@ import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Direction;
@@ -24,9 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.functions.SQLFunction;
@@ -1186,9 +1186,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndex() {
     var className = "testFetchFromClassWithIndex";
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(className).
-            addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(className + ".name", IndexType.NOT_UNIQUE)
+        g -> g.createSchemaClass(className).
+            createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(className + ".name", IndexType.NOT_UNIQUE)
     );
 
     for (var i = 0; i < 10; i++) {
@@ -1223,8 +1223,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromIndexHierarchy() {
     var className = "testFetchFromIndexHierarchy";
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(className).addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(className + ".name", IndexType.NOT_UNIQUE)
+        g -> g.createSchemaClass(className).createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(className + ".name", IndexType.NOT_UNIQUE)
     );
 
     var classNameExt = "testFetchFromIndexHierarchyExt";
@@ -1276,9 +1276,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes() {
     var className = "testFetchFromClassWithIndexes";
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
 
       clazz.createIndex(className + ".name", IndexType.NOT_UNIQUE, "name");
       clazz.createIndex(className + ".surname", IndexType.NOT_UNIQUE, "surname");
@@ -1324,9 +1324,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes2() {
     var className = "testFetchFromClassWithIndexes2";
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name", IndexType.NOT_UNIQUE, "name");
       clazz.createIndex(className + ".surname", IndexType.NOT_UNIQUE, "surname");
     });
@@ -1357,9 +1357,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes3() {
     var className = "testFetchFromClassWithIndexes3";
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name", IndexType.NOT_UNIQUE, "name");
       clazz.createIndex(className + ".surname", IndexType.NOT_UNIQUE, "surname");
     });
@@ -1401,9 +1401,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes4";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className);
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className);
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name", IndexType.NOT_UNIQUE, "name");
       clazz.createIndex(className + ".surname", IndexType.NOT_UNIQUE, "surname");
     });
@@ -1446,9 +1446,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes5";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className);
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className);
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1487,9 +1487,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes6";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1520,9 +1520,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testFetchFromClassWithIndexes7() {
     var className = "testFetchFromClassWithIndexes7";
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1558,9 +1558,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes8";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1592,9 +1592,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes9";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1630,9 +1630,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes10";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1666,9 +1666,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes11";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1701,9 +1701,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes12";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1736,9 +1736,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes13";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1771,9 +1771,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes14";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1810,9 +1810,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithIndexes15";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(className + ".name_surname", IndexType.NOT_UNIQUE,
           "name",
           "surname");
@@ -1849,9 +1849,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithHashIndexes1";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(
           className + ".name_surname", IndexType.NOT_UNIQUE, "name",
           "surname");
@@ -1891,9 +1891,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testFetchFromClassWithHashIndexes2";
 
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
       clazz.createIndex(
           className + ".name_surname", IndexType.NOT_UNIQUE, "name",
           "surname");
@@ -2051,9 +2051,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testDistinct1() {
     var className = "testDistinct1";
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
     });
 
     for (var i = 0; i < 30; i++) {
@@ -2083,9 +2083,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testDistinct2() {
     var className = "testDistinct2";
     graph.executeInTx(g -> {
-      var clazz = (YTDBSchemaClass) g.addSchemaClass(className).next();
-      clazz.createSchemaProperty("name", PropertyType.STRING);
-      clazz.createSchemaProperty("surname", PropertyType.STRING);
+      var clazz = (YTDBSchemaClass) g.createSchemaClass(className).next();
+      clazz.createDeclaredProperty("name", PropertyType.STRING);
+      clazz.createDeclaredProperty("surname", PropertyType.STRING);
     });
 
     for (var i = 0; i < 30; i++) {
@@ -2314,7 +2314,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var vertexClassName = "testLetWithTraverseFunction";
     var edgeClassName = "testLetWithTraverseFunctioEdge";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(vertexClassName));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(vertexClassName));
 
     session.begin();
     var doc1 = session.newVertex(vertexClassName);
@@ -2326,7 +2326,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var doc2Id = doc2.getIdentity();
 
-    graph.autoExecuteInTx(g -> g.addStateFullEdgeClass(edgeClassName));
+    graph.autoExecuteInTx(g -> g.createStateFullEdgeClass(edgeClassName));
 
     session.begin();
     var activeTx1 = session.getActiveTransaction();
@@ -2473,13 +2473,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child2 = "testFetchFromSubclassIndexes1_child2";
 
     graph.executeInTx(g -> {
-      g.addSchemaClass(parent).
-          addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1).addParentClass(parent).
-          addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(parent).
+          createSchemaProperty("name", PropertyType.STRING).iterate();
+      g.createSchemaClass(child1).addParentClass(parent).
+          createClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2).addParentClass(parent).
-          addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(child2).addParentClass(parent).
+          createClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
     });
 
@@ -2521,12 +2521,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child2 = "testFetchFromSubclassIndexes2_child2";
 
     graph.executeInTx(g -> {
-      g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1).addParentClass(parent)
-          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(parent).createSchemaProperty("name", PropertyType.STRING).iterate();
+      g.createSchemaClass(child1).addParentClass(parent)
+          .createClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2).addParentClass(parent)
-          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(child2).addParentClass(parent)
+          .createClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
     });
 
@@ -2571,11 +2571,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child2 = "testFetchFromSubclassIndexes3_child2";
 
     graph.executeInTx(g -> {
-      g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1).addParentClass(parent)
-          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
-      g.addSchemaClass(child2).addParentClass(parent)
-          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
+      g.createSchemaClass(parent).createSchemaProperty("name", PropertyType.STRING).iterate();
+      g.createSchemaClass(child1).addParentClass(parent)
+          .createClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
+      g.createSchemaClass(child2).addParentClass(parent)
+          .createClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
     });
 
     for (var i = 0; i < 10; i++) {
@@ -2620,12 +2620,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child2 = "testFetchFromSubclassIndexes4_child2";
 
     graph.executeInTx(g -> {
-      g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1).addParentClass(parent)
-          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(parent).createSchemaProperty("name", PropertyType.STRING).iterate();
+      g.createSchemaClass(child1).addParentClass(parent)
+          .createClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2).addParentClass(parent)
-          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(child2).addParentClass(parent)
+          .createClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
     });
 
@@ -2681,17 +2681,17 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child2_2 = "testFetchFromSubSubclassIndexes_child2_2";
 
     graph.executeInTx(g -> {
-      g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1).addParentClass(parent)
-          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(parent).createSchemaProperty("name", PropertyType.STRING).iterate();
+      g.createSchemaClass(child1).addParentClass(parent)
+          .createClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2).addParentClass(parent)
-          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(child2).addParentClass(parent)
+          .createClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2_1).addParentClass(child2)
-          .addClassIndex(child2_1 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
-      g.addSchemaClass(child2_2).addParentClass(child2)
-          .addClassIndex(child2_2 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
+      g.createSchemaClass(child2_1).addParentClass(child2)
+          .createClassIndex(child2_1 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
+      g.createSchemaClass(child2_2).addParentClass(child2)
+          .createClassIndex(child2_2 + ".name", IndexType.NOT_UNIQUE, "name").iterate();
     });
 
     for (var i = 0; i < 10; i++) {
@@ -2745,14 +2745,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var child12 = "testFetchFromSubSubclassIndexesWithDiamond_child12";
 
     graph.executeInTx(g -> {
-      g.addSchemaClass(parent).addSchemaProperty("name", PropertyType.STRING).iterate();
-      g.addSchemaClass(child1).addParentClass(parent)
-          .addClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(parent).createSchemaProperty("name", PropertyType.STRING).iterate();
+      g.createSchemaClass(child1).addParentClass(parent)
+          .createClassIndex(child1 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child2).addParentClass(parent)
-          .addClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
+      g.createSchemaClass(child2).addParentClass(parent)
+          .createClassIndex(child2 + ".name", IndexType.NOT_UNIQUE, "name")
           .iterate();
-      g.addSchemaClass(child12).addParentClass(child1).iterate();
+      g.createSchemaClass(child12).addParentClass(child1).iterate();
     });
 
     for (var i = 0; i < 10; i++) {
@@ -2802,10 +2802,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort1() {
     var className = "testIndexPlusSort1";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className).as("cls").
-        addSchemaProperty("name", PropertyType.STRING).
-        select("cls").addSchemaProperty("surname", PropertyType.STRING).
-        select("cls").addClassIndex(className
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className).as("cls").
+        createSchemaProperty("name", PropertyType.STRING).
+        select("cls").createSchemaProperty("surname", PropertyType.STRING).
+        select("cls").createClassIndex(className
             + ".name_surname", IndexType.NOT_UNIQUE, "name", "surname"));
 
     for (var i = 0; i < 10; i++) {
@@ -2849,12 +2849,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testIndexPlusSort2";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className).
-            addSchemaProperty("name", PropertyType.STRING).
+        g.createSchemaClass(className).as(className).
+            createSchemaProperty("name", PropertyType.STRING).
             select(className).
-            addSchemaProperty("surname", PropertyType.STRING).
+            createSchemaProperty("surname", PropertyType.STRING).
             select(className).
-            addClassIndex(className
+            createClassIndex(className
                 + ".name_surname", IndexType.NOT_UNIQUE, "name", "surname")
     );
 
@@ -2897,10 +2897,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testIndexPlusSort3() {
     var className = "testIndexPlusSort3";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className).as(className)
-        .addSchemaProperty("name", PropertyType.STRING).select(className)
-        .addSchemaProperty("surname", PropertyType.STRING).select(className)
-        .addClassIndex(className + ".name_surname", IndexType.NOT_UNIQUE, "name", "surname")
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className).as(className)
+        .createSchemaProperty("name", PropertyType.STRING).select(className)
+        .createSchemaProperty("surname", PropertyType.STRING).select(className)
+        .createClassIndex(className + ".name_surname", IndexType.NOT_UNIQUE, "name", "surname")
     );
 
     for (var i = 0; i < 10; i++) {
@@ -2946,10 +2946,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testIndexPlusSort4";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className).addSchemaProperty("name", PropertyType.STRING)
+        g.createSchemaClass(className).as(className)
+            .createSchemaProperty("name", PropertyType.STRING)
             .select(className)
-            .addSchemaProperty("surname", PropertyType.STRING).select(className)
-            .addClassIndex(className + ".name_surname", IndexType.NOT_UNIQUE, "name", "surname")
+            .createSchemaProperty("surname", PropertyType.STRING).select(className)
+            .createClassIndex(className + ".name_surname", IndexType.NOT_UNIQUE, "name", "surname")
     );
 
     for (var i = 0; i < 10; i++) {
@@ -2994,11 +2995,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testIndexPlusSort5";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className).addSchemaProperty("name", PropertyType.STRING)
+        g.createSchemaClass(className).as(className)
+            .createSchemaProperty("name", PropertyType.STRING)
             .select(className)
-            .addSchemaProperty("surname", PropertyType.STRING).select(className).
-            addSchemaProperty("address", PropertyType.STRING).select(className).
-            addClassIndex(className + ".name_surname_address", IndexType.NOT_UNIQUE, "name",
+            .createSchemaProperty("surname", PropertyType.STRING).select(className).
+            createSchemaProperty("address", PropertyType.STRING).select(className).
+            createClassIndex(className + ".name_surname_address", IndexType.NOT_UNIQUE, "name",
                 "surname", "address")
     );
 
@@ -3042,12 +3044,13 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testIndexPlusSort6";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className).addSchemaProperty("name", PropertyType.STRING)
+        g.createSchemaClass(className).as(className)
+            .createSchemaProperty("name", PropertyType.STRING)
             .select(className).
-            addSchemaProperty("surname", PropertyType.STRING).select(className).
-            addSchemaProperty("surname", PropertyType.STRING).select(className).
-            addSchemaProperty("address", PropertyType.STRING).select(className).
-            addClassIndex("name_surname_address", IndexType.NOT_UNIQUE, "name", "surname",
+            createSchemaProperty("surname", PropertyType.STRING).select(className).
+            createSchemaProperty("surname", PropertyType.STRING).select(className).
+            createSchemaProperty("address", PropertyType.STRING).select(className).
+            createClassIndex("name_surname_address", IndexType.NOT_UNIQUE, "name", "surname",
                 "address")
     );
 
@@ -3091,11 +3094,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testIndexPlusSort7";
     graph.autoExecuteInTx(
         g ->
-            g.addSchemaClass(className).as(className)
-                .addSchemaProperty("name", PropertyType.STRING).select(className)
-                .addSchemaProperty("surname", PropertyType.STRING).select(className)
-                .addSchemaProperty("address", PropertyType.STRING).select(className)
-                .addClassIndex("name_surname_address", IndexType.NOT_UNIQUE, "name", "surname",
+            g.createSchemaClass(className).as(className)
+                .createSchemaProperty("name", PropertyType.STRING).select(className)
+                .createSchemaProperty("surname", PropertyType.STRING).select(className)
+                .createSchemaProperty("address", PropertyType.STRING).select(className)
+                .createClassIndex("name_surname_address", IndexType.NOT_UNIQUE, "name", "surname",
                     "address")
     );
 
@@ -3137,10 +3140,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort8() {
     var className = "testIndexPlusSort8";
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className)
-            .addSchemaProperty("name", PropertyType.STRING).select(className)
-            .addSchemaProperty("surname", PropertyType.STRING).select(className)
-            .addClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
+        g.createSchemaClass(className).as(className)
+            .createSchemaProperty("name", PropertyType.STRING).select(className)
+            .createSchemaProperty("surname", PropertyType.STRING).select(className)
+            .createClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
     );
 
     for (var i = 0; i < 10; i++) {
@@ -3183,10 +3186,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testIndexPlusSort9";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className).
-            addSchemaProperty("name", PropertyType.STRING).select(className).
-            addSchemaProperty("surname", PropertyType.STRING).select(className).
-            addClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
+        g.createSchemaClass(className).as(className).
+            createSchemaProperty("name", PropertyType.STRING).select(className).
+            createSchemaProperty("surname", PropertyType.STRING).select(className).
+            createClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
     );
 
     for (var i = 0; i < 10; i++) {
@@ -3226,10 +3229,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testIndexPlusSort10() {
     var className = "testIndexPlusSort10";
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className).
-            addSchemaProperty("name", PropertyType.STRING).select(className).
-            addSchemaProperty("surname", PropertyType.STRING).select(className).
-            addClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
+        g.createSchemaClass(className).as(className).
+            createSchemaProperty("name", PropertyType.STRING).select(className).
+            createSchemaProperty("surname", PropertyType.STRING).select(className).
+            createClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
     );
 
     for (var i = 0; i < 10; i++) {
@@ -3270,10 +3273,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testIndexPlusSort11";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className)
-            .addSchemaProperty("name", PropertyType.STRING).select(className)
-            .addSchemaProperty("surname", PropertyType.STRING).select(className)
-            .addClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
+        g.createSchemaClass(className).as(className)
+            .createSchemaProperty("name", PropertyType.STRING).select(className)
+            .createSchemaProperty("surname", PropertyType.STRING).select(className)
+            .createClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
     );
 
     for (var i = 0; i < 10; i++) {
@@ -3314,10 +3317,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var className = "testIndexPlusSort12";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).as(className)
-            .addSchemaProperty("name", PropertyType.STRING).select(className)
-            .addSchemaProperty("surname", PropertyType.STRING).select(className)
-            .addClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
+        g.createSchemaClass(className).as(className)
+            .createSchemaProperty("name", PropertyType.STRING).select(className)
+            .createSchemaProperty("surname", PropertyType.STRING).select(className)
+            .createClassIndex("name_surname", IndexType.NOT_UNIQUE, "name", "surname")
     );
 
     for (var i = 0; i < 10; i++) {
@@ -3844,11 +3847,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.inject(1).coalesce(
             __.schemaClass(className + 1),
-            __.addSchemaClass(className + 1)
+            __.createSchemaClass(className + 1)
         ).coalesce(
             __.schemaClass(className + 2),
-            __.addSchemaClass(className + 2)
-        ).addSchemaProperty("tags", PropertyType.EMBEDDEDLIST)
+            __.createSchemaClass(className + 2)
+        ).createSchemaProperty("tags", PropertyType.EMBEDDEDLIST)
     );
 
     session.begin();
@@ -3887,11 +3890,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.inject(1).coalesce(
             __.schemaClass(className + 1),
-            __.addSchemaClass(className + 1)
+            __.createSchemaClass(className + 1)
         ).coalesce(
             __.schemaClass(className + 2),
-            __.addSchemaClass(className + 2)
-        ).addSchemaProperty("tags", PropertyType.EMBEDDEDLIST)
+            __.createSchemaClass(className + 2)
+        ).createSchemaProperty("tags", PropertyType.EMBEDDEDLIST)
     );
 
     session.begin();
@@ -3930,8 +3933,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.inject(1).coalesce(
             __.schemaClass(className),
-            __.addSchemaClass(className)
-        ).addSchemaProperty("tags",
+            __.createSchemaClass(className)
+        ).createSchemaProperty("tags",
             PropertyType.EMBEDDEDLIST, PropertyType.STRING)
     );
 
@@ -3983,9 +3986,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.inject(1).coalesce(
                 __.schemaClass(className),
-                __.addSchemaClass(className)
-            ).addSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING).
-            addPropertyIndex("tagsIndex", IndexType.NOT_UNIQUE)
+                __.createSchemaClass(className)
+            ).createSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING).
+            createPropertyIndex("tagsIndex", IndexType.NOT_UNIQUE)
     );
 
     session.begin();
@@ -4051,8 +4054,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.inject(1).coalesce(
             __.schemaClass(className),
-            __.addSchemaClass(className)
-        ).addSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
+            __.createSchemaClass(className)
+        ).createSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
     );
 
     session.begin();
@@ -4087,7 +4090,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(
         g -> g.inject(1).coalesce(
             __.schemaClass(className),
-            __.addSchemaClass(className)
+            __.createSchemaClass(className)
         )
     );
 
@@ -4118,9 +4121,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
         g ->
             g.inject(1).coalesce(
                     __.schemaClass(className),
-                    __.addSchemaClass(className)
-                ).addSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING).
-                addPropertyIndex("tagIndex", IndexType.NOT_UNIQUE)
+                    __.createSchemaClass(className)
+                ).createSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING).
+                createPropertyIndex("tagIndex", IndexType.NOT_UNIQUE)
     );
 
     session.begin();
@@ -4184,19 +4187,19 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(
         g -> g.inject(1).coalesce(
                 __.schemaClass(className3),
-                __.addSchemaClass(className3)
-            ).addSchemaProperty("name", PropertyType.STRING).
-            addPropertyIndex("name", IndexType.NOT_UNIQUE).
+                __.createSchemaClass(className3)
+            ).createSchemaProperty("name", PropertyType.STRING).
+            createPropertyIndex("name", IndexType.NOT_UNIQUE).
             coalesce(
                 __.schemaClass(className2),
-                __.addSchemaClass(className2)
-            ).addSchemaProperty("next", PropertyType.LINK, className3)
-            .addPropertyIndex("next2", IndexType.NOT_UNIQUE).
+                __.createSchemaClass(className2)
+            ).createSchemaProperty("next", PropertyType.LINK, className3)
+            .createPropertyIndex("next2", IndexType.NOT_UNIQUE).
             coalesce(
                 __.schemaClass(className1),
-                __.addSchemaClass(className1)
-            ).addSchemaProperty("next", PropertyType.LINK, className2)
-            .addPropertyIndex("next1", IndexType.NOT_UNIQUE)
+                __.createSchemaClass(className1)
+            ).createSchemaProperty("next", PropertyType.LINK, className2)
+            .createPropertyIndex("next1", IndexType.NOT_UNIQUE)
     );
 
     session.begin();
@@ -4238,19 +4241,19 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.inject(1).coalesce(
                 __.schemaClass(className3),
-                __.addSchemaClass(className3)
-            ).addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex("name", IndexType.NOT_UNIQUE).
+                __.createSchemaClass(className3)
+            ).createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex("name", IndexType.NOT_UNIQUE).
             coalesce(
                 __.schemaClass(className2),
-                __.addSchemaClass(className2)
-            ).addSchemaProperty("next", PropertyType.LINKSET, className3).
-            addPropertyIndex("next2", IndexType.NOT_UNIQUE).
+                __.createSchemaClass(className2)
+            ).createSchemaProperty("next", PropertyType.LINKSET, className3).
+            createPropertyIndex("next2", IndexType.NOT_UNIQUE).
             coalesce(
                 __.schemaClass(className1),
-                __.addSchemaClass(className1)
-            ).addSchemaProperty("next", PropertyType.LINKSET, className2).
-            addPropertyIndex(IndexType.NOT_UNIQUE)
+                __.createSchemaClass(className1)
+            ).createSchemaProperty("next", PropertyType.LINKSET, className2).
+            createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     session.begin();
@@ -4302,9 +4305,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(
         g -> g.inject(1).coalesce(
                 __.schemaClass(className),
-                __.addSchemaClass(className)
-            ).addSchemaProperty("themap", PropertyType.EMBEDDEDMAP)
-            .addPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_KEY)
+                __.createSchemaClass(className)
+            ).createSchemaProperty("themap", PropertyType.EMBEDDEDMAP)
+            .createPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_KEY)
     );
 
     for (var i = 0; i < 100; i++) {
@@ -4341,10 +4344,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.inject(1).coalesce(
                 __.schemaClass(className),
-                __.addSchemaClass(className)
-            ).as(className).addSchemaProperty("themap", PropertyType.EMBEDDEDMAP).select(className)
-            .addSchemaProperty("thestring", PropertyType.STRING).select(className).
-            addClassIndex("themap_thestring", IndexType.NOT_UNIQUE,
+                __.createSchemaClass(className)
+            ).as(className).createSchemaProperty("themap", PropertyType.EMBEDDEDMAP).select(className)
+            .createSchemaProperty("thestring", PropertyType.STRING).select(className).
+            createClassIndex("themap_thestring", IndexType.NOT_UNIQUE,
                 new String[]{"themap", "thestring"},
                 IndexBy.BY_KEY, IndexBy.BY_VALUE)
     );
@@ -4387,9 +4390,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     //noinspection unchecked
     graph.autoExecuteInTx(g -> g.inject(1).coalesce(
                 __.schemaClass(className),
-                __.addSchemaClass(className)
-            ).addSchemaProperty("themap", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
+                __.createSchemaClass(className)
+            ).createSchemaProperty("themap", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
     );
 
     for (var i = 0; i < 100; i++) {
@@ -4424,8 +4427,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.inject(1).coalesce(
             __.schemaClass(className),
-            __.addSchemaClass(className)
-        ).addSchemaProperty("thelist",
+            __.createSchemaClass(className)
+        ).createSchemaProperty("thelist",
             PropertyType.EMBEDDEDLIST, PropertyType.EMBEDDEDMAP)
     );
 
@@ -4453,7 +4456,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(
         g -> g.inject(1).coalesce(
             __.schemaClass(className),
-            __.addSchemaClass(className)
+            __.createSchemaClass(className)
         )
     );
 
@@ -4487,7 +4490,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(
         g -> g.inject(1).coalesce(
             __.schemaClass(className),
-            __.addSchemaClass(className)
+            __.createSchemaClass(className)
         )
     );
 
@@ -4533,7 +4536,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(
         g -> g.inject(1).coalesce(
             __.schemaClass(className),
-            __.addSchemaClass(className)
+            __.createSchemaClass(className)
         )
     );
 
@@ -4583,7 +4586,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
       graph.autoExecuteInTx(
           g -> g.inject(1).coalesce(
               __.schemaClass(className),
-              __.addSchemaClass(className)
+              __.createSchemaClass(className)
           )
       );
 
@@ -4629,7 +4632,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     graph.autoExecuteInTx(
         g -> g.inject(1).coalesce(
             __.schemaClass(className),
-            __.addSchemaClass(className)
+            __.createSchemaClass(className)
         )
     );
 
@@ -4804,8 +4807,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     final var className = "testSimpleRangeQueryWithIndexGTE";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE)
+        g.createSchemaClass(className).createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     for (var i = 0; i < 10; i++) {
@@ -4833,9 +4836,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     final var className = "testSimpleRangeQueryWithIndexLTE";
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(className).
-            addSchemaProperty("name", PropertyType.STRING).
-            addPropertyIndex(IndexType.NOT_UNIQUE)
+        g -> g.createSchemaClass(className).
+            createSchemaProperty("name", PropertyType.STRING).
+            createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     for (var i = 0; i < 10; i++) {
@@ -4864,8 +4867,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     final var className = "testSimpleRangeQueryWithOutIndex";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE)
+        g.createSchemaClass(className).createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     for (var i = 0; i < 10; i++) {
@@ -4898,20 +4901,20 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var classNamePrefix = "testComplexIndexChain_";
 
     graph.executeInTx(
-        g -> g.addSchemaClass(classNamePrefix + "A").as("a").
-            addSchemaClass(classNamePrefix + "B").as("b").
-            addSchemaClass(classNamePrefix + "C").as("c").
-            addSchemaClass(classNamePrefix + "D").as("d").
-            select("a").addSchemaProperty("b", PropertyType.LINK, "b")
-            .addPropertyIndex(IndexType.NOT_UNIQUE).
-            select("b").addSchemaProperty("c", PropertyType.LINK, "c")
-            .addPropertyIndex(IndexType.NOT_UNIQUE).
-            select("c").addSchemaProperty("d", PropertyType.LINK, "d")
-            .addPropertyIndex(IndexType.NOT_UNIQUE).
-            select("c").addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE).
-            select("d").addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE)
+        g -> g.createSchemaClass(classNamePrefix + "A").as("a").
+            createSchemaClass(classNamePrefix + "B").as("b").
+            createSchemaClass(classNamePrefix + "C").as("c").
+            createSchemaClass(classNamePrefix + "D").as("d").
+            select("a").createSchemaProperty("b", PropertyType.LINK, "b")
+            .createPropertyIndex(IndexType.NOT_UNIQUE).
+            select("b").createSchemaProperty("c", PropertyType.LINK, "c")
+            .createPropertyIndex(IndexType.NOT_UNIQUE).
+            select("c").createSchemaProperty("d", PropertyType.LINK, "d")
+            .createPropertyIndex(IndexType.NOT_UNIQUE).
+            select("c").createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE).
+            select("d").createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     session.begin();
@@ -5048,11 +5051,12 @@ public class SelectStatementExecutionTest extends DbTestBase {
   @Test
   public void testCompositeIndexWithInVOutVFunctions() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("TestIndexWithEdgesFunctionsVertex").
-            addStateFullEdgeClass("TestIndexWithEdgesFunctionsEdge").as("e").
-            addSchemaProperty(Edge.DIRECTION_IN, PropertyType.LINK).select("e").
-            addSchemaProperty(Edge.DIRECTION_OUT, PropertyType.LINK).select("e").
-            addClassIndex("EdgeIndex", IndexType.NOT_UNIQUE, Edge.DIRECTION_IN, Edge.DIRECTION_OUT)
+        g.createSchemaClass("TestIndexWithEdgesFunctionsVertex").
+            createStateFullEdgeClass("TestIndexWithEdgesFunctionsEdge").as("e").
+            createSchemaProperty(Edge.DIRECTION_IN, PropertyType.LINK).select("e").
+            createSchemaProperty(Edge.DIRECTION_OUT, PropertyType.LINK).select("e").
+            createClassIndex("EdgeIndex", IndexType.NOT_UNIQUE, Edge.DIRECTION_IN,
+                Edge.DIRECTION_OUT)
     );
 
     var rids = session.computeInTx(transaction -> {
@@ -5111,8 +5115,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testInVOutVFunctionsWithoutIndex() {
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("TestInVOutVFunctionsWithoutIndexVertex")
-            .addStateFullEdgeClass("TestInVOutVFunctionsWithoutIndexEdge")
+        g -> g.createSchemaClass("TestInVOutVFunctionsWithoutIndexVertex")
+            .createStateFullEdgeClass("TestInVOutVFunctionsWithoutIndexEdge")
     );
 
     var rids = session.computeInTx(transaction -> {
@@ -5144,11 +5148,11 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     var propertyName = graph.computeInTx(
         g -> {
-          var vertexClass = (YTDBSchemaClass) g.addSchemaClass(vertexClassName).next();
-          g.addStateFullEdgeClass(edgeClassName).iterate();
+          var vertexClass = (YTDBSchemaClass) g.createSchemaClass(vertexClassName).next();
+          g.createStateFullEdgeClass(edgeClassName).iterate();
 
           var propName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName);
-          var oudEdgesProperty = vertexClass.createSchemaProperty(propName,
+          var oudEdgesProperty = vertexClass.createDeclaredProperty(propName,
               PropertyType.LINKBAG);
 
           vertexClass.createIndex(indexName, IndexType.NOT_UNIQUE, oudEdgesProperty.name());
@@ -5212,7 +5216,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var edgeClassName = "TestOutEStateFullWithoutIndexUsageInGraphEdge";
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(vertexClassName).addStateFullEdgeClass(edgeClassName)
+        g -> g.createSchemaClass(vertexClassName).createStateFullEdgeClass(edgeClassName)
     );
 
     var rids = session.computeInTx(transaction -> {
@@ -5251,9 +5255,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var propertyName = graph.computeInTx(g ->
         {
           var vertexClass = (YTDBSchemaClass)
-              g.addStateFullEdgeClass(edgeClassName).
-                  addSchemaClass(vertexClassName).next();
-          var inEdgesProperty = vertexClass.createSchemaProperty(
+              g.createStateFullEdgeClass(edgeClassName).
+                  createSchemaClass(vertexClassName).next();
+          var inEdgesProperty = vertexClass.createDeclaredProperty(
               Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
               PropertyType.LINKBAG);
 
@@ -5320,7 +5324,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var edgeClassName = "TestBothEStateFullEdge";
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(vertexClassName).addStateFullEdgeClass(edgeClassName)
+        g -> g.createSchemaClass(vertexClassName).createStateFullEdgeClass(edgeClassName)
     );
 
     var rids = session.computeInTx(transaction -> {
@@ -5358,10 +5362,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
 
     graph.executeInTx(
         g -> {
-          var vertexClass = (YTDBSchemaClass) g.addSchemaClass(vertexClassName).next();
-          g.addStateFullEdgeClass(edgeClassName).iterate();
+          var vertexClass = (YTDBSchemaClass) g.createSchemaClass(vertexClassName).next();
+          g.createStateFullEdgeClass(edgeClassName).iterate();
 
-          var oudEdgesProperty = vertexClass.createSchemaProperty(
+          var oudEdgesProperty = vertexClass.createDeclaredProperty(
               Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
               PropertyType.LINKBAG);
           vertexClass.createIndex(indexName, IndexType.NOT_UNIQUE, oudEdgesProperty.name());
@@ -5400,10 +5404,10 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var edgeClassName = "TestBothEStateFullIndexUsageInGraphEdge";
 
     graph.executeInTx(g -> {
-      var vertexClass = (YTDBSchemaClass) g.addSchemaClass(vertexClassName).next();
-      g.addStateFullEdgeClass("TestBothEStateFullIndexUsageInGraphEdge").iterate();
+      var vertexClass = (YTDBSchemaClass) g.createSchemaClass(vertexClassName).next();
+      g.createStateFullEdgeClass("TestBothEStateFullIndexUsageInGraphEdge").iterate();
 
-      var oudEdgesProperty = vertexClass.createSchemaProperty(
+      var oudEdgesProperty = vertexClass.createDeclaredProperty(
           Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName),
           PropertyType.LINKBAG);
 
@@ -5448,14 +5452,14 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var inIndexName = "TestBothEStateFullIndexUsageInGraphIndexInIndex";
 
     graph.executeInTx(g -> {
-      var vertexClass = (YTDBSchemaClass) g.addSchemaClass(
+      var vertexClass = (YTDBSchemaClass) g.createSchemaClass(
           "TestBothEStateFullIndexUsageInGraphVertex").next();
-      g.addStateFullEdgeClass("TestBothEStateFullIndexUsageInGraphEdge").iterate();
+      g.createStateFullEdgeClass("TestBothEStateFullIndexUsageInGraphEdge").iterate();
 
-      var outEdgesProperty = vertexClass.createSchemaProperty(
+      var outEdgesProperty = vertexClass.createDeclaredProperty(
           Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName),
           PropertyType.LINKBAG);
-      var inEdgesProperty = vertexClass.createSchemaProperty(
+      var inEdgesProperty = vertexClass.createDeclaredProperty(
           Vertex.getEdgeLinkFieldName(Direction.IN, edgeClassName),
           PropertyType.LINKBAG);
 
@@ -5634,9 +5638,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var btClassName = "bt";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(engineClassName).addSchemaClass(carClassName)
-            .addSchemaClass(bodyTypeClassName).
-            addStateFullEdgeClass(engClassName).addStateFullEdgeClass(btClassName)
+        g.createSchemaClass(engineClassName).createSchemaClass(carClassName)
+            .createSchemaClass(bodyTypeClassName).
+            createStateFullEdgeClass(engClassName).createStateFullEdgeClass(btClassName)
     );
     session.begin();
 
@@ -5734,8 +5738,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
   public void testSelectIntersectWithExpandAndLet() {
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("V1").addSchemaClass("V2").addSchemaClass("V3").
-            addStateFullEdgeClass("link1").addStateFullEdgeClass("link2")
+        g.createSchemaClass("V1").createSchemaClass("V2").createSchemaClass("V3").
+            createStateFullEdgeClass("link1").createStateFullEdgeClass("link2")
     );
 
     //V1 -> V2

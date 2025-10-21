@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -12,27 +12,29 @@ public class CompositeIndexSQLInsertTest extends DbTestBase {
   public void beforeTest() throws Exception {
     super.beforeTest();
     graph.executeInTx(g ->
-        g.addSchemaClass("Book").as("cl").
-            addSchemaProperty("author", PropertyType.STRING).select("cl").
-            addSchemaProperty("title", PropertyType.STRING).select("cl").
-            addSchemaProperty("publicationYears", PropertyType.EMBEDDEDLIST,
+        g.createSchemaClass("Book").as("cl").
+            createSchemaProperty("author", PropertyType.STRING).select("cl").
+            createSchemaProperty("title", PropertyType.STRING).select("cl").
+            createSchemaProperty("publicationYears", PropertyType.EMBEDDEDLIST,
                 PropertyType.INTEGER).select("cl").
-            addClassIndex("books", IndexType.UNIQUE, "author", "title", "publicationYears")
+            createClassIndex("books", IndexType.UNIQUE, "author", "title", "publicationYears")
             .select("cl").
-            addSchemaProperty("nullKey1", PropertyType.STRING)
-            .addPropertyIndex("indexignoresnulls", IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
+            createSchemaProperty("nullKey1", PropertyType.STRING)
+            .createPropertyIndex("indexignoresnulls", IndexType.NOT_UNIQUE, IndexBy.BY_VALUE)
     );
   }
 
   @Test
   public void testCompositeIndexWithRangeAndContains() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("CompositeIndexWithRangeAndConditions").as("cl").
-            addSchemaProperty("id", PropertyType.INTEGER).select("cl").
-            addSchemaProperty("bar", PropertyType.INTEGER).select("cl").
-            addSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING).select("cl").
-            addSchemaProperty("name", PropertyType.STRING).
-            addClassIndex("CompositeIndexWithRangeAndConditions_id_tags_name", IndexType.NOT_UNIQUE,
+        g -> g.createSchemaClass("CompositeIndexWithRangeAndConditions").as("cl").
+            createSchemaProperty("id", PropertyType.INTEGER).select("cl").
+            createSchemaProperty("bar", PropertyType.INTEGER).select("cl").
+            createSchemaProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
+            .select("cl").
+            createSchemaProperty("name", PropertyType.STRING).
+            createClassIndex("CompositeIndexWithRangeAndConditions_id_tags_name",
+                IndexType.NOT_UNIQUE,
                 "id", "tags", "name")
     );
 

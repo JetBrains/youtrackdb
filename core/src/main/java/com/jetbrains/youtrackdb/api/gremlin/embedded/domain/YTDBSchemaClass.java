@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.api.gremlin.embedded.domain;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.Iterator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -94,6 +94,10 @@ public interface YTDBSchemaClass extends YTDBDomainVertex {
 
   boolean isParentOf(@Nonnull YTDBSchemaClass classInstance);
 
+  boolean iAssignableFrom(@Nonnull YTDBSchemaClass classInstance);
+
+  boolean isAssignableFrom(@Nonnull String className);
+
   @Nullable
   String customProperty(@Nonnull String propertyName);
 
@@ -117,27 +121,33 @@ public interface YTDBSchemaClass extends YTDBDomainVertex {
   Iterator<YTDBSchemaProperty> schemaProperty(String... name);
 
   @Nonnull
-  YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
+  YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType);
 
   @Nonnull
-  YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
+  YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull YTDBSchemaClass linkedClass);
 
   @Nonnull
-  YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
+  YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull PropertyType linkedType);
 
-  void dropSchemaProperty(@Nonnull String propertyName);
+  void dropDeclaredProperty(@Nonnull String propertyName);
 
   boolean existsSchemaProperty(@Nonnull String propertyName);
 
   YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType,
       String... propertyNames);
 
+  YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType, boolean ignoreNulls,
+      String... propertyNames);
+
   YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType,
+      String[] propertyNames, IndexBy[] indexBy);
+
+  YTDBSchemaIndex createIndex(@Nonnull String indexName, IndexType indexType, boolean ignoreNulls,
       String[] propertyNames, IndexBy[] indexBy);
 
   Iterator<YTDBSchemaIndex> indexes(String... indexName);

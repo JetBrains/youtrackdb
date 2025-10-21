@@ -11,7 +11,7 @@ public class ProfileStatementExecutionTest extends DbTestBase {
 
   @Test
   public void testProfile() {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("testProfile"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("testProfile"));
 
     session.begin();
     session.execute("insert into testProfile set name ='foo'");

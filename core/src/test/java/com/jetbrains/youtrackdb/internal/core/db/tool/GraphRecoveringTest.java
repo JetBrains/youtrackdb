@@ -59,8 +59,8 @@ public class GraphRecoveringTest {
 
   private static void init(DatabaseSessionEmbedded session, YTDBGraph graph) {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("V1").addSchemaClass("V2").
-            addStateFullEdgeClass("E1").addStateFullEdgeClass("E2")
+        g.createSchemaClass("V1").createSchemaClass("V2").
+            createStateFullEdgeClass("E1").createStateFullEdgeClass("E2")
     );
 
     var tx = session.begin();

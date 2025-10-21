@@ -39,9 +39,6 @@ public class PropertyMapIndexDefinition extends PropertyIndexDefinition
 
   private IndexBy indexBy = IndexBy.BY_KEY;
 
-  public PropertyMapIndexDefinition() {
-  }
-
   public PropertyMapIndexDefinition(
       final String iClassName, final String iField, final PropertyTypeInternal iType,
       final IndexBy indexBy) {

@@ -14,8 +14,8 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
   @Test
   public void testBasic() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Basic1").addSchemaProperty("theLink", PropertyType.LINK).
-            addSchemaClass("Basic2").addSchemaProperty("theLink", PropertyType.LINK)
+        g.createSchemaClass("Basic1").createSchemaProperty("theLink", PropertyType.LINK).
+            createSchemaClass("Basic2").createSchemaProperty("theLink", PropertyType.LINK)
     );
 
     session.begin();
@@ -49,8 +49,8 @@ public class CreateLinkStatementExecutionTest extends DbTestBase {
   @Test
   public void testInverse() throws Exception {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Inverse1").addSchemaProperty("theLink", PropertyType.LINKSET).
-            addSchemaClass("Inverse2").addSchemaProperty("theLink", PropertyType.LINKSET)
+        g.createSchemaClass("Inverse1").createSchemaProperty("theLink", PropertyType.LINKSET).
+            createSchemaClass("Inverse2").createSchemaProperty("theLink", PropertyType.LINKSET)
     );
 
     session.begin();

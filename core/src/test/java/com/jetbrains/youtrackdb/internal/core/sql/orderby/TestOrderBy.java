@@ -3,9 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.orderby;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.common.BasicDatabaseSession;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import java.util.Locale;
 import java.util.stream.Collectors;
 import org.junit.Ignore;
@@ -51,8 +51,8 @@ public class TestOrderBy extends DbTestBase {
     session.set(BasicDatabaseSession.ATTRIBUTES.LOCALE_LANGUAGE, Locale.GERMANY.getLanguage());
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("test").addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex("nameIndex", IndexType.NOT_UNIQUE)
+        g -> g.createSchemaClass("test").createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex("nameIndex", IndexType.NOT_UNIQUE)
     );
     var res1 = session.newEntity("test");
     res1.setProperty("name", "Ähhhh");

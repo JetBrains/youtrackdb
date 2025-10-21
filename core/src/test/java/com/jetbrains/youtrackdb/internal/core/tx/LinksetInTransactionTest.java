@@ -13,9 +13,9 @@ public class LinksetInTransactionTest extends DbTestBase {
   public void test() {
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("WithLinks").
-            addSchemaProperty("links", PropertyType.LINKSET).
-            addSchemaClass("Linked")
+        g -> g.createSchemaClass("WithLinks").
+            createSchemaProperty("links", PropertyType.LINKSET).
+            createSchemaClass("Linked")
     );
 
     session.begin();

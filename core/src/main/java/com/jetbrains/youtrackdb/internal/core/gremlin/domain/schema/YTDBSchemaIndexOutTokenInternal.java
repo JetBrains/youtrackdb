@@ -11,7 +11,7 @@ public enum YTDBSchemaIndexOutTokenInternal implements YTDBOutTokenInternal<YTDB
   classToIndex {
     @Override
     public Iterator<? extends YTDBDomainVertex> apply(YTDBSchemaIndexImpl ytdbSchemaIndex) {
-      return IteratorUtils.singletonIterator(ytdbSchemaIndex.classToIndex());
+      return IteratorUtils.singletonIterator(ytdbSchemaIndex.indexClass());
     }
 
     @Override
@@ -29,7 +29,7 @@ public enum YTDBSchemaIndexOutTokenInternal implements YTDBOutTokenInternal<YTDB
   propertyToIndex {
     @Override
     public Iterator<? extends YTDBDomainVertex> apply(YTDBSchemaIndexImpl ytdbSchemaIndex) {
-      return ytdbSchemaIndex.propertiesToIndex();
+      return ytdbSchemaIndex.indexProperties();
     }
 
     @Override

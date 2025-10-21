@@ -133,7 +133,7 @@ public interface ImmutableSchemaClass {
   Collection<Index> getClassIndexesInternal();
 
   @Nullable
-  Index getClassIndex(DatabaseSessionInternal session, final String name);
+  Index getClassIndex(final String name);
 
 
   /**

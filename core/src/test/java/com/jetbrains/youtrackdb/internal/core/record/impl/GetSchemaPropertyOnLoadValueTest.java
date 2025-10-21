@@ -21,7 +21,7 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
 
   @Test
   public void testOnloadValue() {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("test"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("test"));
     session.begin();
     var doc = (EntityImpl) session.newEntity("test");
     doc.setProperty("name", "John Doe");
@@ -41,7 +41,7 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
   @Test(expected = IllegalArgumentException.class)
   public void testOnLoadValueForList() throws IllegalArgumentException {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("test").addStateFullEdgeClass("myLink")
+        g.createSchemaClass("test").createStateFullEdgeClass("myLink")
     );
 
     session.begin();
@@ -63,7 +63,7 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
 
   @Test
   public void testOnLoadValueForScalarList() throws IllegalArgumentException {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("test"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("test"));
 
     session.begin();
     var vertex = session.newVertex("test");
@@ -79,7 +79,7 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
 
   @Test
   public void testOnLoadValueForScalarSet() throws IllegalArgumentException {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("test"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("test"));
 
     session.begin();
     var doc = session.newVertex("test");
@@ -95,7 +95,7 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
 
   @Test
   public void testStringBlobOnLoadValue() {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("test"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("test"));
 
     session.begin();
     var before = "Hello World";
@@ -164,7 +164,7 @@ public class GetSchemaPropertyOnLoadValueTest extends DbTestBase {
           return null;
         });
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass("test"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("test"));
 
     session.begin();
     var v = session.newVertex("test");

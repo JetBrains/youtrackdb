@@ -5,12 +5,12 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.CreateDatabaseUtil;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.Test;
@@ -33,8 +33,8 @@ public class TestImmutableIndexLoad {
         "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
       graph.autoExecuteInTx(
-          g -> g.addSchemaClass("One").addSchemaProperty("one", PropertyType.STRING)
-              .addPropertyIndex(IndexType.UNIQUE));
+          g -> g.createSchemaClass("One").createSchemaProperty("one", PropertyType.STRING)
+              .createPropertyIndex(IndexType.UNIQUE));
     }
 
     db.close();

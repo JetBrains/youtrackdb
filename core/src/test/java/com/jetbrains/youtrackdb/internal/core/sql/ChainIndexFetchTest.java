@@ -14,10 +14,10 @@ public class ChainIndexFetchTest extends DbTestBase {
   @Test
   public void testFetchChaninedIndex() {
     graph.executeInTx(g -> {
-      var schemaProperty = (YTDBSchemaProperty) g.addSchemaClass("BaseClass").
-          addSchemaProperty("ref", PropertyType.LINK).next();
-      var linkedClass = (YTDBSchemaClass) g.addSchemaClass("LinkedClass").next();
-      var id = linkedClass.createSchemaProperty("id", PropertyType.STRING);
+      var schemaProperty = (YTDBSchemaProperty) g.createSchemaClass("BaseClass").
+          createSchemaProperty("ref", PropertyType.LINK).next();
+      var linkedClass = (YTDBSchemaClass) g.createSchemaClass("LinkedClass").next();
+      var id = linkedClass.createDeclaredProperty("id", PropertyType.STRING);
       id.createIndex("idIndex", IndexType.UNIQUE);
 
       schemaProperty.linkedClass(linkedClass);

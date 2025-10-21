@@ -12,7 +12,7 @@ public class DeleteVertexStatementExecutionTest extends DbTestBase {
   @Test
   public void testDeleteSingleVertex() {
     var className = "testDeleteSingleVertex";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -32,7 +32,7 @@ public class DeleteVertexStatementExecutionTest extends DbTestBase {
   @Test
   public void testDeleteAllVertices() {
     var className = "testDeleteAllVertices";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className));
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -52,7 +52,7 @@ public class DeleteVertexStatementExecutionTest extends DbTestBase {
   @Test
   public void testFilterClass() {
     var className1 = "testDeleteAllVertices1";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className1));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className1));
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -62,7 +62,7 @@ public class DeleteVertexStatementExecutionTest extends DbTestBase {
     }
 
     var className2 = "testDeleteAllVertices2";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className2));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className2));
 
     for (var i = 0; i < 10; i++) {
       session.begin();

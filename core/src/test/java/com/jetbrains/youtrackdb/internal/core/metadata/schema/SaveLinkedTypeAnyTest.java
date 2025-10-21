@@ -14,8 +14,8 @@ public class SaveLinkedTypeAnyTest extends DbTestBase {
   @Test
   public void testRemoveLinkedType() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("TestRemoveLinkedType")
-            .addSchemaProperty("prop", PropertyType.EMBEDDEDLIST)
+        g.createSchemaClass("TestRemoveLinkedType")
+            .createSchemaProperty("prop", PropertyType.EMBEDDEDLIST)
     );
 
     session.begin();
@@ -35,8 +35,8 @@ public class SaveLinkedTypeAnyTest extends DbTestBase {
 
   @Test
   public void testAlterRemoveLinkedType() {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("TestRemoveLinkedType")
-        .addSchemaProperty("prop", PropertyType.EMBEDDEDLIST));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("TestRemoveLinkedType")
+        .createSchemaProperty("prop", PropertyType.EMBEDDEDLIST));
 
     session.begin();
     session.execute("insert into TestRemoveLinkedType set prop = [4]").close();

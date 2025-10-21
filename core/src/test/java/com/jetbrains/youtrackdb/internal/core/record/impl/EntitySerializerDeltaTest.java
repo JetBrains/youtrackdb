@@ -37,7 +37,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -80,7 +80,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     var embeddedClassName = "EmbeddedTestClass";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(testClassName).addAbstractSchemaClass(embeddedClassName)
+        g.createSchemaClass(testClassName).createAbstractSchemaClass(embeddedClassName)
     );
 
     session.begin();
@@ -131,7 +131,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -178,7 +178,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -222,7 +222,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -268,7 +268,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -319,7 +319,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -368,7 +368,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     var constantField = "constField";
@@ -426,7 +426,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -477,7 +477,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -534,7 +534,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -575,7 +575,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -622,7 +622,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -665,7 +665,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -704,7 +704,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -751,9 +751,9 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
-                .addSchemaProperty(nestedFieldName, PropertyType.EMBEDDED)
-        ).addAbstractSchemaClass(embeddedClassName)
+            __.createSchemaClass(testClassName)
+                .createSchemaProperty(nestedFieldName, PropertyType.EMBEDDED)
+        ).createAbstractSchemaClass(embeddedClassName)
     );
 
     session.begin();
@@ -799,7 +799,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -850,7 +850,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -891,7 +891,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -943,7 +943,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -988,7 +988,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1041,7 +1041,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1097,7 +1097,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1162,7 +1162,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1216,7 +1216,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1262,7 +1262,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1310,7 +1310,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1358,7 +1358,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1426,7 +1426,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();
@@ -1974,7 +1974,7 @@ public class EntitySerializerDeltaTest extends DbTestBase {
     graph.autoExecuteInTx(g ->
         g.schemaClass(testClassName).fold().coalesce(
             __.unfold(),
-            __.addSchemaClass(testClassName)
+            __.createSchemaClass(testClassName)
         ));
 
     session.begin();

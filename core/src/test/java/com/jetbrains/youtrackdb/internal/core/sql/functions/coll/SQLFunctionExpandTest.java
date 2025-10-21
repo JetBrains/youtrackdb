@@ -21,8 +21,8 @@ public class SQLFunctionExpandTest extends DbTestBase {
   public void expandSingleValue() {
 
     var className = "ClassWithSingleValue";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className)
-        .addSchemaProperty("stringProp", PropertyType.STRING));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className)
+        .createSchemaProperty("stringProp", PropertyType.STRING));
 
     session.executeInTx(transaction -> {
       session.newEntity(className).setProperty("stringProp", "a1");
@@ -40,9 +40,9 @@ public class SQLFunctionExpandTest extends DbTestBase {
   public void expandList() {
     var className = "ClassWithList";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className,
-        __.addSchemaProperty("name", PropertyType.STRING),
-        __.addSchemaProperty("listProp", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className,
+        __.createSchemaProperty("name", PropertyType.STRING),
+        __.createSchemaProperty("listProp", PropertyType.EMBEDDEDLIST, PropertyType.STRING)
     ));
 
     // init data
@@ -96,9 +96,9 @@ public class SQLFunctionExpandTest extends DbTestBase {
   public void expandMap() {
 
     var className = "ClassWithMap";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className,
-            __.addSchemaProperty("name", PropertyType.STRING),
-            __.addSchemaProperty("mapProp", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className,
+        __.createSchemaProperty("name", PropertyType.STRING),
+        __.createSchemaProperty("mapProp", PropertyType.EMBEDDEDMAP, PropertyType.STRING)
         )
     );
 
@@ -187,10 +187,10 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(linkedClassName).addSchemaProperty("name", PropertyType.STRING).
-            addSchemaClass(linkingClassName,
-                __.addSchemaProperty("name", PropertyType.STRING),
-                __.addSchemaProperty("link", PropertyType.LINK, linkedClassName)
+        g.createSchemaClass(linkedClassName).createSchemaProperty("name", PropertyType.STRING).
+            createSchemaClass(linkingClassName,
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("link", PropertyType.LINK, linkedClassName)
             )
     );
 
@@ -260,10 +260,10 @@ public class SQLFunctionExpandTest extends DbTestBase {
 
     //noinspection unchecked
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(linkedClassName).addSchemaProperty("name", PropertyType.STRING).
-            addSchemaClass(linkingClassName,
-                __.addSchemaProperty("name", PropertyType.STRING),
-                __.addSchemaProperty("link", PropertyType.LINKLIST, linkedClassName)
+        g.createSchemaClass(linkedClassName).createSchemaProperty("name", PropertyType.STRING).
+            createSchemaClass(linkingClassName,
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("link", PropertyType.LINKLIST, linkedClassName)
             )
     );
 

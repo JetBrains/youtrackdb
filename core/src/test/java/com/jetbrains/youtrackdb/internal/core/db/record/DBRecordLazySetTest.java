@@ -72,9 +72,9 @@ public class DBRecordLazySetTest extends DbTestBase {
   @Test(expected = ValidationException.class)
   public void testSetWithNotExistentRecordWithValidation() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("test").addSchemaClass("test1").
+        g.createSchemaClass("test").createSchemaClass("test1").
             schemaClass("test").
-            addSchemaProperty("fi", PropertyType.LINKSET).
+            createSchemaProperty("fi", PropertyType.LINKSET).
             linkedClassAttr("test1")
     );
 

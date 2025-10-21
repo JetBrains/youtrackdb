@@ -193,7 +193,7 @@ public class GraphQueryTest extends GraphBaseTest {
   @Test
   public void shouldWorkWithTwoLabels() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Person")
+        g -> g.createSchemaClass("Person")
     );
 
     // Count on V
@@ -220,8 +220,8 @@ public class GraphQueryTest extends GraphBaseTest {
 
   protected static void initGraph(YTDBGraph graph) {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Person").addSchemaClass("Animal").
-            addStateFullEdgeClass("HasFriend").addStateFullEdgeClass("HasAnimal")
+        g -> g.createSchemaClass("Person").createSchemaClass("Animal").
+            createStateFullEdgeClass("HasFriend").createStateFullEdgeClass("HasAnimal")
     );
 
     var v1 = graph.addVertex(T.label, "Person", "name", "Jon");
@@ -257,15 +257,15 @@ public class GraphQueryTest extends GraphBaseTest {
     var humanClassName = prefix + "human";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(animalClassName).
-            addSchemaClass(fishClassName).addParentClass(animalClassName).
-            addSchemaClass(mammalClassName).addParentClass(animalClassName).
-            addSchemaClass(catClassName).addParentClass(mammalClassName).
-            addSchemaClass(birdClassName).addParentClass(animalClassName).
-            addSchemaClass(insectClassName).addParentClass(animalClassName).
-            addSchemaClass(beeClassName).addParentClass(insectClassName).
-            addSchemaClass(catClassName).addParentClass(mammalClassName).
-            addSchemaClass(humanClassName).addParentClass(mammalClassName)
+        g.createSchemaClass(animalClassName).
+            createSchemaClass(fishClassName).addParentClass(animalClassName).
+            createSchemaClass(mammalClassName).addParentClass(animalClassName).
+            createSchemaClass(catClassName).addParentClass(mammalClassName).
+            createSchemaClass(birdClassName).addParentClass(animalClassName).
+            createSchemaClass(insectClassName).addParentClass(animalClassName).
+            createSchemaClass(beeClassName).addParentClass(insectClassName).
+            createSchemaClass(catClassName).addParentClass(mammalClassName).
+            createSchemaClass(humanClassName).addParentClass(mammalClassName)
     );
 
     session.executeInTx(tx -> {
@@ -331,8 +331,8 @@ public class GraphQueryTest extends GraphBaseTest {
     var characterClassName = prefix + "Character";
     var pirateClassName = prefix + "Pirate";
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass(characterClassName)
-        .addSchemaClass(pirateClassName).addParentClass(characterClassName));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(characterClassName)
+        .createSchemaClass(pirateClassName).addParentClass(characterClassName));
 
     session.executeInTx(tx -> {
       final var billyBones = tx.newVertex(pirateClassName);
@@ -428,11 +428,11 @@ public class GraphQueryTest extends GraphBaseTest {
     var fishClassName = prefix + "Fish";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(animalClassName).
-            addSchemaClass(mammalClassName).addParentClass(animalClassName).
-            addSchemaClass(dolphinClassName).addParentClass(mammalClassName).
-            addSchemaClass(humanClassName).addParentClass(mammalClassName).
-            addSchemaClass(fishClassName).addParentClass(animalClassName)
+        g.createSchemaClass(animalClassName).
+            createSchemaClass(mammalClassName).addParentClass(animalClassName).
+            createSchemaClass(dolphinClassName).addParentClass(mammalClassName).
+            createSchemaClass(humanClassName).addParentClass(mammalClassName).
+            createSchemaClass(fishClassName).addParentClass(animalClassName)
     );
 
     session.executeInTx(tx -> {

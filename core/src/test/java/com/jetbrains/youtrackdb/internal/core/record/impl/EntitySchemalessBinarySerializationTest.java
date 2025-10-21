@@ -536,7 +536,7 @@ public class EntitySchemalessBinarySerializationTest extends DbTestBase {
         DbTestBase.getBaseDirectoryPath(getClass()) + "temp")) {
       ctx.execute("create database test memory users(admin identified by 'adminpwd' role admin)");
       try (var session = (DatabaseSessionEmbedded) ctx.open("test", "admin", "adminpwd")) {
-        graph.autoExecuteInTx(g -> g.addSchemaClass("TestClass"));
+        graph.autoExecuteInTx(g -> g.createSchemaClass("TestClass"));
 
         session.begin();
         var document = (EntityImpl) session.newEntity("TestClass");

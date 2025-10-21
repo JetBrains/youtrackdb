@@ -535,11 +535,9 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Index getClassIndex(DatabaseSessionInternal session, String name) {
-    assert session.assertIfNotActive();
+  public Index getClassIndex(String name) {
     return indexes.get(name);
   }
-
 
   @Override
   public Set<String> getIndexNames() {

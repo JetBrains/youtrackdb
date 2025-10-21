@@ -30,9 +30,9 @@ public class TestSchemaImportExport extends DbTestBase {
       try (var graph = youTrackDB.openGraph(TestSchemaImportExport.class.getSimpleName(), "admin",
           "admin")) {
         graph.executeInTx(g -> {
-              var cls = (YTDBSchemaClass) g.addSchemaClass("Test").
+          var cls = (YTDBSchemaClass) g.createSchemaClass("Test").
                   as("cl").
-                  addSchemaProperty("some", PropertyType.STRING).
+              createSchemaProperty("some", PropertyType.STRING).
                   select("cl").next();
               cls.customProperty("testcustom", "test");
             }
@@ -83,7 +83,7 @@ public class TestSchemaImportExport extends DbTestBase {
       try (var graph = youTrackDB.openGraph(TestSchemaImportExport.class.getSimpleName(), "admin",
           "admin")) {
         graph.autoExecuteInTx(g ->
-            g.addSchemaClass("Test").addSchemaProperty("bla", PropertyType.STRING)
+            g.createSchemaClass("Test").createSchemaProperty("bla", PropertyType.STRING)
                 .defaultValueAttr("something")
         );
       }

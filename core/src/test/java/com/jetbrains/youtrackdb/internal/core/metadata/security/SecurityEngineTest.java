@@ -68,7 +68,7 @@ public class SecurityEngineTest {
   public void testAllClasses() {
     var security = session.getSharedContext().getSecurity();
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -90,7 +90,7 @@ public class SecurityEngineTest {
   public void testSingleClass() {
     var security = session.getSharedContext().getSecurity();
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -113,8 +113,8 @@ public class SecurityEngineTest {
     var security = session.getSharedContext().getSecurity();
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Employee").addParentClass(
-            __.addSchemaClass("Person")
+        g -> g.createSchemaClass("Employee").addParentClass(
+            __.createSchemaClass("Person")
         )
     );
 
@@ -140,8 +140,8 @@ public class SecurityEngineTest {
     var security = session.getSharedContext().getSecurity();
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Employee").addParentClass(
-            __.addSchemaClass("Person")
+        g -> g.createSchemaClass("Employee").addParentClass(
+            __.createSchemaClass("Person")
         )
     );
 
@@ -174,8 +174,8 @@ public class SecurityEngineTest {
     var security = session.getSharedContext().getSecurity();
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Employee").addParentClass(
-            __.addSchemaClass("Person")
+        g -> g.createSchemaClass("Employee").addParentClass(
+            __.createSchemaClass("Person")
         )
     );
 
@@ -209,8 +209,8 @@ public class SecurityEngineTest {
 
     //noinspection unchecked
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Employee").addParentClass(
-            __.addSchemaClass("Person"), __.addSchemaClass("Foo")
+        g -> g.createSchemaClass("Employee").addParentClass(
+            __.createSchemaClass("Person"), __.createSchemaClass("Foo")
         )
     );
 
@@ -255,7 +255,7 @@ public class SecurityEngineTest {
 
     var security = session.getSharedContext().getSecurity();
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Person"));
 
     session.begin();
     var policy = security.createSecurityPolicy(session, "policy1");
@@ -286,7 +286,7 @@ public class SecurityEngineTest {
   public void testRecordFiltering() {
     var security = session.getSharedContext().getSecurity();
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass("Person"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Person"));
 
     var rec1 =
         session.computeInTx(

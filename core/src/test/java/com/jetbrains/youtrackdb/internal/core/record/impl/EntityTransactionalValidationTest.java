@@ -18,8 +18,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   public void simpleConstraintShouldBeCheckedOnCommitFalseTest() {
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Validation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+        g.createSchemaClass("Validation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
         )
     );
 
@@ -31,8 +31,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test()
   public void simpleConstraintShouldBeCheckedOnCommitTrueTest() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Validation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+        g.createSchemaClass("Validation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
         )
     );
 
@@ -50,8 +50,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test()
   public void simpleConstraintShouldBeCheckedOnCommitWithTypeConvert() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Validation",
-            __.addSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
+        g.createSchemaClass("Validation",
+            __.createSchemaProperty("int", PropertyType.INTEGER).mandatoryAttr(true)
         )
     );
 
@@ -68,7 +68,7 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test
   public void stringRegexpPatternValidationCheck() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Validation").addSchemaProperty("str", PropertyType.STRING)
+        g.createSchemaClass("Validation").createSchemaProperty("str", PropertyType.STRING)
             .mandatoryAttr(true).regExpAttr("aba.*")
     );
 
@@ -88,8 +88,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test(expected = ValidationException.class)
   public void stringRegexpPatternValidationCheckFails() {
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Validation").
-            addSchemaProperty("str", PropertyType.STRING).
+        g -> g.createSchemaClass("Validation").
+            createSchemaProperty("str", PropertyType.STRING).
             mandatoryAttr(true).
             regExpAttr("aba.*")
     );
@@ -105,11 +105,11 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   public void requiredLinkBagNegativeTest() {
 
     graph.executeInTx(g -> {
-          var traversal = g.addStateFullEdgeClass("lst").
-              addSchemaClass("Validation").addSchemaClass("links");
+      var traversal = g.createStateFullEdgeClass("lst").
+          createSchemaClass("Validation").createSchemaClass("links");
           var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "lst");
           traversal.schemaClass("Validation").
-              addSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").
+              createSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").
               mandatoryAttr(true).iterate();
         }
     );
@@ -122,12 +122,12 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   @Test
   public void requiredLinkBagPositiveTest() {
     graph.executeInTx(g -> {
-      var traversal = g.addAbstractSchemaClass("lst").addParentClass("E").
-          addSchemaClass("Validation").addSchemaClass("links");
+      var traversal = g.createAbstractSchemaClass("lst").addParentClass("E").
+          createSchemaClass("Validation").createSchemaClass("links");
 
       var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "lst");
       traversal.schemaClass("Validation")
-          .addSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").mandatoryAttr(true)
+          .createSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").mandatoryAttr(true)
           .iterate();
     });
 
@@ -142,12 +142,12 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   public void requiredLinkBagFailsIfBecomesEmpty() {
     graph.executeInTx(g -> {
       var traversal = g.schemaClass("Validation").
-          addStateFullEdgeClass("lst").
-          addSchemaClass("links");
+          createStateFullEdgeClass("lst").
+          createSchemaClass("links");
 
       var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, "lst");
       traversal.schemaClass("Validation")
-          .addSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").
+          .createSchemaProperty(edgePropertyName, PropertyType.LINKBAG, "links").
           mandatoryAttr(true).minAttr("1").iterate();
     });
 
@@ -166,8 +166,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     var className = "Validation";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).
-            addSchemaProperty("arr", PropertyType.EMBEDDEDLIST).
+        g.createSchemaClass(className).
+            createSchemaProperty("arr", PropertyType.EMBEDDEDLIST).
             mandatoryAttr(true).minAttr("1").iterate()
     );
 
@@ -190,13 +190,13 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     var linkClassName = "links";
 
     graph.executeInTx(g -> {
-      var traversal = g.addSchemaClass(className).addAbstractSchemaClass(edgeClassName)
+      var traversal = g.createSchemaClass(className).createAbstractSchemaClass(edgeClassName)
           .addParentClass("E")
-          .addSchemaClass(linkClassName);
+          .createSchemaClass(linkClassName);
 
       var edgePropertyName = Vertex.getEdgeLinkFieldName(Direction.OUT, edgeClassName);
       traversal.schemaClass("Validation")
-          .addSchemaProperty(edgePropertyName, PropertyType.LINKBAG, linkClassName)
+          .createSchemaProperty(edgePropertyName, PropertyType.LINKBAG, linkClassName)
           .mandatoryAttr(true).iterate();
     });
 
@@ -225,7 +225,7 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
     var className = "Validation";
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).addSchemaProperty("dbl", PropertyType.FLOAT).
+        g.createSchemaClass(className).createSchemaProperty("dbl", PropertyType.FLOAT).
             mandatoryAttr(true).minAttr("-10").iterate()
     );
 
@@ -246,7 +246,8 @@ public class EntityTransactionalValidationTest extends BaseMemoryInternalDatabas
   public void maxConstraintOnFloatPropertyOnTransaction() {
     var className = "Validation";
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).addSchemaProperty("dbl", PropertyType.FLOAT).mandatoryAttr(true)
+        g.createSchemaClass(className).createSchemaProperty("dbl", PropertyType.FLOAT)
+            .mandatoryAttr(true)
             .minAttr("-10").iterate()
     );
 

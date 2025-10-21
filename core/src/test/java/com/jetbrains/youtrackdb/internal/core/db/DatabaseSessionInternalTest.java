@@ -17,7 +17,7 @@ public class DatabaseSessionInternalTest extends DbTestBase {
     final var indexes = IntStream.range(0, batchSize * batchCount).boxed()
         .collect(Collectors.toSet());
 
-    graph.autoExecuteInTx(g -> g.addSchemaClass("TestBatchTransaction"));
+    graph.autoExecuteInTx(g -> g.createSchemaClass("TestBatchTransaction"));
 
     session.executeInTxBatches(indexes, batchSize, (tx, i) -> {
       tx.newEntity("TestBatchTransaction").setProperty("i", i);

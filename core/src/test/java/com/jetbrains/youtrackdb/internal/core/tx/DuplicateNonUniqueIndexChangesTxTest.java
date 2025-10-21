@@ -19,12 +19,12 @@
 
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -43,8 +43,8 @@ public class DuplicateNonUniqueIndexChangesTxTest extends DbTestBase {
     super.beforeTest();
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(INDEX_NAME, IndexType.NOT_UNIQUE)
+        g.createSchemaClass("Person").createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(INDEX_NAME, IndexType.NOT_UNIQUE)
     );
   }
 

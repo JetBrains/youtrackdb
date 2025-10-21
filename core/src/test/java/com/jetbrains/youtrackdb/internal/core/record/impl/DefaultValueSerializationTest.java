@@ -12,8 +12,8 @@ public class DefaultValueSerializationTest extends DbTestBase {
   public void testKeepValueSerialization() {
     // create example schema
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("ClassC").
-            addSchemaProperty("name", PropertyType.STRING).defaultValueAttr("uuid()")
+        g.createSchemaClass("ClassC").
+            createSchemaProperty("name", PropertyType.STRING).defaultValueAttr("uuid()")
     );
 
     session.begin();

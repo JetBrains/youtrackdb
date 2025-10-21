@@ -3,9 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -16,10 +16,10 @@ public class RebuildIndexStatementExecutionTest extends DbTestBase {
     // given
 
     var className = "IndexCollectionTest";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(className,
-        __.addSchemaProperty("key", PropertyType.STRING)
-            .addPropertyIndex(className + "index1", IndexType.NOT_UNIQUE),
-        __.addSchemaProperty("value", PropertyType.INTEGER)
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className,
+        __.createSchemaProperty("key", PropertyType.STRING)
+            .createPropertyIndex(className + "index1", IndexType.NOT_UNIQUE),
+        __.createSchemaProperty("value", PropertyType.INTEGER)
     ));
 
     session.begin();

@@ -5,12 +5,13 @@ import static org.testng.AssertJUnit.assertNotNull;
 import static org.testng.AssertJUnit.assertNull;
 
 import com.jetbrains.youtrackdb.api.DatabaseSession;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.DBRecord;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Date;
 import java.util.Set;
@@ -26,16 +27,16 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
 
   @Test
   public void test() {
-
     // create example schema
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classPerson = schema.createClass("PersonA");
-
-    classPerson.createProperty("name", PropertyType.STRING);
-    classPerson.createProperty("join_date", PropertyType.DATETIME)
-        .setDefaultValue("sysdate()");
-    classPerson.createProperty("active", PropertyType.BOOLEAN)
-        .setDefaultValue("true");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("PersonA",
+            __.createSchemaProperty("name", PropertyType.STRING),
+            __.createSchemaProperty("join_date", PropertyType.DATETIME)
+                .defaultValueAttr("sysdate()"),
+            __.createSchemaProperty("active", PropertyType.BOOLEAN)
+                .defaultValueAttr("true")
+        )
+    );
 
     session.begin();
     var dtStart = getDatabaseSysdate(session);
@@ -87,11 +88,12 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
     final var userId = session.getCurrentUser().getIdentity();
     session.commit();
 
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-
-    var classPerson = schema.createClass("PersonB");
-    classPerson.createProperty("users", PropertyType.LINKSET)
-        .setDefaultValue("[" + userId + "]");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("PersonB",
+            __.createSchemaProperty("users", PropertyType.LINKSET)
+                .defaultValueAttr("[" + userId + "]")
+        )
+    );
 
     session.begin();
     var doc = ((EntityImpl) session.newEntity("PersonB"));
@@ -101,7 +103,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
     session.begin();
     EntityImpl doc1 = session.load(record.getIdentity());
     Set<Identifiable> rids = doc1.getProperty("users");
-    assertEquals(rids.size(), 1);
+    assertEquals(1, rids.size());
     assertEquals(rids.iterator().next(), userId);
     session.commit();
   }
@@ -109,25 +111,26 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
   @Test
   public void testPrepopulation() {
     // create example schema
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classA = schema.createClass("ClassA");
-
-    classA.createProperty("name", PropertyType.STRING)
-        .setDefaultValue("default name");
-    classA.createProperty("date", PropertyType.DATETIME)
-        .setDefaultValue("sysdate()");
-    classA.createProperty("active", PropertyType.BOOLEAN)
-        .setDefaultValue("true");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("ClassA",
+            __.createSchemaProperty("name", PropertyType.STRING)
+                .defaultValueAttr("default name"),
+            __.createSchemaProperty("date", PropertyType.DATETIME)
+                .defaultValueAttr("sysdate()"),
+            __.createSchemaProperty("active", PropertyType.BOOLEAN)
+                .defaultValueAttr("true")
+        )
+    );
 
     session.executeInTx(tx -> {
-      var doc = ((EntityImpl) session.newEntity(classA));
+      var doc = ((EntityImpl) session.newEntity("ClassA"));
       assertEquals("default name", doc.getProperty("name"));
       assertNotNull(doc.getProperty("date"));
       assertEquals((Boolean) true, doc.getProperty("active"));
     });
 
     session.executeInTx(tx -> {
-      var doc = ((EntityImpl) session.newEntity(classA.getName()));
+      var doc = ((EntityImpl) session.newEntity("ClassA"));
       assertEquals("default name", doc.getProperty("name"));
       assertNotNull(doc.getProperty("date"));
       assertEquals((Boolean) true, doc.getProperty("active"));
@@ -138,7 +141,7 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
       assertNull(doc.getProperty("name"));
       assertNull(doc.getProperty("date"));
       assertNull(doc.getProperty("active"));
-      doc.setClassNameIfExists(classA.getName());
+      doc.setClassNameIfExists("ClassA");
       assertEquals("default name", doc.getProperty("name"));
       assertNotNull(doc.getProperty("date"));
       assertEquals((Boolean) true, doc.getProperty("active"));
@@ -148,64 +151,64 @@ public class DefaultValuesTrivialTest extends BaseDBTest {
   @Test
   public void testPrepopulationIndex() {
     // create example schema
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classB = schema.createClass("ClassB");
-
-    var prop = classB.createProperty("name", PropertyType.STRING);
-    prop.setDefaultValue("default name");
-    prop.createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("ClassB",
+            __.createSchemaProperty("name", PropertyType.STRING)
+                .defaultValueAttr("default name")
+                .createPropertyIndex(IndexType.NOT_UNIQUE)
+        )
+    );
 
     session.executeInTx(tx -> {
-      var doc = ((EntityImpl) session.newEntity(classB));
+      var doc = ((EntityImpl) session.newEntity("ClassB"));
       assertEquals("default name", doc.getProperty("name"));
     });
 
-    try (var stream = session.getIndex("ClassB.name")
+    try (var iterator = session.getMetadata().getFastImmutableSchemaSnapshot()
+        .getIndex("ClassB.name")
         .getRids(session, "default name")) {
-      assertEquals(1, stream.count());
+      assertEquals(1, YTDBIteratorUtils.count(iterator));
     }
   }
 
   @Test
   public void testPrepopulationMultivalueIndex() {
-
     // create example schema
-    Schema schema = session.getMetadata().getSlowMutableSchema();
-    var classD = schema.createClass("ClassD");
 
-    var prop = classD.createProperty("name", PropertyType.STRING);
-    prop.setDefaultValue("default name");
-    classD.createProperty("value", PropertyType.STRING);
-    classD.createIndex("multi", IndexType.NOT_UNIQUE, "value",
-        "name");
-    var index = session.getIndex("multi");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("ClassD",
+            __.createSchemaProperty("name", PropertyType.STRING).defaultValueAttr("default name"),
+            __.createSchemaProperty("value", PropertyType.STRING)
+        ).createClassIndex("multi", IndexType.NOT_UNIQUE, "value", "name")
+    );
 
+    var index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex("multi");
     {
       session.begin();
-      var doc = ((EntityImpl) session.newEntity(classD));
+      var doc = ((EntityImpl) session.newEntity("ClassD"));
       assertEquals("default name", doc.getProperty("name"));
       doc.setProperty("value", "1");
 
       session.commit();
 
-      try (var stream = index.getRids(session, new CompositeKey("1"))) {
-        assertEquals(1, stream.count());
+      try (var iterator = index.getRids(session, new CompositeKey("1"))) {
+        assertEquals(1, YTDBIteratorUtils.count(iterator));
       }
     }
     {
       session.begin();
-      var doc = ((EntityImpl) session.newEntity(classD));
+      var doc = ((EntityImpl) session.newEntity("ClassD"));
       assertEquals("default name", doc.getProperty("name"));
       doc.setProperty("value", "2");
 
       session.commit();
 
-      try (var stream = index.getRids(session, new CompositeKey("2"))) {
-        assertEquals(1, stream.count());
+      try (var iterator = index.getRids(session, new CompositeKey("2"))) {
+        assertEquals(1, YTDBIteratorUtils.count(iterator));
       }
     }
-    try (var stream = index.getRids(session, new CompositeKey("3"))) {
-      assertEquals(0, stream.count());
+    try (var iterator = index.getRids(session, new CompositeKey("3"))) {
+      assertEquals(0, YTDBIteratorUtils.count(iterator));
     }
   }
 }

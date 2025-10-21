@@ -65,7 +65,7 @@ public class SessionPoolTest {
 
     try (var graph = youTrackDb.openGraph("test", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-      graph.autoExecuteInTx(g -> g.addSchemaClass("Test"));
+      graph.autoExecuteInTx(g -> g.createSchemaClass("Test"));
     }
 
     db.begin();

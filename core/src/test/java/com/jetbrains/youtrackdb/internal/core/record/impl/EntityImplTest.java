@@ -121,11 +121,11 @@ public class EntityImplTest extends DbTestBase {
       session = (DatabaseSessionEmbedded) ytdb.open(dbName, defaultDbAdminCredentials,
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
-      graph.autoExecuteInTx(g -> g.addSchemaClass("Test",
-          __.addSchemaProperty("integer", PropertyType.INTEGER),
-          __.addSchemaProperty("link", PropertyType.LINK),
-          __.addSchemaProperty("string", PropertyType.STRING),
-          __.addSchemaProperty("binary", PropertyType.BINARY)
+      graph.autoExecuteInTx(g -> g.createSchemaClass("Test",
+          __.createSchemaProperty("integer", PropertyType.INTEGER),
+          __.createSchemaProperty("link", PropertyType.LINK),
+          __.createSchemaProperty("string", PropertyType.STRING),
+          __.createSchemaProperty("binary", PropertyType.BINARY)
       ));
 
       session.begin();
@@ -189,9 +189,9 @@ public class EntityImplTest extends DbTestBase {
           CreateDatabaseUtil.NEW_ADMIN_PASSWORD);
 
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("TestRemovingField2",
-              __.addSchemaProperty("name", PropertyType.STRING),
-              __.addSchemaProperty("property", PropertyType.STRING).readOnlyAttr(true)
+          g.createSchemaClass("TestRemovingField2",
+              __.createSchemaProperty("name", PropertyType.STRING),
+              __.createSchemaProperty("property", PropertyType.STRING).readOnlyAttr(true)
           )
       );
 
@@ -235,9 +235,9 @@ public class EntityImplTest extends DbTestBase {
       Schema schema = session.getMetadata().getSlowMutableSchema();
 
       graph.autoExecuteInTx(g ->
-          g.addSchemaClass("TestUndo",
-              __.addSchemaProperty("name", PropertyType.STRING),
-              __.addSchemaProperty("property", PropertyType.STRING)
+          g.createSchemaClass("TestUndo",
+              __.createSchemaProperty("name", PropertyType.STRING),
+              __.createSchemaProperty("property", PropertyType.STRING)
           )
       );
 

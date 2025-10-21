@@ -80,7 +80,7 @@ public class SQLFunctionAstarTest {
 
     try (var graph = youTrackDB.openGraph("SQLFunctionAstarTest", "admin",
         CreateDatabaseUtil.NEW_ADMIN_PASSWORD)) {
-      graph.autoExecuteInTx(g -> g.addStateFullEdgeClass("has_path"));
+      graph.autoExecuteInTx(g -> g.createStateFullEdgeClass("has_path"));
     }
 
     session.begin();

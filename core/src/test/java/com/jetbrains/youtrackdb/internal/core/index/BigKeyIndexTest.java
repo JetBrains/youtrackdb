@@ -1,17 +1,17 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.api.exception.TooBigIndexKeyException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Test;
 
 public class BigKeyIndexTest extends DbTestBase {
   @Test
   public void testBigKey() {
-    graph.autoExecuteInTx(g -> g.addSchemaClass("One").
-        addSchemaProperty("two", PropertyType.STRING)
-        .addPropertyIndex("twoIndex",
+    graph.autoExecuteInTx(g -> g.createSchemaClass("One").
+        createSchemaProperty("two", PropertyType.STRING)
+        .createPropertyIndex("twoIndex",
             IndexType.NOT_UNIQUE));
 
     for (var i = 0; i < 100; i++) {
@@ -31,9 +31,9 @@ public class BigKeyIndexTest extends DbTestBase {
   public void testTooBigKey() {
     graph.autoExecuteInTx(
         g ->
-            g.addSchemaClass("One").
-                addSchemaProperty("two", PropertyType.STRING)
-                .addPropertyIndex("twoIndex", IndexType.NOT_UNIQUE));
+            g.createSchemaClass("One").
+                createSchemaProperty("two", PropertyType.STRING)
+                .createPropertyIndex("twoIndex", IndexType.NOT_UNIQUE));
 
     session.begin();
     var doc = session.newInstance("One");

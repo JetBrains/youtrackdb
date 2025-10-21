@@ -1,9 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -13,14 +13,14 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
     var className = "testPlain";
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass(className).addSchemaProperty("name", PropertyType.STRING));
+        g -> g.createSchemaClass(className).createSchemaProperty("name", PropertyType.STRING));
     Assert.assertNull(
         session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(className + ".name"));
 
     graph.executeInTx(g ->
         g.schemaClass(className).
             schemaClassProperty("name").
-            addPropertyIndex(IndexType.NOT_UNIQUE)
+            createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     var idx = session.getMetadata().getFastImmutableSchemaSnapshot()
@@ -33,7 +33,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
   public void testIfNotExists() {
     var className = "testIfNotExists";
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass(className).addSchemaProperty("name", PropertyType.STRING)
+        g.createSchemaClass(className).createSchemaProperty("name", PropertyType.STRING)
     );
 
     Assert.assertNull(
@@ -44,7 +44,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
         g.schemaIndex(className + ".name").fold().coalesce(
             __.unfold(),
             __.schemaClass(className).schemaClassProperty("name").
-                addPropertyIndex(IndexType.NOT_UNIQUE)
+                createPropertyIndex(IndexType.NOT_UNIQUE)
         ));
 
     var idx = session.getMetadata().getFastImmutableSchemaSnapshot()
@@ -57,7 +57,7 @@ public class CreateIndexStatementExecutionTest extends BaseMemoryInternalDatabas
         g.schemaIndex(className + ".name").fold().coalesce(
             __.unfold(),
             __.schemaClass(className).schemaClassProperty("name").
-                addPropertyIndex(IndexType.NOT_UNIQUE)
+                createPropertyIndex(IndexType.NOT_UNIQUE)
         ));
   }
 }

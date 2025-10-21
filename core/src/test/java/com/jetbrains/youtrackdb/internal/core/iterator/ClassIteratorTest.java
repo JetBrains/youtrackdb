@@ -18,8 +18,8 @@ public class ClassIteratorTest extends DbTestBase {
     super.beforeTest();
 
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Person").
-            addSchemaProperty("First", PropertyType.STRING).mandatoryAttr(true).
+        g.createSchemaClass("Person").
+            createSchemaProperty("First", PropertyType.STRING).mandatoryAttr(true).
             readOnlyAttr(true).minAttr("1")
     );
 

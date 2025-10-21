@@ -28,7 +28,7 @@ public class EntityTest extends DbTestBase {
     //noinspection unchecked
     graph.autoExecuteInTx(g -> g.schemaClass("TestLoadAndSave").fold().coalesce(
         __.unfold(),
-        __.addSchemaClass("TestLoadAndSave")
+        __.createSchemaClass("TestLoadAndSave")
     ));
 
     session.begin();

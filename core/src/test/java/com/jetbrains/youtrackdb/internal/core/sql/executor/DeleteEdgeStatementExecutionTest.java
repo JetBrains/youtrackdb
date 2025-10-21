@@ -13,10 +13,10 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
   @Test
   public void testDeleteSingleEdge() {
     var vertexClassName = "testDeleteSingleEdgeV";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(vertexClassName));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(vertexClassName));
 
     var edgeClassName = "testDeleteSingleEdgeE";
-    graph.autoExecuteInTx(g -> g.addStateFullEdgeClass(edgeClassName));
+    graph.autoExecuteInTx(g -> g.createStateFullEdgeClass(edgeClassName));
 
     Vertex prev = null;
     for (var i = 0; i < 10; i++) {
@@ -70,10 +70,10 @@ public class DeleteEdgeStatementExecutionTest extends DbTestBase {
   @Test
   public void testDeleteAll() {
     var vertexClassName = "testDeleteAllV";
-    graph.autoExecuteInTx(g -> g.addSchemaClass(vertexClassName));
+    graph.autoExecuteInTx(g -> g.createSchemaClass(vertexClassName));
 
     var edgeClassName = "testDeleteAllE";
-    graph.autoExecuteInTx(g -> g.addStateFullEdgeClass(edgeClassName));
+    graph.autoExecuteInTx(g -> g.createStateFullEdgeClass(edgeClassName));
 
     Vertex prev = null;
     for (var i = 0; i < 10; i++) {

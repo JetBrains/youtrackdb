@@ -2,9 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
@@ -15,8 +15,8 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
   @Test
   public void shouldUseMatchOptimization() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("VMatch").addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE)
+        g.createSchemaClass("VMatch").createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     var traversal = graph.traversal();
@@ -40,9 +40,9 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
   public void shouldUseMatchOptimizationWithLabel() {
 
     graph.autoExecuteInTx(
-        g -> g.addSchemaClass("Person").
-            addSchemaProperty("name", PropertyType.STRING).
-            addPropertyIndex(IndexType.NOT_UNIQUE)
+        g -> g.createSchemaClass("Person").
+            createSchemaProperty("name", PropertyType.STRING).
+            createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     var traversal = graph.traversal();
@@ -80,8 +80,8 @@ public class GraphMatchStrategyTest extends GraphBaseTest {
   @Test
   public void shouldFetchDataUsingMatchOptimization() {
     graph.autoExecuteInTx(g ->
-        g.addSchemaClass("Person").addSchemaProperty("name", PropertyType.STRING)
-            .addPropertyIndex(IndexType.NOT_UNIQUE)
+        g.createSchemaClass("Person").createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex(IndexType.NOT_UNIQUE)
     );
 
     var bar = graph.addVertex(T.label, "Person", "name", "Bar");

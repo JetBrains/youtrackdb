@@ -31,7 +31,7 @@ public class YTDBSchemaIndexImpl extends
   }
 
   @Override
-  public void name(String name) {
+  public void name(@Nonnull String name) {
     var entity = entityWritePreprocessing();
     entity.setName(name);
   }
@@ -64,7 +64,7 @@ public class YTDBSchemaIndexImpl extends
   }
 
   @Override
-  public IndexBy[] indexBy() {
+  public @Nonnull IndexBy[] indexBy() {
     var entity = entityReadPreprocessing();
     var entityIndexBys = entity.getIndexBys();
     if (entityIndexBys == null) {
@@ -90,7 +90,7 @@ public class YTDBSchemaIndexImpl extends
 
   @Nullable
   @Override
-  public YTDBSchemaClass classToIndex() {
+  public YTDBSchemaClass indexClass() {
     var entity = entityReadPreprocessing();
 
     var classToIndex = entity.getClassToIndex();
@@ -103,7 +103,7 @@ public class YTDBSchemaIndexImpl extends
 
   @Nonnull
   @Override
-  public Iterator<YTDBSchemaProperty> propertiesToIndex() {
+  public Iterator<YTDBSchemaProperty> indexProperties() {
     var entity = entityReadPreprocessing();
     var propertiesIterator = entity.getPropertiesToIndex();
     var publicProperties = new ArrayList<YTDBSchemaProperty>();
