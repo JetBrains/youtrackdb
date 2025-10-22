@@ -3,7 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.record.Edge;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -17,7 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Graph.Hidden;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
@@ -62,16 +65,14 @@ public abstract class YTDBElementImpl implements YTDBElement {
     return graph;
   }
 
-  /// Common logic for setting the value of an element property. Called from
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
-  /// [[YTDBPropertyFactory]] instances.
-  protected <V, P extends Property<V>> P writeProperty(
+  /// Common logic for setting the value of an element property. Called from [[YTDBVertex]] and
+  /// [[YTDBEdge]] implementations with corresponding [[YTDBPropertyFactory]] instances.
+  protected <V, P extends YTDBProperty<V>> P writeProperty(
       YTDBPropertyFactory<V, P> propFactory, final String key, final V value) {
     if (key == null) {
       throw Property.Exceptions.propertyKeyCanNotBeNull();
     }
-    if (Graph.Hidden.isHidden(key)) {
+    if (Hidden.isHidden(key)) {
       throw Property.Exceptions.propertyKeyCanNotBeAHiddenKey(key);
     }
 
@@ -81,14 +82,14 @@ public abstract class YTDBElementImpl implements YTDBElement {
     var entity = getRawEntity();
     if (value == null) {
       entity.setProperty(key, null);
-      return propFactory.create(key, null, this);
+      return propFactory.create(key, null, entity.getPropertyType(key), this);
     }
 
     if (value instanceof LinkBagStub linkBagStub) {
       var linkBag = new LinkBag(graphTx.getDatabaseSession(), linkBagStub);
       entity.setProperty(key, linkBag);
       //noinspection unchecked
-      return propFactory.create(key, (V) linkBag, this);
+      return propFactory.create(key, (V) linkBag, entity.getPropertyType(key), this);
     }
     if (value instanceof List<?> || value instanceof Set<?> || value instanceof Map<?, ?>) {
       var type = PropertyTypeInternal.getTypeByValue(value);
@@ -98,7 +99,7 @@ public abstract class YTDBElementImpl implements YTDBElement {
       var convertedValue = type.convert(value, graphTx.getDatabaseSession());
       entity.setProperty(key, convertedValue);
 
-      return propFactory.create(key, value, this);
+      return propFactory.create(key, value, entity.getPropertyType(key), this);
     }
 
     if (value instanceof YTDBElement ytDBElement) {
@@ -108,27 +109,25 @@ public abstract class YTDBElementImpl implements YTDBElement {
       entity.setProperty(key, value);
     }
 
-    return propFactory.create(key, value, this);
+    return propFactory.create(key, value, entity.getPropertyType(key), this);
   }
 
   /// Common logic for reading the value of an element property. Called from
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
+  /// [[YTDBVertex]] and
+  /// [[YTDBEdge]] implementations with corresponding
   /// [[YTDBPropertyFactory]] instances.
-  protected <V, P extends Property<V>> P readProperty(
+  protected <V, P extends YTDBProperty<V>> P readProperty(
       YTDBPropertyFactory<V, P> propFactory, String key) {
     graph.tx().readWrite();
 
     final var entity = getRawEntity();
     return keyExists(entity, key) ?
-        propFactory.create(key, entity.getProperty(key), this) :
+        propFactory.create(key, entity.getProperty(key), entity.getPropertyType(key), this) :
         propFactory.empty();
   }
 
-  /// Common logic for reading the values of multiple element properties. Called from
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
-  /// [[YTDBPropertyFactory]] instances.
+  /// Common logic for reading the values of multiple element properties. Called from [[YTDBVertex]]
+  /// and [[YTDBEdge]] implementations with corresponding [[YTDBPropertyFactory]] instances.
   protected <V, P extends Property<V>> Iterator<P> readProperties(
       YTDBPropertyFactory<V, P> propFactory, final String... propertyKeys) {
     this.graph.tx().readWrite();
@@ -138,7 +137,9 @@ public abstract class YTDBElementImpl implements YTDBElement {
         entity.getPropertyNames().stream().filter(key -> !keyIgnored(entity, key));
 
     return keysToReturn
-        .map(key -> propFactory.create(key, entity.getProperty(key), this))
+        .map(key -> propFactory.create(
+            key, entity.getProperty(key), entity.getPropertyType(key), this
+        ))
         .iterator();
   }
 

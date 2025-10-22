@@ -1,27 +1,36 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin;
 
-
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import java.util.NoSuchElementException;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
-public class YTDBPropertyImpl<V> implements
-    org.apache.tinkerpop.gremlin.structure.Property<V> {
+public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
 
   protected String key;
   protected V value;
   protected Object wrappedValue;
+  @Nullable
+  private final PropertyType propertyType;
   protected YTDBElementImpl element;
   private boolean removed = false;
 
-  public YTDBPropertyImpl(String key, V value, YTDBElementImpl element) {
+  public YTDBPropertyImpl(
+      String key,
+      @Nullable V value,
+      @Nullable PropertyType propertyType,
+      YTDBElementImpl element
+  ) {
     this.key = key;
     this.value = value;
     this.element = element;
     this.wrappedValue = wrapIntoGraphElement(value);
+    this.propertyType = propertyType;
   }
 
   private Object wrapIntoGraphElement(V value) {
@@ -84,6 +93,11 @@ public class YTDBPropertyImpl<V> implements
     this.value = null;
     wrappedValue = null;
     removed = true;
+  }
+
+  @Override
+  public PropertyType type() {
+    return propertyType;
   }
 
   @Override

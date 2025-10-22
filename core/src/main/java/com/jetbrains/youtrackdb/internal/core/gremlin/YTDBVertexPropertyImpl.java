@@ -2,9 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBVertexPropertyId;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
 import com.jetbrains.youtrackdb.api.record.Entity;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl.PropertyValidationMode;
 import java.util.Arrays;
@@ -12,22 +14,23 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.T;
-import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
 public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     YTDBVertexProperty<V> {
 
-  public YTDBVertexPropertyImpl(Property<V> property, Vertex vertex) {
-    super(property.key(), property.value(), (YTDBElementImpl) vertex);
-  }
-
-  public YTDBVertexPropertyImpl(String key, V value, Vertex vertex) {
-    super(key, value, (YTDBElementImpl) vertex);
+  public YTDBVertexPropertyImpl(
+      String key,
+      @Nullable V value,
+      @Nullable PropertyType propertyType,
+      YTDBVertex vertex
+  ) {
+    super(key, value, propertyType, (YTDBElementImpl) vertex);
   }
 
   @Override
@@ -36,7 +39,7 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
   }
 
   @Override
-  public <U> Property<U> property(String key, U value) {
+  public <U> YTDBProperty<U> property(String key, U value) {
     if (T.id.getAccessor().equals(key)) {
       throw VertexProperty.Exceptions.userSuppliedIdsNotSupported();
     }
@@ -46,19 +49,20 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     var metadata = getMetadataEntity();
 
     metadata.setProperty(key, value);
-    return new YTDBVertexPropertyProperty<>(key, value, this);
+    return new YTDBVertexPropertyProperty<>(key, value, metadata.getPropertyType(key), this);
   }
 
   @Override
   public <U> Iterator<Property<U>> properties(String... propertyKeys) {
-    var graph = (YTDBGraphInternal) graph();
+    final var graph = (YTDBGraphInternal) graph();
     graph.tx().readWrite();
     if (!hasMetadataDocument()) {
       return Collections.emptyIterator();
     }
 
-    var properties = getMetadataEntity().toMap(false);
-    var keys = new HashSet<>(Arrays.asList(propertyKeys));
+    final var metadataEntity = getMetadataEntity();
+    final var properties = metadataEntity.toMap(false);
+    final var keys = new HashSet<>(Arrays.asList(propertyKeys));
 
     var entries =
         StreamUtils.asStream(properties.entrySet().iterator());
@@ -70,9 +74,12 @@ public class YTDBVertexPropertyImpl<V> extends YTDBPropertyImpl<V> implements
     Stream<Property<U>> propertyStream =
         entries
             .filter(entry -> !entry.getKey().startsWith("@rid"))
-            .map(
-                entry ->
-                    new YTDBVertexPropertyProperty<>(entry.getKey(), (U) entry.getValue(), this));
+            .map(entry -> new YTDBVertexPropertyProperty<>(
+                entry.getKey(),
+                (U) entry.getValue(),
+                metadataEntity.getPropertyType(entry.getKey()),
+                this
+            ));
     return propertyStream.iterator();
   }
 

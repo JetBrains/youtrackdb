@@ -4,6 +4,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertexProperty;
 import com.jetbrains.youtrackdb.api.record.RID;
 import java.util.Iterator;
 import java.util.stream.Collectors;
@@ -11,9 +12,10 @@ import java.util.stream.Stream;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
-import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Graph.Hidden;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
+import org.apache.tinkerpop.gremlin.structure.VertexProperty.Cardinality;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
@@ -31,22 +33,23 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
   }
 
   @Override
-  public <V> VertexProperty<V> property(final String key, final V value) {
-    return writeProperty(YTDBPropertyFactory.vertexPropFactory(), key, value);
+  public <V> YTDBVertexProperty<V> property(final String key, final V value) {
+    return writeProperty(YTDBPropertyFactory.ytdbVectorProps(), key, value);
   }
 
   @Override
-  public <V> VertexProperty<V> property(String key) {
-    return readProperty(YTDBPropertyFactory.vertexPropFactory(), key);
+  public <V> YTDBVertexProperty<V> property(String key) {
+    return readProperty(YTDBPropertyFactory.<V>ytdbVectorProps(), key);
   }
 
   @Override
   public <V> Iterator<VertexProperty<V>> properties(final String... propertyKeys) {
-    return readProperties(YTDBPropertyFactory.vertexPropFactory(), propertyKeys);
+    return readProperties(YTDBPropertyFactory.stdVectorProps(), propertyKeys
+    );
   }
 
   @Override
-  public <V> VertexProperty<V> property(
+  public <V> YTDBVertexProperty<V> property(
       final String key, final V value, final Object... keyValues) {
 
     if (ElementHelper.getIdValue(keyValues).isPresent()) {
@@ -60,8 +63,8 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
   }
 
   @Override
-  public <V> VertexProperty<V> property(
-      final VertexProperty.Cardinality cardinality,
+  public <V> YTDBVertexProperty<V> property(
+      final Cardinality cardinality,
       final String key,
       final V value,
       final Object... keyValues) {
@@ -114,7 +117,7 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
     if (ElementHelper.getIdValue(keyValues).isPresent()) {
       throw Vertex.Exceptions.userSuppliedIdsNotSupported();
     }
-    if (Graph.Hidden.isHidden(label)) {
+    if (Hidden.isHidden(label)) {
       throw Element.Exceptions.labelCanNotBeAHiddenKey(label);
     }
 
