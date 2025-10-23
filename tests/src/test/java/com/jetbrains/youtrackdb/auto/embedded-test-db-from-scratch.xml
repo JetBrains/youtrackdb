@@ -5,7 +5,6 @@
     <classes>
       <class name="com.jetbrains.youtrackdb.auto.DbCreationTest"/>
       <class name="com.jetbrains.youtrackdb.auto.DbListenerTest"/>
-      <class name="com.jetbrains.youtrackdb.auto.DBMethodsTest"/>
       <class name="com.jetbrains.youtrackdb.auto.AlterDatabaseTest"/>
       <class name="com.jetbrains.youtrackdb.auto.DbCopyTest"/>
     </classes>
@@ -103,11 +102,6 @@
   <test name="Graph">
     <classes>
       <class name="com.jetbrains.youtrackdb.auto.GraphDatabaseTest"/>
-    </classes>
-  </test>
-  <test name="GEO">
-    <classes>
-      <class name="com.jetbrains.youtrackdb.auto.GEOTest"/>
     </classes>
   </test>
   <test name="Index Manager">

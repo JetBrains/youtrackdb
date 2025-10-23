@@ -15,10 +15,10 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import java.util.Iterator;
 import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
@@ -27,17 +27,16 @@ import org.testng.annotations.Test;
 
 @Test
 public class CollectionIndexTest extends BaseDBTest {
+
   @BeforeClass
   public void setupSchema() {
-    if (session.getMetadata().getSlowMutableSchema().existsClass("Collector")) {
-      session.getMetadata().getSlowMutableSchema().dropClass("Collector");
-    }
-    final var collector = session.createClass("Collector");
-    collector.createProperty("id", PropertyType.STRING);
-    collector
-        .createProperty("stringCollection", PropertyType.EMBEDDEDLIST,
-            PropertyType.STRING)
-        .createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(g -> g.schemaClass("Collector").drop());
+
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Collector",
+        __.createSchemaProperty("id", PropertyType.STRING),
+        __.createSchemaProperty("stringCollection", PropertyType.EMBEDDEDLIST,
+            PropertyType.STRING).createPropertyIndex(YTDBSchemaIndex.IndexType.NOT_UNIQUE)
+    ));
   }
 
   @Override
@@ -61,10 +60,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("eggs")) {
@@ -89,9 +85,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("eggs")) {
@@ -106,17 +100,13 @@ public class CollectionIndexTest extends BaseDBTest {
     session.begin();
     var collector = session.newEntity("Collector");
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
-    collector = collector;
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "bacon")));
     session.commit();
 
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("bacon")) {
@@ -146,10 +136,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
 
     Assert.assertEquals(index.size(session), 2);
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("bacon")) {
@@ -164,7 +151,6 @@ public class CollectionIndexTest extends BaseDBTest {
     session.begin();
     var collector = session.newEntity("Collector");
     collector.setProperty("stringCollection", session.newEmbeddedList(List.of("spam", "eggs")));
-    collector = collector;
     session.commit();
 
     session.begin();
@@ -177,10 +163,7 @@ public class CollectionIndexTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("eggs")) {
@@ -210,10 +193,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 3);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("eggs") && !key.equals("cookies")) {
@@ -244,10 +224,7 @@ public class CollectionIndexTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 3);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("eggs") && !key.equals("cookies")) {
@@ -272,10 +249,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("eggs")) {
@@ -305,10 +279,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 1);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("eggs")) {
@@ -333,10 +304,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("eggs")) {
@@ -361,10 +329,7 @@ public class CollectionIndexTest extends BaseDBTest {
 
     final var index = getIndex("Collector.stringCollection");
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("eggs")) {
@@ -423,10 +388,7 @@ public class CollectionIndexTest extends BaseDBTest {
     final var index = getIndex("Collector.stringCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keysIterator;
-    try (var keyStream = index.keys()) {
-      keysIterator = keyStream.iterator();
-
+    try (var keysIterator = index.keys()) {
       while (keysIterator.hasNext()) {
         var key = (String) keysIterator.next();
         if (!key.equals("spam") && !key.equals("eggs")) {
@@ -449,7 +411,7 @@ public class CollectionIndexTest extends BaseDBTest {
     Assert.assertEquals(result.size(), 1);
     Assert.assertEquals(
         List.of("spam", "eggs"),
-        result.get(0).getProperty("stringCollection")
+        result.getFirst().getProperty("stringCollection")
     );
     session.commit();
   }

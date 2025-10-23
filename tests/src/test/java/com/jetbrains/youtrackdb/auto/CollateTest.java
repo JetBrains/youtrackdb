@@ -1,12 +1,13 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
 import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Collection;
 import java.util.Locale;
@@ -17,14 +18,13 @@ import org.testng.annotations.Test;
 public class CollateTest extends BaseDBTest {
 
   public void testQuery() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("collateTest");
-
-    var csp = clazz.createProperty("csp", PropertyType.STRING);
-    csp.setCollate(DefaultCollate.NAME);
-
-    var cip = clazz.createProperty("cip", PropertyType.STRING);
-    cip.setCollate(CaseInsensitiveCollate.NAME);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("collateTest",
+            __.createSchemaProperty("csp", PropertyType.STRING).collateAttr(DefaultCollate.NAME),
+            __.createSchemaProperty("cip", PropertyType.STRING)
+                .collateAttr(CaseInsensitiveCollate.NAME)
+        )
+    );
 
     for (var i = 0; i < 10; i++) {
       final var upper = i % 2 == 0;
@@ -64,11 +64,10 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testQueryNotNullCi() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("collateTestNotNull");
-
-    var csp = clazz.createProperty("bar", PropertyType.STRING);
-    csp.setCollate(CaseInsensitiveCollate.NAME);
+    graph.autoExecuteInTx(g -> g.createSchemaClass("collateTestNotNull",
+            __.createSchemaProperty("bar", PropertyType.STRING).collateAttr(CaseInsensitiveCollate.NAME)
+        )
+    );
 
     session.executeInTx(transaction -> {
       session.newEntity("collateTestNotNull").setProperty("bar", "baz");
@@ -88,17 +87,15 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testIndexQuery() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("collateIndexTest");
-
-    var csp = clazz.createProperty("csp", PropertyType.STRING);
-    csp.setCollate(DefaultCollate.NAME);
-
-    var cip = clazz.createProperty("cip", PropertyType.STRING);
-    cip.setCollate(CaseInsensitiveCollate.NAME);
-
-    clazz.createIndex("collateIndexCSP", IndexType.NOT_UNIQUE, "csp");
-    clazz.createIndex("collateIndexCIP", IndexType.NOT_UNIQUE, "cip");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("collateIndexTest",
+            __.createSchemaProperty("csp", PropertyType.STRING).collateAttr(DefaultCollate.NAME)
+                .createPropertyIndex("collateIndexCSP", IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("cip", PropertyType.STRING)
+                .collateAttr(CaseInsensitiveCollate.NAME)
+                .createPropertyIndex("collateIndexCIP", IndexType.NOT_UNIQUE)
+        )
+    );
 
     for (var i = 0; i < 10; i++) {
       final var upper = i % 2 == 0;
@@ -139,13 +136,12 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testIndexQueryCollateWasChanged() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("collateWasChangedIndexTest");
-
-    var cp = clazz.createProperty("cp", PropertyType.STRING);
-    cp.setCollate(DefaultCollate.NAME);
-
-    clazz.createIndex("collateWasChangedIndex", IndexType.NOT_UNIQUE, "cp");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("collateWasChangedIndexTest")
+            .createSchemaProperty("cp", PropertyType.STRING).
+            collateAttr(DefaultCollate.NAME).
+            createPropertyIndex("collateWasChangedIndex", IndexType.NOT_UNIQUE)
+    );
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -169,8 +165,10 @@ public class CollateTest extends BaseDBTest {
       }
     });
 
-    cp = clazz.getProperty("cp");
-    cp.setCollate(CaseInsensitiveCollate.NAME);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("collateWasChangedIndexTest").schemaClassProperty("cp")
+            .collateAttr(CaseInsensitiveCollate.NAME)
+    );
 
     session.executeInTx(transaction -> {
       final var result =
@@ -185,17 +183,14 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testCompositeIndexQueryCS() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("CompositeIndexQueryCSTest");
-
-    var csp = clazz.createProperty("csp", PropertyType.STRING);
-    csp.setCollate(DefaultCollate.NAME);
-
-    var cip = clazz.createProperty("cip", PropertyType.STRING);
-    cip.setCollate(CaseInsensitiveCollate.NAME);
-
-    clazz.createIndex("collateCompositeIndexCS", IndexType.NOT_UNIQUE, "csp",
-        "cip");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("CompositeIndexQueryCSTest",
+            __.createSchemaProperty("csp", PropertyType.STRING).collateAttr(DefaultCollate.NAME),
+            __.createSchemaProperty("cip", PropertyType.STRING)
+                .collateAttr(CaseInsensitiveCollate.NAME)
+        ).createClassIndex("collateCompositeIndexCS", IndexType.NOT_UNIQUE,
+            "csp", "cip")
+    );
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -236,12 +231,12 @@ public class CollateTest extends BaseDBTest {
     });
     if (!session.getStorage().isRemote()) {
       session.executeInTx(tx -> {
-        final var indexManager = session.getSharedContext().getIndexManager();
-        final var index = indexManager.getIndex("collateCompositeIndexCS");
+        final var index = session.getMetadata().getFastImmutableSchemaSnapshot()
+            .getIndex("collateCompositeIndexCS");
 
         final Collection<RID> value;
-        try (var stream = index.getRids(session, new CompositeKey("VAL", "VaL"))) {
-          value = stream.toList();
+        try (var iterator = index.getRids(session, new CompositeKey("VAL", "VaL"))) {
+          value = YTDBIteratorUtils.list(iterator);
         }
 
         Assert.assertEquals(value.size(), 5);
@@ -257,16 +252,13 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void testCompositeIndexQueryCollateWasChanged() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("CompositeIndexQueryCollateWasChangedTest");
-
-    var csp = clazz.createProperty("csp", PropertyType.STRING);
-    csp.setCollate(DefaultCollate.NAME);
-
-    clazz.createProperty("cip", PropertyType.STRING);
-
-    clazz.createIndex(
-        "collateCompositeIndexCollateWasChanged", IndexType.NOT_UNIQUE, "csp", "cip");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("CompositeIndexQueryCollateWasChangedTest",
+            __.createSchemaProperty("csp", PropertyType.STRING).collateAttr(DefaultCollate.NAME),
+            __.createSchemaProperty("cip", PropertyType.STRING)
+        ).createClassIndex("collateCompositeIndexCollateWasChanged", IndexType.NOT_UNIQUE, "csp",
+            "cip")
+    );
 
     for (var i = 0; i < 10; i++) {
       session.begin();
@@ -291,8 +283,11 @@ public class CollateTest extends BaseDBTest {
       }
     });
 
-    csp = clazz.getProperty("csp");
-    csp.setCollate(CaseInsensitiveCollate.NAME);
+    graph.autoExecuteInTx(
+        g ->
+            g.schemaClass("CompositeIndexQueryCollateWasChangedTest").schemaClassProperty("csp")
+                .collateAttr(CaseInsensitiveCollate.NAME)
+    );
 
     session.executeInTx(transaction -> {
       //noinspection deprecation
@@ -307,12 +302,13 @@ public class CollateTest extends BaseDBTest {
   }
 
   public void collateThroughSQL() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("collateTestViaSQL");
-
-    clazz.createProperty("csp", PropertyType.STRING);
-    var cipProperty = clazz.createProperty("cip", PropertyType.STRING);
-    cipProperty.setCollate(CaseInsensitiveCollate.NAME);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("collateTestViaSQL",
+            __.createSchemaProperty("csp", PropertyType.STRING),
+            __.createSchemaProperty("cip", PropertyType.STRING)
+                .collateAttr(CaseInsensitiveCollate.NAME)
+        )
+    );
 
     session.command(
         "create index collateTestViaSQL on collateTestViaSQL (cip) NOTUNIQUE");

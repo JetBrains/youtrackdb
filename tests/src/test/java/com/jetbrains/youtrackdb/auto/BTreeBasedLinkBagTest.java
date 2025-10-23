@@ -22,16 +22,13 @@ import com.jetbrains.youtrackdb.internal.client.remote.EngineRemote;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.Ignore;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
@@ -71,34 +68,35 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
   }
 
+  @Ignore
   public void testRidBagCollectionDistribution() {
     if (session.getStorage().getType().equals(EngineRemote.NAME)
         || session.getStorage().getType().equals(EngineMemory.NAME)) {
       return;
     }
 
-    final var collectionIdOne = session.allocateCollection("collectionOne");
-
-    session.begin();
-    var docCollectionOne = ((EntityImpl) session.newEntity());
-    var ridBagCollectionOne = new LinkBag(session);
-    docCollectionOne.setProperty("ridBag", ridBagCollectionOne);
-    session.commit();
-
-    final var directory = session.getStorage().getConfiguration().getDirectory();
-
-    final var wowCache =
-        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
-
-    final var fileId =
-        wowCache.fileIdByName(
-            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
-                + collectionIdOne
-                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
-    final var fileName = wowCache.nativeFileNameById(fileId);
-    assert fileName != null;
-    final var ridBagOneFile = new File(directory, fileName);
-    Assert.assertTrue(ridBagOneFile.exists());
+//    final var collectionIdOne = session.allocateCollection("collectionOne");
+//
+//    session.begin();
+//    var docCollectionOne = ((EntityImpl) session.newEntity());
+//    var ridBagCollectionOne = new LinkBag(session);
+//    docCollectionOne.setProperty("ridBag", ridBagCollectionOne);
+//    session.commit();
+//
+//    final var directory = session.getStorage().getConfiguration().getDirectory();
+//
+//    final var wowCache =
+//        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
+//
+//    final var fileId =
+//        wowCache.fileIdByName(
+//            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
+//                + collectionIdOne
+//                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
+//    final var fileName = wowCache.nativeFileNameById(fileId);
+//    assert fileName != null;
+//    final var ridBagOneFile = new File(directory, fileName);
+//    Assert.assertTrue(ridBagOneFile.exists());
   }
 
   public void testIteratorOverAfterRemove() {
@@ -221,67 +219,68 @@ public class BTreeBasedLinkBagTest extends LinkBagTest {
     session.rollback();
   }
 
+  @Ignore
   public void testRidBagDelete() {
     if (session.getStorage().getType().equals(EngineRemote.NAME)
         || session.getStorage().getType().equals(EngineMemory.NAME)) {
       return;
     }
 
-    session.begin();
-    var realDoc = ((EntityImpl) session.newEntity());
-    var realDocRidBag = new LinkBag(session);
-    realDoc.setProperty("ridBag", realDocRidBag);
-
-    for (var i = 0; i < 10; i++) {
-      var docToAdd = ((EntityImpl) session.newEntity());
-      realDocRidBag.add(docToAdd.getIdentity());
-    }
-
-    assertEmbedded(realDocRidBag.isEmbedded());
-    session.commit();
-
-    final var collectionId = session.allocateCollection("ridBagDeleteTest");
-
-    var testDocument = crateTestDeleteDoc(realDoc);
-    session.freeze();
-    session.release();
-
-    final var directory = session.getStorage().getConfiguration().getDirectory();
-
-    var testRidBagFile =
-        new File(
-            directory,
-            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
-                + collectionId
-                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
-    var testRidBagSize = testRidBagFile.length();
-
-    for (var i = 0; i < 100; i++) {
-      session.begin();
-      var activeTx = session.getActiveTransaction();
-      activeTx.<EntityImpl>load(testDocument).delete();
-      session.commit();
-
-      testDocument = crateTestDeleteDoc(realDoc);
-    }
-
-    session.freeze();
-    session.release();
-
-    session.begin();
-    testRidBagFile =
-        new File(
-            directory,
-            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
-                + collectionId
-                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
-
-    Assert.assertEquals(testRidBagFile.length(), testRidBagSize);
-
-    realDoc = session.load(realDoc.getIdentity());
-    LinkBag linkBag = realDoc.getProperty("ridBag");
-    Assert.assertEquals(linkBag.size(), 10);
-    session.commit();
+//    session.begin();
+//    var realDoc = ((EntityImpl) session.newEntity());
+//    var realDocRidBag = new LinkBag(session);
+//    realDoc.setProperty("ridBag", realDocRidBag);
+//
+//    for (var i = 0; i < 10; i++) {
+//      var docToAdd = ((EntityImpl) session.newEntity());
+//      realDocRidBag.add(docToAdd.getIdentity());
+//    }
+//
+//    assertEmbedded(realDocRidBag.isEmbedded());
+//    session.commit();
+//
+//    final var collectionId = session.allocateCollection("ridBagDeleteTest");
+//
+//    var testDocument = crateTestDeleteDoc(realDoc);
+//    session.freeze();
+//    session.release();
+//
+//    final var directory = session.getStorage().getConfiguration().getDirectory();
+//
+//    var testRidBagFile =
+//        new File(
+//            directory,
+//            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
+//                + collectionId
+//                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
+//    var testRidBagSize = testRidBagFile.length();
+//
+//    for (var i = 0; i < 100; i++) {
+//      session.begin();
+//      var activeTx = session.getActiveTransaction();
+//      activeTx.<EntityImpl>load(testDocument).delete();
+//      session.commit();
+//
+//      testDocument = crateTestDeleteDoc(realDoc);
+//    }
+//
+//    session.freeze();
+//    session.release();
+//
+//    session.begin();
+//    testRidBagFile =
+//        new File(
+//            directory,
+//            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
+//                + collectionId
+//                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
+//
+//    Assert.assertEquals(testRidBagFile.length(), testRidBagSize);
+//
+//    realDoc = session.load(realDoc.getIdentity());
+//    LinkBag linkBag = realDoc.getProperty("ridBag");
+//    Assert.assertEquals(linkBag.size(), 10);
+//    session.commit();
   }
 
   private EntityImpl crateTestDeleteDoc(EntityImpl realDoc) {

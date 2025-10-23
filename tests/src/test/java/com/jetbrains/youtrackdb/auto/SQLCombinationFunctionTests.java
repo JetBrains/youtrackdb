@@ -4,6 +4,7 @@ import static org.testng.Assert.assertEquals;
 
 import com.google.common.collect.Sets;
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -33,6 +34,7 @@ import org.testng.annotations.Test;
  */
 @Test
 public class SQLCombinationFunctionTests extends BaseDBTest {
+
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
@@ -356,9 +358,9 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
       final var query =
           "SELECT FROM $var3 LET "
-          + "$var1 = :someNumbers1, "
-          + "$var2 = :someNumbers2, "
-          + "$var3 = " + fDef.name + "($var1, $var2)";
+              + "$var1 = :someNumbers1, "
+              + "$var2 = :someNumbers2, "
+              + "$var3 = " + fDef.name + "($var1, $var2)";
 
       var result =
           tx.query(query, Map.of("someNumbers1", randomNumbers1, "someNumbers2", randomNumbers2))
@@ -371,10 +373,10 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
       assertEquals(
           result, expected,
           "Order was not preserved for " + fDef.name + " function. "
-          + "list1: " + randomNumbers1 + ",\n"
-          + "list2: " + randomNumbers2 + ",\n"
-          + "result: " + result + ",\n"
-          + "expected: " + expected
+              + "list1: " + randomNumbers1 + ",\n"
+              + "list2: " + randomNumbers2 + ",\n"
+              + "result: " + result + ",\n"
+              + "expected: " + expected
       );
     });
   }
@@ -386,8 +388,8 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
       final var query =
           "SELECT FROM $var2 LET "
-          + "$var1 = :someNumbers, "
-          + "$var2 = " + fDef.name + "($var1);";
+              + "$var1 = :someNumbers, "
+              + "$var2 = " + fDef.name + "($var1);";
 
       final var result =
           tx.query(query, Map.of("someNumbers", randomNumbers))
@@ -426,8 +428,8 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
 
         final var query =
             "SELECT expand(" + fDef.name + "($var1, $var2)) LET\n" +
-            "$var1 = (" + subQuery1 + "),\n" +
-            "$var2 = (" + subQuery2 + ");";
+                "$var1 = (" + subQuery1 + "),\n" +
+                "$var2 = (" + subQuery2 + ");";
 
         final var result =
             tx.query(query, Map.of("rids1", rids1, "rids2", rids2)).toList();
@@ -451,10 +453,12 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
   }
 
   private void generateGraphRandomData() {
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("GraphVehicle_CF").createSchemaClass("GraphCar_CF")
+            .addParentClass("GraphVehicle_CF").createSchemaClass("GraphMotocycle_CF")
+            .addParentClass("GraphVehicle_CF")
+    );
 
-    var vehicleClass = session.createVertexClass("GraphVehicle_CF");
-    session.createClass("GraphCar_CF", vehicleClass.getName());
-    session.createClass("GraphMotocycle_CF", "GraphVehicle_CF");
     final var r = new Random();
 
     final var carsNo = r.nextInt(2, 32);
@@ -529,16 +533,19 @@ public class SQLCombinationFunctionTests extends BaseDBTest {
     session.commit();
   }
 
+  @SuppressWarnings("unchecked")
   private void generateGeoData() {
-    var countryClass = session.createClass("CountryExt");
-    countryClass.createProperty("name", PropertyType.STRING);
-    countryClass.createProperty("continent", PropertyType.STRING);
-    countryClass.createProperty("languages", PropertyType.EMBEDDEDLIST,
-        PropertyType.STRING);
-
-    var cls = session.createClass("CityExt");
-    cls.createProperty("name", PropertyType.STRING);
-    cls.createProperty("country", PropertyType.LINK, countryClass);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("CountryExt",
+            __.createSchemaProperty("name", PropertyType.STRING),
+            __.createSchemaProperty("continent", PropertyType.STRING),
+            __.createSchemaProperty("languages", PropertyType.EMBEDDEDLIST,
+                PropertyType.STRING)
+        ).createSchemaClass("CityExt",
+            __.createSchemaProperty("name", PropertyType.STRING),
+            __.createSchemaProperty("country", PropertyType.LINK, "CountryExt")
+        )
+    );
 
     session.begin();
 

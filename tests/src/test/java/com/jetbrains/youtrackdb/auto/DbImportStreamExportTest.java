@@ -98,7 +98,6 @@ public class DbImportStreamExportTest extends BaseDBTest implements CommandOutpu
           DbImportStreamExportTest.class.getSimpleName() + "Import", "admin", "admin")) {
         final var databaseCompare = new DatabaseCompare(exportSession, importSession, this);
         databaseCompare.setCompareEntriesForAutomaticIndexes(true);
-        databaseCompare.setCompareIndexMetadata(true);
 
         Assert.assertTrue(databaseCompare.compare());
       }

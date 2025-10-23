@@ -2,14 +2,14 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.testng.Assert;
 import org.testng.SkipException;
 import org.testng.annotations.Test;
@@ -40,9 +40,9 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     session.commit();
 
     Set<Identifiable> resultOne = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultOne);
+    iteratorToSet(iterator, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
 
     session.begin();
@@ -51,15 +51,15 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     verifyTxIndexPut(Map.of(3, Set.of(doc3.getIdentity())));
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2, 3), true);
-    streamToSet(stream, resultTwo);
+    iterator = index.entries(session, Arrays.asList(1, 2, 3), true);
+    iteratorToSet(iterator, resultTwo);
     Assert.assertEquals(resultTwo.size(), 3);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultThree);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultThree);
     Assert.assertEquals(resultThree.size(), 2);
   }
 
@@ -81,33 +81,33 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
     Set<Identifiable> resultOne = new HashSet<>();
-    streamToSet(stream, resultOne);
+    iteratorToSet(iterator, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
 
     session.begin();
 
     try (var rids = index.getRids(session, 1)) {
-      rids.map(rid -> {
+      YTDBIteratorUtils.forEachRemaining(YTDBIteratorUtils.map(rids, rid -> {
         var transaction = session.getActiveTransaction();
         return transaction.load(rid);
-      }).forEach(record -> ((EntityImpl) record).delete());
+      }), record -> ((EntityImpl) record).delete());
     }
 
     verifyTxIndexRemove(Map.of(1, Set.of(doc1.getIdentity())));
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
     Set<Identifiable> resultTwo = new HashSet<>();
-    streamToSet(stream, resultTwo);
+    iteratorToSet(iterator, resultTwo);
     Assert.assertEquals(resultTwo.size(), 1);
 
     session.rollback();
 
     Set<Identifiable> resultThree = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultThree);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultThree);
     Assert.assertEquals(resultThree.size(), 2);
   }
 
@@ -130,19 +130,19 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     session.commit();
 
     Set<Identifiable> resultOne = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultOne);
+    iteratorToSet(iterator, resultOne);
     Assert.assertEquals(resultOne.size(), 2);
 
     session.begin();
 
-    try (var ridStream = index.getRids(session, 1)) {
-      ridStream.map(rid -> {
+    try (var rids = index.getRids(session, 1)) {
+      YTDBIteratorUtils.forEachRemaining(
+          YTDBIteratorUtils.map(rids, rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
-          })
-          .forEach(record -> ((EntityImpl) record).delete());
+          }), record -> ((EntityImpl) record).delete());
     }
     var doc3 = newDoc(1);
 
@@ -152,8 +152,8 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     );
 
     Set<Identifiable> resultTwo = new HashSet<>();
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, resultTwo);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, resultTwo);
     Assert.assertEquals(resultTwo.size(), 2);
 
     session.rollback();
@@ -179,16 +179,16 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     ));
 
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 2);
   }
 
@@ -209,9 +209,9 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     ));
 
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
 
     Assert.assertEquals(result.size(), 2);
     session.commit();
@@ -221,8 +221,8 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2, 3), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2, 3), true);
+    iteratorToSet(iterator, result);
 
     Assert.assertEquals(result.size(), 3);
   }
@@ -243,27 +243,27 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
         2, Set.of(doc2.getIdentity())
     ));
 
-    try (var ridStream = index.getRids(session, 1)) {
-      ridStream.map(rid -> {
+    try (var rids = index.getRids(session, 1)) {
+      YTDBIteratorUtils.forEachRemaining(YTDBIteratorUtils.map(rids,
+          rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
-          })
-          .forEach(record -> ((EntityImpl) record).delete());
+          }), record -> ((EntityImpl) record).delete());
     }
 
     verifyTxIndexPut(Map.of(
         2, Set.of(doc2.getIdentity())
     ));
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 1);
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 1);
   }
 
@@ -283,27 +283,27 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
         2, Set.of(doc2.getIdentity())
     ));
 
-    try (var ridStream = index.getRids(session, 1)) {
-      ridStream.map(rid -> {
+    try (var rids = index.getRids(session, 1)) {
+      YTDBIteratorUtils.forEachRemaining(YTDBIteratorUtils.map(rids,
+          rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
-          })
-          .forEach(record -> ((EntityImpl) record).delete());
+          }), record -> ((EntityImpl) record).delete());
     }
 
     verifyTxIndexPut(Map.of(
         2, Set.of(doc2.getIdentity())
     ));
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 1);
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 1);
   }
 
@@ -323,12 +323,13 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
         2, Set.of(doc2.getIdentity())
     ));
 
-    try (var ridStream = index.getRids(session, 1)) {
-      ridStream.map(rid -> {
-            var transaction = session.getActiveTransaction();
-            return transaction.load(rid);
-          })
-          .forEach(record -> ((EntityImpl) record).delete());
+    try (var rids = index.getRids(session, 1)) {
+      YTDBIteratorUtils.forEachRemaining(YTDBIteratorUtils.map(rids,
+              rid -> {
+                var transaction = session.getActiveTransaction();
+                return transaction.load(rid);
+              })
+          , record -> ((EntityImpl) record).delete());
     }
     var doc3 = newDoc(1);
     verifyTxIndexPut(Map.of(
@@ -337,22 +338,22 @@ public class IndexTxAwareOneValueGetValuesTest extends IndexTxAwareBaseTest {
     ));
 
     Set<Identifiable> result = new HashSet<>();
-    var stream =
+    var iterator =
         index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iteratorToSet(iterator, result);
 
     Assert.assertEquals(result.size(), 2);
 
     session.commit();
 
-    stream = index.entries(session, Arrays.asList(1, 2), true);
-    streamToSet(stream, result);
+    iterator = index.entries(session, Arrays.asList(1, 2), true);
+    iteratorToSet(iterator, result);
     Assert.assertEquals(result.size(), 2);
   }
 
-  private static void streamToSet(
-      Stream<RawPair<Object, RID>> stream, Set<Identifiable> result) {
+  private static void iteratorToSet(
+      Iterator<RawPair<Object, RID>> iterator, Set<Identifiable> result) {
     result.clear();
-    result.addAll(stream.map((entry) -> entry.second()).collect(Collectors.toSet()));
+    result.addAll(YTDBIteratorUtils.set(YTDBIteratorUtils.map(iterator, RawPair::second)));
   }
 }

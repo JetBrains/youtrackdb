@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import java.util.Map;
 import org.testng.Assert;
 
 /**
@@ -13,20 +13,14 @@ import org.testng.Assert;
 public class CompositeIndexWithNullTest extends BaseDBTest {
 
   public void testPointQuery() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass(
-        "compositeIndexNullPointQueryClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "compositeIndexNullPointQueryIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("compositeIndexNullPointQueryClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullPointQueryIndex",
+            YTDBSchemaIndex.IndexType.NOT_UNIQUE, "prop1", "prop2", "prop3")
+    );
 
     for (var i = 0; i < 20; i++) {
       session.begin();
@@ -67,17 +61,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
   public void testPointQueryInTx() {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("compositeIndexNullPointQueryInTxClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-    clazz.createIndex(
-        "compositeIndexNullPointQueryInTxIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(g -> g.createSchemaClass("compositeIndexNullPointQueryInTxClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullPointQueryInTxIndex",
+            YTDBSchemaIndex.IndexType.NOT_UNIQUE, "prop1", "prop2", "prop3")
+    );
 
     session.begin();
 
@@ -120,19 +110,14 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryInMiddleTx() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("compositeIndexNullPointQueryInMiddleTxClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "compositeIndexNullPointQueryInMiddleTxIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("compositeIndexNullPointQueryInMiddleTxClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullPointQueryInMiddleTxIndex",
+            YTDBSchemaIndex.IndexType.NOT_UNIQUE, "prop1", "prop2", "prop3")
+    );
 
     session.begin();
 
@@ -173,19 +158,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testRangeQuery() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("compositeIndexNullRangeQueryClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "compositeIndexNullRangeQueryIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        metadata,
-        new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(g -> g.createSchemaClass("compositeIndexNullRangeQueryClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullRangeQueryIndex", YTDBSchemaIndex.IndexType.NOT_UNIQUE,
+            "prop1", "prop2", "prop3")
+    );
 
     for (var i = 0; i < 20; i++) {
       session.begin();
@@ -223,19 +202,13 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testRangeQueryInMiddleTx() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("compositeIndexNullRangeQueryInMiddleTxClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "compositeIndexNullRangeQueryInMiddleTxIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        metadata,
-        new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(g -> g.createSchemaClass("compositeIndexNullRangeQueryInMiddleTxClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullRangeQueryInMiddleTxIndex",
+            YTDBSchemaIndex.IndexType.NOT_UNIQUE, "prop1", "prop2", "prop3")
+    );
 
     session.begin();
     for (var i = 0; i < 20; i++) {
@@ -274,19 +247,14 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryNullInTheMiddle() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("compositeIndexNullPointQueryNullInTheMiddleClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "compositeIndexNullPointQueryNullInTheMiddleIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        metadata,
-        new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(
+        g -> g.createSchemaClass("compositeIndexNullPointQueryNullInTheMiddleClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullPointQueryNullInTheMiddleIndex",
+            YTDBSchemaIndex.IndexType.NOT_UNIQUE, "prop1", "prop2", "prop3")
+    );
 
     for (var i = 0; i < 20; i++) {
       session.begin();
@@ -336,22 +304,16 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testPointQueryNullInTheMiddleInMiddleTx() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass(
-        "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-    clazz.createIndex(
-        "compositeIndexNullPointQueryNullInTheMiddleInMiddleTxIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        metadata,
-        new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(
+        g -> g.createSchemaClass("compositeIndexNullPointQueryNullInTheMiddleInMiddleTxClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullPointQueryNullInTheMiddleInMiddleTxIndex",
+            YTDBSchemaIndex.IndexType.NOT_UNIQUE, "prop1", "prop2", "prop3")
+    );
 
     session.begin();
-
     for (var i = 0; i < 20; i++) {
       var document =
           ((EntityImpl) session.newEntity(
@@ -397,19 +359,14 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
   }
 
   public void testRangeQueryNullInTheMiddle() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass("compositeIndexNullRangeQueryNullInTheMiddleClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-
-    clazz.createIndex(
-        "compositeIndexNullRangeQueryNullInTheMiddleIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(
+        g -> g.createSchemaClass("compositeIndexNullRangeQueryNullInTheMiddleClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullRangeQueryNullInTheMiddleIndex",
+            YTDBSchemaIndex.IndexType.NOT_UNIQUE, "prop1", "prop2", "prop3")
+    );
 
     for (var i = 0; i < 20; i++) {
       session.begin();
@@ -440,19 +397,14 @@ public class CompositeIndexWithNullTest extends BaseDBTest {
 
   public void testRangeQueryNullInTheMiddleInMiddleTx() {
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    var clazz = schema.createClass(
-        "compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxClass");
-    clazz.createProperty("prop1", PropertyType.INTEGER);
-    clazz.createProperty("prop2", PropertyType.INTEGER);
-    clazz.createProperty("prop3", PropertyType.INTEGER);
-
-    var metadata = Map.<String, Object>of("ignoreNullValues", false);
-    clazz.createIndex(
-        "compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxIndex",
-        IndexType.NOT_UNIQUE.toString(),
-        null,
-        metadata, new String[]{"prop1", "prop2", "prop3"});
+    graph.autoExecuteInTx(
+        g -> g.createSchemaClass("compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxClass",
+            __.createSchemaProperty("prop1", PropertyType.INTEGER),
+            __.createSchemaProperty("prop2", PropertyType.INTEGER),
+            __.createSchemaProperty("prop3", PropertyType.INTEGER)
+        ).createClassIndex("compositeIndexNullRangeQueryNullInTheMiddleInMiddleTxIndex",
+            YTDBSchemaIndex.IndexType.NOT_UNIQUE, "prop1", "prop2", "prop3")
+    );
 
     for (var i = 0; i < 20; i++) {
       session.begin();

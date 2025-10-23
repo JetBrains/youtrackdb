@@ -17,10 +17,10 @@ package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Vertex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.util.Collection;
@@ -31,6 +31,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class GraphDatabaseTest extends BaseDBTest {
+
   @Test
   public void populate() {
     generateGraphData();
@@ -38,7 +39,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "populate")
   public void testSQLAgainstGraph() {
-    session.createEdgeClass("drives");
+    graph.autoExecuteInTx(g -> g.createStateFullEdgeClass("drives"));
 
     session.begin();
     var tom = session.newVertex();
@@ -78,15 +79,11 @@ public class GraphDatabaseTest extends BaseDBTest {
   }
 
   public void testNotDuplicatedIndexTxChanges() throws IOException {
-    var oc = session.createVertexClass("vertexA");
-    if (oc == null) {
-      oc = session.createVertexClass("vertexA");
-    }
-
-    if (!oc.existsProperty("name")) {
-      oc.createProperty("name", PropertyType.STRING);
-      oc.createIndex("vertexA_name_idx", IndexType.UNIQUE, "name");
-    }
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("vertexA").
+            createSchemaProperty("name", PropertyType.STRING)
+            .createPropertyIndex("vertexA_name_idx", IndexType.UNIQUE)
+    );
 
     session.begin();
     var vertexA = session.newVertex("vertexA");
@@ -182,7 +179,7 @@ public class GraphDatabaseTest extends BaseDBTest {
 
   @SuppressWarnings("unchecked")
   public void nestedQuery() {
-    session.createEdgeClass("owns");
+    graph.autoExecuteInTx(g -> g.createStateFullEdgeClass("owns"));
     session.begin();
 
     var countryVertex1 = session.newVertex();
@@ -255,8 +252,9 @@ public class GraphDatabaseTest extends BaseDBTest {
   }
 
   public void testEmbeddedDoc() {
-    session.createAbstractClass("Vertex", "V");
-    session.createAbstractClass("NonVertex");
+    graph.autoExecuteInTx(
+        g -> g.createAbstractSchemaClass("Vertex", "V").createAbstractSchemaClass("NonVertex")
+    );
 
     session.begin();
     var vertex = session.newVertex();

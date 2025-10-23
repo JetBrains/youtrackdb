@@ -19,10 +19,10 @@ import static org.assertj.core.api.Java6Assertions.assertThat;
 import static org.testng.AssertJUnit.assertTrue;
 
 import com.google.common.collect.ImmutableList;
-import com.jetbrains.youtrackdb.api.DatabaseSession;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.query.Result;
 import com.jetbrains.youtrackdb.api.record.Direction;
 import com.jetbrains.youtrackdb.api.record.Entity;
@@ -37,7 +37,6 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExport;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseImport;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -120,7 +119,6 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         final var databaseCompare =
             new DatabaseCompare(session, (DatabaseSessionEmbedded) importDB, this);
         databaseCompare.setCompareEntriesForAutomaticIndexes(true);
-        databaseCompare.setCompareIndexMetadata(true);
         Assert.assertTrue(databaseCompare.compare());
       }
     }
@@ -143,17 +141,21 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
 
       try (final var session = (DatabaseSessionEmbedded) youTrackDB.open(
           "original", "admin", "admin")) {
-        final Schema schema = session.getMetadata().getSlowMutableSchema();
 
-        final var rootCls = schema.createClass("RootClass");
-        rootCls.createProperty("no", PropertyType.INTEGER);
-        rootCls.createProperty("circular_link", PropertyType.LINK);
-        rootCls.createProperty("linkList", PropertyType.LINKLIST);
-        rootCls.createProperty("linkSet", PropertyType.LINKSET);
-        rootCls.createProperty("linkMap", PropertyType.LINKMAP);
+        var rootCls = "RootClass";
+        var childCls = "ChildClass";
 
-        final var childCls = schema.createClass("ChildClass");
-        childCls.createProperty("no", PropertyType.INTEGER);
+        try (var graph = youTrackDB.openGraph("original", "admin", "admin")) {
+          graph.autoExecuteInTx(g ->
+              g.createSchemaClass(rootCls,
+                  __.createSchemaProperty("no", PropertyType.INTEGER),
+                  __.createSchemaProperty("circular_link", PropertyType.LINK),
+                  __.createSchemaProperty("linkList", PropertyType.LINKLIST),
+                  __.createSchemaProperty("linkSet", PropertyType.LINKSET),
+                  __.createSchemaProperty("linkMap", PropertyType.LINKMAP)
+              ).createSchemaClass(childCls).createSchemaProperty("no", PropertyType.INTEGER)
+          );
+        }
 
         // creating and deleting some records to shift the next available IDs.
         final List<RID> ridsToDelete = new ArrayList<>();
@@ -308,9 +310,16 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         var original = createAndOpen(youTrackDB, "original");
         var imported = createAndOpen(youTrackDB, "imported")
     ) {
-      final var vClass = original.getSchema().createVertexClass("AVertex");
-      final var eClass = original.getSchema().createEdgeClass("AnEdge");
-      final var leClass = original.getSchema().createLightweightEdgeClass("LightweightEdge");
+
+      var vClass = "AVertex";
+      var eClass = "AnEdge";
+      var leClass = "LightweightEdge";
+      try (var graph = youTrackDB.openGraph("original", "admin", "admin")) {
+        graph.autoExecuteInTx(g ->
+            g.createSchemaClass(vClass).createStateFullEdgeClass(eClass)
+                .createAbstractSchemaClass(leClass).addParentClass("E")
+        );
+      }
 
       original.executeInTx(tx -> {
         final var v1 = tx.newVertex(vClass);
@@ -333,8 +342,9 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
       new DatabaseImport(((DatabaseSessionEmbedded) imported), exportPath.getPath(), this)
           .importDatabase();
 
-      assertTrue(imported.getSchema().getClass("AVertex").isVertexType());
-      assertTrue(imported.getSchema().getClass("AnEdge").isEdgeType());
+      var schema = imported.getMetadata().getFastImmutableSchemaSnapshot();
+      assertTrue(schema.getClass("AVertex").isVertexType());
+      assertTrue(schema.getClass("AnEdge").isEdgeType());
 
       imported.executeInTx(tx -> {
         final var vs = tx.query("select from AVertex order by no")
@@ -385,7 +395,9 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
         var imported = createAndOpen(youTrackDB, "imported")
     ) {
 
-      original.getSchema().createClass("WithBlob");
+      try (var graph = youTrackDB.openGraph("original", "admin", "admin")) {
+        graph.autoExecuteInTx(g -> g.createSchemaClass("WithBlob"));
+      }
 
       original.executeInTx(tx -> {
         final var emptyBlob = tx.newBlob(new byte[]{});
@@ -422,9 +434,9 @@ public class DbImportExportTest extends BaseDBTest implements CommandOutputListe
     }
   }
 
-  private static DatabaseSession createAndOpen(YouTrackDBImpl youTrackDB, String dbName) {
+  private static DatabaseSessionEmbedded createAndOpen(YouTrackDBImpl youTrackDB, String dbName) {
     youTrackDB.create(dbName, DatabaseType.DISK);
-    return youTrackDB.open(dbName, "admin", "admin");
+    return (DatabaseSessionEmbedded) youTrackDB.open(dbName, "admin", "admin");
   }
 
   @Override

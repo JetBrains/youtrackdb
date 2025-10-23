@@ -17,7 +17,7 @@ public class ChainIndexFetchTest extends DbTestBase {
       var schemaProperty = (YTDBSchemaProperty) g.createSchemaClass("BaseClass").
           createSchemaProperty("ref", PropertyType.LINK).next();
       var linkedClass = (YTDBSchemaClass) g.createSchemaClass("LinkedClass").next();
-      var id = linkedClass.createDeclaredProperty("id", PropertyType.STRING);
+      var id = linkedClass.createSchemaProperty("id", PropertyType.STRING);
       id.createIndex("idIndex", IndexType.UNIQUE);
 
       schemaProperty.linkedClass(linkedClass);

@@ -189,8 +189,8 @@ public class DatabaseCompare extends DatabaseImpExpAbstract {
         }
       }
 
-      if (!clazz.getClassIndexes()
-          .equals(clazz2.getClassIndexes())) {
+      if (!clazz.getClassIndexNames()
+          .equals(clazz2.getClassIndexNames())) {
         listener.onMessage(
             "\n- ERR: Class definition for "
                 + clazz.getName()

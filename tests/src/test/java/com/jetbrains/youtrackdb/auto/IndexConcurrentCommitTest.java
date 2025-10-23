@@ -1,8 +1,9 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.annotations.Test;
 
@@ -10,11 +11,15 @@ import org.testng.annotations.Test;
 public class IndexConcurrentCommitTest extends BaseDBTest {
 
   public void testConcurrentUpdate() {
-    var personClass = session.getMetadata().getSlowMutableSchema().createClass("Person");
-    personClass.createProperty("ssn", PropertyType.STRING)
-        .createIndex(IndexType.UNIQUE);
-    personClass.createProperty("name", PropertyType.STRING)
-        .createIndex(IndexType.NOT_UNIQUE);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("Person",
+            __.createSchemaProperty("ssn", PropertyType.STRING).createPropertyIndex(
+                YTDBSchemaIndex.IndexType.UNIQUE),
+            __.createSchemaProperty("name", PropertyType.STRING).createPropertyIndex(
+                YTDBSchemaIndex.IndexType.NOT_UNIQUE)
+        )
+    );
+
 
     try {
       // Transaction 1

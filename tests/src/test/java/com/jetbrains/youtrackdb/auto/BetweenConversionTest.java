@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -16,17 +16,19 @@ import org.testng.annotations.Test;
  */
 @Test
 public class BetweenConversionTest extends BaseDBTest {
+
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var clazz = schema.createClass("BetweenConversionTest");
-    clazz.createProperty("a", PropertyType.INTEGER);
-    clazz.createProperty("ai", PropertyType.INTEGER);
-
-    clazz.createIndex("BetweenConversionTestIndex", IndexType.NOT_UNIQUE, "ai");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("BetweenConversionTest",
+            __.createSchemaProperty("a", PropertyType.INTEGER),
+            __.createSchemaProperty("ai", PropertyType.INTEGER)
+                .createPropertyIndex("BetweenConversionTestIndex", IndexType.NOT_UNIQUE)
+        )
+    );
 
     for (var i = 0; i < 10; i++) {
 

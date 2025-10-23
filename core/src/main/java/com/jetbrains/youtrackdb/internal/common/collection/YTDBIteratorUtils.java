@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import javax.annotation.Nonnull;
@@ -88,6 +89,15 @@ public final class YTDBIteratorUtils {
         CloseableIterator.closeIterator(iterator);
       }
     };
+  }
+
+  public static <S> void forEachRemaining(final Iterator<S> iterator,
+      final Consumer<? super S> consumer) {
+    while (iterator.hasNext()) {
+      consumer.accept(iterator.next());
+    }
+
+    CloseableIterator.closeIterator(iterator);
   }
 
   public static <S> CloseableIterator<S> filter(final Iterator<S> iterator,

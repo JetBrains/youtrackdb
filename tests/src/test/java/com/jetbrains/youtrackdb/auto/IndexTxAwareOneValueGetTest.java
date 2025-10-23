@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import java.util.Map;
 import java.util.Set;
 import org.testng.Assert;
@@ -31,11 +32,11 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -43,20 +44,20 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
     var doc3 = newDoc(3);
     verifyTxIndexPut(Map.of(3, Set.of(doc3.getIdentity())));
 
-    try (var stream = index.getRids(session, 3)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 3)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.rollback();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = index.getRids(session, 3)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 3)) {
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
@@ -78,11 +79,11 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     final var tx = session.begin();
@@ -92,20 +93,20 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     verifyTxIndexRemove(Map.of(1, Set.of(doc1.getIdentity())));
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.rollback();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
@@ -127,11 +128,11 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -145,11 +146,11 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
         Map.of(1, Set.of(doc1.getIdentity())),
         Map.of(1, Set.of(doc1.getIdentity()))
     );
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.rollback();
@@ -169,13 +170,13 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
     doc1.setProperty(fieldName, 1);
 
     verifyTxIndexPut(Map.of(1, Set.of(doc1.getIdentity())));
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
@@ -189,8 +190,9 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     final var doc1 = newDoc(1);
     verifyTxIndexPut(Map.of(1, Set.of(doc1.getIdentity())));
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
     session.commit();
 
@@ -198,8 +200,8 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
     newDoc(2);
     session.commit();
 
-    try (var stream = index.getRids(session, 2)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
@@ -216,14 +218,14 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     verifyTxIndexChanges(null, null);
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
@@ -241,14 +243,14 @@ public class IndexTxAwareOneValueGetTest extends IndexTxAwareBaseTest {
 
     verifyTxIndexPut(Map.of(1, Set.of(document.getIdentity())));
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.commit();
 
-    try (var stream = index.getRids(session, 1)) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = index.getRids(session, 1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 

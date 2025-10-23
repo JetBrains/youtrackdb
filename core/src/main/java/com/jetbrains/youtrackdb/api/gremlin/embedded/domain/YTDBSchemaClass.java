@@ -121,20 +121,20 @@ public interface YTDBSchemaClass extends YTDBDomainVertex {
   Iterator<YTDBSchemaProperty> schemaProperty(String... name);
 
   @Nonnull
-  YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
+  YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType);
 
   @Nonnull
-  YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
+  YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull YTDBSchemaClass linkedClass);
 
   @Nonnull
-  YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
+  YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull PropertyType linkedType);
 
-  void dropDeclaredProperty(@Nonnull String propertyName);
+  void dropSchemaProperty(@Nonnull String propertyName);
 
   boolean existsSchemaProperty(@Nonnull String propertyName);
 

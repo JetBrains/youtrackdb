@@ -31,7 +31,8 @@ public class DateTest extends BaseDBTest {
   public void testDateConversion() throws ParseException {
     final var begin = System.currentTimeMillis();
 
-    session.createClass("Order");
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Order"));
+
     session.begin();
     var doc1 = ((EntityImpl) session.newEntity("Order"));
     doc1.setProperty("context", "test");

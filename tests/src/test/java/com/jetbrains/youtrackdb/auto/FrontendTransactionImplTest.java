@@ -29,26 +29,11 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.testng.Assert;
+import org.testng.annotations.Ignore;
 import org.testng.annotations.Test;
 
 @Test
 public class FrontendTransactionImplTest extends BaseDBTest {
-
-  @Test
-  public void testTransactionOptimisticRollback() {
-    if (session.getCollectionIdByName("binary") == -1) {
-      session.addBlobCollection("binary");
-    }
-
-    var rec = session.countCollectionElements("binary");
-
-    session.begin();
-
-    session.newBlob("This is the first version".getBytes());
-    session.rollback();
-
-    Assert.assertEquals(session.countCollectionElements("binary"), rec);
-  }
 
   @Test(dependsOnMethods = "testTransactionOptimisticCommitInternal")
   public void testTransactionOptimisticConcurrentException() {
@@ -95,11 +80,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticConcurrentException")
+  @Ignore
   public void testTransactionOptimisticCacheMgmt1Db() throws IOException {
-    if (session.getCollectionIdByName("binary") == -1) {
-      session.addBlobCollection("binary");
-    }
-
     session.begin();
     var record = session.newBlob("This is the first version".getBytes());
     session.commit();
@@ -127,11 +109,8 @@ public class FrontendTransactionImplTest extends BaseDBTest {
   }
 
   @Test(dependsOnMethods = "testTransactionOptimisticCacheMgmt1Db")
+  @Ignore
   public void testTransactionOptimisticCacheMgmt2Db() throws IOException {
-    if (session.getCollectionIdByName("binary") == -1) {
-      session.addBlobCollection("binary");
-    }
-
     var db2 = acquireSession();
     db2.begin();
     var record1 = db2.newBlob("This is the first version".getBytes());

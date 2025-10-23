@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -13,25 +15,22 @@ import org.testng.annotations.Test;
  */
 @Test
 public class ByteArrayKeyTest extends BaseDBTest {
+
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final var byteArrayKeyTest =
-        session.getMetadata().getSlowMutableSchema().createClass("ByteArrayKeyTest");
-    byteArrayKeyTest.createProperty("byteArrayKey", PropertyType.BINARY);
-
-    byteArrayKeyTest.createIndex("byteArrayKeyIndex", IndexType.UNIQUE,
-        "byteArrayKey");
-
-    final var compositeByteArrayKeyTest =
-        session.getMetadata().getSlowMutableSchema().createClass("CompositeByteArrayKeyTest");
-    compositeByteArrayKeyTest.createProperty("byteArrayKey", PropertyType.BINARY);
-    compositeByteArrayKeyTest.createProperty("intKey", PropertyType.INTEGER);
-
-    compositeByteArrayKeyTest.createIndex(
-        "compositeByteArrayKey", IndexType.UNIQUE, "byteArrayKey", "intKey");
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("ByteArrayKeyTest").
+            createSchemaProperty("byteArrayKey", PropertyType.BINARY).
+            createPropertyIndex("byteArrayKeyIndex", IndexType.UNIQUE).
+            createSchemaClass("CompositeByteArrayKeyTest",
+                __.createSchemaProperty("byteArrayKey", PropertyType.BINARY),
+                __.createSchemaProperty("intKey", PropertyType.INTEGER)
+            ).createClassIndex("compositeByteArrayKey", IndexType.UNIQUE, "byteArrayKey", "intKey")
+    );
   }
 
   public void testAutomaticUsage() {
@@ -60,20 +59,20 @@ public class ByteArrayKeyTest extends BaseDBTest {
 
     session.begin();
     var index =
-        session.getSharedContext().getIndexManager().getIndex("byteArrayKeyIndex");
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndex("byteArrayKeyIndex");
     final var tx = session.getActiveTransaction();
-    try (var stream = index.getRids(session, key1)) {
+    try (var iterator = index.getRids(session, key1)) {
       Assert.assertEquals(
-          stream.findAny().map(rid -> {
+          YTDBIteratorUtils.findFirst(iterator).map(rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
           }).orElse(null),
           tx.load(doc1)
       );
     }
-    try (var stream = index.getRids(session, key2)) {
+    try (var iterator = index.getRids(session, key2)) {
       Assert.assertEquals(
-          stream.findAny().map(rid -> {
+          YTDBIteratorUtils.findFirst(iterator).map(rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
           }).orElse(null),
@@ -102,22 +101,22 @@ public class ByteArrayKeyTest extends BaseDBTest {
     session.begin();
     var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("compositeByteArrayKey");
     final var tx = session.getActiveTransaction();
-    try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
+    try (var iterator = index.getRids(session, new CompositeKey(key1, 1))) {
       Assert.assertEquals(
-          stream.findAny().map(rid -> {
+          YTDBIteratorUtils.findFirst(iterator).map(rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
           }).orElse(null),
           tx.load(doc1)
       );
     }
-    try (var stream = index.getRids(session, new CompositeKey(key2, 2))) {
+    try (var iterator = index.getRids(session, new CompositeKey(key2, 2))) {
       Assert.assertEquals(
-          stream.findAny().map(rid -> {
+          YTDBIteratorUtils.findFirst(iterator).map(rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
           }).orElse(null),
@@ -146,22 +145,22 @@ public class ByteArrayKeyTest extends BaseDBTest {
     session.begin();
     var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("compositeByteArrayKey");
     final var tx = session.getActiveTransaction();
-    try (var stream = index.getRids(session, new CompositeKey(key1, 1))) {
+    try (var iterator = index.getRids(session, new CompositeKey(key1, 1))) {
       Assert.assertEquals(
-          stream.findAny().map(rid -> {
+          YTDBIteratorUtils.findFirst(iterator).map(rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
           }).orElse(null),
           tx.load(doc1)
       );
     }
-    try (var stream = index.getRids(session, new CompositeKey(key2, 2))) {
+    try (var iterator = index.getRids(session, new CompositeKey(key2, 2))) {
       Assert.assertEquals(
-          stream.findAny().map(rid -> {
+          YTDBIteratorUtils.findFirst(iterator).map(rid -> {
             var transaction = session.getActiveTransaction();
             return transaction.load(rid);
           }).orElse(null),
@@ -187,12 +186,12 @@ public class ByteArrayKeyTest extends BaseDBTest {
         };
 
     var autoIndex =
-        session.getSharedContext().getIndexManager().getIndex("byteArrayKeyIndex");
-    try (var stream = autoIndex.getRids(session, key1)) {
-      Assert.assertTrue(stream.findFirst().isPresent());
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndex("byteArrayKeyIndex");
+    try (var iterator = autoIndex.getRids(session, key1)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = autoIndex.getRids(session, key2)) {
-      Assert.assertTrue(stream.findFirst().isPresent());
+    try (var iterator = autoIndex.getRids(session, key2)) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 }

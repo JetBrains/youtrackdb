@@ -130,7 +130,7 @@ public interface ImmutableSchemaClass {
 
   Set<Index> getClassInvolvedIndexes(final Collection<String> properties);
 
-  Collection<Index> getClassIndexesInternal();
+  Collection<Index> getClassIndexes();
 
   @Nullable
   Index getClassIndex(final String name);
@@ -170,14 +170,14 @@ public interface ImmutableSchemaClass {
    * @param properties Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
    */
-  Set<String> getClassIndexes(Collection<String> properties);
+  Set<String> getClassIndexNames(Collection<String> properties);
 
   /**
    * @param properties Field names.
    * @return list of indexes that contain passed in fields names as their first keys.
-   * @see #getClassIndexes(Collection)
+   * @see #getClassIndexNames(Collection)
    */
-  Set<String> getClassIndexes(String... properties);
+  Set<String> getClassIndexNames(String... properties);
 
   /**
    * Indicates whether given fields are contained as first key fields in class indexes. Order of
@@ -199,7 +199,7 @@ public interface ImmutableSchemaClass {
   /**
    * @return All indexes for given class, not the inherited ones.
    */
-  Set<String> getClassIndexes();
+  Set<String> getClassIndexNames();
 
   /**
    * @return All indexes for given class and its super classes.

@@ -1551,7 +1551,7 @@ public class ClassIndexTest extends BaseDBTest {
       })
   public void testGetClassIndexes() {
     var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
-    final var indexes = schema.getClass(testClass).getClassIndexesInternal();
+    final var indexes = schema.getClass(testClass).getClassIndexes();
 
     final Set<IndexDefinition> expectedIndexDefinitions = new HashSet<>();
 

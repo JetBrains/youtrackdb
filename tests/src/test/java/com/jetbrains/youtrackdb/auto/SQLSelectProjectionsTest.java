@@ -31,6 +31,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLSelectProjectionsTest extends BaseDBTest {
+
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
@@ -224,7 +225,8 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   public void queryProjectionContextArray() {
     session.begin();
     var result =
-        executeQuery("select $a[0] as a0, $a as a, @class from GraphCar let $a = outE() where outE().size() > 0");
+        executeQuery(
+            "select $a[0] as a0, $a as a, @class from GraphCar let $a = outE() where outE().size() > 0");
     Assert.assertFalse(result.isEmpty());
 
     for (var r : result) {
@@ -298,8 +300,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   @Test
   public void testSelectExcludeFunction() {
     try {
-      session.createClass("A");
-      session.createClass("B");
+      graph.autoExecuteInTx(g -> g.createSchemaClass("A").createSchemaClass("B"));
 
       session.begin();
       var rootElement = session.newInstance("A");
@@ -339,8 +340,7 @@ public class SQLSelectProjectionsTest extends BaseDBTest {
   @Test
   public void testSimpleExpandExclude() {
     try {
-      session.createClass("A");
-      session.createClass("B");
+      graph.autoExecuteInTx(g -> g.createSchemaClass("A").createSchemaClass("B"));
 
       session.begin();
       var rootElement = session.newInstance("A");

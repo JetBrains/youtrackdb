@@ -438,7 +438,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
 
   @Override
   public Set<String> getInvolvedIndexesNames(Collection<String> properties) {
-    final Set<String> result = new HashSet<>(getClassIndexes(properties));
+    final Set<String> result = new HashSet<>(getClassIndexNames(properties));
 
     for (var superClass : parentClasses) {
       result.addAll(superClass.getInvolvedIndexesNames(properties));
@@ -467,7 +467,7 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Set<String> getClassIndexes(Collection<String> properties) {
+  public Set<String> getClassIndexNames(Collection<String> properties) {
     return getClassInvolvedIndexes(properties).stream().map(Index::getName)
         .collect(HashSet::new, HashSet::add, HashSet::addAll);
   }
@@ -493,8 +493,8 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Set<String> getClassIndexes(String... properties) {
-    return getClassIndexes(Arrays.asList(properties));
+  public Set<String> getClassIndexNames(String... properties) {
+    return getClassIndexNames(Arrays.asList(properties));
   }
 
   @Override
@@ -525,12 +525,12 @@ public class SchemaClassSnapshot implements ImmutableSchemaClass {
   }
 
   @Override
-  public Set<String> getClassIndexes() {
+  public Set<String> getClassIndexNames() {
     return this.indexes.keySet();
   }
 
   @Override
-  public Collection<Index> getClassIndexesInternal() {
+  public Collection<Index> getClassIndexes() {
     return this.indexes.values();
   }
 

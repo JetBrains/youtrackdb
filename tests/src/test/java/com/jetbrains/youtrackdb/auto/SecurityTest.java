@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.SecurityAccessException;
 import com.jetbrains.youtrackdb.api.exception.SecurityException;
 import com.jetbrains.youtrackdb.api.exception.ValidationException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
 import java.util.Date;
@@ -73,7 +74,10 @@ public class SecurityTest extends BaseDBTest {
     session = createSessionInstance("reader", "reader");
 
     try {
-      session.createClassIfNotExist("Profile");
+      graph.autoExecuteInTx(g -> g.schemaClass("Profile").fold().coalesce(
+          __.unfold(),
+          __.createSchemaClass("Profile")
+      ));
 
       session.begin();
       ((EntityImpl) session.newEntity("Profile"))

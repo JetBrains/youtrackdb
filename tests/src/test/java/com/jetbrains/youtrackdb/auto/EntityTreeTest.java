@@ -15,6 +15,7 @@
  */
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
@@ -29,6 +30,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class EntityTreeTest extends BaseDBTest {
+
   @BeforeClass
   public void init() {
     createComplexTestClass();
@@ -443,9 +445,7 @@ public class EntityTreeTest extends BaseDBTest {
   public void testSave() {
     session.begin();
     var parent1 = session.newEntity("RefParent");
-    parent1 = parent1;
     var parent2 = session.newEntity("RefParent");
-    parent2 = parent2;
 
     var child1 = session.newEntity("RefChild");
     parent1.setProperty("children", session.newLinkSet(Set.of(child1)));
@@ -473,47 +473,47 @@ public class EntityTreeTest extends BaseDBTest {
   }
 
   private void createCascadeDeleteClass() {
-    var schema = session.getSchema();
-    if (schema.existsClass("JavaCascadeDeleteTestClass")) {
-      schema.dropClass("JavaCascadeDeleteTestClass");
-    }
-
-    var child = schema.getClass("Child");
-    var clazz = schema.createClass("JavaCascadeDeleteTestClass");
-    clazz.createProperty("simpleClass", PropertyType.LINK,
-        schema.getClass("JavaSimpleTestClass"));
-    clazz.createProperty("binary", PropertyType.LINK);
-    clazz.createProperty("name", PropertyType.STRING);
-    clazz.createProperty("set", PropertyType.LINKSET, child);
-    clazz.createProperty("children", PropertyType.LINKMAP, child);
-    clazz.createProperty("list", PropertyType.LINKLIST, child);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("JavaCascadeDeleteTestClass").drop().fold().
+            createSchemaClass("JavaCascadeDeleteTestClass",
+                __.createSchemaProperty("simpleClass", PropertyType.LINK, "JavaSimpleTestClass"),
+                __.createSchemaProperty("binary", PropertyType.LINK),
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("set", PropertyType.LINKSET, "Child"),
+                __.createSchemaProperty("children", PropertyType.LINKMAP, "Child"),
+                __.createSchemaProperty("list", PropertyType.LINKLIST, "Child")
+            )
+    );
   }
 
   private void createPlanetClasses() {
-    var schema = session.getSchema();
-    var satellite = schema.createClass("Satellite");
-    var planet = schema.createClass("Planet");
-
-    planet.createProperty("name", PropertyType.STRING);
-    planet.createProperty("distanceSun", PropertyType.INTEGER);
-    planet.createProperty("satellites", PropertyType.LINKLIST, satellite);
-    planet.createProperty("satellitesMap", PropertyType.LINKMAP, satellite);
-
-    satellite.createProperty("name", PropertyType.STRING);
-    satellite.createProperty("diameter", PropertyType.LONG);
-    satellite.createProperty("near", PropertyType.LINK, planet);
+    graph.autoExecuteInTx(g -> g.createSchemaClass("Satellite").
+        createSchemaClass("Planet",
+            __.createSchemaProperty("name", PropertyType.STRING),
+            __.createSchemaProperty("distanceSun", PropertyType.INTEGER),
+            __.createSchemaProperty("satellites", PropertyType.LINKLIST, "Satellite"),
+            __.createSchemaProperty("satellitesMap", PropertyType.LINKMAP, "Satellite")
+        ).schemaClass("Satellite").insertSchemaProperties(
+            __.createSchemaProperty("name", PropertyType.STRING),
+            __.createSchemaProperty("diameter", PropertyType.LONG),
+            __.createSchemaProperty("near", PropertyType.LINK, "Planet")
+        )
+    );
   }
 
   private void createRefClasses() {
-    var schema = session.getSchema();
-    var refParent = schema.createClass("RefParent");
-    var refChild = schema.createClass("RefChild");
-    var otherThing = schema.createClass("OtherThing");
 
-    refParent.createProperty("children", PropertyType.LINKSET, refChild);
-    refChild.createProperty("otherThing", PropertyType.LINK, otherThing);
-
-    otherThing.createProperty("relationToParent1", PropertyType.LINK, refParent);
-    otherThing.createProperty("relationToParent2", PropertyType.LINK, refParent);
+    var refParent = "RefParent";
+    var refChild = "RefChild";
+    var otherThing = "OtherThing";
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass(refParent).createSchemaClass(refChild).createSchemaClass(otherThing).
+            schemaClass(refParent).createSchemaProperty("children", PropertyType.LINKSET, refChild).
+            schemaClass(refChild).createSchemaProperty("otherThing", PropertyType.LINK, otherThing).
+            schemaClass(otherThing).insertSchemaProperties(
+                __.createSchemaProperty("relationToParent1", PropertyType.LINK, refParent),
+                __.createSchemaProperty("relationToParent2", PropertyType.LINK, refParent)
+            )
+    );
   }
 }

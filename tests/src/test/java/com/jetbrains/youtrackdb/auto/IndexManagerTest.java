@@ -6,27 +6,23 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 @Test
 public class IndexManagerTest extends BaseDBTest {
+
   private static final String CLASS_NAME = "classForIndexManagerTest";
 
   @Override
@@ -34,328 +30,213 @@ public class IndexManagerTest extends BaseDBTest {
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
+    graph.autoExecuteInTx(
+        g -> g.createSchemaClass(CLASS_NAME,
+            __.createSchemaProperty("fOne", PropertyType.INTEGER),
+            __.createSchemaProperty("fTwo", PropertyType.STRING),
+            __.createSchemaProperty("fThree", PropertyType.BOOLEAN),
+            __.createSchemaProperty("fFour", PropertyType.INTEGER),
 
-    final var oClass = schema.createClass(CLASS_NAME);
-
-    oClass.createProperty("fOne", PropertyType.INTEGER);
-    oClass.createProperty("fTwo", PropertyType.STRING);
-    oClass.createProperty("fThree", PropertyType.BOOLEAN);
-    oClass.createProperty("fFour", PropertyType.INTEGER);
-
-    oClass.createProperty("fSix", PropertyType.STRING);
-    oClass.createProperty("fSeven", PropertyType.STRING);
+            __.createSchemaProperty("fSix", PropertyType.INTEGER),
+            __.createSchemaProperty("fSeven", PropertyType.INTEGER)
+        )
+    );
   }
 
   @Test
   public void testCreateOnePropertyIndexTest() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(CLASS_NAME)
+            .createClassIndex("propertyone", YTDBSchemaIndex.IndexType.UNIQUE, "fOne")
+    );
 
-    final var result =
-        indexManager.createIndex(
-            session,
-            "propertyone",
-            IndexType.UNIQUE.toString(),
-            new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
-            new int[]{session.getCollectionIdByName(CLASS_NAME)},
-            null,
-            null);
-
-    assertEquals(result.getName(), "propertyone");
-
-    indexManager.reload(session);
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     assertEquals(
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getClassIndex(session, CLASS_NAME, "propertyone")
+        schema.getClass(CLASS_NAME)
+            .getClassIndex("propertyone")
             .getName(),
-        result.getName());
+        "propertyone");
   }
 
   @Test
-  public void createCompositeIndexTestWithoutListener() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result =
-        indexManager.createIndex(
-            session,
-            "compositeone",
-            IndexType.NOT_UNIQUE.toString(),
-            new CompositeIndexDefinition(
-                CLASS_NAME,
-                Arrays.asList(
-                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
-                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING))),
-            new int[]{session.getCollectionIdByName(CLASS_NAME)},
-            null,
-            null);
-
-    assertEquals(result.getName(), "compositeone");
+  public void createCompositeIndexTest() {
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(CLASS_NAME)
+            .createClassIndex("compositeone", YTDBSchemaIndex.IndexType.NOT_UNIQUE, "fOne", "fTwo").
+            createClassIndex("compositetwo", YTDBSchemaIndex.IndexType.NOT_UNIQUE, "fTwo", "fOne",
+                "fThree")
+    );
 
     assertEquals(
         session
-            .getSharedContext()
-            .getIndexManager()
-            .getClassIndex(session, CLASS_NAME, "compositeone")
+            .getMetadata().getFastImmutableSchemaSnapshot().getClass(CLASS_NAME)
+            .getClassIndex("compositeone")
             .getName(),
-        result.getName());
-  }
-
-  @Test
-  public void createCompositeIndexTestWithListener() {
-    final var atomicInteger = new AtomicInteger(0);
-    final var progressListener =
-        new ProgressListener() {
-          @Override
-          public void onBegin(final Object iTask, final long iTotal, Object metadata) {
-            atomicInteger.incrementAndGet();
-          }
-
-          @Override
-          public boolean onProgress(final Object iTask, final long iCounter, final float iPercent) {
-            return true;
-          }
-
-          @Override
-          public void onCompletition(DatabaseSessionEmbedded session, final Object iTask,
-              final boolean iSucceed) {
-            atomicInteger.incrementAndGet();
-          }
-        };
-
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    session.executeInTx(transaction -> {
-      transaction.newEntity(CLASS_NAME);
-    });
-
-    final var result =
-        indexManager.createIndex(
-            session,
-            "compositetwo",
-            IndexType.NOT_UNIQUE.toString(),
-            new CompositeIndexDefinition(
-                CLASS_NAME,
-                Arrays.asList(
-                    new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
-                    new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING),
-                    new PropertyIndexDefinition(CLASS_NAME, "fThree",
-                        PropertyTypeInternal.BOOLEAN))),
-            session.getSchema().getClass(CLASS_NAME).getCollectionIds(),
-            progressListener,
-            null);
-
-    assertEquals(result.getName(), "compositetwo");
-    assertEquals(atomicInteger.get(), 2);
-
+        "compositeone");
     assertEquals(
         session
-            .getSharedContext()
-            .getIndexManager()
-            .getClassIndex(session, CLASS_NAME, "compositetwo")
+            .getMetadata().getFastImmutableSchemaSnapshot().getClass(CLASS_NAME)
+            .getClassIndex("compositetwo")
             .getName(),
-        result.getName());
+        "compositetwo");
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedOneProperty() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, List.of("fOne"));
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fOne");
 
     assertTrue(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedDoesNotContainProperty() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, List.of("fSix"));
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fSix");
 
     assertFalse(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedTwoProperties() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, Arrays.asList("fTwo", "fOne"));
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fTwo", "fOne");
 
     assertTrue(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedThreeProperties() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.areIndexed(session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
+        schema.getClass(CLASS_NAME).areIndexed("fTwo", "fOne", "fThree");
 
     assertTrue(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedThreePropertiesBrokenFiledNameCase() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.areIndexed(session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
+        schema.getClass(CLASS_NAME).areIndexed("fTwo", "fOne", "fThree");
 
     assertTrue(result);
   }
 
-  @Test(
-      dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
-          "testCreateOnePropertyIndexTest"
-      })
-  public void testAreIndexedThreePropertiesBrokenClassNameCase() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result =
-        indexManager.areIndexed(
-            session, "ClaSSForIndeXManagerTeST", Arrays.asList("fTwo", "fOne", "fThree"));
-
-    assertTrue(result);
-  }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedPropertiesNotFirst() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, Arrays.asList("fTwo", "fTree"));
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fTwo", "fTree");
 
     assertFalse(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedPropertiesMoreThanNeeded() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
-    final var result =
-        indexManager.areIndexed(session, CLASS_NAME,
-            Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
-
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fTwo", "fOne", "fThee", "fFour");
     assertFalse(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedOnePropertyArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, "fOne");
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fOne");
 
     assertTrue(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedDoesNotContainPropertyArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, "fSix");
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fSix");
 
     assertFalse(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedTwoPropertiesArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, "fTwo", "fOne");
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fTwo", "fOne");
 
     assertTrue(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedThreePropertiesArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, "fTwo", "fOne", "fThree");
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fTwo", "fOne", "fThree");
 
     assertTrue(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedPropertiesNotFirstArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.areIndexed(session, CLASS_NAME, "fTwo", "fTree");
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fTwo", "fTree");
 
     assertFalse(result);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testAreIndexedPropertiesMoreThanNeededArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
-    final var result = indexManager.areIndexed(session, CLASS_NAME, "fTwo", "fOne", "fThee",
+    final var result = schema.getClass(CLASS_NAME).areIndexed("fTwo", "fOne", "fThee",
         "fFour");
 
     assertFalse(result);
@@ -363,14 +244,13 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesOnePropertyArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
-    final var result = indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fOne");
+    final var result = schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fOne");
 
     assertEquals(result.size(), 3);
 
@@ -381,15 +261,14 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesTwoPropertiesArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
     final var result =
-        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fOne");
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fOne");
     assertEquals(result.size(), 2);
 
     assertTrue(containsIndex(result, "compositeone"));
@@ -398,15 +277,13 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesThreePropertiesArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fOne", "fThree");
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fOne", "fThree");
 
     assertEquals(result.size(), 1);
     assertEquals(result.iterator().next().getName(), "compositetwo");
@@ -414,77 +291,63 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesNotInvolvedPropertiesArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, "fTwo", "fFour");
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fFour");
 
     assertEquals(result.size(), 0);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesPropertiesMorThanNeededArrayParams() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result =
-        indexManager.getClassInvolvedIndexes(
-            session, CLASS_NAME, "fTwo", "fOne", "fThee", "fFour");
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    final var result = schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fOne",
+        "fThee", "fFour");
     assertEquals(result.size(), 0);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetInvolvedIndexesPropertiesMorThanNeeded() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.getClassInvolvedIndexes(
-            session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
-
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fOne", "fThee", "fFour");
     assertEquals(result.size(), 0);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesNotExistingClass() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.getClassInvolvedIndexes(session, "testlass", List.of("fOne"));
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fOne");
 
     assertTrue(result.isEmpty());
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesOneProperty() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, List.of("fOne"));
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fOne");
 
     assertEquals(result.size(), 3);
 
@@ -495,15 +358,13 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesOnePropertyBrokenClassNameCase() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.getClassInvolvedIndexes(session, "ClaSSforindeXmanagerTEST", List.of("fOne"));
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fOne");
 
     assertEquals(result.size(), 3);
 
@@ -514,15 +375,14 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesTwoProperties() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
     final var result =
-        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, Arrays.asList("fTwo", "fOne"));
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fOne");
     assertEquals(result.size(), 2);
 
     assertTrue(containsIndex(result, "compositeone"));
@@ -531,16 +391,14 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesThreeProperties() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
     final var result =
-        indexManager.getClassInvolvedIndexes(
-            session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fOne", "fThree");
 
     assertEquals(result.size(), 1);
     assertEquals(result.iterator().next().getName(), "compositetwo");
@@ -548,16 +406,13 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesThreePropertiesBrokenFiledNameTest() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.getClassInvolvedIndexes(
-            session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThree"));
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fOne", "fThree");
 
     assertEquals(result.size(), 1);
     assertEquals(result.iterator().next().getName(), "compositetwo");
@@ -565,156 +420,74 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesNotInvolvedProperties() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
     final var result =
-        indexManager.getClassInvolvedIndexes(session, CLASS_NAME, Arrays.asList("fTwo", "fFour"));
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fFour");
 
     assertEquals(result.size(), 0);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassInvolvedIndexesPropertiesMorThanNeeded() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
     final var result =
-        indexManager.getClassInvolvedIndexes(
-            session, CLASS_NAME, Arrays.asList("fTwo", "fOne", "fThee", "fFour"));
-
+        schema.getClass(CLASS_NAME).getClassInvolvedIndexes("fTwo", "fOne", "fThee", "fFour");
     assertEquals(result.size(), 0);
   }
 
   @Test
   public void testGetClassInvolvedIndexesWithNullValues() {
     var className = "GetClassInvolvedIndexesWithNullValues";
-    final var indexManager = session.getSharedContext().getIndexManager();
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var oClass = schema.createClass(className);
 
-    oClass.createProperty("one", PropertyType.STRING);
-    oClass.createProperty("two", PropertyType.STRING);
-    oClass.createProperty("three", PropertyType.STRING);
+    graph.autoExecuteInTx(g -> g.createSchemaClass(className,
+                __.createSchemaProperty("one", PropertyType.STRING),
+                __.createSchemaProperty("two", PropertyType.STRING),
+                __.createSchemaProperty("three", PropertyType.STRING)
+            ).createClassIndex(className + "_indexOne_notunique", YTDBSchemaIndex.IndexType.NOT_UNIQUE,
+                "one").
+            createClassIndex(className + "_indexOneTwo_notunique", YTDBSchemaIndex.IndexType.NOT_UNIQUE,
+                "one", "two").
+            createClassIndex(className + "_indexOneTwoThree_notunique",
+                YTDBSchemaIndex.IndexType.NOT_UNIQUE, "one", "two", "three")
+    );
 
-    indexManager.createIndex(
-        session,
-        className + "_indexOne_notunique",
-        IndexType.NOT_UNIQUE.toString(),
-        new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
-        oClass.getCollectionIds(),
-        null,
-        null);
-
-    indexManager.createIndex(
-        session,
-        className + "_indexOneTwo_notunique",
-        IndexType.NOT_UNIQUE.toString(),
-        new CompositeIndexDefinition(
-            className,
-            Arrays.asList(
-                new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
-                new PropertyIndexDefinition(className, "two", PropertyTypeInternal.STRING))),
-        oClass.getCollectionIds(),
-        null,
-        null);
-
-    indexManager.createIndex(
-        session,
-        className + "_indexOneTwoThree_notunique",
-        IndexType.NOT_UNIQUE.toString(),
-        new CompositeIndexDefinition(
-            className,
-            Arrays.asList(
-                new PropertyIndexDefinition(className, "one", PropertyTypeInternal.STRING),
-                new PropertyIndexDefinition(className, "two", PropertyTypeInternal.STRING),
-                new PropertyIndexDefinition(className, "three", PropertyTypeInternal.STRING))),
-        oClass.getCollectionIds(),
-        null,
-        null);
-
-    var result = indexManager.getClassInvolvedIndexes(session, className, List.of("one"));
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    var result = schema.getClass(className).getClassInvolvedIndexes("one");
     assertEquals(result.size(), 3);
 
-    result = indexManager.getClassInvolvedIndexes(session, className, Arrays.asList("one", "two"));
+    result = schema.getClass(className).getClassInvolvedIndexes("one", "two");
     assertEquals(result.size(), 2);
 
     result =
-        indexManager.getClassInvolvedIndexes(
-            session, className, Arrays.asList("one", "two", "three"));
+        schema.getClass(className).getClassInvolvedIndexes("one", "two", "three");
     assertEquals(result.size(), 1);
 
-    result = indexManager.getClassInvolvedIndexes(session, className, List.of("two"));
+    result = schema.getClass(className).getClassInvolvedIndexes("two");
     assertEquals(result.size(), 0);
 
     result =
-        indexManager.getClassInvolvedIndexes(
-            session, className, Arrays.asList("two", "one", "three"));
+        schema.getClass(className).getClassInvolvedIndexes("two", "one", "three");
     assertEquals(result.size(), 1);
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndexes() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
-    final var indexes = indexManager.getClassIndexes(session, CLASS_NAME);
-    final Set<IndexDefinition> expectedIndexDefinitions = new HashSet<IndexDefinition>();
-
-    final var compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
-
-    compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
-    compositeIndexOne.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
-    compositeIndexOne.setNullValuesIgnored(false);
-    expectedIndexDefinitions.add(compositeIndexOne);
-
-    final var compositeIndexTwo = new CompositeIndexDefinition(CLASS_NAME);
-
-    compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER));
-    compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fTwo", PropertyTypeInternal.STRING));
-    compositeIndexTwo.addIndex(
-        new PropertyIndexDefinition(CLASS_NAME, "fThree", PropertyTypeInternal.BOOLEAN));
-    compositeIndexTwo.setNullValuesIgnored(false);
-    expectedIndexDefinitions.add(compositeIndexTwo);
-
-    final var propertyIndex =
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER);
-    propertyIndex.setNullValuesIgnored(false);
-    expectedIndexDefinitions.add(propertyIndex);
-
-    assertEquals(indexes.size(), 3);
-
-    for (final var index : indexes) {
-      assertTrue(expectedIndexDefinitions.contains(index.getDefinition()));
-    }
-  }
-
-  @Test(
-      dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
-          "testCreateOnePropertyIndexTest"
-      })
-  public void testGetClassIndexesBrokenClassNameCase() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var indexes = indexManager.getClassIndexes(session, "ClassforindeXMaNAgerTeST");
+    final var indexes = schema.getClass(CLASS_NAME).getClassIndexes();
     final Set<IndexDefinition> expectedIndexDefinitions = new HashSet<IndexDefinition>();
 
     final var compositeIndexOne = new CompositeIndexDefinition(CLASS_NAME);
@@ -751,114 +524,85 @@ public class IndexManagerTest extends BaseDBTest {
 
   @Test
   public void testDropIndex() throws Exception {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    graph.autoExecuteInTx(g ->
+        g.schemaClass(CLASS_NAME)
+            .createClassIndex("anotherproperty", YTDBSchemaIndex.IndexType.UNIQUE, "fOne")
+    );
 
-    indexManager.createIndex(
-        session,
-        "anotherproperty",
-        IndexType.UNIQUE.toString(),
-        new PropertyIndexDefinition(CLASS_NAME, "fOne", PropertyTypeInternal.INTEGER),
-        new int[]{session.getCollectionIdByName(CLASS_NAME)},
-        null,
-        null);
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    assertNotNull(schema.getIndex("anotherproperty"));
+    assertNotNull(schema.getClass(CLASS_NAME).getClassIndex("anotherproperty"));
 
-    assertNotNull(indexManager.getIndex("anotherproperty"));
-    assertNotNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
+    graph.autoExecuteInTx(g ->
+        g.schemaIndex("anotherproperty").drop()
+    );
 
-    indexManager.dropIndex(session, "anotherproperty");
-
-    assertNull(indexManager.getIndex("anotherproperty"));
-    assertNull(indexManager.getClassIndex(session, CLASS_NAME, "anotherproperty"));
+    schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    assertNull(schema.getIndex("anotherproperty"));
+    assertNull(schema.getClass(CLASS_NAME).getClassIndex("anotherproperty"));
   }
 
   @Test
   public void testDropAllClassIndexes() {
-    final var oClass =
-        session.getMetadata().getSlowMutableSchema().createClass("indexManagerTestClassTwo");
-    oClass.createProperty("fOne", PropertyType.INTEGER);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("indexManagerTestClassTwo")
+            .createSchemaProperty("fOne", PropertyType.INTEGER)
+            .createPropertyIndex("twoclassproperty", YTDBSchemaIndex.IndexType.UNIQUE)
+    );
 
-    final var indexManager = session.getSharedContext().getIndexManager();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    assertFalse(schema.getClass("indexManagerTestClassTwo").getClassIndexes().isEmpty());
 
-    indexManager.createIndex(
-        session,
-        "twoclassproperty",
-        IndexType.UNIQUE.toString(),
-        new PropertyIndexDefinition("indexManagerTestClassTwo", "fOne",
-            PropertyTypeInternal.INTEGER),
-        new int[]{session.getCollectionIdByName("indexManagerTestClassTwo")},
-        null,
-        null);
+    graph.autoExecuteInTx(g -> g.schemaIndex("twoclassproperty").drop());
 
-    assertFalse(indexManager.getClassIndexes(session, "indexManagerTestClassTwo").isEmpty());
-
-    indexManager.dropIndex(session, "twoclassproperty");
-
-    assertTrue(indexManager.getClassIndexes(session, "indexManagerTestClassTwo").isEmpty());
+    schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    assertTrue(schema.getClass("indexManagerTestClassTwo").getClassIndexes().isEmpty());
   }
 
   @Test(dependsOnMethods = "testDropAllClassIndexes")
   public void testDropNonExistingClassIndex() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    indexManager.dropIndex(session, "twoclassproperty");
+    graph.autoExecuteInTx(g -> g.schemaIndex("twoclassproperty").drop());
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndex() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
-    final var result = indexManager.getClassIndex(session, CLASS_NAME, "propertyone");
+    final var result = schema.getClass(CLASS_NAME).getClassIndex("propertyone");
     assertNotNull(result);
     assertEquals(result.getName(), "propertyone");
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndexBrokenClassNameCase() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
-    final var result =
-        indexManager.getClassIndex(session, "ClaSSforindeXManagerTeST", "propertyone");
+    final var result = schema.getClass(CLASS_NAME).getClassIndex("propertyone");
     assertNotNull(result);
     assertEquals(result.getName(), "propertyone");
   }
 
   @Test(
       dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
+          "createCompositeIndexTest",
           "testCreateOnePropertyIndexTest"
       })
   public void testGetClassIndexWrongIndexName() {
-    final var indexManager = session.getSharedContext().getIndexManager();
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
 
-    final var result = indexManager.getClassIndex(session, CLASS_NAME, "propertyonetwo");
+    final var result = schema.getClass(CLASS_NAME).getClassIndex("propertyonetwo");
     assertNull(result);
   }
 
-  @Test(
-      dependsOnMethods = {
-          "createCompositeIndexTestWithListener",
-          "createCompositeIndexTestWithoutListener",
-          "testCreateOnePropertyIndexTest"
-      })
-  public void testGetClassIndexWrongClassName() {
-    final var indexManager = session.getSharedContext().getIndexManager();
-
-    final var result = indexManager.getClassIndex(session, "testClassTT", "propertyone");
-    assertNull(result);
-  }
-
-  private boolean containsIndex(
+  private static boolean containsIndex(
       final Collection<? extends Index> classIndexes, final String indexName) {
     for (final var index : classIndexes) {
       if (index.getName().equals(indexName)) {

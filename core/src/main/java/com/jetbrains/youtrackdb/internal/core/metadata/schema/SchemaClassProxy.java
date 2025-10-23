@@ -122,7 +122,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Collection<Index> getClassIndexesInternal() {
+  public Collection<Index> getClassIndexes() {
     assert this.session.assertIfNotActive();
 
     var indexEntities = YTDBIteratorUtils.set(delegate.getIndexes());
@@ -156,13 +156,13 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Set<String> getClassIndexes(Collection<String> properties) {
+  public Set<String> getClassIndexNames(Collection<String> properties) {
     assert this.session.assertIfNotActive();
     return SchemaManager.getClassInvolvedIndexNames(delegate, properties);
   }
 
   @Override
-  public Set<String> getClassIndexes(String... properties) {
+  public Set<String> getClassIndexNames(String... properties) {
     assert this.session.assertIfNotActive();
     return SchemaManager.getClassInvolvedIndexNames(delegate, properties);
   }
@@ -180,7 +180,7 @@ public final class SchemaClassProxy extends ProxedResource<SchemaClassEntity> im
   }
 
   @Override
-  public Set<String> getClassIndexes() {
+  public Set<String> getClassIndexNames() {
     assert session.assertIfNotActive();
 
     return YTDBIteratorUtils.set(

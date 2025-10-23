@@ -1,7 +1,8 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -12,26 +13,24 @@ import org.testng.annotations.Test;
  */
 @Test
 public class OrderByIndexReuseTest extends BaseDBTest {
+
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final var schema = session.getMetadata().getSlowMutableSchema();
-    final var orderByIndexReuse = schema.createClass("OrderByIndexReuse");
-
-    orderByIndexReuse.createProperty("firstProp", PropertyType.INTEGER);
-    orderByIndexReuse.createProperty("secondProp", PropertyType.INTEGER);
-    orderByIndexReuse.createProperty("thirdProp", PropertyType.STRING);
-    orderByIndexReuse.createProperty("prop4", PropertyType.STRING);
-
-    orderByIndexReuse.createIndex(
-        "OrderByIndexReuseIndexSecondThirdProp",
-        IndexType.UNIQUE,
-        "secondProp", "thirdProp");
-    orderByIndexReuse.createIndex(
-        "OrderByIndexReuseIndexFirstPropNotUnique", IndexType.NOT_UNIQUE,
-        "firstProp");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("OrderByIndexReuse",
+            __.createSchemaProperty("firstProp", PropertyType.INTEGER)
+                .createPropertyIndex("OrderByIndexReuseIndexFirstPropNotUnique",
+                    IndexType.NOT_UNIQUE),
+            __.createSchemaProperty("secondProp", PropertyType.INTEGER),
+            __.createSchemaProperty("thirdProp", PropertyType.STRING),
+            __.createSchemaProperty("prop4", PropertyType.STRING)
+        ).createClassIndex("OrderByIndexReuseIndexSecondThirdProp",
+            IndexType.UNIQUE,
+            "secondProp", "thirdProp")
+    );
 
     for (var i = 0; i < 100; i++) {
       session.begin();
@@ -841,7 +840,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
     Assert.assertEquals(result.size(), 3);
 
-    var document = result.get(0);
+    var document = result.getFirst();
     Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 2);
     Assert.assertEquals(document.getProperty("prop4"), "prop4");
 
@@ -864,7 +863,7 @@ public class OrderByIndexReuseTest extends BaseDBTest {
 
     Assert.assertEquals(result.size(), 3);
 
-    var document = result.get(0);
+    var document = result.getFirst();
     Assert.assertEquals((int) document.<Integer>getProperty("firstProp"), 47);
     Assert.assertEquals(document.getProperty("prop4"), "prop94");
 

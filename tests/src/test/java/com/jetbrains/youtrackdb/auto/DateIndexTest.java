@@ -1,9 +1,10 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexType;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Date;
 import java.util.List;
@@ -13,69 +14,34 @@ import org.testng.annotations.Test;
 
 @Test
 public class DateIndexTest extends BaseDBTest {
+
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-
-    var dateIndexTest = schema.createClass("DateIndexTest");
-
-    dateIndexTest.createProperty("dateField", PropertyType.DATE);
-    dateIndexTest.createProperty("dateTimeField", PropertyType.DATETIME);
-
-    dateIndexTest.createProperty("dateList", PropertyType.EMBEDDEDLIST,
-        PropertyType.DATE);
-    dateIndexTest.createProperty("dateTimeList", PropertyType.EMBEDDEDLIST,
-        PropertyType.DATETIME);
-
-    dateIndexTest.createProperty("value", PropertyType.STRING);
-
-    dateIndexTest.createIndex("DateIndexTestDateIndex", IndexType.UNIQUE,
-        "dateField");
-    dateIndexTest.createIndex(
-        "DateIndexTestValueDateIndex", IndexType.UNIQUE, "value", "dateField");
-
-    dateIndexTest.createIndex(
-        "DateIndexTestDateTimeIndex", IndexType.UNIQUE, "dateTimeField");
-    dateIndexTest.createIndex(
-        "DateIndexTestValueDateTimeIndex", IndexType.UNIQUE, "value",
-        "dateTimeField");
-
-    dateIndexTest.createIndex(
-        "DateIndexTestValueDateListIndex", IndexType.UNIQUE, "value", "dateList");
-    dateIndexTest.createIndex(
-        "DateIndexTestValueDateTimeListIndex", IndexType.UNIQUE, "value",
-        "dateTimeList");
-
-    dateIndexTest.createIndex(
-        "DateIndexTestDateHashIndex", IndexType.UNIQUE, "dateField");
-    dateIndexTest.createIndex(
-        "DateIndexTestValueDateHashIndex",
-        IndexType.UNIQUE,
-        "value", "dateField");
-
-    dateIndexTest.createIndex(
-        "DateIndexTestDateTimeHashIndex", IndexType.UNIQUE,
-        "dateTimeField");
-    dateIndexTest.createIndex(
-        "DateIndexTestValueDateTimeHashIndex",
-        IndexType.UNIQUE,
-        "value", "dateTimeField");
-
-    dateIndexTest.createIndex(
-        "DateIndexTestValueDateListHashIndex",
-        IndexType.UNIQUE,
-        "value", "dateList");
-    dateIndexTest.createIndex(
-        "DateIndexTestValueDateTimeListHashIndex",
-        IndexType.UNIQUE,
-        "value", "dateTimeList");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("DateIndexTest",
+                __.createSchemaProperty("dateField", PropertyType.DATE)
+                    .createPropertyIndex("DateIndexTestDateIndex", IndexType.UNIQUE),
+                __.createSchemaProperty("dateTimeField", PropertyType.DATETIME)
+                    .createPropertyIndex("DateIndexTestDateTimeIndex", IndexType.UNIQUE),
+                __.createSchemaProperty("dateList", PropertyType.EMBEDDEDLIST,
+                    PropertyType.DATE),
+                __.createSchemaProperty("dateTimeList", PropertyType.EMBEDDEDLIST,
+                    PropertyType.DATETIME),
+                __.createSchemaProperty("value", PropertyType.STRING)
+            ).createClassIndex("DateIndexTestValueDateIndex", IndexType.UNIQUE, "value", "dateField")
+            .createClassIndex("DateIndexTestValueDateTimeIndex", IndexType.UNIQUE, "value",
+                "dateTimeField")
+            .createClassIndex("DateIndexTestValueDateListIndex", IndexType.UNIQUE, "value",
+                "dateList")
+            .createClassIndex("DateIndexTestValueDateTimeListIndex", IndexType.UNIQUE, "value",
+                "dateTimeList")
+    );
   }
 
   public void testDateIndexes() {
-
     session.begin();
     final var dateOne = new Date();
 
@@ -108,194 +74,98 @@ public class DateIndexTest extends BaseDBTest {
 
     final var dateIndexTestDateIndex =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("DateIndexTestDateIndex");
-    try (var stream = dateIndexTestDateIndex.getRids(session, dateOne)) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
+    try (var iterator = dateIndexTestDateIndex.getRids(session, dateOne)) {
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null),
+          dateDoc.getIdentity());
     }
-    try (var stream = dateIndexTestDateIndex.getRids(session, dateTwo)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (var iterator = dateIndexTestDateIndex.getRids(session, dateTwo)) {
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     final var dateIndexTestDateTimeIndex =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("DateIndexTestDateTimeIndex");
-    try (var stream = dateIndexTestDateTimeIndex
-        .getRids(session, dateTwo)) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
+    try (var iterator = dateIndexTestDateTimeIndex.getRids(session, dateTwo)) {
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null),
+          dateDoc.getIdentity());
     }
-    try (var stream = dateIndexTestDateTimeIndex
+    try (var iterator = dateIndexTestDateTimeIndex
         .getRids(session, dateOne)) {
-      Assert.assertFalse(stream.findAny().isPresent());
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     final var dateIndexTestValueDateIndex =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("DateIndexTestValueDateIndex");
-    try (var stream =
+    try (var iterator =
         dateIndexTestValueDateIndex
             .getRids(session, new CompositeKey("v1", dateOne))) {
-      Assert.assertEquals((stream.findAny().orElse(null)), dateDoc.getIdentity());
+      Assert.assertEquals((YTDBIteratorUtils.findFirst(iterator).orElse(null)),
+          dateDoc.getIdentity());
     }
-    try (var stream =
+    try (var iterator =
         dateIndexTestValueDateIndex
             .getRids(session, new CompositeKey("v1", dateTwo))) {
-      Assert.assertFalse(stream.findAny().isPresent());
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     final var dateIndexTestValueDateTimeIndex =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("DateIndexTestValueDateTimeIndex");
-    try (var stream =
+    try (var iterator =
         dateIndexTestValueDateTimeIndex
             .getRids(session, new CompositeKey("v1", dateTwo))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null),
+          dateDoc.getIdentity());
     }
-    try (var stream =
+    try (var iterator =
         dateIndexTestValueDateTimeIndex
             .getRids(session, new CompositeKey("v1", dateOne))) {
-      Assert.assertFalse(stream.findAny().isPresent());
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     final var dateIndexTestValueDateListIndex =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("DateIndexTestValueDateListIndex");
 
-    try (var stream =
+    try (var iterator =
         dateIndexTestValueDateListIndex
             .getRids(session, new CompositeKey("v1", dateThree))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null),
+          dateDoc.getIdentity());
     }
-    try (var stream =
+    try (var iterator =
         dateIndexTestValueDateListIndex
             .getRids(session, new CompositeKey("v1", dateFour))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null),
+          dateDoc.getIdentity());
     }
 
     final var dateIndexTestValueDateTimeListIndex =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("DateIndexTestValueDateListIndex");
-    try (var stream =
-        dateIndexTestValueDateTimeListIndex
-
-            .getRids(session, new CompositeKey("v1", dateThree))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
+    try (var iterator = dateIndexTestValueDateTimeListIndex
+        .getRids(session, new CompositeKey("v1", dateThree))) {
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null),
+          dateDoc.getIdentity());
     }
-    try (var stream =
-        dateIndexTestValueDateTimeListIndex
-
-            .getRids(session, new CompositeKey("v1", dateFour))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
-    }
-
-    final var dateIndexTestDateHashIndexIndex =
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("DateIndexTestDateHashIndex");
-    try (var stream = dateIndexTestDateHashIndexIndex
-        .getRids(session, dateOne)) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
-    }
-    try (var stream = dateIndexTestDateHashIndexIndex
-        .getRids(session, dateTwo)) {
-      Assert.assertFalse(stream.findAny().isPresent());
-    }
-
-    final var dateIndexTestDateTimeHashIndex =
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("DateIndexTestDateTimeHashIndex");
-    try (var stream = dateIndexTestDateTimeHashIndex
-        .getRids(session, dateTwo)) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
-    }
-    try (var stream = dateIndexTestDateTimeHashIndex
-        .getRids(session, dateOne)) {
-      Assert.assertFalse(stream.findAny().isPresent());
-    }
-
-    final var dateIndexTestValueDateHashIndex =
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("DateIndexTestValueDateHashIndex");
-    try (var stream =
-        dateIndexTestValueDateHashIndex
-            .getRids(session, new CompositeKey("v1", dateOne))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
-    }
-    try (var stream =
-        dateIndexTestValueDateHashIndex
-            .getRids(session, new CompositeKey("v1", dateTwo))) {
-      Assert.assertFalse(stream.findAny().isPresent());
-    }
-
-    final var dateIndexTestValueDateTimeHashIndex =
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("DateIndexTestValueDateTimeHashIndex");
-    try (var stream =
-        dateIndexTestValueDateTimeHashIndex
-
-            .getRids(session, new CompositeKey("v1", dateTwo))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
-    }
-    try (var stream =
-        dateIndexTestValueDateTimeHashIndex
-
-            .getRids(session, new CompositeKey("v1", dateOne))) {
-      Assert.assertFalse(stream.findAny().isPresent());
-    }
-
-    final var dateIndexTestValueDateListHashIndex =
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("DateIndexTestValueDateListHashIndex");
-
-    try (var stream =
-        dateIndexTestValueDateListHashIndex
-
-            .getRids(session, new CompositeKey("v1", dateThree))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
-    }
-    try (var stream =
-        dateIndexTestValueDateListHashIndex
-
-            .getRids(session, new CompositeKey("v1", dateFour))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
-    }
-
-    final var dateIndexTestValueDateTimeListHashIndex =
-        session
-            .getSharedContext()
-            .getIndexManager()
-            .getIndex("DateIndexTestValueDateListHashIndex");
-    try (var stream =
-        dateIndexTestValueDateTimeListHashIndex
-
-            .getRids(session, new CompositeKey("v1", dateThree))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
-    }
-    try (var stream =
-        dateIndexTestValueDateTimeListHashIndex
-
-            .getRids(session, new CompositeKey("v1", dateFour))) {
-      Assert.assertEquals(stream.findAny().orElse(null), dateDoc.getIdentity());
+    try (var iterator =
+        dateIndexTestValueDateTimeListIndex.getRids(session, new CompositeKey("v1", dateFour))) {
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null),
+          dateDoc.getIdentity());
     }
   }
 }

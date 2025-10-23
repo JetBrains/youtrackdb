@@ -38,6 +38,14 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
         .property(YTDBSchemaClassPToken.name, className);
   }
 
+  default GraphTraversal<S, Vertex> createSchemaClass(String className, String parentClassName,
+      GraphTraversal<?, Vertex>... propertyDefinitions) {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+
+    return ytdbGraphTraversal.createSchemaClass(className).addParentClass(parentClassName)
+        .insertSchemaProperties(propertyDefinitions);
+  }
+
   @SuppressWarnings("unchecked")
   default GraphTraversal<S, Vertex> createSchemaClass(String className,
       GraphTraversal<?, Vertex>... propertyDefinitions) {
@@ -125,6 +133,16 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return traversal;
   }
 
+  default GraphTraversal<S, Vertex> createAbstractSchemaClass(String className,
+      String parentClassName,
+      GraphTraversal<?, Vertex>... propertyDefinitions) {
+    var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
+    var traversal = ytdbGraphTraversal.createAbstractSchemaClass(className);
+    traversal.addParentClass(parentClassName);
+    traversal.insertSchemaProperties(propertyDefinitions);
+    return traversal;
+  }
+
   default GraphTraversal<S, Vertex> createStateFullEdgeClass(String className) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
     return ytdbGraphTraversal.addV(YTDBSchemaClass.LABEL).as("result").
@@ -141,6 +159,7 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     var traversal = ytdbGraphTraversal.createStateFullEdgeClass(className);
     return traversal.insertSchemaProperties(propertyDefinitions);
   }
+
 
   default GraphTraversal<S, Vertex> createSchemaProperty(String propertyName,
       PropertyType propertyType) {
@@ -204,6 +223,10 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
     return createPropertyIndex(indexType, indexBy, false);
   }
 
+  default GraphTraversal<S, Vertex> createPropertyIndex(IndexType indexType, boolean ignoreNulls) {
+    return createPropertyIndex(indexType, IndexBy.BY_VALUE, ignoreNulls);
+  }
+
   default GraphTraversal<S, Vertex> createPropertyIndex(IndexType indexType, IndexBy indexBy,
       boolean ignoreNulls) {
     var ytdbGraphTraversal = (YTDBGraphTraversal<S, E>) this;
@@ -230,6 +253,11 @@ public interface YTDBGraphTraversalDSL<S, E> extends GraphTraversal.Admin<S, E> 
   default GraphTraversal<S, Vertex> createPropertyIndex(String indexName, IndexType indexType,
       IndexBy indexBy) {
     return createPropertyIndex(indexName, indexType, indexBy, false);
+  }
+
+  default GraphTraversal<S, Vertex> createPropertyIndex(String indexName, IndexType indexType,
+      boolean ignoreNulls) {
+    return createPropertyIndex(indexName, indexType, IndexBy.BY_VALUE, ignoreNulls);
   }
 
   default GraphTraversal<S, Vertex> createPropertyIndex(String indexName, IndexType indexType,

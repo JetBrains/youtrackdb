@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
@@ -8,8 +9,9 @@ import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyLinkBagIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyListIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyMapIndexDefinition;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.entities.SchemaIndexEntity.IndexBy;
 import java.util.Arrays;
 import java.util.List;
 import org.testng.Assert;
@@ -19,24 +21,27 @@ import org.testng.annotations.Test;
 
 @Test
 public class SQLCreateIndexTest extends BaseDBTest {
-  private static final PropertyTypeInternal EXPECTED_PROP1_TYPE = PropertyTypeInternal.DOUBLE;
-  private static final PropertyTypeInternal EXPECTED_PROP2_TYPE = PropertyTypeInternal.INTEGER;
+
+  private static final PropertyType EXPECTED_PROP1_TYPE = PropertyType.DOUBLE;
+  private static final PropertyType EXPECTED_PROP2_TYPE = PropertyType.INTEGER;
 
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    final var oClass = schema.createClass("sqlCreateIndexTestClass");
-    oClass.createProperty("prop1", EXPECTED_PROP1_TYPE.getPublicPropertyType());
-    oClass.createProperty("prop2", EXPECTED_PROP2_TYPE.getPublicPropertyType());
-    oClass.createProperty("prop3", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER);
-    oClass.createProperty("prop5", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER);
-    oClass.createProperty("prop6", PropertyType.EMBEDDEDLIST);
-    oClass.createProperty("prop7", PropertyType.EMBEDDEDMAP);
-    oClass.createProperty("prop8", PropertyType.INTEGER);
-    oClass.createProperty("prop9", PropertyType.LINKBAG);
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("sqlCreateIndexTestClass",
+            __.createSchemaProperty("prop1", EXPECTED_PROP1_TYPE),
+            __.createSchemaProperty("prop2", EXPECTED_PROP2_TYPE),
+            __.createSchemaProperty("prop3", PropertyType.EMBEDDEDMAP, PropertyType.INTEGER),
+            __.createSchemaProperty("prop5", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER),
+            __.createSchemaProperty("prop6", PropertyType.EMBEDDEDLIST),
+            __.createSchemaProperty("prop7", PropertyType.EMBEDDEDMAP),
+            __.createSchemaProperty("prop8", PropertyType.INTEGER),
+            __.createSchemaProperty("prop9", PropertyType.LINKBAG)
+        )
+    );
   }
 
   @Override
@@ -60,8 +65,7 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata().getFastImmutableSchemaSnapshot()
             .getIndex("sqlCreateIndexTestClass.prop1");
 
     Assert.assertNotNull(index);
@@ -69,9 +73,10 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var indexDefinition = index.getDefinition();
 
     Assert.assertTrue(indexDefinition instanceof PropertyIndexDefinition);
-    Assert.assertEquals(indexDefinition.getProperties().get(0), "prop1");
-    Assert.assertEquals(indexDefinition.getTypes()[0], EXPECTED_PROP1_TYPE);
-    Assert.assertEquals(index.getType(), "UNIQUE");
+    Assert.assertEquals(indexDefinition.getProperties().getFirst(), "prop1");
+    Assert.assertEquals(indexDefinition.getTypes()[0],
+        PropertyTypeInternal.convertFromPublicType(EXPECTED_PROP1_TYPE));
+    Assert.assertEquals(index.getType(), IndexType.UNIQUE);
   }
 
   @Test
@@ -85,9 +90,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexCompositeIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexCompositeIndex");
 
     Assert.assertNotNull(index);
 
@@ -96,8 +101,12 @@ public class SQLCreateIndexTest extends BaseDBTest {
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
-        indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
-    Assert.assertEquals(index.getType(), "UNIQUE");
+        indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{
+            PropertyTypeInternal.convertFromPublicType(EXPECTED_PROP1_TYPE),
+            PropertyTypeInternal.convertFromPublicType(EXPECTED_PROP2_TYPE)
+        });
+    Assert.assertEquals(index.getType(), IndexType.UNIQUE);
   }
 
   @Test
@@ -110,9 +119,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedMapIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedMapIndex");
 
     Assert.assertNotNull(index);
 
@@ -120,11 +129,12 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     Assert.assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), List.of("prop3"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
-    Assert.assertEquals(index.getType(), "UNIQUE");
+    Assert.assertEquals(indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
+    Assert.assertEquals(index.getType(), IndexType.UNIQUE);
     Assert.assertEquals(
-        ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
-        PropertyMapIndexDefinition.INDEX_BY.KEY);
+        indexDefinition.getIndexBy(),
+        IndexBy.BY_VALUE);
   }
 
   @Test
@@ -134,9 +144,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexTestClass.prop3");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexTestClass.prop3");
 
     Assert.assertNotNull(index);
 
@@ -144,11 +154,12 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     Assert.assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), List.of("prop3"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
-    Assert.assertEquals(index.getType(), "UNIQUE");
+    Assert.assertEquals(indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
+    Assert.assertEquals(index.getType(), IndexType.UNIQUE);
     Assert.assertEquals(
-        ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
-        PropertyMapIndexDefinition.INDEX_BY.KEY);
+        indexDefinition.getIndexBy(),
+        IndexBy.BY_VALUE);
   }
 
   @Test
@@ -160,14 +171,15 @@ public class SQLCreateIndexTest extends BaseDBTest {
                   + " (prop3 by ttt) UNIQUE")
           .close();
       Assert.fail();
-    } catch (CommandSQLParsingException e) {
+    } catch (CommandSQLParsingException ignored) {
     }
+
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
 
     Assert.assertNull(index, "Index created while wrong query was executed");
   }
@@ -181,15 +193,15 @@ public class SQLCreateIndexTest extends BaseDBTest {
                   + " (prop3 b value) UNIQUE")
           .close();
       Assert.fail();
-    } catch (CommandSQLParsingException e) {
+    } catch (CommandSQLParsingException ignored) {
 
     }
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
 
     Assert.assertNull(index, "Index created while wrong query was executed");
   }
@@ -203,15 +215,15 @@ public class SQLCreateIndexTest extends BaseDBTest {
                   + " (prop3 by value t) UNIQUE")
           .close();
       Assert.fail();
-    } catch (CommandSQLParsingException e) {
-
+    } catch (CommandSQLParsingException ignored) {
     }
+
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedMapWrongSpecifierIndex");
 
     Assert.assertNull(index, "Index created while wrong query was executed");
   }
@@ -227,9 +239,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedMapByKeyIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedMapByKeyIndex");
 
     Assert.assertNotNull(index);
 
@@ -237,11 +249,12 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     Assert.assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), List.of("prop3"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
-    Assert.assertEquals(index.getType(), "UNIQUE");
+    Assert.assertEquals(indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.STRING});
+    Assert.assertEquals(index.getType(), IndexType.UNIQUE);
     Assert.assertEquals(
-        ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
-        PropertyMapIndexDefinition.INDEX_BY.KEY);
+        indexDefinition.getIndexBy(),
+        IndexBy.BY_KEY);
   }
 
   @Test
@@ -255,9 +268,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedMapByValueIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedMapByValueIndex");
 
     Assert.assertNotNull(index);
 
@@ -265,15 +278,16 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     Assert.assertTrue(indexDefinition instanceof PropertyMapIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), List.of("prop3"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
-    Assert.assertEquals(index.getType(), "UNIQUE");
+    Assert.assertEquals(indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
+    Assert.assertEquals(index.getType(), IndexType.UNIQUE);
     Assert.assertEquals(
-        ((PropertyMapIndexDefinition) indexDefinition).getIndexBy(),
-        PropertyMapIndexDefinition.INDEX_BY.VALUE);
+        indexDefinition.getIndexBy(),
+        IndexBy.BY_VALUE);
   }
 
   @Test
-  public void testCreateEmbeddedListIndex() throws Exception {
+  public void testCreateEmbeddedListIndex() {
     session
         .execute(
             "CREATE INDEX sqlCreateIndexEmbeddedListIndex ON sqlCreateIndexTestClass (prop5)"
@@ -283,9 +297,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedListIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedListIndex");
 
     Assert.assertNotNull(index);
 
@@ -293,8 +307,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     Assert.assertTrue(indexDefinition instanceof PropertyListIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), List.of("prop5"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
-    Assert.assertEquals(index.getType(), "NOTUNIQUE");
+    Assert.assertEquals(indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
+    Assert.assertEquals(index.getType(), IndexType.NOT_UNIQUE);
   }
 
   public void testCreateRidBagIndex() throws Exception {
@@ -306,9 +321,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexRidBagIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexRidBagIndex");
 
     Assert.assertNotNull(index);
 
@@ -316,8 +331,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     Assert.assertTrue(indexDefinition instanceof PropertyLinkBagIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), List.of("prop9"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.LINK});
-    Assert.assertEquals(index.getType(), "NOTUNIQUE");
+    Assert.assertEquals(indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.LINK});
+    Assert.assertEquals(index.getType(), IndexType.NOT_UNIQUE);
   }
 
   public void testCreateOldStileEmbeddedListIndex() throws Exception {
@@ -326,9 +342,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexTestClass.prop5");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexTestClass.prop5");
 
     Assert.assertNotNull(index);
 
@@ -336,8 +352,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     Assert.assertTrue(indexDefinition instanceof PropertyListIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), List.of("prop5"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
-    Assert.assertEquals(index.getType(), "NOTUNIQUE");
+    Assert.assertEquals(indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
+    Assert.assertEquals(index.getType(), IndexType.NOT_UNIQUE);
   }
 
   public void testCreateOldStileRidBagIndex() throws Exception {
@@ -346,9 +363,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexTestClass.prop9");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexTestClass.prop9");
 
     Assert.assertNotNull(index);
 
@@ -356,8 +373,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
 
     Assert.assertTrue(indexDefinition instanceof PropertyLinkBagIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), List.of("prop9"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.LINK});
-    Assert.assertEquals(index.getType(), "NOTUNIQUE");
+    Assert.assertEquals(indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.LINK});
+    Assert.assertEquals(index.getType(), IndexType.NOT_UNIQUE);
   }
 
   @Test
@@ -379,9 +397,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedListWithoutLinkedTypeIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedListWithoutLinkedTypeIndex");
 
     Assert.assertNull(index, "Index created while wrong query was executed");
   }
@@ -405,9 +423,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexEmbeddedMapWithoutLinkedTypeIndex");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexEmbeddedMapWithoutLinkedTypeIndex");
 
     Assert.assertNull(index, "Index created while wrong query was executed");
   }
@@ -426,9 +444,9 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexCompositeIndex2");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexCompositeIndex2");
 
     Assert.assertNotNull(index);
 
@@ -437,8 +455,12 @@ public class SQLCreateIndexTest extends BaseDBTest {
     Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
     Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
     Assert.assertEquals(
-        indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
-    Assert.assertEquals(index.getType(), "UNIQUE");
+        indexDefinition.getTypes(),
+        new PropertyTypeInternal[]{PropertyTypeInternal.convertFromPublicType(EXPECTED_PROP1_TYPE),
+            PropertyTypeInternal.convertFromPublicType(EXPECTED_PROP2_TYPE)
+        });
+
+    Assert.assertEquals(index.getType(), IndexType.UNIQUE);
   }
 
   @Test
@@ -446,20 +468,14 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var query =
         "CREATE INDEX sqlCreateIndexCompositeIndex3 ON sqlCreateIndexTestClass (prop1,"
             + " prop2) UNIQUE "
-            + EXPECTED_PROP1_TYPE.getPublicPropertyType()
+            + EXPECTED_PROP1_TYPE
             + ", "
-            + EXPECTED_PROP1_TYPE.getPublicPropertyType();
+            + EXPECTED_PROP1_TYPE;
 
     try {
       session.command(query);
       Assert.fail();
     } catch (Exception e) {
-//      Assert.assertTrue(
-//          e.getMessage()
-//              .contains(
-//                  "Error on execution of command: sql.CREATE INDEX sqlCreateIndexCompositeIndex3"
-//                      + " ON"));
-//
       Throwable cause = e;
       while (cause.getCause() != null) {
         cause = cause.getCause();
@@ -470,101 +486,10 @@ public class SQLCreateIndexTest extends BaseDBTest {
     final var index =
         session
             .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexCompositeIndex3");
+            .getFastImmutableSchemaSnapshot()
+            .getClass("sqlCreateIndexTestClass")
+            .getClassIndex("sqlCreateIndexCompositeIndex3");
 
     Assert.assertNull(index, "Index created while wrong query was executed");
-  }
-
-  public void testCompositeIndexWithMetadata() {
-    session
-        .execute(
-            "CREATE INDEX sqlCreateIndexCompositeIndexWithMetadata ON sqlCreateIndexTestClass"
-                + " (prop1, prop2) UNIQUE metadata {v1:23, v2:\"val2\"}")
-        .close();
-
-    final var index =
-        session
-            .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexCompositeIndexWithMetadata");
-
-    Assert.assertNotNull(index);
-
-    final var indexDefinition = index.getDefinition();
-
-    Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
-    Assert.assertEquals(
-        indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
-    Assert.assertEquals(index.getType(), "UNIQUE");
-
-    var metadata = index.getMetadata();
-
-    Assert.assertEquals(metadata.get("v1"), 23);
-    Assert.assertEquals(metadata.get("v2"), "val2");
-  }
-
-  public void testOldIndexWithMetadata() {
-    session
-        .execute(
-            "CREATE INDEX sqlCreateIndexTestClass.prop8 NOTUNIQUE  metadata {v1:23, v2:\"val2\"}")
-        .close();
-
-    final var index =
-        session
-            .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexTestClass.prop8");
-
-    Assert.assertNotNull(index);
-
-    final var indexDefinition = index.getDefinition();
-
-    Assert.assertTrue(indexDefinition instanceof PropertyIndexDefinition);
-    Assert.assertEquals(indexDefinition.getProperties(), List.of("prop8"));
-    Assert.assertEquals(indexDefinition.getTypes(), new PropertyTypeInternal[]{PropertyTypeInternal.INTEGER});
-    Assert.assertEquals(index.getType(), "NOTUNIQUE");
-
-    var metadata = index.getMetadata();
-
-    Assert.assertEquals(metadata.get("v1"), 23);
-    Assert.assertEquals(metadata.get("v2"), "val2");
-  }
-
-  public void testCreateCompositeIndexWithTypesAndMetadata() throws Exception {
-    final var query =
-        "CREATE INDEX sqlCreateIndexCompositeIndex2WithConfig ON sqlCreateIndexTestClass"
-            + " (prop1, prop2) UNIQUE "
-            + EXPECTED_PROP1_TYPE
-            + ", "
-            + EXPECTED_PROP2_TYPE
-            + " metadata {v1:23, v2:\"val2\"}";
-
-    session.execute(query).close();
-
-    final var index =
-        session
-            .getMetadata()
-            .getSlowMutableSchema()
-            .getClassInternal("sqlCreateIndexTestClass")
-            .getClassIndex(session, "sqlCreateIndexCompositeIndex2WithConfig");
-
-    Assert.assertNotNull(index);
-
-    final var indexDefinition = index.getDefinition();
-
-    Assert.assertTrue(indexDefinition instanceof CompositeIndexDefinition);
-    Assert.assertEquals(indexDefinition.getProperties(), Arrays.asList("prop1", "prop2"));
-    Assert.assertEquals(
-        indexDefinition.getTypes(), new PropertyTypeInternal[]{EXPECTED_PROP1_TYPE, EXPECTED_PROP2_TYPE});
-    Assert.assertEquals(index.getType(), "UNIQUE");
-
-    var metadata = index.getMetadata();
-    Assert.assertEquals(metadata.get("v1"), 23);
-    Assert.assertEquals(metadata.get("v2"), "val2");
   }
 }

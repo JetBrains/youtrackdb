@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.auto;
 import static org.testng.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.exception.DatabaseException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl;
@@ -23,21 +24,25 @@ import org.testng.annotations.Test;
 
 @Test
 public class DocumentTrackingTest extends BaseDBTest {
+
   @Override
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
 
-    if (!session.getMetadata().getSlowMutableSchema().existsClass("DocumentTrackingTestClass")) {
-      final var trackedClass =
-          session.getMetadata().getSlowMutableSchema().createClass("DocumentTrackingTestClass");
-      trackedClass.createProperty("embeddedlist", PropertyType.EMBEDDEDLIST);
-      trackedClass.createProperty("embeddedmap", PropertyType.EMBEDDEDMAP);
-      trackedClass.createProperty("embeddedset", PropertyType.EMBEDDEDSET);
-      trackedClass.createProperty("linkset", PropertyType.LINKSET);
-      trackedClass.createProperty("linklist", PropertyType.LINKLIST);
-      trackedClass.createProperty("linkmap", PropertyType.LINKMAP);
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("DocumentTrackingTestClass").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("DocumentTrackingTestClass",
+                __.createSchemaProperty("embeddedlist", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("embeddedmap", PropertyType.EMBEDDEDMAP),
+                __.createSchemaProperty("embeddedset", PropertyType.EMBEDDEDSET),
+                __.createSchemaProperty("linkset", PropertyType.LINKSET),
+                __.createSchemaProperty("linklist", PropertyType.LINKLIST),
+                __.createSchemaProperty("linkmap", PropertyType.LINKMAP)
+            )
+        )
+    );
   }
 
   public void testDocumentEmbeddedListTrackingAfterSave() {

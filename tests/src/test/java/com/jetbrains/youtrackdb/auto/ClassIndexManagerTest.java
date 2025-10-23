@@ -1,12 +1,15 @@
 package com.jetbrains.youtrackdb.auto;
 
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex.IndexBy;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -45,123 +48,69 @@ public class ClassIndexManagerTest extends BaseDBTest {
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("classIndexManagerTestClass",
+                "classIndexManagerTestClassTwo",
+                "classIndexManagerTestCompositeCollectionClass",
+                "classIndexManagerTestIndexValueAndCollection",
+                "classIndexManagerTestCompositeCollectionClass"
+            ).drop().fold().
 
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
+            schemaClass("classIndexManagerTestSuperClass").drop().fold().
 
-    if (schema.existsClass("classIndexManagerTestClass")) {
-      schema.dropClass("classIndexManagerTestClass");
-    }
+            createSchemaClass("classIndexManagerTestSuperClass").
+            createSchemaProperty("prop0", PropertyType.STRING).
+            createPropertyIndex(YTDBSchemaIndex.IndexType.UNIQUE, true).
 
-    if (schema.existsClass("classIndexManagerTestClassTwo")) {
-      schema.dropClass("classIndexManagerTestClassTwo");
-    }
+            createSchemaClass("classIndexManagerTestClass", "classIndexManagerTestSuperClass",
+                __.createSchemaProperty("prop1", PropertyType.STRING).
+                    createPropertyIndex(YTDBSchemaIndex.IndexType.UNIQUE, true),
+                __.createSchemaProperty("prop2", PropertyType.INTEGER).createPropertyIndex(
+                    YTDBSchemaIndex.IndexType.NOT_UNIQUE),
+                __.createSchemaProperty("prop3", PropertyType.BOOLEAN),
+                __.createSchemaProperty("prop4", PropertyType.STRING).createPropertyIndex(
+                    YTDBSchemaIndex.IndexType.UNIQUE),
+                __.createSchemaProperty("prop5", PropertyType.EMBEDDEDMAP, PropertyType.STRING).
+                    createPropertyIndex("classIndexManagerTestIndexByKey",
+                        YTDBSchemaIndex.IndexType.NOT_UNIQUE, IndexBy.BY_KEY).
+                    createPropertyIndex("classIndexManagerTestIndexByValue",
+                        YTDBSchemaIndex.IndexType.NOT_UNIQUE, IndexBy.BY_VALUE),
+                __.createSchemaProperty("prop6", PropertyType.EMBEDDEDSET, PropertyType.STRING)
+                    .createPropertyIndex(
+                        YTDBSchemaIndex.IndexType.NOT_UNIQUE)
+            ).createClassIndex("classIndexManagerComposite", YTDBSchemaIndex.IndexType.UNIQUE, true,
+                "prop1", "prop2").
+            createClassIndex("classIndexManagerTestCompositeCollectionClass",
+                YTDBSchemaIndex.IndexType.UNIQUE, true, "prop1", "prop2").
 
-    if (schema.existsClass("classIndexManagerTestSuperClass")) {
-      schema.dropClass("classIndexManagerTestSuperClass");
-    }
+            createSchemaClass("classIndexManagerTestCompositeCollectionClass",
+                __.createSchemaProperty("prop1", PropertyType.STRING),
+                __.createSchemaProperty("prop2", PropertyType.STRING)
+            ).
 
-    if (schema.existsClass("classIndexManagerTestCompositeCollectionClass")) {
-      schema.dropClass("classIndexManagerTestCompositeCollectionClass");
-    }
-    if (schema.existsClass(COMPOSITE_TWO_COLLECTIONS_CLASS)) {
-      schema.dropClass(COMPOSITE_TWO_COLLECTIONS_CLASS);
-    }
+            createSchemaClass("classIndexManagerTestCompositeCollectionClass",
+                __.createSchemaProperty("prop1", PropertyType.STRING),
+                __.createSchemaProperty("prop2", PropertyType.EMBEDDEDLIST, PropertyType.INTEGER)
+            ).createClassIndex("classIndexManagerTestIndexValueAndCollection",
+                YTDBSchemaIndex.IndexType.UNIQUE, true, "prop1", "prop2").
 
-    final var superClass = schema.createClass("classIndexManagerTestSuperClass");
-    superClass.createProperty("prop0", PropertyType.STRING);
-    superClass.createIndex(
-        "classIndexManagerTestSuperClass.prop0",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true),
-        new String[]{"prop0"});
+            createSchemaClass(COMPOSITE_TWO_COLLECTIONS_CLASS,
+                __.createSchemaProperty("prop1", PropertyType.EMBEDDEDLIST,
+                    PropertyType.STRING),
+                __.createSchemaProperty("prop2", PropertyType.EMBEDDEDLIST,
+                    PropertyType.INTEGER)
+            ).createClassIndex(COMPOSITE_TWO_COLLECTIONS_INDEX,
+                YTDBSchemaIndex.IndexType.UNIQUE, true, "prop1", "prop2").
 
-    final var oClass = schema.createClass("classIndexManagerTestClass", superClass);
-    oClass.createProperty("prop1", PropertyType.STRING);
-    oClass.createIndex(
-        "classIndexManagerTestClass.prop1",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true),
-        new String[]{"prop1"});
-
-    final var propTwo = oClass.createProperty("prop2", PropertyType.INTEGER);
-    propTwo.createIndex(IndexType.NOT_UNIQUE);
-
-    oClass.createProperty("prop3", PropertyType.BOOLEAN);
-
-    final var propFour = oClass.createProperty("prop4", PropertyType.EMBEDDEDLIST,
-        PropertyType.STRING);
-    propFour.createIndex(IndexType.NOT_UNIQUE);
-
-    oClass.createProperty("prop5", PropertyType.EMBEDDEDMAP, PropertyType.STRING);
-    oClass.createIndex("classIndexManagerTestIndexByKey",
-        IndexType.NOT_UNIQUE,
-        "prop5");
-    oClass.createIndex(
-        "classIndexManagerTestIndexByValue", IndexType.NOT_UNIQUE, "prop5 by value");
-
-    final var propSix = oClass.createProperty("prop6", PropertyType.EMBEDDEDSET,
-        PropertyType.STRING);
-    propSix.createIndex(IndexType.NOT_UNIQUE);
-
-    oClass.createIndex(
-        "classIndexManagerComposite",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true), new String[]{"prop1", "prop2"});
-
-    final var oClassTwo = schema.createClass("classIndexManagerTestClassTwo");
-    oClassTwo.createProperty("prop1", PropertyType.STRING);
-    oClassTwo.createProperty("prop2", PropertyType.INTEGER);
-
-    final var compositeCollectionClass =
-        schema.createClass("classIndexManagerTestCompositeCollectionClass");
-    compositeCollectionClass.createProperty("prop1", PropertyType.STRING);
-    compositeCollectionClass.createProperty("prop2", PropertyType.EMBEDDEDLIST,
-        PropertyType.INTEGER);
-
-    compositeCollectionClass.createIndex(
-        "classIndexManagerTestIndexValueAndCollection",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true),
-        new String[]{"prop1", "prop2"});
-
-    final var compositeTwoCollectionClass =
-        schema.createClass(COMPOSITE_TWO_COLLECTIONS_CLASS);
-    compositeTwoCollectionClass.createProperty("prop1", PropertyType.EMBEDDEDLIST,
-        PropertyType.STRING);
-    compositeTwoCollectionClass.createProperty("prop2", PropertyType.EMBEDDEDLIST,
-        PropertyType.INTEGER);
-    compositeTwoCollectionClass.createIndex(COMPOSITE_TWO_COLLECTIONS_INDEX,
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true),
-        new String[]{PROP_1, PROP_2});
-
-    final var compositeTwoCollectionPrimitiveClass =
-        schema.createClass(COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_CLASS);
-    compositeTwoCollectionPrimitiveClass.createProperty(PROP_1, PropertyType.EMBEDDEDLIST,
-        PropertyType.STRING);
-    compositeTwoCollectionPrimitiveClass.createProperty(PROP_2, PropertyType.EMBEDDEDLIST,
-        PropertyType.INTEGER);
-    compositeTwoCollectionPrimitiveClass.createProperty(PROP_3, PropertyType.INTEGER);
-
-    compositeTwoCollectionPrimitiveClass.createIndex(COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX,
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true),
-        new String[]{PROP_1, PROP_2, PROP_3});
-
-    oClass.createIndex(
-        "classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass",
-        IndexType.UNIQUE.toString(),
-        null,
-        Map.of("ignoreNullValues", true),
-        new String[]{"prop0", "prop1"});
-
-    session.close();
+            createSchemaClass(COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_CLASS,
+                __.createSchemaProperty(PROP_1, PropertyType.EMBEDDEDLIST,
+                    PropertyType.STRING),
+                __.createSchemaProperty(PROP_2, PropertyType.EMBEDDEDLIST,
+                    PropertyType.INTEGER),
+                __.createSchemaProperty(PROP_3, PropertyType.INTEGER)
+            ).createClassIndex(COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX,
+                YTDBSchemaIndex.IndexType.UNIQUE, true, PROP_1, PROP_2, PROP_3)
+    );
   }
 
   @Override
@@ -182,15 +131,15 @@ public class ClassIndexManagerTest extends BaseDBTest {
     if (!session.getStorage().isRemote()) {
       Assert.assertEquals(
           session
-              .getSharedContext()
-              .getIndexManager()
+              .getMetadata()
+              .getFastImmutableSchemaSnapshot()
               .getIndex("classIndexManagerTestClass.prop1")
               .size(session),
           0);
       Assert.assertEquals(
           session
-              .getSharedContext()
-              .getIndexManager()
+              .getMetadata()
+              .getFastImmutableSchemaSnapshot()
               .getIndex("classIndexManagerTestClass.prop2")
               .size(session),
           0);
@@ -356,7 +305,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void testCreateDocumentWithoutClass() {
 
     final var beforeIndexes =
-        session.getSharedContext().getIndexManager().getIndexes();
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndexes();
     final Map<String, Long> indexSizeMap = new HashMap<>();
 
     for (final var index : beforeIndexes) {
@@ -373,7 +322,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     final var afterIndexes =
-        session.getSharedContext().getIndexManager().getIndexes();
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndexes();
     for (final var index : afterIndexes) {
       Assert.assertEquals(
           index.size(session), indexSizeMap.get(index.getName()).longValue());
@@ -383,7 +332,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
   public void testUpdateDocumentWithoutClass() {
 
     final var beforeIndexes =
-        session.getSharedContext().getIndexManager().getIndexes();
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndexes();
     final Map<String, Long> indexSizeMap = new HashMap<>();
 
     for (final var index : beforeIndexes) {
@@ -402,7 +351,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     final var afterIndexes =
-        session.getSharedContext().getIndexManager().getIndexes();
+        session.getMetadata().getFastImmutableSchemaSnapshot().getIndexes();
     for (final var index : afterIndexes) {
       Assert.assertEquals(
           index.size(session), indexSizeMap.get(index.getName()).longValue());
@@ -463,30 +412,29 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     session.begin();
-    final var propOneIndex = session.getSharedContext().getIndexManager()
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop1");
-    try (var stream = propOneIndex.getRids(session, "a")) {
-      Assert.assertTrue(stream.findFirst().isPresent());
+    try (var iterator = propOneIndex.getRids(session, "a")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
     Assert.assertEquals(propOneIndex.size(session), 1);
 
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
 
     final var compositeIndexDefinition = compositeIndex.getDefinition();
     try (var rids =
         compositeIndex
-
             .getRids(session, compositeIndexDefinition.createValue(session.getActiveTransaction(),
                 "a", 1))) {
-      Assert.assertTrue(rids.findFirst().isPresent());
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(rids).isPresent());
     }
     Assert.assertEquals(compositeIndex.size(session), 1);
 
-    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
+    final var propZeroIndex = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
         "classIndexManagerTestSuperClass.prop0");
-    try (var stream = propZeroIndex.getRids(session, "x")) {
-      Assert.assertTrue(stream.findFirst().isPresent());
+    try (var iterator = propZeroIndex.getRids(session, "x")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
     Assert.assertEquals(propZeroIndex.size(session), 1);
     session.rollback();
@@ -506,11 +454,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     schema.getClass("classIndexManagerTestSuperClass");
     schema.getClass("classIndexManagerTestClass");
 
-    final var propOneIndex = session.getSharedContext().getIndexManager()
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
-    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
+    final var propZeroIndex = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
         "classIndexManagerTestSuperClass.prop0");
 
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -545,11 +493,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     schema.getClass("classIndexManagerTestSuperClass");
     schema.getClass("classIndexManagerTestClass");
 
-    final var propOneIndex = session.getSharedContext().getIndexManager().getIndex(
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
         "classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
-    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
+    final var propZeroIndex = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
         "classIndexManagerTestSuperClass.prop0");
 
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -579,11 +527,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
+    final var propZeroIndex = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
         "classIndexManagerTestSuperClass.prop0");
-    final var propOneIndex = session.getSharedContext().getIndexManager()
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
     final var compositeIndexDefinition = compositeIndex.getDefinition();
 
@@ -604,18 +552,18 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(compositeIndex.size(session), 1);
     Assert.assertEquals(propZeroIndex.size(session), 1);
 
-    try (var stream = propZeroIndex.getRids(session, "y")) {
-      Assert.assertTrue(stream.findFirst().isPresent());
+    try (var iterator = propZeroIndex.getRids(session, "y")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propOneIndex.getRids(session, "a")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propOneIndex.getRids(session, "a")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream =
+    try (var iterator =
         compositeIndex
 
             .getRids(session, compositeIndexDefinition.createValue(session.getActiveTransaction(),
                 "a", 2))) {
-      Assert.assertTrue(stream.findAny().isPresent());
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
     session.rollback();
   }
@@ -629,9 +577,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propOneIndex = session.getSharedContext().getIndexManager()
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
     final var compositeIndexDefinition = compositeIndex.getDefinition();
 
@@ -649,24 +597,20 @@ public class ClassIndexManagerTest extends BaseDBTest {
     Assert.assertEquals(propOneIndex.size(session), 1);
     Assert.assertEquals(compositeIndex.size(session), 1);
 
-    try (var stream = propOneIndex.getRids(session, "a")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propOneIndex.getRids(session, "a")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream =
+    try (var iterator =
         compositeIndex
             .getRids(session, compositeIndexDefinition.createValue(session.getActiveTransaction(),
                 "a", 2))) {
-      Assert.assertTrue(stream.findFirst().isPresent());
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
     session.rollback();
   }
 
   public void testListUpdate() {
-
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
-    schema.getClass("classIndexManagerTestClass");
-
-    final var propFourIndex = session.getSharedContext().getIndexManager()
+    final var propFourIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop4");
 
     Assert.assertEquals(propFourIndex.size(session), 0);
@@ -678,11 +622,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propFourIndex.size(session), 2);
-    try (var stream = propFourIndex.getRids(session, "value1")) {
-      Assert.assertTrue(stream.findFirst().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value1")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFourIndex.getRids(session, "value2")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value2")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -701,24 +645,23 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propFourIndex.size(session), 3);
-    try (var stream = propFourIndex.getRids(session, "value3")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value3")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFourIndex.getRids(session, "value4")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value4")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-
-    try (var stream = propFourIndex.getRids(session, "value5")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value5")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
   public void testMapUpdate() {
 
-    final var propFiveIndexKey = session.getSharedContext().getIndexManager()
+    final var propFiveIndexKey = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex(
             "classIndexManagerTestIndexByKey");
-    final var propFiveIndexValue = session.getSharedContext().getIndexManager()
+    final var propFiveIndexValue = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex(
             "classIndexManagerTestIndexByValue");
 
@@ -731,11 +674,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propFiveIndexKey.size(session), 2);
-    try (var stream = propFiveIndexKey.getRids(session, "key1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key1")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key2")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key2")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -757,40 +700,40 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propFiveIndexKey.size(session), 5);
-    try (var stream = propFiveIndexKey.getRids(session, "key1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key1")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key3")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key3")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key4")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key4")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key6")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key6")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key7")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key7")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     Assert.assertEquals(propFiveIndexValue.size(session), 4);
-    try (var stream = propFiveIndexValue.getRids(session, "value5")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexValue.getRids(session, "value5")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexValue.getRids(session, "value3")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexValue.getRids(session, "value3")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexValue.getRids(session, "value7")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexValue.getRids(session, "value7")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexValue.getRids(session, "value6")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexValue.getRids(session, "value6")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
   public void testSetUpdate() {
 
-    final var propSixIndex = session.getSharedContext().getIndexManager()
+    final var propSixIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop6");
 
     Assert.assertEquals(propSixIndex.size(session), 0);
@@ -803,11 +746,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propSixIndex.size(session), 2);
-    try (var stream = propSixIndex.getRids(session, "value1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propSixIndex.getRids(session, "value1")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propSixIndex.getRids(session, "value2")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propSixIndex.getRids(session, "value2")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -828,17 +771,17 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propSixIndex.size(session), 2);
-    try (var stream = propSixIndex.getRids(session, "value1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propSixIndex.getRids(session, "value1")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propSixIndex.getRids(session, "value5")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propSixIndex.getRids(session, "value5")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
   public void testListDelete() {
 
-    final var propFourIndex = session.getSharedContext().getIndexManager()
+    final var propFourIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop4");
 
     Assert.assertEquals(propFourIndex.size(session), 0);
@@ -851,11 +794,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propFourIndex.size(session), 2);
-    try (var stream = propFourIndex.getRids(session, "value1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value1")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFourIndex.getRids(session, "value2")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value2")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -874,14 +817,14 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propFourIndex.size(session), 3);
-    try (var stream = propFourIndex.getRids(session, "value3")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value3")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFourIndex.getRids(session, "value4")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value4")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFourIndex.getRids(session, "value5")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFourIndex.getRids(session, "value5")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -900,10 +843,10 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
   public void testMapDelete() {
 
-    final var propFiveIndexKey = session.getSharedContext().getIndexManager()
+    final var propFiveIndexKey = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex(
             "classIndexManagerTestIndexByKey");
-    final var propFiveIndexValue = session.getSharedContext().getIndexManager()
+    final var propFiveIndexValue = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex(
             "classIndexManagerTestIndexByValue");
 
@@ -917,11 +860,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propFiveIndexKey.size(session), 2);
-    try (var stream = propFiveIndexKey.getRids(session, "key1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key1")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key2")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key2")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -943,34 +886,34 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propFiveIndexKey.size(session), 5);
-    try (var stream = propFiveIndexKey.getRids(session, "key1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key1")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key3")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key3")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key4")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key4")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key6")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key6")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexKey.getRids(session, "key7")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexKey.getRids(session, "key7")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     Assert.assertEquals(propFiveIndexValue.size(session), 4);
-    try (var stream = propFiveIndexValue.getRids(session, "value5")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexValue.getRids(session, "value5")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexValue.getRids(session, "value3")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexValue.getRids(session, "value3")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexValue.getRids(session, "value7")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexValue.getRids(session, "value7")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
-    try (var stream = propFiveIndexValue.getRids(session, "value6")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propFiveIndexValue.getRids(session, "value6")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
     session.begin();
@@ -992,7 +935,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
   }
 
   public void testSetDelete() {
-    final var propSixIndex = session.getSharedContext().getIndexManager()
+    final var propSixIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop6");
 
     Assert.assertEquals(propSixIndex.size(session), 0);
@@ -1004,11 +947,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propSixIndex.size(session), 2);
-    try (var stream = propSixIndex.getRids(session, "value1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propSixIndex.getRids(session, "value1")) {
+      Assert.assertTrue(iterator.hasNext());
     }
     try (var stream = propSixIndex.getRids(session, "value2")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+      Assert.assertTrue(stream.hasNext());
     }
 
     session.begin();
@@ -1029,11 +972,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     Assert.assertEquals(propSixIndex.size(session), 2);
-    try (var stream = propSixIndex.getRids(session, "value1")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propSixIndex.getRids(session, "value1")) {
+      Assert.assertTrue(iterator.hasNext());
     }
-    try (var stream = propSixIndex.getRids(session, "value5")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = propSixIndex.getRids(session, "value5")) {
+      Assert.assertTrue(iterator.hasNext());
     }
 
     session.begin();
@@ -1059,11 +1002,11 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
+    final var propZeroIndex = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
         "classIndexManagerTestSuperClass.prop0");
-    final var propOneIndex = session.getSharedContext().getIndexManager()
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
 
     Assert.assertEquals(propZeroIndex.size(session), 1);
@@ -1090,12 +1033,12 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propOneIndex = session.getSharedContext().getIndexManager()
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
 
-    final var propZeroIndex = session.getSharedContext().getIndexManager().getIndex(
+    final var propZeroIndex = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
         "classIndexManagerTestSuperClass.prop0");
     Assert.assertEquals(propZeroIndex.size(session), 1);
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -1124,9 +1067,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propOneIndex = session.getSharedContext().getIndexManager()
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
 
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -1150,9 +1093,9 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    final var propOneIndex = session.getSharedContext().getIndexManager()
+    final var propOneIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerTestClass.prop1");
-    final var compositeIndex = session.getSharedContext().getIndexManager()
+    final var compositeIndex = session.getMetadata().getFastImmutableSchemaSnapshot()
         .getIndex("classIndexManagerComposite");
 
     Assert.assertEquals(propOneIndex.size(session), 1);
@@ -1187,7 +1130,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     final Schema schema = session.getMetadata().getSlowMutableSchema();
     final var oClass = schema.getClass("classIndexManagerTestClass");
 
-    final Collection<Index> indexes = oClass.getIndexesInternal();
+    final Collection<Index> indexes = oClass.getIndexes();
     for (final var index : indexes) {
       Assert.assertEquals(index.size(session), 0);
     }
@@ -1219,18 +1162,17 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata().getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test1", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test1", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     session.begin();
@@ -1254,8 +1196,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 0);
 
@@ -1278,8 +1220,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 0);
 
@@ -1302,8 +1244,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1313,13 +1255,13 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test2", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test2", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     Assert.assertEquals(index.size(session), 2);
@@ -1345,8 +1287,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1356,13 +1298,13 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test1", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test1", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     Assert.assertEquals(index.size(session), 2);
@@ -1388,8 +1330,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1404,21 +1346,21 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test1", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test1", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test1", 4))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test1", 5))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     Assert.assertEquals(index.size(session), 4);
@@ -1444,8 +1386,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1464,21 +1406,21 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 4);
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test2", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test2", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test2", 4))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("test2", 5))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     session.begin();
@@ -1502,8 +1444,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1536,8 +1478,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1572,8 +1514,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx1.load(doc);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1605,8 +1547,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1646,8 +1588,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1674,8 +1616,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1702,8 +1644,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1736,8 +1678,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1768,8 +1710,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1799,8 +1741,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1825,8 +1767,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1855,8 +1797,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1884,8 +1826,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexValueAndCollection");
     Assert.assertEquals(index.size(session), 2);
 
@@ -1916,26 +1858,26 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     session.begin();
@@ -1960,8 +1902,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -1971,30 +1913,30 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val3", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val3", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     Assert.assertEquals(index.size(session), 6);
@@ -2020,8 +1962,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2031,22 +1973,22 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 1))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     Assert.assertEquals(index.size(session), 4);
@@ -2072,8 +2014,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2088,38 +2030,38 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     session.commit();
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 4))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val1", 5))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 4))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val2", 5))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     Assert.assertEquals(index.size(session), 8);
@@ -2145,8 +2087,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2165,38 +2107,38 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 8);
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val3", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val3", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val3", 4))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val3", 5))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val4", 2))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val4", 3))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val4", 4))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
-    try (var stream = index
+    try (var iterator = index
         .getRids(session, new CompositeKey("val4", 5))) {
-      Assert.assertEquals(stream.findAny().orElse(null), doc.getIdentity());
+      Assert.assertEquals(YTDBIteratorUtils.findFirst(iterator).orElse(null), doc.getIdentity());
     }
 
     session.begin();
@@ -2219,8 +2161,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2252,8 +2194,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2287,8 +2229,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx1.load(doc);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2319,8 +2261,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2358,8 +2300,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2385,8 +2327,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2412,8 +2354,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2445,8 +2387,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2476,8 +2418,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2506,8 +2448,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     entity = activeTx.load(entity);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2531,8 +2473,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.begin();
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2560,8 +2502,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     doc = activeTx.load(doc);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2588,8 +2530,8 @@ public class ClassIndexManagerTest extends BaseDBTest {
     entity = activeTx.load(entity);
     final var index =
         session
-            .getSharedContext()
-            .getIndexManager()
+            .getMetadata()
+            .getFastImmutableSchemaSnapshot()
             .getIndex(COMPOSITE_TWO_COLLECTIONS_INDEX);
     Assert.assertEquals(index.size(session), 4);
 
@@ -2660,7 +2602,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     });
 
     session.executeInTx(transaction -> {
-      var index = session.getSharedContext().getIndexManager().getIndex(
+      var index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
           COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX);
       Assert.assertEquals(index.size(session), 0);
     });
@@ -2668,14 +2610,15 @@ public class ClassIndexManagerTest extends BaseDBTest {
 
   private void validateCompositeIndex(RID rid) {
     session.executeInTx(transaction -> {
-      var index = session.getSharedContext().getIndexManager().getIndex(
+      var index = session.getMetadata().getFastImmutableSchemaSnapshot().getIndex(
           COMPOSITE_TWO_COLLECTIONS_PLUS_PRIMITIVE_INDEX);
 
       var entity = session.loadEntity(rid);
       var expectedKeys = createCompositeKeysFromEntity(entity);
       var actualKeys = index.keys();
 
-      actualKeys.forEach(key -> Assert.assertTrue(expectedKeys.remove((CompositeKey) key)));
+      YTDBIteratorUtils.forEachRemaining(actualKeys,
+          key -> Assert.assertTrue(expectedKeys.remove((CompositeKey) key)));
       Assert.assertTrue(expectedKeys.isEmpty());
     });
   }
@@ -2721,7 +2664,7 @@ public class ClassIndexManagerTest extends BaseDBTest {
     session.commit();
 
     final var index =
-        session.getSharedContext().getIndexManager()
+        session.getMetadata().getFastImmutableSchemaSnapshot()
             .getIndex("classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass");
     Assert.assertEquals(index.size(session), 2);
   }

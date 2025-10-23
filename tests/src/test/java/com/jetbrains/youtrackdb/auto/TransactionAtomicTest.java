@@ -19,9 +19,10 @@ import com.jetbrains.youtrackdb.api.SessionListener;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.api.exception.TransactionException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
 import com.jetbrains.youtrackdb.api.transaction.Transaction;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.io.IOException;
@@ -30,6 +31,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class TransactionAtomicTest extends BaseDBTest {
+
   @Test
   public void testTransactionAtomic() {
     var db1 = acquireSession();
@@ -130,21 +132,17 @@ public class TransactionAtomicTest extends BaseDBTest {
 
   @Test
   public void testTransactionWithDuplicateUniqueIndexValues() {
-    var fruitClass = session.getMetadata().getSlowMutableSchema().getClass("Fruit");
-
-    if (fruitClass == null) {
-      fruitClass = session.getMetadata().getSlowMutableSchema().createClass("Fruit");
-
-      fruitClass.createProperty("name", PropertyType.STRING);
-      fruitClass.createProperty("color", PropertyType.STRING);
-
-      session
-          .getMetadata()
-          .getSlowMutableSchema()
-          .getClass("Fruit")
-          .getProperty("color")
-          .createIndex(IndexType.UNIQUE);
-    }
+    //noinspection unchecked
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Fruit").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("Fruit",
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("color", PropertyType.STRING).createPropertyIndex(
+                    YTDBSchemaIndex.IndexType.UNIQUE)
+            )
+        )
+    );
 
     Assert.assertEquals(session.countCollectionElements("Fruit"), 0);
 
@@ -162,6 +160,7 @@ public class TransactionAtomicTest extends BaseDBTest {
 
       session.commit();
 
+      var fruitClass = session.getMetadata().getFastImmutableSchemaSnapshot().getClass("Fruit");
       Assert.assertEquals(apple.getIdentity().getCollectionId(), fruitClass.getCollectionIds()[0]);
       Assert.assertEquals(orange.getIdentity().getCollectionId(),
           fruitClass.getCollectionIds()[0]);

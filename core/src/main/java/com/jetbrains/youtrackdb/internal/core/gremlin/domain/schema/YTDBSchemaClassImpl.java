@@ -283,7 +283,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public @Nonnull YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
+  public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType) {
     var entity = entityWritePreprocessing();
     var tx = graph.tx();
@@ -310,7 +310,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public @Nonnull YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
+  public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull YTDBSchemaClass linkedClass) {
     var entity = entityWritePreprocessing();
@@ -327,7 +327,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public @Nonnull YTDBSchemaProperty createDeclaredProperty(@Nonnull String propertyName,
+  public @Nonnull YTDBSchemaProperty createSchemaProperty(@Nonnull String propertyName,
       @Nonnull PropertyType propertyType,
       @Nonnull PropertyType linkedType) {
     var entity = entityWritePreprocessing();
@@ -343,7 +343,7 @@ public class YTDBSchemaClassImpl extends
   }
 
   @Override
-  public void dropDeclaredProperty(@Nonnull String propertyName) {
+  public void dropSchemaProperty(@Nonnull String propertyName) {
     var entity = entityWritePreprocessing();
     entity.removeSchemaProperty(propertyName);
   }

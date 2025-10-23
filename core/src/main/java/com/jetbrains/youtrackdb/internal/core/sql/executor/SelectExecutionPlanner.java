@@ -375,7 +375,7 @@ public class SelectExecutionPlanner {
       return false;
     }
 
-    for (var classIndex : targetClass.getClassIndexesInternal()) {
+    for (var classIndex : targetClass.getClassIndexes()) {
       var fields = classIndex.getDefinition().getProperties();
       if (fields.size() == 1
           && fields.getFirst()

@@ -19,10 +19,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.testng.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.common.collection.YTDBIteratorUtils;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
@@ -41,6 +42,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class CRUDDocumentPhysicalTest extends BaseDBTest {
+
   @BeforeClass
   @Override
   public void beforeClass() throws Exception {
@@ -168,7 +170,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
             .collect(HashSet::new, HashSet::add, HashSet::addAll);
 
     session.begin();
-    EntityImpl vDoc = session.newInstance("Profile");
+    var vDoc = session.newInstance("Profile");
     vDoc.setPropertyInChain("nick", "JayM1").setPropertyInChain("name", "Jay")
         .setProperty("surname", "Miner");
 
@@ -181,30 +183,30 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     var indexes =
-        session.getMetadata().getSchemaInternal().getClassInternal("Profile")
-            .getPropertyInternal("nick")
-            .getAllIndexesInternal();
+        session.getMetadata().getFastImmutableSchemaSnapshot().getClass("Profile")
+            .getProperty("nick")
+            .getIndexes();
 
     Assert.assertEquals(indexes.size(), 1);
 
     var indexDefinition = indexes.iterator().next();
-    try (final var stream = indexDefinition.getRids(session, "JayM1")) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (final var iterator = indexDefinition.getRids(session, "JayM1")) {
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
-    try (final var stream = indexDefinition.getRids(session, "JayM2")) {
-      Assert.assertFalse(stream.findAny().isPresent());
+    try (final var iterator = indexDefinition.getRids(session, "JayM2")) {
+      Assert.assertFalse(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
 
-    try (var stream = indexDefinition.getRids(session, "JayM3")) {
-      Assert.assertTrue(stream.findAny().isPresent());
+    try (var iterator = indexDefinition.getRids(session, "JayM3")) {
+      Assert.assertTrue(YTDBIteratorUtils.findFirst(iterator).isPresent());
     }
   }
 
   @Test(dependsOnMethods = "testDoubleChanges")
   public void testMultiValues() {
     session.begin();
-    EntityImpl vDoc = session.newInstance("Profile");
+    var vDoc = session.newInstance("Profile");
     vDoc.setPropertyInChain("nick", "Jacky").setPropertyInChain("name", "Jack")
         .setProperty("surname", "Tramiel");
 
@@ -216,15 +218,15 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     var indexes =
-        session.getMetadata().getSchemaInternal().getClassInternal("Profile")
-            .getPropertyInternal("name")
-            .getAllIndexesInternal();
+        session.getMetadata().getFastImmutableSchemaSnapshot().getClass("Profile")
+            .getProperty("name")
+            .getIndexes();
     Assert.assertEquals(indexes.size(), 1);
 
     var indexName = indexes.iterator().next();
     // We must get 2 records for "nameA".
-    try (var stream = indexName.getRids(session, "Jack")) {
-      Assert.assertEquals(stream.count(), 2);
+    try (var iterator = indexName.getRids(session, "Jack")) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 2);
     }
 
     session.begin();
@@ -234,15 +236,15 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.commit();
 
     // We must get 1 record for "nameA".
-    try (var stream = indexName.getRids(session, "Jack")) {
-      Assert.assertEquals(stream.count(), 1);
+    try (var iterator = indexName.getRids(session, "Jack")) {
+      Assert.assertEquals(YTDBIteratorUtils.count(iterator), 1);
     }
   }
 
   @Test(dependsOnMethods = "testMultiValues")
   public void testUnderscoreField() {
     session.begin();
-    EntityImpl vDoc = session.newInstance("Profile");
+    var vDoc = session.newInstance("Profile");
     vDoc.setPropertyInChain("nick", "MostFamousJack")
         .setPropertyInChain("name", "Kiefer")
         .setPropertyInChain("surname", "Sutherland")
@@ -282,7 +284,12 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test
   public void testDbCacheUpdated() {
-    session.createClassIfNotExist("Profile");
+    //noinspection unchecked
+    graph.autoExecuteInTx(g -> g.schemaClass("Profile").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("Profile")
+    ));
+
     session.begin();
 
     final var vDoc = session.newInstance("Profile");
@@ -413,7 +420,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.executeInTx(
         transaction -> {
           try {
-            EntityImpl doc = session.newInstance();
+            var doc = session.newInstance();
             doc.setProperty("a:b", 10);
             fail();
           } catch (IllegalArgumentException e) {
@@ -424,7 +431,7 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     session.executeInTx(
         transaction -> {
           try {
-            EntityImpl doc = session.newInstance();
+            var doc = session.newInstance();
             doc.setProperty("a,b", 10);
             fail();
           } catch (IllegalArgumentException e) {
@@ -449,9 +456,13 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   }
 
   public void testJSONMap() {
-    session.createClassIfNotExist("JsonMapTest");
-    session.executeInTx(tx -> {
+    //noinspection unchecked
+    graph.autoExecuteInTx(g -> g.schemaClass("JsonMapTest").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("JsonMapTest")
+    ));
 
+    session.executeInTx(tx -> {
       var emptyMapDoc = tx.newEntity("JsonMapTest");
       emptyMapDoc.updateFromJSON(
           """
@@ -472,7 +483,12 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
   }
 
   public void testJSONLinkd() {
-    session.createClassIfNotExist("PersonTest");
+    //noinspection unchecked
+    graph.autoExecuteInTx(g -> g.schemaClass("PersonTest").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("PersonTest")
+    ));
+
     session.begin();
     var jaimeDoc = ((EntityImpl) session.newEntity("PersonTest"));
     jaimeDoc.setProperty("name", "jaime");
@@ -512,7 +528,8 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
       while (entityIterator.hasNext()) {
         var o = entityIterator.next();
         for (Identifiable id :
-            tx.query("match {class:PersonTest, where:(@rid =?)}.out(){as:record, maxDepth: 10000000} return record",
+            tx.query(
+                    "match {class:PersonTest, where:(@rid =?)}.out(){as:record, maxDepth: 10000000} return record",
                     o.getIdentity())
                 .stream().map(result -> result.getLink("record")).toList()) {
           tx.load(id.getIdentity()).toJSON();
@@ -671,14 +688,15 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
 
   @Test
   public void testCreateEmbddedClassDocument() {
-    final Schema schema = session.getMetadata().getSlowMutableSchema();
+    var testClass1 = "testCreateEmbddedClass1";
+    var testClass2 = "testCreateEmbddedClass2";
 
-    var testClass1 = schema.createAbstractClass("testCreateEmbddedClass1");
-    var testClass2 = schema.createClass("testCreateEmbddedClass2");
-    testClass2.createProperty("testClass1Property", PropertyType.EMBEDDED, testClass1);
-
-    testClass1 = schema.getClass("testCreateEmbddedClass1");
-    testClass2 = schema.getClass("testCreateEmbddedClass2");
+    graph.autoExecuteInTx(g ->
+        g.createAbstractSchemaClass(testClass1).
+            createSchemaClass(testClass2)
+            .createSchemaProperty("testClass1Property", PropertyType.EMBEDDED,
+                testClass1)
+    );
 
     session.begin();
     var testClass2Document = ((EntityImpl) session.newEntity(testClass2));
@@ -691,10 +709,10 @@ public class CRUDDocumentPhysicalTest extends BaseDBTest {
     testClass2Document = session.load(testClass2Document.getIdentity());
     Assert.assertNotNull(testClass2Document);
 
-    Assert.assertEquals(testClass2Document.getSchemaClass(), testClass2);
+    Assert.assertEquals(testClass2Document.getSchemaClass().getName(), testClass2);
 
     EntityImpl embeddedDoc = testClass2Document.getProperty("testClass1Property");
-    Assert.assertEquals(embeddedDoc.getSchemaClass(), testClass1);
+    Assert.assertEquals(embeddedDoc.getSchemaClass().getName(), testClass1);
     session.commit();
   }
 

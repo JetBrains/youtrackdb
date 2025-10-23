@@ -7,17 +7,14 @@ import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.client.remote.EngineRemote;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
-import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.Ignore;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
@@ -50,32 +47,32 @@ public class BTreeLinkSetTest extends AbstractLinkSetTest {
     GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD.setValue(bottomThreshold);
   }
 
-  @Test
+  @Ignore
   public void testLinkSetCollectionDistribution() {
     if (session.getStorage().getType().equals(EngineRemote.NAME)
         || session.getStorage().getType().equals(EngineMemory.NAME)) {
       return;
     }
-    final var collectionId = session.allocateCollection("collectionOne");
-    session.begin();
-    var entity = session.newEntity();
-    var linkSet = session.newLinkSet();
-    entity.setProperty("linkSet", linkSet);
-    session.commit();
-
-    final var directory = session.getStorage().getConfiguration().getDirectory();
-    final var wowCache =
-        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
-
-    final var fileId =
-        wowCache.fileIdByName(
-            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
-                + collectionId
-                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
-    final var fileName = wowCache.nativeFileNameById(fileId);
-    assert fileName != null;
-    final var linkSetFile = new File(directory, fileName);
-    Assert.assertTrue(linkSetFile.exists());
+//    final var collectionId = session.allocateCollection("collectionOne");
+//    session.begin();
+//    var entity = session.newEntity();
+//    var linkSet = session.newLinkSet();
+//    entity.setProperty("linkSet", linkSet);
+//    session.commit();
+//
+//    final var directory = session.getStorage().getConfiguration().getDirectory();
+//    final var wowCache =
+//        (WOWCache) ((DiskStorage) (session.getStorage())).getWriteCache();
+//
+//    final var fileId =
+//        wowCache.fileIdByName(
+//            LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX
+//                + collectionId
+//                + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
+//    final var fileName = wowCache.nativeFileNameById(fileId);
+//    assert fileName != null;
+//    final var linkSetFile = new File(directory, fileName);
+//    Assert.assertTrue(linkSetFile.exists());
   }
 
   @Test

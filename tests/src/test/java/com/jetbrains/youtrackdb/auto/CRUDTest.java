@@ -18,6 +18,8 @@ package com.jetbrains.youtrackdb.auto;
 import static org.testng.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.exception.CommandSQLParsingException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaClass;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
@@ -52,6 +54,7 @@ import org.testng.annotations.Test;
 
 @Test
 public class CRUDTest extends BaseDBTest {
+
   protected long startRecordNumber;
 
   private Entity rome;
@@ -111,13 +114,17 @@ public class CRUDTest extends BaseDBTest {
 
   @Test(dependsOnMethods = "testCreate")
   public void testCreateClass() {
-    var schema = session.getMetadata().getSlowMutableSchema();
-    Assert.assertNull(schema.getClass("Dummy"));
-    var dummyClass = schema.createClass("Dummy");
-    dummyClass.createProperty("name", PropertyType.STRING);
+    graph.executeInTx(g -> {
+      Assert.assertFalse(g.schemaClass("Dummy").hasNext());
+      var dummyClass = (YTDBSchemaClass) g.createSchemaClass("Dummy").next();
+      dummyClass.createSchemaProperty("name", PropertyType.STRING);
+    });
 
     Assert.assertEquals(session.countClass("Dummy"), 0);
-    Assert.assertNotNull(schema.getClass("Dummy"));
+
+    graph.executeInTx(g -> {
+      Assert.assertTrue(g.schemaClass("Dummy").hasNext());
+    });
   }
 
   @Test
@@ -2864,86 +2871,97 @@ public class CRUDTest extends BaseDBTest {
   }
 
   private void createSimpleArrayTestClass() {
-    if (session.getSchema().existsClass("JavaSimpleArrayTestClass")) {
-      session.getSchema().dropClass("JavaSimpleArrayTestClass");
-    }
-
-    var cls = session.createClass("JavaSimpleArrayTestClass");
-    cls.createProperty("text", PropertyType.EMBEDDEDLIST);
-    cls.createProperty("numberSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty("longSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty("doubleSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty("floatSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty("byteSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty("flagSimple", PropertyType.EMBEDDEDLIST);
-    cls.createProperty("dateField", PropertyType.EMBEDDEDLIST);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("JavaSimpleArrayTestClass").drop().fold().
+            createSchemaClass("JavaSimpleArrayTestClass",
+                __.createSchemaProperty("text", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("numberSimple", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("longSimple", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("doubleSimple", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("floatSimple", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("byteSimple", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("flagSimple", PropertyType.EMBEDDEDLIST),
+                __.createSchemaProperty("dateField", PropertyType.EMBEDDEDLIST)
+            )
+    );
   }
 
   private void createBinaryTestClass() {
-    if (session.getSchema().existsClass("JavaBinaryTestClass")) {
-      session.getSchema().dropClass("JavaBinaryTestClass");
-    }
-
-    var cls = session.createClass("JavaBinaryTestClass");
-    cls.createProperty("binaryData", PropertyType.BINARY);
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("JavaBinaryTestClass").drop().fold().
+            createSchemaClass("JavaBinaryTestClass")
+            .createSchemaProperty("binaryData", PropertyType.BINARY)
+    );
   }
 
   private void createPersonClass() {
-    if (session.getClass("PersonTest") == null) {
-      var cls = session.createClass("PersonTest");
-      cls.createProperty("firstname", PropertyType.STRING);
-      cls.createProperty("friends", PropertyType.LINKSET);
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("PersonTest").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("PersonTest",
+                __.createSchemaProperty("firstname", PropertyType.STRING),
+                __.createSchemaProperty("friends", PropertyType.LINKSET)
+            )
+        )
+    );
   }
 
   private void createEventClass() {
-    if (session.getClass("Event") == null) {
-      var cls = session.createClass("Event");
-      cls.createProperty("name", PropertyType.STRING);
-      cls.createProperty("date", PropertyType.DATE);
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Event").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("Event",
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("date", PropertyType.DATE)
+            )
+        )
+    );
   }
 
   private void createAgendaClass() {
-    if (session.getClass("Agenda") == null) {
-      var cls = session.createClass("Agenda");
-      cls.createProperty("events", PropertyType.LINKLIST);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("Agenda").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("Agenda",
+                __.createSchemaProperty("events", PropertyType.LINKLIST)
+            )
+        )
+    );
   }
 
   private void createNonGenericClass() {
-    if (session.getClass("JavaNoGenericCollectionsTestClass") == null) {
-      var cls = session.createClass("JavaNoGenericCollectionsTestClass");
-      cls.createProperty("list", PropertyType.LINKLIST);
-      cls.createProperty("set", PropertyType.LINKSET);
-      cls.createProperty("map", PropertyType.LINKMAP);
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("JavaNoGenericCollectionsTestClass").fold().coalesce(
+            __.unfold(),
+            __.createSchemaClass("JavaNoGenericCollectionsTestClass",
+                __.createSchemaProperty("list", PropertyType.LINKLIST),
+                __.createSchemaProperty("set", PropertyType.LINKSET),
+                __.createSchemaProperty("map", PropertyType.LINKMAP)
+            )
+        )
+    );
   }
 
   private void createMediaClass() {
-    if (session.getClass("Media") == null) {
-      var cls = session.createClass("Media");
-      cls.createProperty("content", PropertyType.LINK);
-      cls.createProperty("name", PropertyType.STRING);
-    }
+    graph.autoExecuteInTx(g -> g.schemaClass("Media").fold().coalesce(
+        __.unfold(),
+        __.createSchemaClass("Media",
+            __.createSchemaProperty("content", PropertyType.LINK),
+            __.createSchemaProperty("name", PropertyType.STRING)
+        )
+    ));
   }
 
   private void createParentChildClasses() {
-    if (session.getSchema().existsClass("Parent")) {
-      session.getSchema().dropClass("Parent");
-    }
-    if (session.getSchema().existsClass("EmbeddedChild")) {
-      session.getSchema().dropClass("EmbeddedChild");
-    }
+    graph.autoExecuteInTx(g ->
+        g.schemaClass("Parent", "EmbeddedChild").drop().fold().
+            createAbstractSchemaClass("EmbeddedChild")
+            .createSchemaProperty("name", PropertyType.STRING).
+            createSchemaClass("Parent",
+                __.createSchemaProperty("name", PropertyType.STRING),
+                __.createSchemaProperty("child", PropertyType.EMBEDDED, "EmbeddedChild"),
+                __.createSchemaProperty("embeddedChild", PropertyType.EMBEDDED, "EmbeddedChild")
+            )
 
-    var parentCls = session.createClass("Parent");
-    parentCls.createProperty("name", PropertyType.STRING);
-    parentCls.createProperty("child", PropertyType.EMBEDDED,
-        session.getClass("EmbeddedChild"));
-    parentCls.createProperty("embeddedChild", PropertyType.EMBEDDED,
-        session.getClass("EmbeddedChild"));
-
-    var childCls = session.createAbstractClass("EmbeddedChild");
-    childCls.createProperty("name", PropertyType.STRING);
+    );
   }
 }

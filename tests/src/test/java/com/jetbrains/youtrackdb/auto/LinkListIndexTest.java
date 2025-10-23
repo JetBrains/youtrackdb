@@ -1,11 +1,10 @@
 package com.jetbrains.youtrackdb.auto;
 
+import com.jetbrains.youtrackdb.api.gremlin.embedded.domain.YTDBSchemaIndex;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema.IndexType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -18,15 +17,14 @@ import org.testng.annotations.Test;
  */
 @Test
 public class LinkListIndexTest extends BaseDBTest {
+
   @BeforeClass
   public void setupSchema() {
-    final var linkListIndexTestClass =
-        session.getMetadata().getSlowMutableSchema().createClass("LinkListIndexTestClass");
-
-    linkListIndexTestClass.createProperty("linkCollection", PropertyType.LINKLIST);
-
-    linkListIndexTestClass.createIndex(
-        "linkCollectionIndex", IndexType.NOT_UNIQUE, "linkCollection");
+    graph.autoExecuteInTx(g ->
+        g.createSchemaClass("LinkListIndexTestClass").
+            createSchemaProperty("linkCollection", PropertyType.LINKLIST).
+            createPropertyIndex("linkCollectionIndex", YTDBSchemaIndex.IndexType.NOT_UNIQUE)
+    );
   }
 
   @AfterClass
@@ -69,10 +67,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
 
@@ -108,10 +103,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
 
@@ -144,10 +136,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -189,10 +178,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
 
@@ -230,10 +216,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -272,10 +255,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 3);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -316,10 +296,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 3);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -355,10 +332,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -396,10 +370,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 1);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())) {
@@ -431,10 +402,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())
@@ -466,10 +434,7 @@ public class LinkListIndexTest extends BaseDBTest {
     var index = getIndex("linkCollectionIndex");
     Assert.assertEquals(index.size(session), 1);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
 
@@ -554,10 +519,7 @@ public class LinkListIndexTest extends BaseDBTest {
 
     Assert.assertEquals(index.size(session), 2);
 
-    Iterator<Object> keyIterator;
-    try (var indexKeyStream = index.keys()) {
-      keyIterator = indexKeyStream.iterator();
-
+    try (var keyIterator = index.keys()) {
       while (keyIterator.hasNext()) {
         var key = (Identifiable) keyIterator.next();
         if (!key.getIdentity().equals(docOne.getIdentity())

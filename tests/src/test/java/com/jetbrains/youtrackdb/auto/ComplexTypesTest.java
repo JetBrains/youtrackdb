@@ -18,6 +18,7 @@ package com.jetbrains.youtrackdb.auto;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
+import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
 import com.jetbrains.youtrackdb.api.record.RID;
@@ -36,11 +37,14 @@ import org.testng.annotations.Test;
 @SuppressWarnings("unchecked")
 @Test
 public class ComplexTypesTest extends BaseDBTest {
+
   @Test
   public void testBigDecimal() {
-    final var clazz = session.createClass("BigDecimalTest");
-    clazz.createProperty("integer_schema", PropertyType.INTEGER);
-    clazz.createProperty("decimal_schema", PropertyType.DECIMAL);
+    var clazz = "BigDecimalTest";
+    graph.autoExecuteInTx(g -> g.createSchemaClass(clazz,
+        __.createSchemaProperty("integer_schema", PropertyType.INTEGER),
+        __.createSchemaProperty("decimal_schema", PropertyType.DECIMAL)
+    ));
 
     final var largeNumber = new BigDecimal(Long.MAX_VALUE).multiply(new BigDecimal(Long.MAX_VALUE));
     final var largeNumberFract = largeNumber.add(
@@ -76,8 +80,10 @@ public class ComplexTypesTest extends BaseDBTest {
     assertThat(loadedDoc.<BigDecimal>getProperty("decimal_integer")).isEqualTo(largeNumber);
     assertThat(loadedDoc.<BigDecimal>getProperty("decimal_float")).isEqualTo(largeNumberFract);
 
-    assertThat(loadedDoc.<BigDecimal>getProperty("integer_no_schema")).isEqualTo(new BigDecimal(largeNumberInt));
-    assertThat(loadedDoc.<BigDecimal>getProperty("decimal_schema")).isEqualTo(new BigDecimal(largeNumberIntNeg));
+    assertThat(loadedDoc.<BigDecimal>getProperty("integer_no_schema")).isEqualTo(
+        new BigDecimal(largeNumberInt));
+    assertThat(loadedDoc.<BigDecimal>getProperty("decimal_schema")).isEqualTo(
+        new BigDecimal(largeNumberIntNeg));
 
     session.commit();
   }

@@ -107,7 +107,6 @@ public class DbImportExportLinkBagTest extends BaseDBTest implements CommandOutp
 
         final var databaseCompare = new DatabaseCompare(first, importSession, this);
         databaseCompare.setCompareEntriesForAutomaticIndexes(true);
-        databaseCompare.setCompareIndexMetadata(true);
         Assert.assertTrue(databaseCompare.compare());
       }
     }

@@ -20,7 +20,6 @@ import static org.assertj.core.api.Java6Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.exception.BaseException;
 import com.jetbrains.youtrackdb.api.exception.SchemaException;
 import com.jetbrains.youtrackdb.api.schema.PropertyType;
-import java.io.IOException;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -28,11 +27,14 @@ import org.testng.annotations.Test;
 @Test
 public class AbstractClassTest extends BaseDBTest {
   @BeforeClass
-  public void createSchema() throws IOException {
-    var abstractPerson =
-        session.getMetadata().getSlowMutableSchema().createAbstractClass("AbstractPerson");
-    abstractPerson.createProperty("name", PropertyType.STRING);
+  public void createSchema() {
+    graph.autoExecuteInTx(g ->
+        g.createAbstractSchemaClass("AbstractPerson")
+            .createSchemaProperty("name", PropertyType.STRING)
+    );
 
+    var schema = session.getMetadata().getFastImmutableSchemaSnapshot();
+    var abstractPerson = schema.getClass("AbstractPerson");
     Assert.assertTrue(abstractPerson.isAbstract());
     Assert.assertEquals(abstractPerson.getCollectionIds().length, 1);
   }
