@@ -376,6 +376,22 @@ public class EntityImpl extends RecordAbstract implements Entity {
     return getPropertyInternal(propertyName);
   }
 
+  /// Retrieve a property value along with its type from the current entity. If the property does
+  /// not exist or is not accessible, this method will return `null`.
+  @Nullable
+  public <RET> ValueAndType<RET> getPropertyAndType(final @Nonnull String propertyName) {
+    validatePropertyName(propertyName, true);
+
+    if (!isPropertyAccessible(propertyName)) {
+      return null;
+    }
+
+    return getPropertyAndChooseReturnValue(
+        propertyName, isLazyLoad(),
+        PropertyOperationReturnValue.propertyValueAndType()
+    );
+  }
+
   @Nullable
   @Override
   public EmbeddedEntity getEmbeddedEntity(@Nonnull String name) {
@@ -442,39 +458,51 @@ public class EntityImpl extends RecordAbstract implements Entity {
 
   @Nullable
   public <RET> RET getPropertyInternal(String name, boolean lazyLoad) {
+    return getPropertyAndChooseReturnValue(name, lazyLoad,
+        PropertyOperationReturnValue.propertyValue());
+  }
+
+  /// This method will return `null` if the property doesn't exist. If it exists, it'll return
+  /// whatever is chosen by `returnValue`.
+  @Nullable
+  private <T> T getPropertyAndChooseReturnValue(
+      String name, boolean lazyLoad,
+      PropertyOperationReturnValue<T> returnValue
+  ) {
     if (name == null) {
       return null;
     }
 
     checkForBinding();
     if (!name.isEmpty() && name.charAt(0) == '@') {
-      var value = (RET) EntityHelper.getRecordAttribute(this, name);
+      final var value = EntityHelper.getRecordAttribute(this, name);
       if (value != null) {
-        return value;
+        return returnValue.choose(null, value);
       }
     }
 
-    RET value = null;
     checkForProperties(name);
 
-    var entry = properties.get(name);
-    if (entry != null && entry.exists()) {
-      value = (RET) entry.value;
+    final var entry = properties.get(name);
+    if (entry == null || !entry.exists()) {
+      // property doesn't exist, returning null
+      return null;
     }
 
+    var value = entry.value;
     if (value == null) {
-      return null;
+      return returnValue.choose(entry.type, null);
     }
 
     if (value instanceof RID rid && lazyLoad) {
       try {
         value = session.load(rid);
       } catch (RecordNotFoundException e) {
-        return null;
+        return returnValue.choose(entry.type, null);
       }
     }
 
-    return convertToGraphElement(value);
+    return returnValue.choose(entry.type, convertToGraphElement(value));
   }
 
   @Override
@@ -1212,6 +1240,16 @@ public class EntityImpl extends RecordAbstract implements Entity {
         PropertyValidationMode.FULL);
   }
 
+  /// Set the value of the property and return its computed property type.
+  @Nullable
+  public PropertyType setPropertyAndReturnType(@Nonnull String propertyName,
+      @Nullable Object propertyValue) {
+    return setPropertyAndChooseReturnValue(
+        propertyName, propertyValue, null, null,
+        PropertyValidationMode.FULL, PropertyOperationReturnValue.propertyType()
+    );
+  }
+
   public void compareAndSetPropertyInternal(String name, Object value, PropertyTypeInternal type) {
     checkForBinding();
 
@@ -1238,6 +1276,19 @@ public class EntityImpl extends RecordAbstract implements Entity {
       @Nullable PropertyTypeInternal type,
       @Nullable PropertyTypeInternal linkedType,
       PropertyValidationMode validationMode
+  ) {
+    return setPropertyAndChooseReturnValue(
+        name, value, type, linkedType, validationMode,
+        PropertyOperationReturnValue.propertyValue()
+    );
+  }
+
+  private <T> T setPropertyAndChooseReturnValue(
+      String name, Object value,
+      @Nullable PropertyTypeInternal type,
+      @Nullable PropertyTypeInternal linkedType,
+      PropertyValidationMode validationMode,
+      PropertyOperationReturnValue<T> returnValue
   ) {
 
     if (name == null) {
@@ -1322,18 +1373,17 @@ public class EntityImpl extends RecordAbstract implements Entity {
     if (knownProperty) {
       try {
         if (propertyType == oldType) {
-          if (value instanceof byte[]
-              && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
-            return value;
+          if (value instanceof byte[] && Arrays.equals((byte[]) value, (byte[]) oldValue)) {
+            return returnValue.choose(propertyType, value);
           }
           if (PropertyTypeInternal.isSingleValueType(value) && Objects.equals(oldValue, value)) {
-            return value;
+            return returnValue.choose(propertyType, value);
           }
           // skipping the update if the value is the same instance of a multi-value type,
           // otherwise the code below will remove any tracking data from it, and we can lose
           // an update.
           if (oldValue == value) {
-            return value;
+            return returnValue.choose(propertyType, value);
           }
         }
       } catch (Exception e) {
@@ -1370,7 +1420,7 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     setDirty();
-    return value;
+    return returnValue.choose(propertyType, value);
   }
 
   private void preprocessRemovedValue(Object oldValue) {
@@ -4135,4 +4185,42 @@ public class EntityImpl extends RecordAbstract implements Entity {
   public enum PropertyValidationMode {
     SKIP, ALLOW_METADATA, FULL,
   }
+
+  /// Component that chooses the return value for `getProperty*` and `setProperty*` operations.
+  private interface PropertyOperationReturnValue<T> {
+
+    /// Return type of the property
+    static PropertyOperationReturnValue<PropertyType> propertyType() {
+      return PROPERTY_TYPE;
+    }
+
+    /// Return value of the property
+    static <T> PropertyOperationReturnValue<T> propertyValue() {
+      return (PropertyOperationReturnValue<T>) PROPERTY_VALUE;
+    }
+
+    /// Return both value and type of the property
+    static <T> PropertyOperationReturnValue<T> propertyValueAndType() {
+      return (PropertyOperationReturnValue<T>) PROPERTY_VALUE_AND_TYPE;
+    }
+
+    PropertyOperationReturnValue<Object> PROPERTY_VALUE =
+        (propertyType, value) -> value;
+
+    PropertyOperationReturnValue<PropertyType> PROPERTY_TYPE =
+        (propertyType, value) ->
+            propertyType == null ? null : propertyType.getPublicPropertyType();
+
+    PropertyOperationReturnValue<ValueAndType<Object>> PROPERTY_VALUE_AND_TYPE =
+        (propertyType, value) -> new ValueAndType<>(
+            value,
+            propertyType == null ? null : propertyType.getPublicPropertyType()
+        );
+
+    /// Choose the value to return
+    @Nullable
+    T choose(PropertyTypeInternal propertyType, Object value);
+  }
+
+  public record ValueAndType<T>(T value, PropertyType type) {}
 }
