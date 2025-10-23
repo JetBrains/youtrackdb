@@ -5,6 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
+import com.jetbrains.youtrackdb.api.schema.PropertyType;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 public class YTDBPropertiesStructureTest extends YTDBAbstractGremlinTest {
@@ -87,5 +91,26 @@ public class YTDBPropertiesStructureTest extends YTDBAbstractGremlinTest {
 
     assertEquals(person, isFriend.outVertex());
     assertEquals(friend, isFriend.inVertex());
+  }
+
+  @Test
+  public void testPropertyTypes() {
+    final var person = graph().addVertex("person");
+    person.property("name", "John");
+    person.property("age", 25);
+    person.property("active", true);
+    person.property("weight", 70.5);
+
+    person.property("tagsSet", Set.of("tag1", "tag2", "tag3"));
+    person.property("tagsList", List.of("tag1", "tag2", "tag3"));
+    person.property("aMap", Map.of("key1", "value1", "key2", "value2"));
+
+    assertEquals(PropertyType.STRING, person.property("name").type());
+    assertEquals(PropertyType.INTEGER, person.property("age").type());
+    assertEquals(PropertyType.BOOLEAN, person.property("active").type());
+    assertEquals(PropertyType.DOUBLE, person.property("weight").type());
+    assertEquals(PropertyType.EMBEDDEDSET, person.property("tagsSet").type());
+    assertEquals(PropertyType.EMBEDDEDLIST, person.property("tagsList").type());
+    assertEquals(PropertyType.EMBEDDEDMAP, person.property("aMap").type());
   }
 }

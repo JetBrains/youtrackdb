@@ -19,17 +19,12 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.suites.YTDBStructureSuite;
 import org.apache.tinkerpop.gremlin.GraphProviderClass;
-import org.apache.tinkerpop.gremlin.structure.StructureStandardSuite;
 import org.junit.runner.RunWith;
 
-/**
- * Executes the Gremlin Structure Performance Test Suite using YouTrackDB.
- *
- * <p>Extracted from TinkerGraph tests
- */
-@RunWith(StructureStandardSuite.class)
+@RunWith(YTDBStructureSuite.class)
 @GraphProviderClass(provider = YTDBGraphProvider.class, graph = YTDBGraph.class)
-public class YTDBStructureStandardTest {
+public class YTDBStructureTest {
 
 }

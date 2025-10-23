@@ -3,7 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraph;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge;
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBProperty;
+import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex;
 import com.jetbrains.youtrackdb.api.record.Edge;
 import com.jetbrains.youtrackdb.api.record.Entity;
 import com.jetbrains.youtrackdb.api.record.Identifiable;
@@ -11,13 +14,15 @@ import com.jetbrains.youtrackdb.api.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.gremlin.io.LinkBagStub;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nullable;
-import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Graph.Hidden;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 
@@ -62,84 +67,91 @@ public abstract class YTDBElementImpl implements YTDBElement {
     return graph;
   }
 
-  /// Common logic for setting the value of an element property. Called from
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
-  /// [[YTDBPropertyFactory]] instances.
-  protected <V, P extends Property<V>> P writeProperty(
+  /// Common logic for setting the value of an element property. Called from [[YTDBVertex]] and
+  /// [[YTDBEdge]] implementations with corresponding [[YTDBPropertyFactory]] instances.
+  protected <V, P extends YTDBProperty<V>> P writeProperty(
       YTDBPropertyFactory<V, P> propFactory, final String key, final V value) {
     if (key == null) {
       throw Property.Exceptions.propertyKeyCanNotBeNull();
     }
-    if (Graph.Hidden.isHidden(key)) {
+    if (Hidden.isHidden(key)) {
       throw Property.Exceptions.propertyKeyCanNotBeAHiddenKey(key);
     }
 
     var graphTx = graph.tx();
     graphTx.readWrite();
 
-    var entity = getRawEntity();
-    if (value == null) {
-      entity.setProperty(key, null);
-      return propFactory.create(key, null, this);
-    }
+    final var entity = ((EntityImpl) getRawEntity());
 
-    if (value instanceof LinkBagStub linkBagStub) {
-      var linkBag = new LinkBag(graphTx.getDatabaseSession(), linkBagStub);
-      entity.setProperty(key, linkBag);
+    final V valueToReturn;
+    final Object valueToSet;
+    if (value == null) {
+      valueToSet = null;
+      valueToReturn = null;
+    } else if (value instanceof LinkBagStub linkBagStub) {
+      valueToSet = new LinkBag(graphTx.getDatabaseSession(), linkBagStub);
       //noinspection unchecked
-      return propFactory.create(key, (V) linkBag, this);
-    }
-    if (value instanceof List<?> || value instanceof Set<?> || value instanceof Map<?, ?>) {
-      var type = PropertyTypeInternal.getTypeByValue(value);
-      if (type == null) {
+      valueToReturn = (V) valueToSet;
+    } else if (value instanceof List<?> || value instanceof Set<?> || value instanceof Map<?, ?>) {
+      final var typeInternal = PropertyTypeInternal.getTypeByValue(value);
+      if (typeInternal == null) {
         throw new IllegalArgumentException("Unsupported type: " + value.getClass().getName());
       }
-      var convertedValue = type.convert(value, graphTx.getDatabaseSession());
-      entity.setProperty(key, convertedValue);
-
-      return propFactory.create(key, value, this);
-    }
-
-    if (value instanceof YTDBElement ytDBElement) {
-      var rid = ytDBElement.id();
-      entity.setProperty(key, rid);
+      valueToSet = typeInternal.convert(value, graphTx.getDatabaseSession());
+      valueToReturn = value;
+    } else if (value instanceof YTDBElement ytDBElement) {
+      valueToSet = ytDBElement.id();
+      valueToReturn = value;
     } else {
-      entity.setProperty(key, value);
+      valueToSet = value;
+      valueToReturn = value;
     }
 
-    return propFactory.create(key, value, this);
+    final var type = entity.setPropertyAndReturnType(key, valueToSet);
+    return propFactory.create(key, valueToReturn, type, this);
   }
 
   /// Common logic for reading the value of an element property. Called from
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
+  /// [[YTDBVertex]] and
+  /// [[YTDBEdge]] implementations with corresponding
   /// [[YTDBPropertyFactory]] instances.
-  protected <V, P extends Property<V>> P readProperty(
+  protected <V, P extends YTDBProperty<V>> P readProperty(
       YTDBPropertyFactory<V, P> propFactory, String key) {
     graph.tx().readWrite();
 
-    final var entity = getRawEntity();
-    return keyExists(entity, key) ?
-        propFactory.create(key, entity.getProperty(key), this) :
-        propFactory.empty();
+    return readFromEntity(propFactory, key, (EntityImpl) getRawEntity(), propFactory.empty());
   }
 
-  /// Common logic for reading the values of multiple element properties. Called from
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBVertex]] and
-  /// [[com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBEdge]] implementations with corresponding
-  /// [[YTDBPropertyFactory]] instances.
+  /// Common logic for reading the values of multiple element properties. Called from [[YTDBVertex]]
+  /// and [[YTDBEdge]] implementations with corresponding [[YTDBPropertyFactory]] instances.
   protected <V, P extends Property<V>> Iterator<P> readProperties(
       YTDBPropertyFactory<V, P> propFactory, final String... propertyKeys) {
     this.graph.tx().readWrite();
-    final var entity = getRawEntity();
+    final var entity = ((EntityImpl) getRawEntity());
     final var keysToReturn = propertyKeys.length > 0 ?
-        Arrays.stream(propertyKeys).filter(key -> keyExists(entity, key)) :
-        entity.getPropertyNames().stream().filter(key -> !keyIgnored(entity, key));
+        Arrays.stream(propertyKeys) :
+        entity.getPropertyNames().stream();
 
     return keysToReturn
-        .map(key -> propFactory.create(key, entity.getProperty(key), this))
+        .map(key -> readFromEntity(propFactory, key, entity, null))
+        .filter(Objects::nonNull)
         .iterator();
+  }
+
+  @Nullable
+  private <V, P extends Property<V>> P readFromEntity(
+      YTDBPropertyFactory<V, P> propFactory,
+      String key,
+      EntityImpl source,
+      @Nullable P emptyValue
+  ) {
+    if (keyIgnored(source, key)) {
+      return emptyValue;
+    }
+    final var valueAndType = source.<V>getPropertyAndType(key);
+    return valueAndType == null ?
+        emptyValue :
+        propFactory.create(key, valueAndType.value(), valueAndType.type(), this);
   }
 
   @Override
