@@ -119,10 +119,7 @@ public abstract class YTDBElementImpl implements YTDBElement {
       YTDBPropertyFactory<V, P> propFactory, String key) {
     graph.tx().readWrite();
 
-    final var entity = ((EntityImpl) getRawEntity());
-    return keyIgnored(entity, key) ?
-        propFactory.empty() :
-        readFromEntity(propFactory, key, entity, propFactory.empty());
+    return readFromEntity(propFactory, key, (EntityImpl) getRawEntity(), propFactory.empty());
   }
 
   /// Common logic for reading the values of multiple element properties. Called from [[YTDBVertex]]
@@ -136,7 +133,6 @@ public abstract class YTDBElementImpl implements YTDBElement {
         entity.getPropertyNames().stream();
 
     return keysToReturn
-        .filter(key -> !keyIgnored(entity, key))
         .map(key -> readFromEntity(propFactory, key, entity, null))
         .filter(Objects::nonNull)
         .iterator();
@@ -149,6 +145,9 @@ public abstract class YTDBElementImpl implements YTDBElement {
       EntityImpl source,
       @Nullable P emptyValue
   ) {
+    if (keyIgnored(source, key)) {
+      return emptyValue;
+    }
     final var valueAndType = source.<V>getPropertyAndType(key);
     return valueAndType == null ?
         emptyValue :
